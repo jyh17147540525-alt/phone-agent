@@ -124,23 +124,6 @@ private fun buildTypography(): Typography {
 private val AppTypography = buildTypography()
 
 /**
- * 风险等级配色。
- *
- * 单独抽出来而不是塞进 ColorScheme，因为它是**语义色**不是主题色：
- * 「极高风险」在任何主题下都必须是同一个红，不能随浅色/深色漂移 ——
- * 用户是靠这个颜色形成条件反射的。
- *
- * ⚠️ 新代码请用 [com.pocketagent.ui.design.PaColor.Danger] 等令牌；
- *    这里保留是为了不破坏 `ui/components/RiskUi.kt` 的既有调用。
- */
-object RiskColors {
-    val low = Color(0xFF3FA34D)
-    val medium = Color(0xFFD98A00)
-    val high = Color(0xFFE0592A)
-    val critical = Color(0xFFC62828)
-}
-
-/**
  * 应用主题。
  *
  * ═══════════════════════════════════════════════════════════════

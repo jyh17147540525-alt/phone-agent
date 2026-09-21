@@ -232,10 +232,12 @@ fun AppShell(container: AppContainer) {
 
                 // ── 二级页面 ────────────────────────────────────
                 //
-                // ⚠️ 以下三个页面**仍是旧实现**（Material3 Scaffold + TopAppBar），
-                //    它们自带不透明背景，会盖住外层的极光背景。
-                //    这是迁移过程中的已知状态，不是 bug —— 逐个重写时这个问题自然消失。
-                //    新页面请一律用 ui/design 下的组件。
+                // 三个二级页面都已迁移到 ui/design 组件，与顶层 tab 共用同一套
+                // 骨架（PaScreen）与同一层极光背景 —— 转场时背景静止不动。
+                //
+                // ⚠️ 新页面一律用 ui/design 下的组件，**不要**再引入 Material3 的
+                //    Scaffold / TopAppBar / Card：它们自带不透明背景，会盖住极光，
+                //    也会破坏"背景静止、只有内容在动"的转场观感。
 
                 composable(Routes.MARKET) {
                     val vm: MarketViewModel = viewModel(

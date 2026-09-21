@@ -6,6 +6,7 @@ import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,38 +14,29 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pocketagent.plugin.api.ImportRiskNotice
 import com.pocketagent.plugin.api.ValidationIssue
-import com.pocketagent.ui.theme.RiskColors
+import com.pocketagent.ui.design.GlassSurface
+import com.pocketagent.ui.design.PaBanner
+import com.pocketagent.ui.design.PaBannerTone
+import com.pocketagent.ui.design.PaButton
+import com.pocketagent.ui.design.PaButtonStyle
+import com.pocketagent.ui.design.PaColor
+import com.pocketagent.ui.design.PaEmptyState
+import com.pocketagent.ui.design.PaScreen
+import com.pocketagent.ui.design.PaSpace
+import com.pocketagent.ui.design.PaTextField
+import com.pocketagent.ui.design.PaType
 import java.io.ByteArrayOutputStream
 
 /**
@@ -65,7 +57,6 @@ import java.io.ByteArrayOutputStream
  * 一旦出事**我们连追责对象都提供不了** —— 那么至少要让用户在按下按钮的
  * 那一刻，是真的知道自己在做什么。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ImportScreen(
     viewModel: ImportViewModel,
@@ -89,35 +80,28 @@ fun ImportScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("导入本地插件") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-            )
-        },
-    ) { padding ->
+    PaScreen(title = "导入本地插件", onBack = onBack) {
         Column(
-            Modifier
+            modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
+                .padding(
+                    start = PaSpace.screenH,
+                    end = PaSpace.screenH,
+                    top = PaSpace.xs,
+                    bottom = PaSpace.l,
+                ),
         ) {
             when (state.stage) {
                 ImportUiState.Stage.IDLE -> IdleContent(
                     onPick = { picker.launch(arrayOf("*/*")) },
                 )
 
-                ImportUiState.Stage.INSPECTING -> CenterBlock {
-                    CircularProgressIndicator()
-                    Spacer(Modifier.height(12.dp))
-                    Text("正在检查 ${state.fileName.orEmpty()}…")
-                }
+                ImportUiState.Stage.INSPECTING -> PaEmptyState(
+                    title = "正在检查…",
+                    description = state.fileName.orEmpty(),
+                    modifier = Modifier.padding(top = PaSpace.xxl),
+                )
 
                 ImportUiState.Stage.READY -> state.notice?.let { notice ->
                     NoticeContent(
@@ -136,14 +120,18 @@ fun ImportScreen(
                     onRetry = viewModel::reset,
                 )
 
-                ImportUiState.Stage.MALFORMED -> MalformedContent(
+                ImportUiState.Stage.MALFORMED -> SimpleOutcome(
+                    title = "无法导入这个文件",
                     message = state.malformed.orEmpty(),
-                    onRetry = viewModel::reset,
+                    actionText = "重新选择文件",
+                    onAction = viewModel::reset,
                 )
 
-                ImportUiState.Stage.DONE -> DoneContent(
+                ImportUiState.Stage.DONE -> SimpleOutcome(
+                    title = "安装完成",
                     message = state.doneMessage.orEmpty(),
-                    onFinish = onBack,
+                    actionText = "完成",
+                    onAction = onBack,
                 )
             }
         }
@@ -152,15 +140,37 @@ fun ImportScreen(
 
 @Composable
 private fun IdleContent(onPick: () -> Unit) {
-    Text("导入未经验证的插件", style = MaterialTheme.typography.headlineSmall)
-    Spacer(Modifier.height(12.dp))
     Text(
-        "插件包（.pagent）是一个 zip 文件，里面至少要有 plugin.json 和它引用的规则或脚本文件。\n\n" +
-            "⚠️ 从本地导入的插件没有经过任何审核，来源也无法验证。",
-        style = MaterialTheme.typography.bodyMedium,
+        text = "导入未经验证的插件",
+        style = PaType.title,
+        color = PaColor.TextPrimary,
     )
-    Spacer(Modifier.height(24.dp))
-    Button(onClick = onPick) { Text("选择插件包") }
+
+    Spacer(Modifier.height(PaSpace.s))
+
+    Text(
+        text = "插件包（.pagent）是一个 zip 文件，里面至少要有 plugin.json " +
+            "和它引用的规则或脚本文件。",
+        style = PaType.body,
+        color = PaColor.TextSecondary,
+    )
+
+    Spacer(Modifier.height(PaSpace.s))
+
+    PaBanner(
+        title = "从本地导入的插件没有任何审核",
+        tone = PaBannerTone.Warning,
+        description = "来源无法验证，签名可有可无。装之前请确认你信任给出这个文件的人。",
+    )
+
+    Spacer(Modifier.height(PaSpace.l))
+
+    PaButton(
+        text = "选择插件包",
+        onClick = onPick,
+        style = PaButtonStyle.Primary,
+        fillWidth = true,
+    )
 }
 
 @Composable
@@ -173,152 +183,185 @@ private fun NoticeContent(
     onConfirm: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    Text(notice.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-    Spacer(Modifier.height(8.dp))
-    Text(notice.summary, style = MaterialTheme.typography.bodyMedium)
+    Text(
+        text = notice.title,
+        style = PaType.title,
+        color = PaColor.TextPrimary,
+    )
 
-    Spacer(Modifier.height(16.dp))
+    Spacer(Modifier.height(PaSpace.xs))
 
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(Modifier.padding(14.dp)) {
-            notice.bullets.forEach { bullet ->
-                Text(
-                    bullet,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(bottom = 6.dp),
-                )
-            }
+    Text(
+        text = notice.summary,
+        style = PaType.body,
+        color = PaColor.TextSecondary,
+    )
+
+    Spacer(Modifier.height(PaSpace.m))
+
+    // 逐条摊开这个插件能干什么。用玻璃卡片而不是折叠面板 ——
+    // 折叠意味着"可以不看"，而这里的内容是用户做决定的前提
+    GlassSurface(modifier = Modifier.fillMaxWidth()) {
+        notice.bullets.forEachIndexed { index, bullet ->
+            if (index > 0) Spacer(Modifier.height(PaSpace.xs))
+            Text(
+                text = bullet,
+                style = PaType.caption,
+                color = PaColor.TextPrimary,
+            )
         }
     }
 
     if (notice.warnings.isNotEmpty()) {
-        Spacer(Modifier.height(12.dp))
-        Surface(
-            color = RiskColors.medium.copy(alpha = 0.12f),
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(Modifier.padding(14.dp)) {
-                Text("检查中发现的问题", fontWeight = FontWeight.SemiBold)
-                notice.warnings.forEach {
-                    Text("· ${it.message}", style = MaterialTheme.typography.bodySmall)
-                }
-            }
-        }
+        Spacer(Modifier.height(PaSpace.s))
+        PaBanner(
+            title = "检查中发现的问题",
+            tone = PaBannerTone.Warning,
+            details = notice.warnings.map { it.message },
+        )
     }
 
-    Spacer(Modifier.height(20.dp))
+    Spacer(Modifier.height(PaSpace.l))
 
     if (notice.requireTypedConfirmation) {
         Text(
-            "这个插件申请了高风险能力。请手动输入下面的六个字以继续：",
-            style = MaterialTheme.typography.bodyMedium,
-            color = RiskColors.high,
+            text = "这个插件申请了高风险能力。请手动输入下面的六个字以继续：",
+            style = PaType.body,
+            color = PaColor.RiskHigh,
         )
-        Spacer(Modifier.height(8.dp))
+
+        Spacer(Modifier.height(PaSpace.xs))
+
+        // 确认词用等宽字体。用户要照着打，就不能让他猜
+        // 那是「我已知晓风险」还是「我已知晓风险 」—— 多一个空格都不行
         Text(
-            ImportRiskNotice.CONFIRMATION_PHRASE,
+            text = ImportRiskNotice.CONFIRMATION_PHRASE,
+            style = PaType.headline,
             fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Bold,
+            color = PaColor.TextPrimary,
         )
-        Spacer(Modifier.height(8.dp))
-        OutlinedTextField(
+
+        Spacer(Modifier.height(PaSpace.xs))
+
+        PaTextField(
             value = typed,
             onValueChange = onTypedChange,
             modifier = Modifier.fillMaxWidth(),
+            placeholder = "在此输入确认词",
             singleLine = true,
-            placeholder = { Text("在此输入确认词") },
+            isError = typed.isNotEmpty() && typed.trim() != ImportRiskNotice.CONFIRMATION_PHRASE,
         )
-        Spacer(Modifier.height(16.dp))
+
+        Spacer(Modifier.height(PaSpace.m))
     }
 
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        OutlinedButton(onClick = onCancel, enabled = !installing) { Text("取消") }
-        Button(
+    Row(horizontalArrangement = Arrangement.spacedBy(PaSpace.xs)) {
+        PaButton(
+            text = "取消",
+            onClick = onCancel,
+            enabled = !installing,
+            style = PaButtonStyle.Glass,
+        )
+        PaButton(
+            text = if (installing) "安装中…" else "我已知晓风险，仍要安装",
             onClick = onConfirm,
             enabled = canConfirm,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = if (notice.requireTypedConfirmation) {
-                    RiskColors.high
-                } else {
-                    MaterialTheme.colorScheme.primary
-                },
-            ),
-        ) {
-            if (installing) {
-                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                Spacer(Modifier.width(8.dp))
-            }
-            Text("我已知晓风险，仍要安装")
-        }
+            // 高危插件用 Danger 实心按钮：按下去之前手会停一下，这正是目的
+            style = if (notice.requireTypedConfirmation) {
+                PaButtonStyle.Danger
+            } else {
+                PaButtonStyle.Primary
+            },
+        )
     }
 }
 
 @Composable
 private fun RejectedContent(errors: List<ValidationIssue>, onRetry: () -> Unit) {
     Text(
-        "这个插件已被拒绝",
-        style = MaterialTheme.typography.headlineSmall,
-        color = MaterialTheme.colorScheme.error,
-        fontWeight = FontWeight.Bold,
+        text = "这个插件已被拒绝",
+        style = PaType.title,
+        color = PaColor.Danger,
     )
-    Spacer(Modifier.height(12.dp))
+
+    Spacer(Modifier.height(PaSpace.xs))
+
     Text(
-        "这不是格式问题。它申请了本应用永不开放的能力 —— " +
+        text = "这不是格式问题。它申请了本应用永不开放的能力 —— " +
             "这类能力涉及资金、密钥与系统权限，本体不提供。",
-        style = MaterialTheme.typography.bodyMedium,
+        style = PaType.body,
+        color = PaColor.TextSecondary,
     )
-    Spacer(Modifier.height(12.dp))
-    errors.forEach {
-        Surface(
-            color = MaterialTheme.colorScheme.errorContainer,
-            shape = RoundedCornerShape(10.dp),
-            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-        ) {
-            Column(Modifier.padding(12.dp)) {
-                Text(it.field, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelMedium)
-                Text(it.message, style = MaterialTheme.typography.bodySmall)
-            }
+
+    Spacer(Modifier.height(PaSpace.m))
+
+    errors.forEach { issue ->
+        PaBanner(
+            title = issue.field,
+            tone = PaBannerTone.Danger,
+            description = issue.message,
+            modifier = Modifier.padding(bottom = PaSpace.xs),
+        )
+    }
+
+    Spacer(Modifier.height(PaSpace.xs))
+
+    Text(
+        text = "建议：换一个来源。一个会申请禁止能力的插件，即使删掉那几行，" +
+            "它的作者也不值得你信任。",
+        style = PaType.caption,
+        color = PaColor.TextTertiary,
+    )
+
+    Spacer(Modifier.height(PaSpace.l))
+
+    PaButton(
+        text = "重新选择文件",
+        onClick = onRetry,
+        style = PaButtonStyle.Glass,
+        fillWidth = true,
+    )
+}
+
+/**
+ * 两种"终局"共用一套排版：文件坏了、装好了。
+ *
+ * 它们都不需要展示风险细节，只需要一句话 + 一个出口。
+ * 分成两个函数只会让改文案时漏掉一个。
+ */
+@Composable
+private fun SimpleOutcome(
+    title: String,
+    message: String,
+    actionText: String,
+    onAction: () -> Unit,
+) {
+    Box(modifier = Modifier.fillMaxWidth().padding(top = PaSpace.xl)) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = title,
+                style = PaType.title,
+                color = PaColor.TextPrimary,
+            )
+
+            Spacer(Modifier.height(PaSpace.s))
+
+            Text(
+                text = message,
+                style = PaType.body,
+                color = PaColor.TextSecondary,
+            )
+
+            Spacer(Modifier.height(PaSpace.l))
+
+            PaButton(
+                text = actionText,
+                onClick = onAction,
+                style = PaButtonStyle.Primary,
+                fillWidth = true,
+            )
         }
     }
-    Spacer(Modifier.height(8.dp))
-    Text(
-        "建议：换一个来源。一个会申请禁止能力的插件，即使删掉那几行，" +
-            "它的作者也不值得你信任。",
-        style = MaterialTheme.typography.bodySmall,
-    )
-    Spacer(Modifier.height(16.dp))
-    Button(onClick = onRetry) { Text("重新选择文件") }
-}
-
-@Composable
-private fun MalformedContent(message: String, onRetry: () -> Unit) {
-    Text("无法导入这个文件", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-    Spacer(Modifier.height(12.dp))
-    Text(message, style = MaterialTheme.typography.bodyMedium)
-    Spacer(Modifier.height(16.dp))
-    Button(onClick = onRetry) { Text("重新选择文件") }
-}
-
-@Composable
-private fun DoneContent(message: String, onFinish: () -> Unit) {
-    Text("安装完成", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-    Spacer(Modifier.height(12.dp))
-    Text(message, style = MaterialTheme.typography.bodyMedium)
-    Spacer(Modifier.height(20.dp))
-    Button(onClick = onFinish) { Text("完成") }
-}
-
-@Composable
-private fun CenterBlock(content: @Composable () -> Unit) {
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) { content() }
 }
 
 // ═══════════════════════════════════════════════════════════════
