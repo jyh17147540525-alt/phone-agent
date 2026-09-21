@@ -21,6 +21,8 @@ import com.pocketagent.ui.market.MarketScreen
 import com.pocketagent.ui.market.MarketViewModel
 import com.pocketagent.ui.plugins.InstalledPluginsScreen
 import com.pocketagent.ui.plugins.InstalledPluginsViewModel
+import com.pocketagent.ui.sources.SourcesScreen
+import com.pocketagent.ui.sources.SourcesViewModel
 import com.pocketagent.ui.theme.PocketAgentTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -70,6 +72,7 @@ private object Routes {
     const val MARKET = "market"
     const val IMPORT = "import"
     const val PLUGINS = "plugins"
+    const val SOURCES = "sources"
 }
 
 @Composable
@@ -105,6 +108,7 @@ private fun AppNavHost(container: AppContainer) {
                 viewModel = vm,
                 onBack = { navController.popBackStack() },
                 onOpenImport = { navController.navigate(Routes.IMPORT) },
+                onOpenSources = { navController.navigate(Routes.SOURCES) },
             )
         }
 
@@ -133,6 +137,18 @@ private fun AppNavHost(container: AppContainer) {
                 viewModel = vm,
                 onBack = { navController.popBackStack() },
                 onOpenMarket = { navController.navigate(Routes.MARKET) },
+            )
+        }
+
+        composable(Routes.SOURCES) {
+            val vm: SourcesViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer { SourcesViewModel(container.subscriptions) }
+                }
+            )
+            SourcesScreen(
+                viewModel = vm,
+                onBack = { navController.popBackStack() },
             )
         }
     }

@@ -16,6 +16,13 @@ release/
 captures/
 .cxx/
 
+# 被文件锁卡住的构建中间产物暂存区。
+# ⚠️ Windows 上 dexBuilder 偶尔会因句柄延迟释放而报 AccessDeniedException，
+#    而 tasklist 里根本找不到占用进程。处置方式是把受影响的目录**移**到这里
+#    （不是删），让 Gradle 重建 —— 遵循本项目"需要删除时改写成移动"的约定。
+#    正常情况下它就是个垃圾桶，但别删它：万一需要取证还在里面。
+.build-trash/
+
 # ── 本地配置（含 SDK 路径，不应共享）─────────────────────────
 local.properties
 gradle.properties.bak

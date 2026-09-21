@@ -3,6 +3,7 @@ package com.pocketagent.data
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
@@ -46,24 +47,47 @@ class SubscriptionRepository(
         prefs[KEY_SOURCES]?.toList().orEmpty()
     }
 
-    /** 内置的官方源。用户可以删掉它，但删掉后就没有任何默认内容了 */
+    /**
+     * 首次进市场页时补上内置源。
+     *
+     * ⚠️ 必须尊重 [KEY_BUILTIN_DISMISSED] 标记，**不能只看"列表是不是空的"**。
+     *    否则用户删掉内置源之后，下次进市场页它又自己回来了 ——
+     *    用户会得出「这应用删不掉东西」的结论，而一个删不掉的东西
+     *    会让人怀疑它在后台做了什么。这是个信任问题，不是体验问题。
+     */
     suspend fun ensureBuiltinSource() {
-        val current = sourceUrls.first()
-        if (current.isEmpty()) {
+        if (dataStore.data.first()[KEY_BUILTIN_DISMISSED] == true) return
+        if (sourceUrls.first().isEmpty()) {
             addSource(BUILTIN_SOURCE_URL)
         }
     }
 
+    /**
+     * 把内置源加回来。
+     *
+     * 存在的理由：删内置源必须是个**可逆**操作。用户删掉之后，界面上得有办法
+     * 找回来 —— 他不可能记得住那串 URL，也不该被要求记住。
+     */
+    suspend fun restoreBuiltinSource(): AddResult {
+        dataStore.edit { it[KEY_BUILTIN_DISMISSED] = false }
+        return addSource(BUILTIN_SOURCE_URL)
+    }
+
     suspend fun addSource(url: String): AddResult {
-        val normalized = url.trim()
-        if (!normalized.startsWith("https://", ignoreCase = true)) {
-            return AddResult.Rejected("订阅地址必须以 https:// 开头")
-        }
+        val normalized = normalize(url)
+            ?: return AddResult.Rejected("订阅地址必须以 https:// 开头。")
+
         if (sourceUrls.first().any { it.equals(normalized, ignoreCase = true) }) {
-            return AddResult.Rejected("这个地址已经订阅过了")
+            return AddResult.Rejected("这个地址已经订阅过了。")
         }
+
         dataStore.edit { prefs ->
             prefs[KEY_SOURCES] = (prefs[KEY_SOURCES].orEmpty()) + normalized
+            // 手动把内置源加回来时，顺手清掉"已删除"标记 ——
+            // 否则下次进市场页它还是不会被自动补上，用户会以为加了没用
+            if (normalized.equals(BUILTIN_SOURCE_URL, ignoreCase = true)) {
+                prefs[KEY_BUILTIN_DISMISSED] = false
+            }
         }
         return AddResult.Added
     }
@@ -71,7 +95,23 @@ class SubscriptionRepository(
     suspend fun removeSource(url: String) {
         dataStore.edit { prefs ->
             prefs[KEY_SOURCES] = prefs[KEY_SOURCES].orEmpty() - url
+            if (url.equals(BUILTIN_SOURCE_URL, ignoreCase = true)) {
+                prefs[KEY_BUILTIN_DISMISSED] = true
+            }
         }
+    }
+
+    /**
+     * 地址规范化。返回 null 表示这个地址不可接受。
+     *
+     * 去掉末尾斜杠，否则 `https://a.com/x` 和 `https://a.com/x/` 会被当成两个源 ——
+     * 用户会看到列表里出现两条一模一样的地址，然后怀疑去重坏了。
+     */
+    private fun normalize(raw: String): String? {
+        val trimmed = raw.trim()
+        if (!trimmed.startsWith("https://", ignoreCase = true)) return null
+        if (trimmed.length <= "https://".length) return null
+        return trimmed.trimEnd('/')
     }
 
     /**
@@ -114,12 +154,22 @@ class SubscriptionRepository(
     companion object {
         private val KEY_SOURCES = stringSetPreferencesKey("plugin_source_urls")
 
+        /** 用户是否主动删除过内置源。删过就不再自动加回，直到他手动恢复 */
+        private val KEY_BUILTIN_DISMISSED = booleanPreferencesKey("builtin_source_dismissed")
+
         /**
          * 内置官方源。
          *
          * 刻意放在 GitHub Pages 而不是自建服务端 —— 见项目方案第 1 章：
          * 不建自有后端是合规护身符，也是零成本的关键。官方源挂了，
          * 用户还能自己加源，功能不受影响。
+         *
+         * ⚠️ 这个地址目前**还是占位**，对应仓库尚未建立。用户首次打开市场页
+         *    会看到「源加载失败」—— 那是**如实报告**，不是 bug。
+         *
+         *    正因为如此，订阅源管理界面是必需的而非可选的：没有它，用户面对
+         *    一个加载不出来的市场将毫无办法，而"官方源挂了用户还能自己加源"
+         *    这句设计承诺也就成了空话。
          */
         const val BUILTIN_SOURCE_URL =
             "https://pocketagent-community.github.io/plugins/index.json"

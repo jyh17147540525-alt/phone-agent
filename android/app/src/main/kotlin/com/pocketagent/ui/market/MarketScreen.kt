@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -29,6 +30,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -43,6 +45,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pocketagent.plugin.api.MarketEntry
@@ -78,6 +81,7 @@ fun MarketScreen(
     viewModel: MarketViewModel,
     onBack: () -> Unit,
     onOpenImport: () -> Unit,
+    onOpenSources: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
@@ -104,6 +108,12 @@ fun MarketScreen(
                     }
                 },
                 actions = {
+                    // 订阅源入口放在刷新左边。这个位置是刻意的：
+                    // 当所有源都加载不出来时，用户唯一能做的就是改源，
+                    // 而他此刻正盯着这条顶部栏
+                    IconButton(onClick = onOpenSources) {
+                        Icon(Icons.Default.RssFeed, contentDescription = "订阅源")
+                    }
                     IconButton(onClick = viewModel::refresh) {
                         Icon(Icons.Default.Refresh, contentDescription = "刷新")
                     }
@@ -141,9 +151,25 @@ fun MarketScreen(
                 }
 
                 results.isEmpty() -> CenterHint {
-                    Text(if (state.query.keyword.isBlank()) "这个源里还没有插件" else "没有匹配的插件")
+                    if (state.query.keyword.isBlank()) {
+                        Text("这个源里还没有插件")
+                        Spacer(Modifier.height(6.dp))
+                        // 空列表有两种成因：源是好的但没内容，和源根本没加载上。
+                        // 用户分不清，所以两种出路都要给
+                        Text(
+                            "如果所有源都加载失败，说明地址不可用，或者它还没有内容。" +
+                                "你可以添加自己的源。",
+                            style = MaterialTheme.typography.bodySmall,
+                            textAlign = TextAlign.Center,
+                        )
+                    } else {
+                        Text("没有匹配的插件")
+                    }
                     Spacer(Modifier.height(12.dp))
-                    Button(onClick = onOpenImport) { Text("从本地导入插件") }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = onOpenSources) { Text("管理订阅源") }
+                        Button(onClick = onOpenImport) { Text("从本地导入") }
+                    }
                 }
 
                 else -> LazyColumn(
