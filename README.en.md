@@ -257,6 +257,47 @@ good intentions):
 **If you find any way to bypass these limits, please treat it as a security vulnerability** — see
 [SECURITY.md](SECURITY.md) (to be added).
 
+### Why there is no "read the disclaimer to unlock" switch
+
+We get this proposal often. The answer is no — not out of caution, but because **such a switch is
+structurally ineffective**.
+
+First, separate three kinds of limit — they are not the same thing:
+
+| Kind | Example | Can a disclaimer waive it? |
+|------|---------|:---:|
+| **Product boundary** | Whether plugins may call `payment.*` | **No gate needed** — a product decision, not a legal red line |
+| **User-assumed risk** | Storing an API key in plaintext | **Yes**, if informed consent holds (specific / clear / understandable / revocable) |
+| **Third parties + public law** | Completing a payment, typing a verification code | **No** |
+
+Almost all of the six limits above fall into the **third** category. For those, a disclaimer offers
+no protection at all:
+
+1. **A disclaimer only allocates risk between the contracting parties.** A user clicking "I agree"
+   does not mean the bank, the merchant, or the payee agreed to have its interfaces automated —
+   that is a **third-party contract**, and the user has no standing to waive it on their behalf.
+2. **Public-law liability cannot be contracted away.** Where criminal law applies (e.g. aiding
+   information-network crimes; providing tools to intrude into or illegally control computer
+   information systems), an agreement between private parties is not binding on the **state**.
+3. **A disclaimer can become evidence against you.** A document that spells out the risks in detail
+   is precisely written proof that you *knew* the risks and shipped anyway.
+4. Under Art. 497 of China's Civil Code and Art. 26 of its Consumer Protection Law, standard-form
+   clauses that exempt the drafter's own liability may be **void outright**.
+
+**Open source also makes the switch pointless.** GPL-3.0 forbids additional restrictions, so anyone
+can fork and delete the gate — a real abuser is through in five minutes, while only people who would
+never abuse it get stopped. **The cost lands on exactly the wrong group.**
+
+So we build the prohibitions as **capabilities that do not exist**, not **settings that can be
+turned off**: `payment.*` is simply not implemented in `PluginHost`. You cannot disable something
+that isn't there, and forking it out would mean rewriting the whole capability layer.
+
+### If you genuinely need such a capability
+
+**Ship a narrower capability, not a switch.** Instead of "pay on the user's behalf", offer **payment
+assist**: fill in the form, navigate to the payment page, and **hand the final step back to the
+user**. What users actually want is usually not "let the AI pay" but "stop making me type all this".
+
 ---
 
 ## Privacy
@@ -446,3 +487,16 @@ Users bear sole responsibility for:
 **This project does not provide, proxy, or resell any model service.** Model calls are initiated by
 third-party accounts that users supply themselves, and the service relationship between the user and
 that provider has nothing to do with this project.
+
+### What this disclaimer does not cover
+
+The paragraph above only allocates risk **between this project and the user**. It does **not**:
+
+- substitute for the terms of service of third parties (banks, payment institutions, e-commerce
+  platforms, game vendors) — a user accepting this disclaimer is not those parties agreeing to have
+  their interfaces automated;
+- exempt anyone from **public-law liability** (administrative or criminal);
+- authorise the user to bypass any limit listed under [Safety boundaries](#safety-boundaries).
+
+In one sentence: **a disclaimer can allocate risk between you and us; it cannot change our
+obligations toward third parties and the law.**
