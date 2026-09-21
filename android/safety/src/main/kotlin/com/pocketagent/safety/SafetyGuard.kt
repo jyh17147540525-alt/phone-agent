@@ -70,6 +70,13 @@ enum class BlockReason {
     USER_BLACKLIST,
     /** 检测到验证码 */
     CAPTCHA_DETECTED,
+    /**
+     * 由护栏之外的代码补记的拦截（执行层发现异常、用户主动接管等）。
+     *
+     * 保留这一项是为了让审计日志**完整** —— 如果外部拦截无处记录，
+     * 透明度报告就会只显示一半的事实，那比不显示更误导人。
+     */
+    UNKNOWN_OR_EXTERNAL,
 }
 
 /** 动作上下文 */
@@ -77,13 +84,21 @@ data class ActionContext(
     val packageName: String,
     val activityName: String?,
     val actionType: String,
+    /** 动作指向元素的描述，如「底部的『确认支付』按钮」 */
     val targetDescription: String?,
     /** 当前页面的可见文本，用于关键词匹配 */
     val visibleTexts: List<String>,
+    /**
+     * 页面上的输入控件**形状**。
+     *
+     * ⚠️ 只带 hint / className / inputType，**不带用户已输入的内容**。
+     *    判断"这是不是密码框"不需要看里面写了什么，多带一个字段就是多一条泄漏路径。
+     */
+    val inputFields: List<InputFieldSignature> = emptyList(),
     /** 本次任务已执行的步数 */
-    val executedSteps: Int,
+    val executedSteps: Int = 0,
     /** 最近一分钟内的动作数 */
-    val actionsInLastMinute: Int,
+    val actionsInLastMinute: Int = 0,
 )
 
 /** 拦截事件（写入本地审计日志，不含敏感内容） */
@@ -95,69 +110,15 @@ data class SafetyBlockEvent(
     val description: String,
 )
 
-/**
- * 敏感页面规则库。
- *
- * 维护要求：
- * - **包名黑名单**：覆盖支付、银行、证券、政务类 App
- * - **关键词模式**：覆盖页面内的敏感操作入口
- * - **控件特征**：密码框、验证码框、金额框
- * - 每次版本更新都要复核，并同步到 [SafetyGuard] 的实现
- *
- * ⚠️ 用户可**追加**规则，不可删除内置规则。
- */
-object SensitivePageRules {
-
-    /** 按包名精确匹配 —— 整个 App 内都不允许自动化 */
-    val packageBlacklist: Set<String> = setOf(
-        // 支付
-        "com.eg.android.AlipayGphone",
-        "com.unionpay",
-        "com.tencent.mm.plugin.pay",   // 微信支付插件（部分 ROM 独立包名）
-        // 银行（示例，实现时需补全）
-        "com.icbc",
-        "com.ccb",
-        "com.cmbchina.ccd.pluto.cmbActivity",
-        "com.bankcomm.Bankcomm",
-        "com.chinamworld.main",
-        "cmb.pb",
-        "com.abchina.ebank",
-        // 证券
-        "com.android.dazhihui",
-        "com.hexin.plat.android",
-        // 政务与社保
-        "cn.gov.tax",
-        "com.si",
-    )
-
-    /** 页面关键词 —— 出现在可见文本中即判定为敏感页面 */
-    val keywordPatterns: List<String> = listOf(
-        // 资金操作
-        "确认支付", "立即支付", "付款", "转账", "收款", "提现", "充值",
-        "输入支付密码", "指纹支付", "面容支付", "免密支付", "余额",
-        // 身份验证
-        "验证码", "短信验证", "动态口令", "请输入密码", "设置密码",
-        "修改密码", "重置密码", "身份证", "实名认证", "人脸识别",
-        // 金融产品
-        "贷款", "借款", "分期", "理财", "基金", "股票", "证券",
-        "信用卡", "账单", "还款", "额度",
-        // 不可逆操作
-        "确认删除", "永久删除", "注销账号", "解除绑定",
-    )
-
-    /** 控件特征 —— 通过 hint/className 识别 */
-    val dangerousWidgetHints: List<String> = listOf(
-        "密码", "支付密码", "验证码", "金额", "身份证号", "银行卡号",
-        "password", "passwd", "captcha", "otp", "amount",
-    )
-
-    /** 判定：给定包名与可见文本，是否命中敏感页面 */
-    fun isSensitive(packageName: String, visibleTexts: List<String>): Boolean {
-        if (packageName in packageBlacklist) return true
-        val joined = visibleTexts.joinToString(" ")
-        return keywordPatterns.any { it in joined }
-    }
-}
+// 规则库与匹配引擎见 SensitiveRules.kt。
+//
+// 早先这里有个 `SensitivePageRules` 对象，用「把文本拼起来做子串匹配」判定敏感页面。
+// 它已经删掉了，原因是三处漏判（漏判比误判危险得多）：
+//   1. 空格会打断匹配 —— 无障碍树把「确认支付」拆成两个节点，拼起来是「确认 支付」，漏判
+//   2. 全角/半角不统一 —— 「立即付款」（全角空格）匹配不到「立即付款」，漏判
+//   3. 控件特征清单（密码框、验证码框）定义了却从未被使用
+//
+// 现在的实现见 [SensitiveDetector]，配套规则见 [SensitiveRules]。
 
 /**
  * 第三方 App 自动化许可注册表（SAEP 兼容）。
