@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ══════════════════════════════════════════════════════════════
+   网络安全配置
+  ══════════════════════════════════════════════════════════════
+
+  BYOK 架构下客户端直连用户指定的 Provider。这里定两条规则：
+
+  1. **公网一律强制 HTTPS。** 模型请求里带着用户的 API Key 和屏幕内容，
+     走明文等于把两者一起广播出去。
+
+  2. **只有本机与局域网地址允许明文。** 因为端侧推理（Ollama、LM Studio、
+     llama.cpp server 之类）默认只监听 http，不给这个例外就没法用。
+     风险可控：流量不出局域网。
+
+  ⚠️ 插件下载**不在此列**。PluginInstaller 里对非 https 的下载地址是
+     硬拒绝的，不走这份配置 —— 插件包是代码，不是数据，
+     两者不该用同一套放行标准。
+-->
+<network-security-config>
+
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- 局域网端侧模型。用户换一个网段的话需要自己加，这是刻意的：
+         不做网段通配，避免有人图省事写成 0.0.0.0/0 把公网也放进来。 -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <!-- Android 模拟器访问宿主机的固定地址 -->
+        <domain includeSubdomains="false">10.0.2.2</domain>
+    </domain-config>
+
+</network-security-config>

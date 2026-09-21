@@ -30,7 +30,14 @@ data class PluginManifest(
     val license: String? = null,
     /** 插件级别：L1 规则包 / L2 脚本 / L3 原生 */
     val level: PluginLevel,
-    /** 声明需要的能力。本体在安装时逐项向用户申请 */
+    /**
+     * 声明需要的能力。本体在安装时逐项向用户申请。
+     *
+     * ⚠️ 用宽容序列化器：不认识的 id 丢弃而不是抛异常。理由见
+     *    [PluginCapabilityListSerializer] —— 严格解析会把"本体太旧"
+     *    伪装成"清单格式错误"，把用户引向错误的排查方向。
+     */
+    @Serializable(with = PluginCapabilityListSerializer::class)
     val capabilities: List<PluginCapability>,
     /** 生效的目标应用包名。空表示不限制（风险更高，需额外确认） */
     val targetApps: List<String> = emptyList(),

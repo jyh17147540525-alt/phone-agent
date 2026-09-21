@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PocketAgent</string>
+
+    <!-- 无障碍服务在系统设置里显示的名字。
+         ⚠️ 不要写"辅助功能增强"这类含糊措辞 —— 用户点进系统设置时，
+            必须一眼看懂这个应用会读屏并代他操作，这是知情权问题。 -->
+    <string name="accessibility_service_label">PocketAgent 屏幕操作</string>
+
+    <string name="notification_listener_label">PocketAgent 通知读取</string>
+</resources>

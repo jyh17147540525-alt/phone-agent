@@ -103,6 +103,7 @@ MODULES = [
     "android/provider/openai-compat",
     "android/core/network",
     "android/safety",
+    "android/plugin/api",
 ]
 
 # JDK 17+ 跑 IntelliJ 平台编译器需要的模块开放

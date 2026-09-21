@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  自适应图标。minSdk = 31，所以 anydpi-v26 这一份就够了，
+  不需要再准备各个 dpi 的位图 —— 少一堆二进制文件进仓库。
+
+  ⚠️ 社区分发时这个图标会被用户看到很多次（每次装新版本都要确认安装），
+     所以它不该长得像一个"辅助工具"或"加速器"。
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>

@@ -3,49 +3,62 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <!-- ══════════════════════════════════════════════════════════
-         网络：BYOK 架构下客户端直连用户指定的 Provider
-         ⚠️ cleartextTrafficPermitted 仅对本地模型（LAN）放行，
-            公网 Provider 强制 HTTPS，见 network_security_config.xml
+         M0 阶段的权限清单
+         ══════════════════════════════════════════════════════════
+
+         ⚠️ 这份清单是**刻意收窄**的，不是还没写完。
+
+         原因：本应用走社区侧载分发，用户的信任完全靠"能自己查"建立。
+         一个只做插件管理的应用，如果在权限清单里躺着录音、通知监听、
+         屏幕截图权限，任何会看权限的人都会直接卸载 —— 而这些人恰好
+         是最愿意帮你传播的人。
+
+         所以 M0 只声明真正用到的两项。下面的目标配置保留为注释，
+         随对应功能落地时**逐项启用**，而不是先声明后实现。
+
          ══════════════════════════════════════════════════════════ -->
+
+    <!-- ── M0 实际使用 ──────────────────────────────────────── -->
+
+    <!-- 拉取订阅源与下载插件包。BYOK 下模型请求也走这里 -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- ══════════════════════════════════════════════════════════
-         核心系统能力
-         ══════════════════════════════════════════════════════════ -->
+    <!--
+    ── 以下为 M1+ 目标配置，随功能落地逐项启用 ─────────────────
 
-    <!-- 悬浮窗：悬浮球与执行过程可视化，唯一不受无障碍政策影响的入口 -->
+    <!- 悬浮窗：悬浮球与执行过程可视化，唯一不受无障碍政策影响的入口 ->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
-    <!-- 前台服务：截图会话与无障碍服务必须以前台服务运行 -->
+    <!- 前台服务：截图会话与无障碍服务必须以前台服务运行 ->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
-    <!-- 截图：MediaProjection 的载体 -->
+    <!- 截图会话的通知载体 ->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- 通知监听：读取通知内容用于上下文理解（可选，用户可拒绝） -->
+    <!- 通知监听：读取通知内容用于上下文理解（可选，用户可拒绝） ->
     <uses-permission android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
         tools:ignore="ProtectedPermissions" />
 
-    <!-- 语音输入（V1） -->
+    <!- 语音输入（V1） ->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
-    <!-- 生物识别：保护 API Key 存储（可选开启） -->
+    <!- 生物识别：保护 API Key 存储（可选开启） ->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    -->
 
     <!-- ══════════════════════════════════════════════════════════
-         包可见性（Android 11+）：需要检测目标 App 是否安装、
-         以及维护 App 深层链接映射表
+         包可见性（Android 11+）：需要检测目标 App 是否安装
          ══════════════════════════════════════════════════════════ -->
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
-        <!-- Shizuku 需要能发现自身 -->
+        <!-- Shizuku 需要能发现自身（M1 启用） -->
         <package android:name="moe.shizuku.privileged.api" />
     </queries>
 
@@ -73,11 +86,16 @@
             </intent-filter>
         </activity>
 
-        <!-- ── 无障碍服务（通道 A）────────────────────────────
+        <!--
+        ── 以下组件在 M1+ 随对应模块一起启用 ───────────────────────
+           现在注释掉而不是留着，是因为它们的类还不存在：
+           系统会在设置里列出无障碍服务，用户点进去启用时报错 ——
+           这比"还没有这个功能"糟糕得多。
+
+        <!- 无障碍服务（通道 A）
              ⚠️ 关键合规点：必须在 meta-data 中精确声明能力范围，
                 并保证 canRetrieveWindowContent 等标志最小化。
-                 Android 17+ 在高级保护模式下会校验应用类别。
-             ─────────────────────────────────────────────────── -->
+                Android 17+ 在高级保护模式下会校验应用类别。 ->
         <service
             android:name=".assistant.AgentAccessibilityService"
             android:exported="true"
@@ -91,7 +109,7 @@
                 android:resource="@xml/agent_accessibility_service" />
         </service>
 
-        <!-- ── 通知监听服务（可选能力）───────────────────────── -->
+        <!- 通知监听服务（可选能力） ->
         <service
             android:name=".assistant.AgentNotificationListenerService"
             android:exported="true"
@@ -102,7 +120,7 @@
             </intent-filter>
         </service>
 
-        <!-- ── 前台服务：截图会话 + 任务执行 ────────────────── -->
+        <!- 前台服务：截图会话 + 任务执行 ->
         <service
             android:name=".assistant.AgentForegroundService"
             android:exported="false"
@@ -112,7 +130,7 @@
                 android:value="AI 助手任务执行与屏幕感知会话" />
         </service>
 
-        <!-- ── 悬浮窗服务 ──────────────────────────────────── -->
+        <!- 悬浮窗服务 ->
         <service
             android:name=".overlay.OverlayService"
             android:exported="false"
@@ -122,7 +140,7 @@
                 android:value="AI 助手悬浮球与执行过程展示" />
         </service>
 
-        <!-- ── Shizuku 权限提供者（通道 B）──────────────────── -->
+        <!- Shizuku 权限提供者（通道 B） ->
         <provider
             android:name="rikka.shizuku.ShizukuProvider"
             android:authorities="${applicationId}.shizuku"
@@ -130,18 +148,7 @@
             android:exported="true"
             android:multiprocess="false"
             android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
-
-        <!-- ── 桌面组件（V1）───────────────────────────────── -->
-        <receiver
-            android:name=".widget.QuickTaskWidget"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/quick_task_widget_info" />
-        </receiver>
+        -->
 
     </application>
 </manifest>

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ══════════════════════════════════════════════════════════════
+   备份与设备迁移规则（Android 12+）
+  ══════════════════════════════════════════════════════════════
+
+  ⚠️ 安全红线：**全部排除**。
+
+  这不是保守，是必须的。备份包是可以用 `adb backup` / 云备份完整取出的
+  明文容器，一旦允许备份：
+
+    · 用户配置的 API Key 会进备份
+    · 已导入的插件与它的授权状态会进备份
+    · 屏幕操作的历史记录会进备份
+
+  而换机迁移时这些东西会落到一台**用户可能已经卖掉或送人**的旧设备上，
+  或者落到云盘里。所以宁可用户换机后重新配一遍。
+
+  对应的另一道闸在 AndroidManifest 里：`allowBackup="false"`
+  与 `fullBackupContent="false"`。两处必须同时生效 ——
+  只改一处时，不同 Android 版本会走不同的路径，很容易漏。
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="external" path="." />
+    </cloud-backup>
+
+    <device-transfer>
+        <exclude domain="root" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="external" path="." />
+    </device-transfer>
+</data-extraction-rules>

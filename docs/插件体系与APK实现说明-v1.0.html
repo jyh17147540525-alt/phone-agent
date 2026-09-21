@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>插件体系与 APK 实现说明 · v1.0</title>
+<style>
+:root {
+  --bg: #14161a;
+  --bg-soft: #1a1d22;
+  --panel: #1e2228;
+  --panel-2: #23272f;
+  --border: #2e343d;
+  --text: #e6e9ee;
+  --text-dim: #9aa4b2;
+  --text-faint: #6b7684;
+  --accent: #6ea8fe;
+  --accent-2: #7ee0c0;
+  --warn: #f0b429;
+  --danger: #f2685c;
+  --ok: #57c98a;
+  --code-bg: #15181d;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+               "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans SC", sans-serif;
+  font-size: 15.5px;
+  line-height: 1.85;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { display: flex; max-width: 1500px; margin: 0 auto; }
+aside {
+  width: 300px; flex: 0 0 300px;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  padding: 28px 18px 60px 28px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-soft);
+  font-size: 13.5px;
+}
+aside .brand {
+  font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--text-faint); margin-bottom: 4px;
+}
+aside .title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 20px; line-height: 1.5; }
+aside ul { list-style: none; padding-left: 0; margin: 0; }
+aside ul ul { padding-left: 14px; margin-top: 4px; }
+aside li { margin: 2px 0; }
+aside a {
+  color: var(--text-dim); text-decoration: none; display: block;
+  padding: 4px 8px; border-radius: 6px; border-left: 2px solid transparent;
+  transition: .15s;
+}
+aside a:hover { color: var(--text); background: var(--panel-2); border-left-color: var(--accent); }
+main { flex: 1; min-width: 0; padding: 44px 56px 120px; max-width: 1080px; }
+
+h1 {
+  font-size: 30px; line-height: 1.35; margin: 0 0 8px; font-weight: 800;
+  letter-spacing: -.01em;
+}
+h2 {
+  font-size: 22px; margin: 56px 0 18px; padding-bottom: 10px;
+  border-bottom: 1px solid var(--border); font-weight: 700; scroll-margin-top: 20px;
+}
+h3 { font-size: 17.5px; margin: 34px 0 12px; font-weight: 700; color: #dfe5ee; scroll-margin-top: 20px; }
+h4 { font-size: 15.5px; margin: 24px 0 10px; font-weight: 700; color: var(--text-dim); }
+p { margin: 12px 0; }
+a { color: var(--accent); }
+strong { color: #fff; font-weight: 700; }
+hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+blockquote {
+  margin: 18px 0; padding: 14px 20px;
+  background: linear-gradient(90deg, rgba(110,168,254,.10), rgba(110,168,254,.02));
+  border-left: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0; color: #cfd6e0;
+}
+blockquote p { margin: 6px 0; }
+
+ul, ol { padding-left: 24px; margin: 12px 0; }
+li { margin: 5px 0; }
+li > ul, li > ol { margin: 5px 0; }
+
+.tw { overflow-x: auto; margin: 18px 0; border: 1px solid var(--border); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--panel); }
+th, td { padding: 9px 14px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { background: var(--panel-2); font-weight: 700; color: #fff; white-space: nowrap; font-size: 13.5px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: rgba(110,168,254,.045); }
+
+code {
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+  font-size: 13px; background: var(--code-bg); padding: 2px 6px;
+  border-radius: 5px; color: #8fd3ff; border: 1px solid var(--border);
+}
+pre {
+  background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px;
+  padding: 18px 20px; overflow-x: auto; margin: 18px 0;
+  font-size: 12.8px; line-height: 1.65;
+}
+pre code {
+  background: none; border: none; padding: 0; color: #cfd8e3;
+  white-space: pre; font-family: "JetBrains Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+}
+.codehilite { background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; margin: 18px 0; }
+.codehilite pre { border: none; margin: 0; background: none; }
+.codehilite .k, .codehilite .kd, .codehilite .kn { color: #ff7b9c; }
+.codehilite .s, .codehilite .s1, .codehilite .s2 { color: #7ee0c0; }
+.codehilite .c1, .codehilite .cm { color: #5f6b7a; font-style: italic; }
+.codehilite .n, .codehilite .nf, .codehilite .nc { color: #8fd3ff; }
+.codehilite .m, .codehilite .mi { color: #f0b429; }
+
+@media (max-width: 1000px) {
+  aside { display: none; }
+  main { padding: 28px 20px 80px; }
+  body { font-size: 15px; }
+  h1 { font-size: 24px; }
+  h2 { font-size: 19px; }
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: #333a45; border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: #414a58; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <aside>
+    <div class="brand">Project Plan</div>
+    <div class="title">插件体系与 APK 实现说明 · v1.0</div>
+    <div class="toc">
+<ul>
+<li><a href="#_1">一、插件的定义与用途</a><ul>
+<li><a href="#11">1.1 定义</a></li>
+<li><a href="#12">1.2 为什么需要插件</a></li>
+<li><a href="#13">1.3 三级插件</a></li>
+<li><a href="#14">1.4 插件的边界（红线）</a></li>
+</ul>
+</li>
+<li><a href="#_2">二、插件与主应用的交互方式</a><ul>
+<li><a href="#21">2.1 唯一通道：能力代理</a></li>
+<li><a href="#22">2.2 数据流：脱敏视图而不是原始节点</a></li>
+<li><a href="#23">2.3 一次调用的时序</a></li>
+<li><a href="#24">2.4 安装 ≠ 授权 ≠ 启用</a></li>
+</ul>
+</li>
+<li><a href="#_3">三、插件市场的运行机制</a><ul>
+<li><a href="#31">3.1 没有服务端</a></li>
+<li><a href="#32">3.2 订阅源与索引结构</a></li>
+<li><a href="#33">3.3 检索</a></li>
+<li><a href="#34">3.4 版本比较：一个必须手写的东西</a></li>
+<li><a href="#35">3.5 安装流水线（五步，顺序即安全）</a></li>
+<li><a href="#36">3.6 诚实边界：这个市场担保不了什么</a></li>
+</ul>
+</li>
+<li><a href="#_4">四、应用的整体架构与主要界面</a><ul>
+<li><a href="#41">4.1 分层</a></li>
+<li><a href="#42">4.2 三个界面</a></li>
+</ul>
+</li>
+<li><a href="#_5">五、本轮实现与验证</a><ul>
+<li><a href="#51-295">5.1 单测：295 个，全绿</a></li>
+<li><a href="#52-bug">5.2 本轮修掉的三个真 bug</a></li>
+<li><a href="#53">5.3 构建状态</a></li>
+</ul>
+</li>
+<li><a href="#_6">附：给插件作者的最小工作流</a></li>
+</ul>
+</div>
+
+  </aside>
+  <main>
+<h1 id="apk-v10">插件体系与 APK 实现说明 · v1.0</h1>
+<blockquote>
+<p>对应需求：开发一个可直接安装到安卓手机上的 APK 应用，内置插件市场（浏览、搜索、下载、安装），
+支持从本地手动导入自定义插件，并在导入时明确提示风险由用户自行承担。
+本文回答四个问题：<strong>插件的定义与用途</strong>、<strong>插件与主应用的交互方式</strong>、
+<strong>插件市场的运行机制</strong>、<strong>应用的整体架构与主要界面</strong>。</p>
+</blockquote>
+<hr />
+<h2 id="_1">一、插件的定义与用途</h2>
+<h3 id="11">1.1 定义</h3>
+<p><strong>插件不是一段代码，是一份「意图描述」。</strong></p>
+<p>这句话是整个插件体系的地基，也是它和市面上绝大多数插件框架最大的区别。核心原则：</p>
+<blockquote>
+<p><strong>本体提供「能力」，插件提供「意图」。</strong></p>
+</blockquote>
+<p>插件说"我要做这件事"，本体决定"这件事能不能做、怎么做、用哪个通道做"。
+插件从头到尾拿不到任何系统级对象，也永远拿不到用户的 API Key 明文。</p>
+<h3 id="12">1.2 为什么需要插件</h3>
+<p>因为<strong>本体不可能内置所有 App 的适配规则</strong>。</p>
+<p>微信、支付宝、美团、快递 100、各家银行的界面天天在变。如果每个 App 的适配都靠本体跟进，
+等于用一个团队去追几百个 App 的版本迭代 —— 追不上的，而且永远追不上。</p>
+<p>插件把这件工作<strong>下放给真正在用那个 App 的人</strong>。他知道这个 App 的按钮长什么样、
+什么情况下会弹窗、哪一步最容易出错。他改一条规则，比本体团队猜十次都准。</p>
+<h3 id="13">1.3 三级插件</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>级别</th>
+<th>形态</th>
+<th>能力</th>
+<th>面向谁</th>
+<th>预期占比</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>L1 规则包</strong></td>
+<td>声明式 JSON</td>
+<td>匹配页面 → 执行动作</td>
+<td>不会编程的普通用户</td>
+<td>80%</td>
+</tr>
+<tr>
+<td><strong>L2 JS 脚本</strong></td>
+<td>QuickJS 沙箱脚本</td>
+<td>逻辑分支、变量、循环</td>
+<td>会写代码的用户</td>
+<td>18%</td>
+</tr>
+<tr>
+<td><strong>L3 原生 APK</strong></td>
+<td>独立 APK + AIDL</td>
+<td>任意原生能力</td>
+<td>——</td>
+<td><strong>当前不开放</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>为什么 L1 是主力。</strong> 一个不会编程的人，只要照着模板写
+「在微信聊天页 → 找到"发送"按钮 → 点击」，就能贡献一条有用的规则。
+门槛低到"能描述清楚一件事"就够了 —— 这才是插件生态能长起来的唯一可能。</p>
+<p><strong>为什么 L3 现在不开。</strong> L3 等于把任意代码加载进本进程，在签名校验与进程隔离方案
+成熟之前，本体不加载任何原生插件。这不是技术缺陷，是产品决定 —— 见
+<code>PluginValidator.validateLevel()</code>，申请 L3 会被直接拒绝。</p>
+<h3 id="14">1.4 插件的边界（红线）</h3>
+<p>插件<strong>拿不到</strong>：</p>
+<ul>
+<li>API Key 明文（永远拿不到，不是"需要申请"）</li>
+<li><code>AccessibilityNodeInfo</code> 原始对象（只能拿到脱敏后的 <code>ScreenSnapshotView</code>）</li>
+<li>绕过 <code>SafetyGuard</code> 的路径（所有调用都经能力代理）</li>
+<li>以下四类能力前缀，<strong>永不开放</strong>：</li>
+</ul>
+<div class="codehilite"><pre><span></span><code>payment.*    key.*    crypto.*    system.*
+</code></pre></div>
+
+<p>这类能力涉及资金、密钥与系统权限。判据不是"技术上能不能做"，而是
+<strong>"一旦做错，用户会不会损失真金白银"</strong>。</p>
+<p>对应的实现是 <code>PluginValidator.inspectRawCapabilities()</code> —— 它必须在<strong>反序列化之前</strong>跑。
+因为 <code>capabilities</code> 的类型是严格枚举，一个申请 <code>payment.pay</code> 的插件如果直接反序列化，
+得到的是"枚举解析失败"，看起来像作者写错了格式；而它实际上是一次<strong>明确的越权尝试</strong>。</p>
+<hr />
+<h2 id="_2">二、插件与主应用的交互方式</h2>
+<h3 id="21">2.1 唯一通道：能力代理</h3>
+<div class="codehilite"><pre><span></span><code>插件 ──调用──▶ PluginHost（能力代理）──▶ SafetyGuard ──▶ ActionExecutor
+                    │                        │
+                    │                        └─ 六步安全检查，命中即中止
+                    └─ 能力白名单校验，未授权的能力直接拒绝
+</code></pre></div>
+
+<p><strong>没有第二条路。</strong> 插件模块被设计成不依赖任何 Android API，
+它甚至 import 不到 <code>android.*</code> —— 这不是靠约定，是靠 Gradle 模块边界强制的。</p>
+<h3 id="22">2.2 数据流：脱敏视图而不是原始节点</h3>
+<p>插件看到的是 <code>ScreenSnapshotView</code>：</p>
+<ul>
+<li>文本内容经过<strong>归一化</strong>（NFKC + 去零宽字符）</li>
+<li>输入框<strong>只有签名，没有内容</strong>（<code>InputFieldSignature</code> 刻意不含 <code>text</code> 字段）</li>
+<li>密码框、验证码框的内容<strong>根本不会进入快照</strong></li>
+</ul>
+<p>这一层是为了让"插件想偷密码"这件事在<strong>数据层面就不可能</strong>，
+而不是靠"我们审核了它的代码"。</p>
+<h3 id="23">2.3 一次调用的时序</h3>
+<div class="codehilite"><pre><span></span><code>1. 插件调用 host.invoke("action.click", target)
+2. PluginHost 校验：该能力是否已授权？未授权 → 拒绝
+3. 构造 ActionContext（含 inputFields 签名、当前包名、页面文本）
+4. SafetyGuard 六步检查：
+     ① 应用黑名单      ② 插件声明的目标 App
+     ③ 页面敏感关键词   ④ 敏感控件（密码/验证码/金额）
+     ⑤ 动作频率         ⑥ 危险动作二次确认
+5. 命中任一 → 立即停止，丢弃截图，交还用户
+6. 全部通过 → ActionExecutor 按通道优先级执行
+</code></pre></div>
+
+<p>第 5 步的"丢弃截图"是刻意的：命中的那一帧画面里可能就有验证码，
+留在内存里等着被后续插件读走，等于白拦。</p>
+<h3 id="24">2.4 安装 ≠ 授权 ≠ 启用</h3>
+<p>这是三个<strong>独立</strong>的动作，界面上也是三步：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>动作</th>
+<th>含义</th>
+<th>谁决定</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>安装</td>
+<td>文件落到 <code>filesDir/plugins/&lt;id&gt;/</code></td>
+<td>用户点"安装"</td>
+</tr>
+<tr>
+<td>授权</td>
+<td>逐项批准它申请的能力</td>
+<td>用户看风险告知后确认</td>
+</tr>
+<tr>
+<td>启用</td>
+<td>插件开始真正被调用</td>
+<td>用户单独开启</td>
+</tr>
+</tbody>
+</table></div>
+<p>分开的理由：装完就自动启用，等于用户点一下"安装"就把屏幕控制权交出去了 ——
+而他当时可能只是想看看这个插件是干什么的。</p>
+<hr />
+<h2 id="_3">三、插件市场的运行机制</h2>
+<h3 id="31">3.1 没有服务端</h3>
+<p>所谓"插件市场"其实是<strong>若干个静态 JSON 文件</strong>，托管在 GitHub Pages / raw 上。
+应用把用户订阅的源拉下来、合并、检索、展示。</p>
+<p>好处不只是省钱：</p>
+<ul>
+<li><strong>没有单点</strong> —— 某个源挂了只影响那个源，其他源照常</li>
+<li><strong>没有审核权</strong> —— 任何人都能架自己的源，本应用不承担内容审核义务</li>
+<li><strong>没有账户体系</strong> —— 不需要登录就能浏览与下载</li>
+</ul>
+<p>代价是<strong>没有中心化的下架能力</strong>。一个源如果开始分发恶意插件，我们只能：
+① 把它标成"来源不可信"并提示用户 ② 在本体内置一份黑名单。</p>
+<h3 id="32">3.2 订阅源与索引结构</h3>
+<div class="codehilite"><pre><span></span><code>// SubscriptionSource —— 一个源就是一份这个
+{
+  "name": "社区插件源",
+  "author": "pocketagent-community",
+  "apiVersion": 1,
+  "plugins": [
+    {
+      "id": "community.wechat.auto-reply",
+      "name": "微信自动回复",
+      "version": "1.2.0",
+      "level": "L1_RULES",
+      "capabilities": ["screen.read", "action.input"],
+      "targetApps": ["com.tencent.mm"],
+      "downloadUrl": "https://.../wechat-auto-reply.pagent",
+      "sha256": "…64 位十六进制…"
+    }
+  ]
+}
+</code></pre></div>
+
+<p>多源合并规则（<code>MarketCatalog.merge()</code>）：</p>
+<ul>
+<li>同一 <code>id</code> <strong>保留版本更高的那个</strong></li>
+<li>版本相同时保留先出现的（= 订阅列表里靠前的源），让用户能通过调整订阅顺序表达偏好</li>
+<li><strong>被拒绝的条目必须展示给用户</strong>，不能悄悄过滤</li>
+</ul>
+<h3 id="33">3.3 检索</h3>
+<p><code>MarketSearch.search()</code> 是<strong>纯函数</strong>，不涉及网络 —— 所以它能在没有 Android SDK 的
+机器上完整测试。四种排序：相关度、名称、风险、更新时间。</p>
+<p>相关度权重反映了用户的真实意图：</p>
+<div class="codehilite"><pre><span></span><code>名称完全匹配 100 &gt; 名称以关键词开头 80 &gt; 名称包含 60
+&gt; ID 包含 40 &gt; 描述包含 20 &gt; 作者包含 10
+</code></pre></div>
+
+<p><strong>注意</strong>：相关度相同的项之间是<strong>真平局</strong>，靠名称兜底排序决定先后 ——
+那是任意的（中文按 Unicode 码位排，不是拼音）。界面上不要暗示"这是最匹配的"。</p>
+<h3 id="34">3.4 版本比较：一个必须手写的东西</h3>
+<div class="codehilite"><pre><span></span><code>"1.10.0" &lt; "1.9.0"   ← 字典序会这么判，而且没有任何报错
+</code></pre></div>
+
+<p>后果是装了 1.9.0 的用户<strong>永远收不到 1.10.0 的更新</strong>，且不会有人发现。
+所以 <code>SemanticVersion</code> 手写了 <code>compareTo</code>，还处理了预发布版本
+（<code>1.0.0-beta &lt; 1.0.0</code>，<code>beta.10 &gt; beta.9</code>）。</p>
+<h3 id="35">3.5 安装流水线（五步，顺序即安全）</h3>
+<div class="codehilite"><pre><span></span><code>① 下载到内存        —— 不落盘。落盘再校验，中间有一段时间是"脏文件在盘上"
+② 哈希校验          —— 必须在解压之前。解压一个未校验的包 = 直接执行攻击载荷
+③ 安全解压到暂存区   —— zip slip / zip bomb 防护
+④ 清单校验          —— 复用 PluginImporter 那套规则
+⑤ 原子替换到正式目录 —— 先写暂存、再改名。中途失败不会留下半个插件
+</code></pre></div>
+
+<p>最容易被后来的人"优化"掉的是 ②→③ 的顺序：先解压再校验看起来更合理
+（"解压出来才能看清单"），但那等于把攻击面提前了一整步。</p>
+<p><strong>第 ③ 步的三层防护</strong>（<code>PluginBundle</code> + <code>PluginInstaller.extractSafely</code>）：</p>
+<ol>
+<li><strong>条目名白名单检查</strong> —— 拦掉 <code>../</code>、绝对路径、<code>C:</code> 盘符、反斜杠、NUL 截断</li>
+<li><strong>规范化路径复核</strong> —— 字符串检查过完后，把 <code>canonicalPath</code> 再和根目录比一次</li>
+<li><strong>边解压边算预算</strong> —— 不在开头一次性检查，因为 zip 头里声明的 size 可以撒谎</li>
+</ol>
+<h3 id="36">3.6 诚实边界：这个市场担保不了什么</h3>
+<p>界面上<strong>不能</strong>出现"官方认证""安全插件"这类措辞。能做的只有三件事：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>能做</th>
+<th>做不到</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>显示每个插件来自哪个源</td>
+<td>验证源本身是否善意</td>
+</tr>
+<tr>
+<td>显示插件申请的每一项能力</td>
+<td>验证插件的行为与声明一致</td>
+</tr>
+<tr>
+<td>校验文件哈希（防传输途中的替换）</td>
+<td>防源自己分发恶意插件（哈希也是源给的）</td>
+</tr>
+</tbody>
+</table></div>
+<p>最后一行是关键：<strong>哈希是源自己声明的</strong>，源想给你什么哈希就给什么哈希。
+要防这个需要作者签名（<code>signature</code> 字段，M2 再上），哈希替代不了。</p>
+<p>所以界面上只能写"文件与源声明的一致"，不能写"已验证安全"。</p>
+<hr />
+<h2 id="_4">四、应用的整体架构与主要界面</h2>
+<h3 id="41">4.1 分层</h3>
+<div class="codehilite"><pre><span></span><code>┌──────────────────────────────────────────────────────────┐
+│  app            Compose UI：主页 / 插件市场 / 本地导入      │
+├──────────────────────────────────────────────────────────┤
+│  plugin:api     插件契约 · 校验 · 市场索引 · 完整性校验      │  ← 零 Android 依赖
+│  plugin:runtime 加载器 · 生命周期 · 能力代理 · 沙箱         │
+│  plugin:rules   L1 规则包：选择器引擎、匹配器、动作执行       │
+│  plugin:script  L2 JS 沙箱运行时                          │
+├──────────────────────────────────────────────────────────┤
+│  safety         六步安全检查 · 敏感内容匹配 · 审计           │  ← 零 Android 依赖
+│  perception     ScreenSnapshot（树优先，截图兜底）           │
+│  action         ActionExecutor 多通道（无障碍/Shizuku/IME）  │
+│  agent          任务规划与执行循环                          │
+│  provider:*     模型接入（OpenAI 兼容 / Anthropic / Gemini） │
+│  keymgmt        API Key 加密存储（Keystore + AES-GCM）      │
+├──────────────────────────────────────────────────────────┤
+│  core:*         common / crypto / database / network        │
+└──────────────────────────────────────────────────────────┘
+</code></pre></div>
+
+<p><strong>一条贯穿全项目的约束：<code>plugin:api</code> 与 <code>safety</code> 必须零 Android 依赖。</strong>
+这不是洁癖，是让最需要被验证的代码（校验、脱敏、匹配）能在任何机器上跑单测 ——
+它们所在的 Gradle 模块如果声明了 <code>com.android.library</code>，没有 Android SDK 就编译不了，
+于是只能靠肉眼读。现在这条约束换来了 <strong>295 个单测</strong>。</p>
+<h3 id="42">4.2 三个界面</h3>
+<p><strong>① 主页</strong> —— 刻意做得<strong>很空</strong>。</p>
+<p>这个应用真正的入口不是"和我聊天"，是<strong>用户配置好能力之后去别的 App 里干活</strong>。
+做成一个对话框首页，等于暗示用户"这是个聊天软件"，而那恰恰是它和
+豆包手机助手最大的区别。所以首页只放：装插件（拓展能力）+ 看状态（当前能不能干活）。</p>
+<p><strong>② 插件市场</strong> —— 围绕三件事组织：</p>
+<ol>
+<li><strong>把来源摊开</strong>：每个卡片都显示"来自哪个源"。源不可信是用户自己的选择，
+   但他有权知道自己在信任谁。</li>
+<li><strong>把权限摊开</strong>：直接列出插件申请的能力，<strong>不折叠、不藏在小字里</strong>。</li>
+<li><strong>把异常摊开</strong>：被拒绝的条目、加载失败的源、用不了的未知能力，
+   全部显示在顶部横幅里。<strong>悄悄过滤等于替用户做决定。</strong></li>
+</ol>
+<p><strong>③ 本地导入</strong> —— 用户明确要求"导入时明确提示风险由用户自行承担"。</p>
+<p>一句"风险自负"写在角落的小字里，等于没写。用户点"同意"的成本太低，
+低到不构成一个决定。所以这一页做了三件事：</p>
+<ol>
+<li>把插件能干什么<strong>逐条摊开</strong>，而不是笼统一句"插件可能有风险"</li>
+<li>说清<strong>本体管不了什么</strong> —— 用户得知道"没有签名校验"具体意味着什么</li>
+<li><strong>高危插件要求手动打出「我已知晓风险」</strong>，把点一下变成读一遍</li>
+</ol>
+<p>状态机：</p>
+<div class="codehilite"><pre><span></span><code>  IDLE ──选中文件──▶ INSPECTING ──┬─▶ READY ──输入确认词──▶ DONE
+                                  ├─▶ REJECTED    （申请了禁止能力）
+                                  └─▶ MALFORMED   （文件根本不是插件包）
+</code></pre></div>
+
+<p>三种失败结果<strong>刻意分开</strong>：用户看到"插件有问题"时的下一步动作完全不同 ——
+REJECTED 该换来源（这个作者不老实），MALFORMED 该检查自己是不是选错了文件。
+合成一个错误码，用户就只能瞎试。</p>
+<hr />
+<h2 id="_5">五、本轮实现与验证</h2>
+<h3 id="51-295">5.1 单测：295 个，全绿</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>测试类</th>
+<th>覆盖</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PluginValidatorTest</code></td>
+<td>身份、版本、级别、能力、目标、网络、入口、完整性、配置项校验</td>
+</tr>
+<tr>
+<td><code>PluginMarketTest</code></td>
+<td>语义化版本、更新检测、检索、筛选、排序、多源合并</td>
+</tr>
+<tr>
+<td><code>PluginImporterTest</code></td>
+<td>导入四步流程、禁止能力拦截、未知能力兼容、畸形输入区分</td>
+</tr>
+<tr>
+<td><code>PluginBundleTest</code></td>
+<td>zip slip 21 种变形、zip bomb 预算、常量自洽</td>
+</tr>
+<tr>
+<td><code>SseParserTest</code> / <code>OpenAiCompatProviderTest</code></td>
+<td>SSE 解析、11 家厂商 profile、费用估算</td>
+</tr>
+<tr>
+<td><code>LogSanitizerTest</code></td>
+<td>密钥脱敏（含全大写变体）</td>
+</tr>
+<tr>
+<td><code>SensitiveDetectorTest</code> / <code>DefaultSafetyGuardTest</code></td>
+<td>六步检查、归一化匹配、红线测试</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="52-bug">5.2 本轮修掉的三个真 bug</h3>
+<p><strong>① 未知能力被判成 ERROR，导致整个插件从市场消失</strong></p>
+<p><code>inspectRawCapabilities()</code> 原本把"未知能力"判成 <code>ERROR</code>，于是
+<code>MarketCatalog.merge()</code> 把整个条目当成恶意插件丢掉 —— 用户连"市场里有这么个插件"
+都看不到，还以为是市场没收录。</p>
+<p>而这个文件开头自己写着判据是「这个字段能不能被恶意利用」。
+一个我们不认识的能力<strong>无法被利用</strong> —— <code>PluginHost</code> 根本不实现它，
+调用只会失败。所以这是<strong>兼容性问题，不是安全问题</strong>。</p>
+<p>改为 <code>WARNING</code> + 保留条目 + 在 <code>MarketEntry.unsupportedCapabilityIds</code> 里留痕。</p>
+<p><strong>② 同一个概念，两条路径两种行为</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>路径</th>
+<th>字段类型</th>
+<th>遇到未知 id</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>市场目录</td>
+<td><code>SubscriptionEntry.capabilities: List&lt;String&gt;</code></td>
+<td>丢弃并记录</td>
+</tr>
+<tr>
+<td>本地导入</td>
+<td><code>PluginManifest.capabilities: List&lt;PluginCapability&gt;</code></td>
+<td><strong>解析失败</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p>严格模式把<strong>兼容性问题伪装成了格式错误</strong>：用户看到"清单格式不正确"，
+于是去找作者换版本 —— 而真正的原因是他的本体太旧，换版本没用。</p>
+<p>修复：新增 <code>PluginCapabilityListSerializer</code>，宽容解析，未知 id 丢弃。
+<strong>关键点：宽容的是解析，不是校验。</strong> 丢弃事实由 <code>inspectRawCapabilities()</code>
+在反序列化之前独立捕获 —— 一个申请 <code>payment.pay</code> 的插件依然一步都不会少地被拦下。</p>
+<p><strong>③ 一条测试断言了一个没有设计含义的实现细节</strong></p>
+<p><code>search("微信")</code> 里"微信自动回复"和"微信红包助手"相关度<strong>完全并列</strong>（都以关键词开头），
+测试却断言了平局的兜底顺序。修的是测试，不是实现 ——
+要测的是"名称命中整体高于作者命中"，而不是"并列项谁在前"。</p>
+<h3 id="53">5.3 构建状态</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>JDK 17.0.13（Microsoft OpenJDK）</td>
+<td>✅ 已就位 <code>D:\AndroidDev\jdk</code></td>
+</tr>
+<tr>
+<td>Gradle 8.13</td>
+<td>✅ 已就位 <code>D:\AndroidDev\gradle</code></td>
+</tr>
+<tr>
+<td>Android SDK cmdline-tools 19.0</td>
+<td>✅ 已就位</td>
+</tr>
+<tr>
+<td>platforms;android-36 / build-tools;36.0.0</td>
+<td>✅ 已安装</td>
+</tr>
+<tr>
+<td>离线单测验证器</td>
+<td>✅ <code>tools/verify/run_logic_tests.py</code>，295 测试全绿</td>
+</tr>
+<tr>
+<td><code>:app:assembleDebug</code></td>
+<td>🔄 首次构建进行中</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="_6">附：给插件作者的最小工作流</h2>
+<div class="codehilite"><pre><span></span><code>1. 写一个目录，结构如下：
+     my-plugin/
+       plugin.json          ← 清单
+       rules/main.json      ← L1 规则（或 script/main.js）
+
+2. 打包（zip 即可）：
+     zip -r my-plugin.pagent plugin.json rules/
+
+3. 自测（不需要 Android SDK）：
+     把 plugin.json 的内容喂给 PluginImporter.inspect()，
+     或在 app 里用「导入本地插件」走一遍 —— 校验不过会明确告诉你是哪一项。
+
+4. 分发：把 .pagent 传到任意 https 地址，再在自己的订阅源 JSON 里加一条。
+</code></pre></div>
+
+<p>清单最小示例：</p>
+<div class="codehilite"><pre><span></span><code>{
+  "id": "community.example.demo",       // 反向域名，至少三段，小写
+  "name": "示例插件",
+  "version": "1.0.0",                   // 必须语义化版本
+  "level": "L1_RULES",
+  "capabilities": ["screen.read", "action.click"],
+  "entry": "rules/main.json",           // L1 必须 .json，L2 必须 .js
+  "targetApps": ["com.example.app"],    // 会模拟操作却不限定目标 → 警告
+  "description": "这个插件做什么，写清楚。没有描述的市场插件没人敢装。",
+  "sha256": "…"                         // 市场插件应当提供；本地导入不受此限
+}
+</code></pre></div>
+
+<blockquote>
+<p>⚠️ 清单里<strong>不要</strong>出现 <code>payment.*</code> / <code>key.*</code> / <code>crypto.*</code> / <code>system.*</code> 能力。
+出现即拒绝安装，并会在市场上被标记为"该源正在分发申请禁止能力的插件"。</p>
+</blockquote>
+  </main>
+</div>
+</body>
+</html>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      界面全部由 Compose 绘制，这里只需要一个不带 ActionBar 的空壳主题。
+      刻意用框架自带的 Theme.Material 而不是 AppCompat 或 Material Components：
+      后者会引入一整套 XML 主题体系，而本项目一行 XML 布局都没有，
+      引进来纯粹是给包体和构建时间加负担。
+    -->
+    <style name="Theme.PocketAgent" parent="@android:style/Theme.Material.NoActionBar">
+        <!-- 让 Compose 完全接管背景，避免启动瞬间闪白底 -->
+        <item name="android:windowBackground">@android:color/background_dark</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>

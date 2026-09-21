@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  应用图标前景。
+
+  设计意图：一个手机轮廓 + 一个触点。这是这个应用唯一的自解释图形 ——
+  「有人在你的屏幕上点了一下」。刻意不用机器人、大脑、闪电这类
+  通用 AI 符号：它们暗示"这是个聊天助手"，而本应用不是。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 手机轮廓。留白在 32~76 之间，落在自适应图标的安全区内 -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4"
+        android:strokeLineJoin="round"
+        android:pathData="M38,28 L70,28 A6,6 0 0 1 76,34 L76,74 A6,6 0 0 1 70,80 L38,80 A6,6 0 0 1 32,74 L32,34 A6,6 0 0 1 38,28 Z" />
+
+    <!-- 触点 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,54 m-7,0 a7,7 0 1,0 14,0 a7,7 0 1,0 -14,0" />
+
+</vector>
