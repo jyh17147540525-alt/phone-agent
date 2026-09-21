@@ -1,31 +1,15 @@
 package com.pocketagent
 
 import android.app.Application
+import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
-import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.lifecycle.viewmodel.initializer
-import androidx.lifecycle.viewmodel.viewModelFactory
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
+import androidx.activity.enableEdgeToEdge
 import com.pocketagent.data.AppContainer
-import com.pocketagent.ui.home.HomeScreen
-import com.pocketagent.ui.importer.ImportScreen
-import com.pocketagent.ui.importer.ImportViewModel
-import com.pocketagent.ui.market.MarketScreen
-import com.pocketagent.ui.market.MarketViewModel
-import com.pocketagent.ui.plugins.InstalledPluginsScreen
-import com.pocketagent.ui.plugins.InstalledPluginsViewModel
-import com.pocketagent.ui.sources.SourcesScreen
-import com.pocketagent.ui.sources.SourcesViewModel
+import com.pocketagent.ui.shell.AppShell
 import com.pocketagent.ui.theme.PocketAgentTheme
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import timber.log.Timber
 
 /**
@@ -54,102 +38,42 @@ class PocketAgentApp : Application() {
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // ═══════════════════════════════════════════════════════════
+        //  边到边（edge-to-edge）
+        // ═══════════════════════════════════════════════════════════
+        //
+        // ⚠️ 这一行不是"锦上添花的视觉效果"，是**必须的**。
+        //
+        // 玻璃顶栏（PaTopBar）与玻璃底栏（PaBottomBar）内部都调用了
+        // `windowInsetsPadding(statusBars / navigationBars)` —— 也就是说，
+        // 它们**预期自己会延伸到系统栏下面**，然后靠 padding 把内容让开。
+        //
+        // 如果不开启 edge-to-edge，系统已经把内容限制在安全区内了，
+        // 那层 padding 就会**再加一次** —— 表现为顶栏无端多出一块空白、
+        // 底栏被顶起一截。玻璃面板贴着屏幕边缘的观感也就没了
+        // （那条渐变高光边本来是要贴着屏幕边的）。
+        //
+        // 两个 scrim 都传透明：系统栏区域的底色由极光背景自己铺，
+        // 系统再盖一层半透明遮罩会把那一条压暗，和下面的内容对不上。
+        //
+        // 图标强制浅色（SystemBarStyle.dark）：应用固定深色主题（见 PocketAgentTheme），
+        // 深底配深色图标等于看不见。
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+        )
+
         super.onCreate(savedInstanceState)
 
         val container = (application as PocketAgentApp).container
 
         setContent {
             PocketAgentTheme {
-                AppNavHost(container)
+                // ⚠️ 注意这里没有 NavHost —— 导航、极光背景、底部导航
+                //    全部收在 AppShell 里。入口只负责"把容器交出去"。
+                //    这样 MainActivity 不随界面结构变化而改动。
+                AppShell(container)
             }
-        }
-    }
-}
-
-/** 导航路由。常量而不是字符串字面量，免得改一处漏一处 */
-private object Routes {
-    const val HOME = "home"
-    const val MARKET = "market"
-    const val IMPORT = "import"
-    const val PLUGINS = "plugins"
-    const val SOURCES = "sources"
-}
-
-@Composable
-private fun AppNavHost(container: AppContainer) {
-    val navController = rememberNavController()
-
-    NavHost(navController = navController, startDestination = Routes.HOME) {
-
-        composable(Routes.HOME) {
-            // 已安装数量在进主页时读一次。放 IO 线程 —— 主线程读目录会让
-            // 首页白屏一下，而那个卡顿会被理解成「这应用很慢」，不是「它在读磁盘」
-            val installedCount by produceState<Int?>(initialValue = null) {
-                value = withContext(Dispatchers.IO) { container.installer.installedIds().size }
-            }
-
-            HomeScreen(
-                onOpenMarket = { navController.navigate(Routes.MARKET) },
-                onOpenImport = { navController.navigate(Routes.IMPORT) },
-                onOpenPlugins = { navController.navigate(Routes.PLUGINS) },
-                installedCount = installedCount,
-            )
-        }
-
-        composable(Routes.MARKET) {
-            // ViewModel 按路由作用域创建：离开市场页时它的状态会一起销毁。
-            // 这对市场页是合适的 —— 下次进来本来就该重新拉一次源
-            val vm: MarketViewModel = viewModel(
-                factory = viewModelFactory {
-                    initializer { MarketViewModel(container.subscriptions, container.installer) }
-                }
-            )
-            MarketScreen(
-                viewModel = vm,
-                onBack = { navController.popBackStack() },
-                onOpenImport = { navController.navigate(Routes.IMPORT) },
-                onOpenSources = { navController.navigate(Routes.SOURCES) },
-            )
-        }
-
-        composable(Routes.IMPORT) {
-            val vm: ImportViewModel = viewModel(
-                factory = viewModelFactory {
-                    initializer { ImportViewModel(container.installer) }
-                }
-            )
-            ImportScreen(
-                viewModel = vm,
-                onBack = { navController.popBackStack() },
-            )
-        }
-
-        composable(Routes.PLUGINS) {
-            // ⚠️ 这个 ViewModel 每次进页面都重新建（随路由作用域销毁），
-            //    所以它会在 init 里重新扫一遍磁盘 —— 正是我们想要的：
-            //    用户刚从市场装完插件退回来，列表必须已经是新的。
-            val vm: InstalledPluginsViewModel = viewModel(
-                factory = viewModelFactory {
-                    initializer { InstalledPluginsViewModel(container.installer) }
-                }
-            )
-            InstalledPluginsScreen(
-                viewModel = vm,
-                onBack = { navController.popBackStack() },
-                onOpenMarket = { navController.navigate(Routes.MARKET) },
-            )
-        }
-
-        composable(Routes.SOURCES) {
-            val vm: SourcesViewModel = viewModel(
-                factory = viewModelFactory {
-                    initializer { SourcesViewModel(container.subscriptions) }
-                }
-            )
-            SourcesScreen(
-                viewModel = vm,
-                onBack = { navController.popBackStack() },
-            )
         }
     }
 }
