@@ -1,0 +1,7 @@
+[ro.product.model]: [23013RK75C]
+[ro.product.marketname]: [Redmi K60]
+[ro.product.cpu.abi]: [arm64-v8a]
+[ro.build.version.release]: [15]
+[ro.build.version.sdk]: [35]
+[ro.soc.model]: [SM8475]
+[ro.miui.ui.version.name]: [V816]

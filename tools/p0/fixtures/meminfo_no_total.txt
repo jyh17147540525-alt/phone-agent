@@ -1,0 +1,5 @@
+Applications Memory Usage (in Kilobytes):
+Uptime: 1234567 Realtime: 1234567
+
+** MEMINFO in pid 12345 [com.pocketagent] **
+No process found for: com.pocketagent

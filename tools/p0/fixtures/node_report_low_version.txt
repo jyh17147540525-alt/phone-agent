@@ -1,0 +1,8 @@
+###P0KIT node_version
+v18.20.4
+###P0KIT to_reversed
+node: TypeError: [1,2,3].toReversed is not a function
+###P0KIT abi
+arm64
+###P0KIT dsh
+dsh: command not found

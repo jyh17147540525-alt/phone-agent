@@ -1,0 +1,10 @@
+###P0KIT node_version
+v24.18.0
+###P0KIT to_reversed
+[3,2,1]
+###P0KIT abi
+arm64
+###P0KIT dsh
+node:internal/modules/cjs/loader:1145
+  throw err;
+Error: Cannot find module '/data/data/com.termux/files/home/dsh'

@@ -1,0 +1,10 @@
+Applications Memory Usage (in Kilobytes):
+Uptime: 1234567 Realtime: 1234567
+
+** MEMINFO in pid 12345 [com.pocketagent] **
+                   Pss  Private  Private  SwapPss      Rss     Heap     Heap     Heap
+                 Total    Dirty    Clean    Dirty    Total     Size    Alloc     Free
+                ------   ------   ------   ------   ------   ------   ------   ------
+  Native Heap    12345    12000        0        0    14000    20000    15000     5000
+  Dalvik Heap     8000     7000        0        0    12000    30000    20000    10000
+        TOTAL    45678    40000      500      100    50000    50000    35000    15000

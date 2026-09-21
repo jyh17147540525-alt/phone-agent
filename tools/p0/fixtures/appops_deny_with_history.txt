@@ -1,0 +1,3 @@
+ACCESS_RESTRICTED_SETTINGS: deny
+	deny; time=+1d2h3m4s5ms ago; duration=+123ms
+	ignore; time=+2d3h4m5s6ms ago

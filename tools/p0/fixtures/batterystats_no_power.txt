@@ -1,0 +1,4 @@
+Battery Stats (diff) for com.pocketagent:
+
+  Statistics since last charge:
+    Time on battery: 1d 2h 3m 4s

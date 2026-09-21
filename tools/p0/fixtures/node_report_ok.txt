@@ -1,0 +1,8 @@
+###P0KIT node_version
+v24.18.0
+###P0KIT to_reversed
+[3,2,1]
+###P0KIT abi
+arm64
+###P0KIT dsh
+{"result": 2}

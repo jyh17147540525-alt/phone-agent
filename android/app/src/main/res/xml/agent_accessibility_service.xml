@@ -18,8 +18,20 @@
     android:canRetrieveWindowContent="true"
     android:description="@string/accessibility_service_description"
     android:notificationTimeout="100"
-    android:settingsActivity="com.pocketagent.settings.AccessibilitySettingsActivity"
     android:summary="@string/accessibility_service_summary" />
+
+<!--
+  ⚠️ 刻意**没有** `android:settingsActivity`。
+     原设计指向 `com.pocketagent.settings.AccessibilitySettingsActivity`，
+     但那个 Activity 还不存在。保留一个悬空引用不会导致构建失败 ——
+     它只在用户点服务条目旁边那个齿轮时炸 —— 而那个齿轮恰好出现在
+     EX-13 的验证路径上（用户要去无障碍列表里开这个服务）。
+     一个点了没反应的齿轮会让人以为"这个应用本身有问题"，
+     从而污染实验结论。
+
+     等真正的无障碍引导界面落地时再加回来。
+-->
+
 
 <!--
   说明：
