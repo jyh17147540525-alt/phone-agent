@@ -19,6 +19,7 @@
 上已经做过的定制是安全的，不会被这个脚本冲掉。
 """
 import pathlib
+import sys
 
 ROOT = pathlib.Path(__file__).parent
 
@@ -163,9 +164,42 @@ NEEDS_SERIALIZATION = {
 #    教训：**改完代码光跑离线单测是不够的**。它覆盖的是纯逻辑模块，
 #    而 Android 模块的编译错误只有 `./gradlew test` 才会暴露。
 PROJECT_DEPS = {
+    # 数据库需要 Keystore 提供 SQLCipher 口令（口令本身也用主密钥加密后落盘）
+    "core/database": [":core:crypto"],
     "provider/openai-compat": [":provider:api"],
     "agent": [":perception", ":action"],
+    # keymgmt 是"加密存储 + 校验"的粘合层：
+    #   :core:crypto    —— 主密钥与加解密
+    #   :core:database  —— 密文落库（SQLCipher）
+    #   :provider:api   —— 校验 Key 时只依赖接口，不依赖任何厂商实现
+    "keymgmt": [":core:crypto", ":core:database", ":provider:api"],
 }
+
+# 哪些模块的**公开 API 暴露了某个库的类型** —— 这些必须是 `api` 而不是 `implementation`。
+#
+# ⚠️ 判据是"这个类型有没有出现在本模块的公开签名里"，不是"用得多不多"。
+#
+#    `core:database` 的 `PocketAgentDatabase` **继承** `RoomDatabase`，
+#    而且 `withTransaction` 来自 room-ktx。两者都在它的契约里 ——
+#    用 implementation 声明的后果是：每个使用方都撞上
+#       "Cannot access 'RoomDatabase' which is a supertype of 'PocketAgentDatabase'.
+#        Check your module classpath for missing or conflicting dependencies."
+#    这句报错**完全没提"你该去上游模块加 api"**，只会让人在自己模块里
+#    反复加依赖试。
+#
+#    更糟的是它无法靠"多试几次"根治：以后每个碰数据库的新模块都要再踩一遍。
+API_DEPS = {
+    "core/database": {"androidx.room.runtime", "androidx.room.ktx"},
+}
+
+# 哪些模块声明了 Room 的 @Database —— 需要给 Room 处理器指定 schema 导出目录。
+#
+# ⚠️ 光写 `exportSchema = true` 是**不够的**：那个开关只在给了
+#    `room.schemaLocation` 之后才真正生效。否则 Room 只在构建日志里打一条
+#    "Schema export directory is not provided" 的警告，然后什么都不写。
+#    于是你以为自己有迁移依据，实际上没有 —— 直到某天要加字段才发现，
+#    而那时已经无从知道旧表长什么样。
+ROOM_MODULES = {"core/database", "memory"}
 
 HEADER = """// ⚠️ 自动生成（gen_module_build_files.py）。如需长期定制，请移出生成列表。
 """
@@ -220,8 +254,12 @@ def namespace_for(module: str) -> str:
 
 def android_lib(module: str, deps: list[str]) -> str:
     ns = namespace_for(module)
-    dep_lines = "\n".join(f"    implementation(libs.{d})" for d in deps
-                          if d not in ("androidx.room.compiler",))
+    api_deps = API_DEPS.get(module, set())
+    dep_lines = "\n".join(
+        f"    {'api' if d in api_deps else 'implementation'}(libs.{d})"
+        for d in deps
+        if d not in ("androidx.room.compiler",)
+    )
     # 跨模块依赖。`:core:common` 是全体共用的，单独一条写在模板里；
     # 这里排掉它，免得重复。
     project_lines = "\n".join(
@@ -229,6 +267,13 @@ def android_lib(module: str, deps: list[str]) -> str:
         for p in PROJECT_DEPS.get(module, [])
         if p != ":core:common"
     )
+    # ⚠️ 这段历史值得记一笔：ksp_lines 曾经被**计算出来却从未写进模板** ——
+    #    是个死变量。后果是生成器从第一天起就没输出过 room-compiler，
+    #    而 @Database / @Dao 全是 abstract，**没有处理器也能编译通过**，
+    #    错误一路推到运行时的 "Cannot find implementation for PocketAgentDatabase"。
+    #
+    #    改这里的任何东西之后，务必跑一次 `--check`：它就是为了让这类
+    #    "生成器与磁盘不一致"的问题可见才加的。
     ksp_lines = ""
     if "androidx.room.compiler" in deps:
         ksp_lines = "    ksp(libs.androidx.room.compiler)\n"
@@ -237,6 +282,18 @@ def android_lib(module: str, deps: list[str]) -> str:
     if module in NEEDS_HILT:
         hilt_impl = "    implementation(libs.hilt.android)\n"
         hilt_ksp = "    ksp(libs.hilt.compiler)\n"
+
+    # 单独拼而不是写进 f-string 模板：模板里的 ${projectDir} 会被 Python
+    # 当成占位符展开，得写成 ${{projectDir}}，可读性太差。
+    room_ksp_block = ""
+    if module in ROOM_MODULES:
+        room_ksp_block = (
+            "// Room 的 schema 导出目录。声明 exportSchema = true 之后必须给这个路径，\n"
+            "// 否则那个开关不生效，Room 只会打一条警告然后什么都不写。\n"
+            "ksp {\n"
+            '    arg("room.schemaLocation", "${projectDir}/schemas")\n'
+            "}\n\n"
+        )
 
     plugin_lines = [
         "    alias(libs.plugins.android.library)",
@@ -260,9 +317,14 @@ android {{
     defaultConfig {{
         minSdk = libs.versions.minSdk.get().toInt()
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        // 此处原本声明 consumerProguardFiles("consumer-rules.pro")，
-        // 但那个文件从未创建，AGP 找不到会直接构建失败。
-        // consumer 规则只在模块真的对外发布混淆契约时才需要，届时连同文件一起加。
+        // 本脚本会在同目录创建 consumer-rules.pro 占位文件（见 main()），
+        // 所以这里可以安全地声明它。
+        //
+        // ⚠️ 这里曾经写着"那个文件从未创建"并**省略了这条声明** —— 那是脚本
+        //    早期版本的事实。后来脚本开始创建该文件，注释与模板却没跟着改，
+        //    于是生成器与磁盘上的 26 个模块长期不一致，而"只创建不覆盖"的
+        //    行为让这个不一致永远不会被自动修正。跑 --check 就能看到。
+        consumerProguardFiles("consumer-rules.pro")
     }}
 
     compileOptions {{
@@ -281,11 +343,11 @@ android {{
     }}
 }}
 
-dependencies {{
+{room_ksp_block}dependencies {{
     implementation(project(":core:common"))
 {project_lines}
 {dep_lines}
-{hilt_impl}{hilt_ksp}
+{ksp_lines}{hilt_impl}{hilt_ksp}
     testImplementation(libs.junit)
     testImplementation(libs.mockk)
     testImplementation(libs.turbine)
@@ -296,27 +358,93 @@ dependencies {{
 """
 
 
+def structural_lines(text: str) -> list[str]:
+    """
+    只保留有语义的行：去掉空行与整行注释。
+
+    ⚠️ **为什么不比全文。**
+
+    各模块的 build 文件里写了不少历史解释，比如 core:database 里那句
+    "这一行曾经缺失，缺了它编译照样通过" —— 那些是给人看的，生成器
+    既不可能也不需要复现。
+
+    比全文的结果是 26 个模块**全部**报"不一致"（全都只差注释），
+    而真正的信号 —— 少了一行 `ksp(libs.androidx.room.compiler)` ——
+    被淹没在噪音里。**那等于没有检查**，而且比没有更糟：一个永远在报警的
+    检查会被所有人忽略。
+
+    行尾注释（`x = 1 // 说明`）保留，因为它可能藏着真实差异。
+    """
+    kept = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("//"):
+            continue
+        kept.append(stripped)
+    return kept
+
+
+def first_difference(expected: str, actual: str) -> str:
+    """
+    找出第一处**语义**不同的行，用于 --check 时给出可操作的提示。
+
+    只报"文件不一致"是没用的 —— 26 个模块里哪一行不对，得靠人一行行比。
+    """
+    expected_lines = structural_lines(expected)
+    actual_lines = structural_lines(actual)
+
+    for index in range(max(len(expected_lines), len(actual_lines))):
+        want = expected_lines[index] if index < len(expected_lines) else "<文件到此结束>"
+        got = actual_lines[index] if index < len(actual_lines) else "<文件到此结束>"
+        if want != got:
+            return f"语义第 {index + 1} 行\n      期望: {want}\n      实际: {got}"
+
+    return "（语义一致，仅注释/空行差异）"
+
+
 def main() -> None:
-    created, skipped = [], []
+    """
+    ⚠️ 默认模式**只创建缺失文件，绝不覆盖已存在的文件**。
+    这是刻意的：模块的 build 文件允许本地定制（比如 core:database 手写了
+    `ksp { arg("room.schemaLocation", ...) }`），覆盖会把它抹掉。
+
+    但"只创建不更新"有一个恶性副作用：**生成器的修复永远传播不到已有文件。**
+    本文件曾经把 `ksp(libs.androidx.room.compiler)` 生成对了，而 core:database
+    磁盘上那份是旧版产物、缺这一行 —— 于是 Room 处理器根本没上 KSP 类路径。
+    因为 @Database/@Dao 全是 abstract，**编译照样通过**，一路把错误推到
+    运行时的 "Cannot find implementation for PocketAgentDatabase"。
+
+    所以补了 `--check`：不写任何文件，只报告"现有文件与生成器预期是否一致"。
+    改完生成器后跑一次，就知道哪些模块落后了。
+    """
+    check_only = "--check" in sys.argv[1:]
+
+    created, skipped, drifted = [], [], []
+
+    def handle(target: "pathlib.Path", expected: str) -> None:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            skipped.append(str(target))
+            if check_only:
+                actual = target.read_text(encoding="utf-8")
+                if structural_lines(actual) != structural_lines(expected):
+                    drifted.append((str(target), first_difference(expected, actual)))
+            return
+        if check_only:
+            # --check 不改磁盘，但"文件不存在"也是一种漂移
+            drifted.append((str(target), "文件不存在"))
+            return
+        target.write_text(expected, encoding="utf-8")
+        created.append(str(target))
 
     for module in sorted(PURE_KOTLIN):
-        target = ROOT / module / "build.gradle.kts"
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if target.exists():
-            skipped.append(str(target))
-            continue
-        target.write_text(kotlin_jvm(module, module), encoding="utf-8")
-        created.append(str(target))
+        handle(ROOT / module / "build.gradle.kts", kotlin_jvm(module, module))
 
     for module, deps in sorted(ANDROID_LIB.items()):
-        target = ROOT / module / "build.gradle.kts"
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if target.exists():
-            skipped.append(str(target))
-            continue
-        target.write_text(android_lib(module, deps), encoding="utf-8")
-        created.append(str(target))
+        handle(ROOT / module / "build.gradle.kts", android_lib(module, deps))
 
+        if check_only:
+            continue
         # consumer-rules.pro 占位
         pro = ROOT / module / "consumer-rules.pro"
         if not pro.exists():
@@ -326,10 +454,26 @@ def main() -> None:
                 encoding="utf-8",
             )
 
+    if check_only:
+        if drifted:
+            print(f"发现 {len(drifted)} 个模块的 build 文件与生成器预期不一致：")
+            for path, detail in drifted:
+                print(f"  ! {path}")
+                print(f"      {detail}")
+            print(
+                "\n处置：确认生成器是对的 → 删掉该文件后重跑本脚本；"
+                "\n      确认本地定制是对的 → 把它移出 ANDROID_LIB / PURE_KOTLIN，"
+                "或把定制同步回生成器。"
+            )
+            raise SystemExit(1)
+        print(f"全部 {len(skipped)} 个模块的 build 文件与生成器预期一致。")
+        return
+
     print(f"created: {len(created)}")
     for p in created:
         print("  +", p)
     print(f"skipped (already exists): {len(skipped)}")
+    print("\n提示：本模式不覆盖已有文件。要检查现有文件是否落后，跑 --check。")
 
 
 if __name__ == "__main__":

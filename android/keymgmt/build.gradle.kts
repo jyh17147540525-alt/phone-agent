@@ -35,6 +35,9 @@ android {
 
 dependencies {
     implementation(project(":core:common"))
+    implementation(project(":core:crypto"))
+    implementation(project(":core:database"))
+    implementation(project(":provider:api"))
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
