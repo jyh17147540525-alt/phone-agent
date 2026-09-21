@@ -1,0 +1,1653 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M0 技术验证与工程落地手册</title>
+<style>
+:root {
+  --bg: #14161a;
+  --bg-soft: #1a1d22;
+  --panel: #1e2228;
+  --panel-2: #23272f;
+  --border: #2e343d;
+  --text: #e6e9ee;
+  --text-dim: #9aa4b2;
+  --text-faint: #6b7684;
+  --accent: #6ea8fe;
+  --accent-2: #7ee0c0;
+  --warn: #f0b429;
+  --danger: #f2685c;
+  --ok: #57c98a;
+  --code-bg: #15181d;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+               "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans SC", sans-serif;
+  font-size: 15.5px;
+  line-height: 1.85;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { display: flex; max-width: 1500px; margin: 0 auto; }
+aside {
+  width: 300px; flex: 0 0 300px;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  padding: 28px 18px 60px 28px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-soft);
+  font-size: 13.5px;
+}
+aside .brand {
+  font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--text-faint); margin-bottom: 4px;
+}
+aside .title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 20px; line-height: 1.5; }
+aside ul { list-style: none; padding-left: 0; margin: 0; }
+aside ul ul { padding-left: 14px; margin-top: 4px; }
+aside li { margin: 2px 0; }
+aside a {
+  color: var(--text-dim); text-decoration: none; display: block;
+  padding: 4px 8px; border-radius: 6px; border-left: 2px solid transparent;
+  transition: .15s;
+}
+aside a:hover { color: var(--text); background: var(--panel-2); border-left-color: var(--accent); }
+main { flex: 1; min-width: 0; padding: 44px 56px 120px; max-width: 1080px; }
+
+h1 {
+  font-size: 30px; line-height: 1.35; margin: 0 0 8px; font-weight: 800;
+  letter-spacing: -.01em;
+}
+h2 {
+  font-size: 22px; margin: 56px 0 18px; padding-bottom: 10px;
+  border-bottom: 1px solid var(--border); font-weight: 700; scroll-margin-top: 20px;
+}
+h3 { font-size: 17.5px; margin: 34px 0 12px; font-weight: 700; color: #dfe5ee; scroll-margin-top: 20px; }
+h4 { font-size: 15.5px; margin: 24px 0 10px; font-weight: 700; color: var(--text-dim); }
+p { margin: 12px 0; }
+a { color: var(--accent); }
+strong { color: #fff; font-weight: 700; }
+hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+blockquote {
+  margin: 18px 0; padding: 14px 20px;
+  background: linear-gradient(90deg, rgba(110,168,254,.10), rgba(110,168,254,.02));
+  border-left: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0; color: #cfd6e0;
+}
+blockquote p { margin: 6px 0; }
+
+ul, ol { padding-left: 24px; margin: 12px 0; }
+li { margin: 5px 0; }
+li > ul, li > ol { margin: 5px 0; }
+
+.tw { overflow-x: auto; margin: 18px 0; border: 1px solid var(--border); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--panel); }
+th, td { padding: 9px 14px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { background: var(--panel-2); font-weight: 700; color: #fff; white-space: nowrap; font-size: 13.5px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: rgba(110,168,254,.045); }
+
+code {
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+  font-size: 13px; background: var(--code-bg); padding: 2px 6px;
+  border-radius: 5px; color: #8fd3ff; border: 1px solid var(--border);
+}
+pre {
+  background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px;
+  padding: 18px 20px; overflow-x: auto; margin: 18px 0;
+  font-size: 12.8px; line-height: 1.65;
+}
+pre code {
+  background: none; border: none; padding: 0; color: #cfd8e3;
+  white-space: pre; font-family: "JetBrains Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+}
+.codehilite { background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; margin: 18px 0; }
+.codehilite pre { border: none; margin: 0; background: none; }
+.codehilite .k, .codehilite .kd, .codehilite .kn { color: #ff7b9c; }
+.codehilite .s, .codehilite .s1, .codehilite .s2 { color: #7ee0c0; }
+.codehilite .c1, .codehilite .cm { color: #5f6b7a; font-style: italic; }
+.codehilite .n, .codehilite .nf, .codehilite .nc { color: #8fd3ff; }
+.codehilite .m, .codehilite .mi { color: #f0b429; }
+
+@media (max-width: 1000px) {
+  aside { display: none; }
+  main { padding: 28px 20px 80px; }
+  body { font-size: 15px; }
+  h1 { font-size: 24px; }
+  h2 { font-size: 19px; }
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: #333a45; border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: #414a58; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <aside>
+    <div class="brand">Project Plan</div>
+    <div class="title">M0 技术验证与工程落地手册</div>
+    <div class="toc">
+<ul>
+<li><a href="#1">1. 本机环境现状（实测）</a><ul>
+<li><a href="#11">1.1 已有</a></li>
+<li><a href="#12">1.2 缺失（阻塞项）</a></li>
+<li><a href="#13-uac">1.3 关键提醒：UAC 提权</a></li>
+</ul>
+</li>
+<li><a href="#2">2. 环境准备清单</a><ul>
+<li><a href="#21-1-android-studio-20">2.1 第 1 步：安装 Android Studio（用户手动，约 20 分钟）</a></li>
+<li><a href="#22-2">2.2 第 2 步：配置构建环境</a></li>
+<li><a href="#23-3">2.3 第 3 步：准备测试设备</a></li>
+<li><a href="#24-4">2.4 第 4 步：本地模型联调环境（可选，但强烈建议）</a></li>
+</ul>
+</li>
+<li><a href="#3">3. 已生成的工程骨架</a><ul>
+<li><a href="#31">3.1 目录结构</a></li>
+<li><a href="#32">3.2 已定义的核心接口（可直接开工实现）</a></li>
+<li><a href="#33-m0">3.3 尚未创建的内容（M0 期间补齐）</a></li>
+</ul>
+</li>
+<li><a href="#4-m0">4. M0 验证实验</a><ul>
+<li><a href="#ex-01">EX-01 无障碍树读取覆盖率</a></li>
+<li><a href="#ex-02">EX-02 无障碍手势执行可靠性</a></li>
+<li><a href="#ex-03-android-17">EX-03 Android 17 高级保护模式限制实测 ★关键</a></li>
+<li><a href="#ex-04-mediaprojection">EX-04 MediaProjection 截图链路</a></li>
+<li><a href="#ex-05-shizuku">EX-05 Shizuku 通道可用性 ★关键</a></li>
+<li><a href="#ex-06">EX-06 截图成本基线</a></li>
+<li><a href="#ex-07">EX-07 端侧小模型推理性能</a></li>
+<li><a href="#ex-08-provider">EX-08 Provider 流式对话打通</a></li>
+<li><a href="#ex-09-key">EX-09 Key 加密与日志脱敏审计 ★关键</a></li>
+<li><a href="#ex-10">EX-10 敏感页面识别准确率 ★关键</a></li>
+<li><a href="#ex-11-ui">EX-11 UI 图谱缓存命中率验证</a></li>
+<li><a href="#ex-12-rom">EX-12 悬浮窗与前台服务保活（国产 ROM 差异）</a></li>
+</ul>
+</li>
+<li><a href="#5-ux">5. 权限引导 UX 详设</a><ul>
+<li><a href="#51">5.1 设计原则</a></li>
+<li><a href="#52">5.2 逐屏流程</a></li>
+<li><a href="#53">5.3 关键文案约束</a></li>
+</ul>
+</li>
+<li><a href="#6">6. 性能预算分解</a><ul>
+<li><a href="#61">6.1 延迟预算（单步操作端到端）</a></li>
+<li><a href="#62">6.2 内存预算</a></li>
+<li><a href="#63">6.3 耗电预算</a></li>
+<li><a href="#64-token">6.4 成本预算（用户 token 支出）</a></li>
+</ul>
+</li>
+<li><a href="#7">7. 测试策略与真机回归框架</a><ul>
+<li><a href="#71">7.1 测试分层</a></li>
+<li><a href="#72">7.2 快照回放机制（强烈建议）</a></li>
+<li><a href="#73">7.3 真机回归框架</a></li>
+<li><a href="#74">7.4 必过项（每次版本发布前）</a></li>
+</ul>
+</li>
+<li><a href="#8">8. 开发规范与协作流程</a><ul>
+<li><a href="#81">8.1 分支模型</a></li>
+<li><a href="#82-conventional-commits">8.2 提交信息（Conventional Commits）</a></li>
+<li><a href="#83">8.3 代码风格</a></li>
+<li><a href="#84-pr-reviewer">8.4 PR 检查项（Reviewer 必查）</a></li>
+<li><a href="#85-ci">8.5 CI 流程</a></li>
+</ul>
+</li>
+<li><a href="#9-m0">9. M0 排期与分工</a><ul>
+<li><a href="#91">9.1 三周排期</a></li>
+<li><a href="#92-4">9.2 分工（最小配置 4 人）</a></li>
+<li><a href="#93">9.3 并行化建议</a></li>
+</ul>
+</li>
+<li><a href="#10-go-no-go">10. Go / No-Go 判定标准</a><ul>
+<li><a href="#101">10.1 必须全部通过（硬性）</a></li>
+<li><a href="#102-no-go">10.2 出现以下情况则 No-Go（需重新设计）</a></li>
+<li><a href="#103">10.3 决策门输出物</a></li>
+</ul>
+</li>
+<li><a href="#checklist">附：开工前 Checklist</a></li>
+</ul>
+</div>
+
+  </aside>
+  <main>
+<h1 id="m0">M0 技术验证与工程落地手册</h1>
+<blockquote>
+<p>项目：PocketAgent（手机 AI 智能体助手 · BYOK 版）
+版本：v1.0 ｜ 日期：2026-09-20
+前置文档：《手机AI智能体助手-项目方案-v1.0.md》
+本文档的作用：把方案变成<strong>本周就能开工</strong>的清单</p>
+</blockquote>
+<hr />
+<hr />
+<h2 id="1">1. 本机环境现状（实测）</h2>
+<blockquote>
+<p>2026-09-20 实测结果。<strong>结论：当前机器无法构建 Android 应用，环境准备是 M0 的第 0 步。</strong></p>
+</blockquote>
+<h3 id="11">1.1 已有</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>状态</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>JDK</td>
+<td>✅ JDK 25.0.3（Microsoft OpenJDK）</td>
+<td>路径 <code>C:\Program Files\Java\jdk-25.0.3.9-hotspot</code>。<strong>版本过新</strong>，AGP 目前支持 JDK 17/21，需用 Android Studio 自带的 JBR 21</td>
+</tr>
+<tr>
+<td>Ollama</td>
+<td>✅ 已安装 <code>F:\Ollama\ollama.exe</code></td>
+<td>已有模型 <code>qwen3.8:27b</code>（14 GB）。<strong>可直接用作本地 Provider 做零成本联调</strong></td>
+</tr>
+<tr>
+<td>本地模型文件</td>
+<td>⚠️ <code>D:\AI\Models\model.safetensors</code>（4.3 GB）、<code>D:\Modelfile</code>（指向 gamma-4-26B，未导入）</td>
+<td>未完成的实验残留，M0 可忽略</td>
+</tr>
+<tr>
+<td>Python</td>
+<td>✅ 托管 3.13.12 + venv（含 markdown/pygments）</td>
+<td>用于文档与工具脚本</td>
+</tr>
+<tr>
+<td>磁盘</td>
+<td>✅ C/D/E/F 均有空间</td>
+<td>建议项目放 D:，SDK 与模拟器镜像放空间充足的盘</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="12">1.2 缺失（阻塞项）</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>状态</th>
+<th>影响</th>
+<th>解决方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Android Studio</td>
+<td>❌ 未安装</td>
+<td>无法开发/调试/查看布局</td>
+<td><strong>用户手动安装</strong>（见 2.1）</td>
+</tr>
+<tr>
+<td>Android SDK</td>
+<td>❌ 未安装</td>
+<td>无法编译</td>
+<td>随 Studio 安装</td>
+</tr>
+<tr>
+<td>Gradle</td>
+<td>❌ 无命令行版本</td>
+<td>无法命令行构建</td>
+<td>Studio 自带 wrapper 即可</td>
+</tr>
+<tr>
+<td>adb / platform-tools</td>
+<td>❌ 未安装</td>
+<td>无法连接真机调试</td>
+<td>随 SDK 安装</td>
+</tr>
+<tr>
+<td>Android 真机</td>
+<td>❓ 未知</td>
+<td><strong>无真机则 M0 无法开展</strong></td>
+<td>需用户确认是否有可用测试机</td>
+</tr>
+<tr>
+<td>模拟器镜像</td>
+<td>❌ 未下载</td>
+<td>模拟器可做部分验证，但<strong>无障碍与 Shizuku 在模拟器上表现与真机差异大</strong></td>
+<td>建议以真机为主</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="13-uac">1.3 关键提醒：UAC 提权</h3>
+<p>本机账号虽在 Administrators 组，但 shell 拿到的是 UAC 降权令牌。<strong>Android Studio 安装程序属于 GUI 提权安装，必须由用户手动放行 UAC 弹窗</strong>，脚本直接拉起会静默退出。所以第 2 章的安装步骤是<strong>给用户执行的清单</strong>，不是自动化脚本。</p>
+<hr />
+<h2 id="2">2. 环境准备清单</h2>
+<h3 id="21-1-android-studio-20">2.1 第 1 步：安装 Android Studio（用户手动，约 20 分钟）</h3>
+<ol>
+<li>下载 Android Studio 最新稳定版（约 1.5 GB）</li>
+<li><strong>安装时放行 UAC 弹窗</strong></li>
+<li>安装类型选 <strong>Custom</strong>，组件勾选：
+   - Android SDK
+   - Android SDK Platform（<strong>API 36</strong>，满足 Google Play 的 targetSdk 要求）
+   - Android SDK Build-Tools
+   - Android SDK Platform-Tools（含 adb）
+   - Android Emulator
+   - Android SDK Command-line Tools</li>
+<li><strong>SDK 路径建议改为非 C 盘</strong>（C 盘空间紧张）：
+   <code>D:\Android\Sdk</code> 或 <code>E:\Android\Sdk</code></li>
+<li>安装完成后，在 Settings → Languages &amp; Frameworks → Android SDK 中确认：
+   - SDK Platforms 勾选 <strong>Android 12 (API 31)</strong> 与 <strong>Android 16/17 (API 36+)</strong>
+   - SDK Tools 勾选 <strong>Android SDK Command-line Tools</strong>、<strong>Platform-Tools</strong></li>
+</ol>
+<blockquote>
+<p><strong>JDK 说明</strong>：不要用系统的 JDK 25。Studio 自带 JetBrains Runtime（JBR 21），构建时会自动使用。
+如需命令行构建，配置 <code>JAVA_HOME</code> 指向 Studio 的 <code>jbr</code> 目录。</p>
+</blockquote>
+<h3 id="22-2">2.2 第 2 步：配置构建环境</h3>
+<div class="codehilite"><pre><span></span><code><span class="c1"># 1. 生成 local.properties（指向 SDK）</span>
+<span class="nb">cd</span><span class="w"> </span>D:<span class="se">\手</span>机agent开发<span class="se">\a</span>ndroid
+<span class="nb">echo</span><span class="w"> </span><span class="s2">"sdk.dir=D\\:\\\\Android\\\\Sdk"</span><span class="w"> </span>&gt;<span class="w"> </span>local.properties
+
+<span class="c1"># 2. 配置 Gradle 代理（如网络受限）</span>
+<span class="c1">#    编辑 gradle.properties，追加：</span>
+<span class="c1">#    systemProp.http.proxyHost=127.0.0.1</span>
+<span class="c1">#    systemProp.http.proxyPort=7890</span>
+<span class="c1">#    systemProp.https.proxyHost=127.0.0.1</span>
+<span class="c1">#    systemProp.https.proxyPort=7890</span>
+
+<span class="c1"># 3. 首次同步（在 Studio 中点击 Sync，或命令行）</span>
+gradlew.bat<span class="w"> </span>:app:assembleDebug
+</code></pre></div>
+
+<h3 id="23-3">2.3 第 3 步：准备测试设备</h3>
+<p><strong>M0 的成败取决于真机。</strong> 需要：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>设备类型</th>
+<th style="text-align: center;">数量</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>主力测试机（Android 14/15/16）</td>
+<td style="text-align: center;">1-2</td>
+<td>核心链路验证</td>
+</tr>
+<tr>
+<td>Android 17 设备或模拟器</td>
+<td style="text-align: center;">1</td>
+<td>APM 限制实测（EX-03）</td>
+</tr>
+<tr>
+<td>老机型（Android 12/13）</td>
+<td style="text-align: center;">1</td>
+<td>兼容性下限验证</td>
+</tr>
+<tr>
+<td>国产 ROM（小米/华为/OPPO/vivo）</td>
+<td style="text-align: center;">各 1</td>
+<td>权限管控与保活差异（EX-12）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>设备端准备</strong>：
+- 开启开发者选项与 USB 调试
+- <strong>关闭「验证应用安装」类安全设置</strong>（否则调试包可能装不上）
+- 准备一个专门的测试微信号/账号（<strong>不要用主账号</strong>，自动化操作可能触发风控）</p>
+<h3 id="24-4">2.4 第 4 步：本地模型联调环境（可选，但强烈建议）</h3>
+<p>本机已有 Ollama 与 <code>qwen3.8:27b</code>，<strong>这是零成本的联调环境</strong>，M0 阶段所有 Provider 测试都先用它：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># 启动 Ollama</span>
+F:<span class="se">\O</span>llama<span class="se">\o</span>llama.exe<span class="w"> </span>serve
+
+<span class="c1"># 验证 OpenAI 兼容端点（Ollama 原生支持）</span>
+curl<span class="w"> </span>http://localhost:11434/v1/models
+
+<span class="c1"># 手机与电脑需在同一局域网，App 中把 BaseUrl 填为</span>
+<span class="c1"># http://&lt;电脑局域网IP&gt;:11434/v1</span>
+</code></pre></div>
+
+<blockquote>
+<p>⚠️ <strong>注意</strong>：Ollama 默认只监听 <code>127.0.0.1</code>，手机访问不到。需设置环境变量
+<code>OLLAMA_HOST=0.0.0.0</code> 后重启。另外 Android 9+ 默认禁止明文 HTTP，
+需在 <code>network_security_config.xml</code> 中为局域网 IP 段放行（工程骨架已预留该文件）。</p>
+<p>⚠️ <code>qwen3.8:27b</code> 是<strong>纯文本模型</strong>，不支持视觉。M0 的截图理解实验需要另装多模态模型
+（如 <code>qwen3-vl</code> 或 <code>gemma4</code> 系列），或直接用云端多模态 Provider。</p>
+</blockquote>
+<hr />
+<h2 id="3">3. 已生成的工程骨架</h2>
+<p>工程骨架已生成在 <code>D:\手机agent开发\android\</code>，<strong>含 17 个模块的完整构建配置与核心接口契约</strong>。</p>
+<h3 id="31">3.1 目录结构</h3>
+<div class="codehilite"><pre><span></span><code>android/
+├── settings.gradle.kts          17 个模块注册
+├── build.gradle.kts             根构建脚本
+├── gradle.properties            全局属性
+├── gradle/libs.versions.toml    版本目录（50+ 依赖）
+├── gen_module_build_files.py    模块构建脚本生成器（幂等）
+├── README.md                    模块结构与依赖约束说明
+│
+├── app/                         ★ 应用壳
+│   ├── build.gradle.kts
+│   └── src/main/
+│       ├── AndroidManifest.xml                   权限与组件声明
+│       └── res/xml/agent_accessibility_service.xml  无障碍能力最小化声明
+│
+├── core/common/                 纯 Kotlin
+├── core/crypto/                 ★ CryptoManager.kt（Keystore 三层加密）
+├── core/database/               Room + SQLCipher
+├── core/network/                ★ LogSanitizer.kt（日志脱敏红线组件）
+│
+├── provider/api/                ★ LlmProvider.kt（Provider 统一抽象）
+├── provider/openai-compat/      OpenAI 及兼容厂商
+├── provider/anthropic/          Claude
+├── provider/gemini/             Gemini
+├── provider/local/              Ollama / LM Studio
+│
+├── perception/                  ★ ScreenSnapshot.kt（感知层唯一出口）
+├── action/                      ★ ActionExecutor.kt（四通道执行抽象）
+├── agent/                       ★ AgentOrchestrator.kt（双脑架构）
+├── safety/                      ★ SafetyGuard.kt（敏感页面 + SAEP 兼容）
+├── keymgmt/                     BYOK 体系
+├── memory/                      三层记忆 + UI 图谱缓存
+└── overlay/                     悬浮球与执行可视化
+</code></pre></div>
+
+<h3 id="32">3.2 已定义的核心接口（可直接开工实现）</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>文件</th>
+<th>内容</th>
+<th>为什么先定这个</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>LlmProvider.kt</code></td>
+<td>Provider 抽象、<code>ProviderCredential</code>（ByteArray 承载）、<code>Capability</code> 枚举、统一异常</td>
+<td>上层业务不得感知厂商差异；Key 的载体形式决定了整个安全模型</td>
+</tr>
+<tr>
+<td><code>ScreenSnapshot.kt</code></td>
+<td>屏幕统一表示、<code>UiNode</code>、<code>SnapshotSource</code>、降级链</td>
+<td>Android 17 收紧后只需替换生产者，决策层零改动</td>
+</tr>
+<tr>
+<td><code>ActionExecutor.kt</code></td>
+<td>四通道抽象、<code>UiAction</code>、<code>ElementRef</code>、<code>HumanizePolicy</code></td>
+<td><strong>最重要的抗风险设计</strong>，禁止任何模块直接依赖 AccessibilityService</td>
+</tr>
+<tr>
+<td><code>SafetyGuard.kt</code></td>
+<td>敏感页面规则库、<code>AutomationPolicyRegistry</code>（SAEP 兼容）、拦截审计</td>
+<td>合规底线，规则只允许加严</td>
+</tr>
+<tr>
+<td><code>AgentOrchestrator.kt</code></td>
+<td>双脑架构、<code>AgentEvent</code> 事件流、<code>Grounder</code>/<code>Verifier</code>、<code>TaskStateMachine</code></td>
+<td>执行过程必须对用户可见</td>
+</tr>
+<tr>
+<td><code>CryptoManager.kt</code></td>
+<td>Keystore + AES-GCM、<code>withDecryptedKey</code> 强制清零作用域</td>
+<td>安全红线，接口设计错了后期改不动</td>
+</tr>
+<tr>
+<td><code>LogSanitizer.kt</code></td>
+<td>Key/PII 正则脱敏、base64 图片过滤、请求头脱敏</td>
+<td>日志是最容易泄漏 Key 的地方</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="33-m0">3.3 尚未创建的内容（M0 期间补齐）</h3>
+<ul>
+<li><code>app/src/main/res/</code> 下的样式、字符串、图标资源</li>
+<li><code>MainActivity</code> 与 Compose UI 骨架</li>
+<li><code>PocketAgentApp</code>（Application 类 + Hilt 入口）</li>
+<li>各接口的实现类（M0 先做最小可用实现，用于跑通验证实验）</li>
+<li><code>network_security_config.xml</code>、<code>data_extraction_rules.xml</code></li>
+<li>Gradle wrapper（<code>gradlew</code> / <code>gradle-wrapper.jar</code>，由 Studio 首次同步时生成）</li>
+<li>CI 配置</li>
+</ul>
+<hr />
+<h2 id="4-m0">4. M0 验证实验</h2>
+<blockquote>
+<p>12 个实验，每个都回答一个<strong>会影响架构决策</strong>的问题。
+不是"跑个 demo 看看"，而是"验证假设，否则改设计"。</p>
+</blockquote>
+<h3 id="ex-01">EX-01 无障碍树读取覆盖率</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>假设</strong></td>
+<td>无障碍树能覆盖主流 App 80% 以上的可交互元素</td>
+</tr>
+<tr>
+<td><strong>方法</strong></td>
+<td>在 10 个 App 的典型页面（首页/列表页/详情页/设置页）采集节点树，统计：可交互元素数、有文本或 desc 的比例、有 viewIdResourceName 的比例</td>
+</tr>
+<tr>
+<td><strong>样本</strong></td>
+<td>微信、支付宝、美团、淘宝、高德地图、B站、小红书、抖音、系统设置、Chrome</td>
+</tr>
+<tr>
+<td><strong>通过标准</strong></td>
+<td>平均可交互元素识别率 ≥ 80%；有 viewIdResourceName 的比例 ≥ 60%</td>
+</tr>
+<tr>
+<td><strong>失败预案</strong></td>
+<td>若覆盖率 &lt; 60%，说明<strong>必须把截图兜底作为主路径而非备选</strong>，感知层成本模型要重算</td>
+</tr>
+<tr>
+<td><strong>产出</strong></td>
+<td>《无障碍覆盖率报告》（按 App × 页面类型矩阵）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>关键代码要点</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1">// 采集时必须设置超时，复杂界面遍历可能耗时数百毫秒</span>
+<span class="kd">val</span><span class="w"> </span><span class="nv">root</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">rootInActiveWindow</span><span class="w"> </span><span class="o">?:</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="kc">null</span>
+<span class="kd">val</span><span class="w"> </span><span class="nv">collected</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">withTimeoutOrNull</span><span class="p">(</span><span class="m">300</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">traverse</span><span class="p">(</span><span class="n">root</span><span class="p">,</span><span class="w"> </span><span class="n">depth</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">0</span><span class="p">)</span>
+<span class="p">}</span>
+<span class="c1">// 原生节点必须 recycle，否则会阻塞 GC</span>
+<span class="n">root</span><span class="p">.</span><span class="na">recycle</span><span class="p">()</span>
+</code></pre></div>
+
+<h3 id="ex-02">EX-02 无障碍手势执行可靠性</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>假设</strong></td>
+<td><code>dispatchGesture</code> 的点击成功率 ≥ 95%</td>
+</tr>
+<tr>
+<td><strong>方法</strong></td>
+<td>在 5 个 App 上各执行 100 次点击（元素中心点击），统计成功率与耗时分布</td>
+</tr>
+<tr>
+<td><strong>通过标准</strong></td>
+<td>成功率 ≥ 95%，单次耗时 P95 ≤ 300ms</td>
+</tr>
+<tr>
+<td><strong>失败预案</strong></td>
+<td>若成功率偏低，需引入「点击后校验 + 自动重试」机制，或改用 <code>ACTION_CLICK</code>（节点直接点击，比手势更可靠但兼容性差）</td>
+</tr>
+<tr>
+<td><strong>产出</strong></td>
+<td>成功率与延迟分布数据</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="ex-03-android-17">EX-03 Android 17 高级保护模式限制实测 ★关键</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>假设</strong></td>
+<td>APM 模式下非无障碍类应用确实无法获取/保留无障碍权限</td>
+</tr>
+<tr>
+<td><strong>方法</strong></td>
+<td>在 Android 17 设备/模拟器上：① 开启 APM ② 尝试授权本 App 的无障碍权限 ③ 观察入口是否可用 ④ 已授权状态下开启 APM，观察权限是否被撤销 ⑤ 尝试用 ADB 绕过</td>
+</tr>
+<tr>
+<td><strong>通过标准</strong></td>
+<td>明确得出「APM 下可行/不可行」的确定结论，并记录系统版本号与复现步骤</td>
+</tr>
+<tr>
+<td><strong>失败预案</strong></td>
+<td>这不是"失败"，是<strong>情报收集</strong>。无论结果如何都要输出结论，因为结论直接决定 Shizuku 通道的优先级</td>
+</tr>
+<tr>
+<td><strong>产出</strong></td>
+<td>《Android 17 APM 限制实测报告》</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>⚠️ 这个实验的信息价值最高。<strong>如果 APM 下确实完全不可用，Shizuku 通道必须从 M1 提到 M0。</strong></p>
+</blockquote>
+<h3 id="ex-04-mediaprojection">EX-04 MediaProjection 截图链路</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>假设</strong></td>
+<td>截图链路可用，且 Android 14+ 的每次会话确认流程可接受</td>
+</tr>
+<tr>
+<td><strong>方法</strong></td>
+<td>实现前台服务 + MediaProjection 会话，验证：① 首次授权流程 ② 会话建立耗时 ③ 连续截图的稳定性 ④ 会话被系统终止后的恢复 ⑤ 能否实现"仅截当前 App"模式</td>
+</tr>
+<tr>
+<td><strong>通过标准</strong></td>
+<td>会话建立 ≤ 1s；连续截图 100 次无崩溃；会话终止后能自动恢复</td>
+</tr>
+<tr>
+<td><strong>失败预案</strong></td>
+<td>若授权流程过于割裂，需设计"一次授权、长期复用"的引导话术，并优先依赖无障碍树避免频繁截图</td>
+</tr>
+<tr>
+<td><strong>产出</strong></td>
+<td>截图模块可复用代码 + 授权流程 UX 记录</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="ex-05-shizuku">EX-05 Shizuku 通道可用性 ★关键</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>假设</strong></td>
+<td>Shizuku 可提供 <code>input tap</code>、<code>am start</code>、<code>screencap</code> 等能力，且授权流程对用户可接受</td>
+</tr>
+<tr>
+<td><strong>方法</strong></td>
+<td>① 引导用户安装 Shizuku App ② 通过无线调试激活 ③ 验证 shell 命令执行 ④ 测量重启后重新授权的流程成本 ⑤ 验证 <code>am start</code> 直达目标 Activity 的能力</td>
+</tr>
+<tr>
+<td><strong>通过标准</strong></td>
+<td>核心命令全部可执行；重启后重新授权步骤 ≤ 3 步；<code>input tap</code> 成功率 ≥ 95%</td>
+</tr>
+<tr>
+<td><strong>失败预案</strong></td>
+<td>若 Shizuku 门槛过高，产品需提供<strong>分级的权限方案</strong>：普通用户用无障碍，高级用户用 Shizuku</td>
+</tr>
+<tr>
+<td><strong>产出</strong></td>
+<td>Shizuku 通道可复用代码 + 用户授权引导流程</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="ex-06">EX-06 截图成本基线</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>假设</strong></td>
+<td>经过裁剪与压缩，单次截图理解的 token 成本可控制在可接受范围</td>
+</tr>
+<tr>
+<td><strong>方法</strong></td>
+<td>对同一张 1440p 截图做 5 种处理（原图 / 缩放到 1280 / 缩放到 960 / WebP q75 / 只截变化区域），分别送多模态模型，记录 token 数与识别准确率</td>
+</tr>
+<tr>
+<td><strong>通过标准</strong></td>
+<td>找到「成本 ≤ 原始 40% 且元素定位准确率不下降超过 5%」的参数组合</td>
+</tr>
+<tr>
+<td><strong>失败预案</strong></td>
+<td>若压缩后准确率掉太多，说明<strong>必须优先用无障碍树</strong>，截图仅作兜底</td>
+</tr>
+<tr>
+<td><strong>产出</strong></td>
+<td>截图处理参数标准（写入 <code>CaptureOptions</code> 默认值）</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="ex-07">EX-07 端侧小模型推理性能</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>假设</strong></td>
+<td>2B 级多模态模型可在目标机型上做到 ≤ 1.5s/次 的元素定位</td>
+</tr>
+<tr>
+<td><strong>方法</strong></td>
+<td>用 MediaPipe LLM Inference 或 LiteRT-LM 加载模型，测量：冷启动加载时间、单次推理延迟、内存占用、连续推理的发热与掉帧</td>
+</tr>
+<tr>
+<td><strong>通过标准</strong></td>
+<td>单次定位 ≤ 1.5s；峰值内存 ≤ 1.5 GB；连续 20 次推理不触发降频</td>
+</tr>
+<tr>
+<td><strong>失败预案</strong></td>
+<td>若端侧跑不动，则 Grounder 降级为「用便宜的云端小模型」，端侧仅保留"本地模式"作为隐私选项（性能打折但可用）</td>
+</tr>
+<tr>
+<td><strong>产出</strong></td>
+<td>端侧推理可行性结论 + 推荐模型与参数</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="ex-08-provider">EX-08 Provider 流式对话打通</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>假设</strong></td>
+<td>OpenAI 兼容协议可覆盖 8 家以上厂商，SSE 解析无坑</td>
+</tr>
+<tr>
+<td><strong>方法</strong></td>
+<td>用<strong>本机 Ollama（零成本）</strong>先打通链路，再依次接入 DeepSeek / 通义 / 火山方舟 / OpenRouter；重点验证 SSE 的多行 data、<code>[DONE]</code>、中途断流、429 重试</td>
+</tr>
+<tr>
+<td><strong>通过标准</strong></td>
+<td>5 家 Provider 全部流式可用；断流能正确抛出异常；429 能指数退避重试</td>
+</tr>
+<tr>
+<td><strong>失败预案</strong></td>
+<td>若某家协议差异过大，说明自定义 Provider 逃生舱的必要性，需优先实现</td>
+</tr>
+<tr>
+<td><strong>产出</strong></td>
+<td><code>provider-openai-compat</code> 可用实现</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="ex-09-key">EX-09 Key 加密与日志脱敏审计 ★关键</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>假设</strong></td>
+<td>全链路无明文 Key 落盘</td>
+</tr>
+<tr>
+<td><strong>方法</strong></td>
+<td>① 导入一个 Key ② 触发各种操作（对话、失败、崩溃） ③ 用 <code>adb shell</code> 导出应用数据目录 ④ 全盘 grep Key 明文 ⑤ 检查 logcat 全量输出 ⑥ 检查 SharedPreferences / Room 数据库文件 ⑦ 检查崩溃上报内容</td>
+</tr>
+<tr>
+<td><strong>通过标准</strong></td>
+<td><strong>任何位置都搜不到 Key 明文</strong>（含前缀后 8 位）</td>
+</tr>
+<tr>
+<td><strong>失败预案</strong></td>
+<td>有泄漏则立即修复并重测；这是不可妥协的项，<strong>不通过则 M0 不通过</strong></td>
+</tr>
+<tr>
+<td><strong>产出</strong></td>
+<td>《Key 安全审计报告》</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>审计脚本思路</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># 导出应用数据（需 root 或 debuggable 包）</span>
+adb<span class="w"> </span>shell<span class="w"> </span>run-as<span class="w"> </span>com.pocketagent.debug<span class="w"> </span>tar<span class="w"> </span>-c<span class="w"> </span>-f<span class="w"> </span>-<span class="w"> </span>.<span class="w"> </span><span class="p">|</span><span class="w"> </span>tar<span class="w"> </span>-x<span class="w"> </span>-C<span class="w"> </span>./dump
+<span class="c1"># 全盘搜索 Key 明文片段</span>
+grep<span class="w"> </span>-r<span class="w"> </span><span class="s2">"&lt;key 的后 8 位&gt;"</span><span class="w"> </span>./dump
+<span class="c1"># 搜索 logcat 历史</span>
+adb<span class="w"> </span>logcat<span class="w"> </span>-d<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-i<span class="w"> </span><span class="s2">"sk-\|api.key\|bearer"</span>
+</code></pre></div>
+
+<h3 id="ex-10">EX-10 敏感页面识别准确率 ★关键</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>假设</strong></td>
+<td>关键词 + 包名 + 控件特征的三重规则能 100% 拦住支付类页面</td>
+</tr>
+<tr>
+<td><strong>方法</strong></td>
+<td>构造 30 个测试页面（含 15 个真实敏感页：支付宝付款码、微信转账、银行 App 首页、验证码页等，以及 15 个非敏感页作为对照），统计误报率与漏报率</td>
+</tr>
+<tr>
+<td><strong>通过标准</strong></td>
+<td><strong>漏报率 = 0</strong>（宁可误报不可漏报）；误报率 ≤ 10%</td>
+</tr>
+<tr>
+<td><strong>失败预案</strong></td>
+<td>若漏报，立即扩充关键词库与包名黑名单，并考虑加入页面结构特征识别</td>
+</tr>
+<tr>
+<td><strong>产出</strong></td>
+<td>敏感页面规则库 v1 + 测试用例集</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>⚠️ <strong>这是唯一一个"漏报率必须为 0"的指标。</strong> 误报用户只是烦，漏报用户可能损失钱。</p>
+</blockquote>
+<h3 id="ex-11-ui">EX-11 UI 图谱缓存命中率验证</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>假设</strong></td>
+<td>同一 App 的常用页面重复出现时，页面特征哈希能稳定命中缓存，命中率 ≥ 40%</td>
+</tr>
+<tr>
+<td><strong>方法</strong></td>
+<td>用 EX-01 采集的节点树，计算页面特征哈希（可用元素数 + 关键元素文本 + 层级结构的组合哈希），统计同页面多次访问的哈希稳定性</td>
+</tr>
+<tr>
+<td><strong>通过标准</strong></td>
+<td>同页面哈希一致率 ≥ 90%；预估缓存命中率 ≥ 40%</td>
+</tr>
+<tr>
+<td><strong>失败预案</strong></td>
+<td>若哈希不稳定（动态内容多），改用「部分特征匹配」或降低哈希粒度（只看顶部区域）</td>
+</tr>
+<tr>
+<td><strong>产出</strong></td>
+<td>页面指纹算法 + 缓存策略设计</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>这个实验决定 M2 的降本目标（缓存命中 40% → 成本降 50%）是否成立。<strong>M0 就要探。</strong></p>
+</blockquote>
+<h3 id="ex-12-rom">EX-12 悬浮窗与前台服务保活（国产 ROM 差异）</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>假设</strong></td>
+<td>悬浮窗在主流 ROM 上可常驻，前台服务不会被激进杀后台</td>
+</tr>
+<tr>
+<td><strong>方法</strong></td>
+<td>在小米/华为/OPPO/vivo/三星/Pixel 上测试：① 悬浮窗权限申请流程 ② 应用切后台后悬浮窗是否存活 ③ 锁屏 30 分钟后是否被杀 ④ 需要哪些额外的"自启动/后台运行"白名单设置</td>
+</tr>
+<tr>
+<td><strong>通过标准</strong></td>
+<td>形成各 ROM 的权限配置矩阵；悬浮窗存活率 ≥ 90%</td>
+</tr>
+<tr>
+<td><strong>失败预案</strong></td>
+<td>若保活困难，需在引导流程中加入「按机型定制的设置向导」，并提供诊断页帮用户自查</td>
+</tr>
+<tr>
+<td><strong>产出</strong></td>
+<td>《机型适配矩阵》（方案 R8 风险的应对）</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="5-ux">5. 权限引导 UX 详设</h2>
+<blockquote>
+<p>这个产品的转化率<strong>完全取决于权限引导</strong>。用户面对的是"读屏 + 操作屏幕 + 截图"三连，任何一屏讲不清楚都会流失。</p>
+</blockquote>
+<h3 id="51">5.1 设计原则</h3>
+<ol>
+<li><strong>一次只要一个权限</strong>，不要在首屏堆一堆申请按钮</li>
+<li><strong>每屏都回答"为什么"</strong>，并且用具体场景而非技术术语（不说"无障碍服务"，说"让我能看见屏幕上的按钮"）</li>
+<li><strong>允许跳过</strong>，但明确告知跳过后的能力损失（进入"降级模式"）</li>
+<li><strong>可随时回来</strong>，设置页有常驻的权限状态面板与诊断工具</li>
+<li><strong>诚实</strong>，不隐瞒数据流向</li>
+</ol>
+<h3 id="52">5.2 逐屏流程</h3>
+<div class="codehilite"><pre><span></span><code>S1 欢迎页
+   标题：让我帮你操作手机
+   正文：我会看见你屏幕上的内容，替你完成跨应用的操作。
+        你可以随时叫停我，也随时能看我在做什么。
+   [开始设置]  [先看看再说]
+       ↓
+S2 选择模式
+   ○ 完整体验（需要 3 项权限）
+   ● 精简模式（只需 1 项权限，我能看屏幕但不能替你操作）
+   —— 用一句话说明差异，让用户有"低门槛入口"
+       ↓
+S3 悬浮窗权限
+   为什么需要：让我在你打开任何 App 时都能被叫出来
+   [去授权]  [跳过]
+       ↓
+S4 无障碍权限  ★最关键的一屏
+   为什么需要：让我能看见屏幕上的按钮和文字，并替你点击
+   我需要能做什么：
+     · 读取屏幕上的文字和按钮位置
+     · 点击、滑动、输入
+   我不会做什么：
+     · 不读取你的输入密码（技术上已排除）
+     · 不在支付页面做任何操作
+     · 不上传截图，除非你同意
+   [去授权]  [改用 Shizuku（进阶）]  [跳过]
+       ↓
+S5 截图权限
+   为什么需要：当无障碍信息不够时，我需要看一眼屏幕
+   说明：每次截图都会在通知栏显示，你随时能停
+   [去授权]
+       ↓
+S6 导入 API Key
+   标题：接入你的 AI 大脑
+   正文：本应用不提供 AI 模型，你用自己的 API Key 调用任意模型。
+        好处：数据不经我们服务器，模型随时可换，费用你自己掌控。
+   [推荐：OpenRouter（一个 Key 通吃）]
+   [手动粘贴 Key]
+       ↓
+S7 首次任务引导
+   建议开启「每步都问我」模式
+   文案：第一次用，我会每做一步都问过你。熟悉之后可以关掉。
+       ↓
+S8 诊断页（设置页常驻）
+   ┌ 悬浮窗        ✅ 已授权
+   ├ 无障碍服务    ✅ 运行中
+   ├ 截图能力      ⚠️ 会话已过期，点击重新授权
+   ├ Shizuku       ❌ 未安装（可选，装了之后即使无障碍被系统禁用我仍能工作）
+   ├ API Key       ✅ DeepSeek · 有效 · 今日 $0.12
+   └ [运行自检]
+</code></pre></div>
+
+<h3 id="53">5.3 关键文案约束</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>禁止的写法</th>
+<th>应该的写法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>"请开启无障碍服务以启用核心功能"</td>
+<td>"让我能看见屏幕上的按钮，这样我才能替你点击"</td>
+</tr>
+<tr>
+<td>"本应用需要 SYSTEM_ALERT_WINDOW 权限"</td>
+<td>"让我能随时被你叫出来"</td>
+</tr>
+<tr>
+<td>"请求失败"</td>
+<td>"Key 已过期，请到 DeepSeek 控制台重新生成"</td>
+</tr>
+<tr>
+<td>"操作失败"</td>
+<td>"我没找到'搜索框'，可能页面还没加载完。要我再试一次吗？"</td>
+</tr>
+<tr>
+<td>"该应用不支持自动化"</td>
+<td>"美团声明了不希望被自动操作。我可以把步骤列出来，你手动点会更快。"</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="6">6. 性能预算分解</h2>
+<blockquote>
+<p>预算是<strong>设计约束</strong>，不是事后测量。任何模块超标都要在评审中说明。</p>
+</blockquote>
+<h3 id="61">6.1 延迟预算（单步操作端到端）</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>环节</th>
+<th style="text-align: center;">预算</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>屏幕采集（无障碍树）</td>
+<td style="text-align: center;">≤ 150 ms</td>
+<td>含遍历与归一化，超时上限 300ms</td>
+</tr>
+<tr>
+<td>屏幕采集（截图）</td>
+<td style="text-align: center;">≤ 400 ms</td>
+<td>含 MediaProjection 取帧 + 缩放 + 压缩</td>
+</tr>
+<tr>
+<td>Grounder 定位（缓存命中）</td>
+<td style="text-align: center;">≤ 10 ms</td>
+<td>纯本地查表，<strong>这是缓存的价值所在</strong></td>
+</tr>
+<tr>
+<td>Grounder 定位（端侧模型）</td>
+<td style="text-align: center;">≤ 1500 ms</td>
+<td></td>
+</tr>
+<tr>
+<td>Grounder 定位（云端模型）</td>
+<td style="text-align: center;">≤ 2500 ms</td>
+<td>含网络往返</td>
+</tr>
+<tr>
+<td>Orchestrator 规划（每步）</td>
+<td style="text-align: center;">≤ 3000 ms</td>
+<td>强模型，可接受较慢</td>
+</tr>
+<tr>
+<td>动作执行</td>
+<td style="text-align: center;">≤ 300 ms</td>
+<td>P95</td>
+</tr>
+<tr>
+<td>Verifier 校验（规则层）</td>
+<td style="text-align: center;">≤ 50 ms</td>
+<td><strong>必须优先走规则层</strong></td>
+</tr>
+<tr>
+<td>Verifier 校验（模型层）</td>
+<td style="text-align: center;">≤ 1500 ms</td>
+<td>仅在规则层无法判断时</td>
+</tr>
+<tr>
+<td><strong>单步端到端（缓存命中）</strong></td>
+<td style="text-align: center;"><strong>≤ 800 ms</strong></td>
+<td>目标</td>
+</tr>
+<tr>
+<td><strong>单步端到端（无缓存）</strong></td>
+<td style="text-align: center;"><strong>≤ 4000 ms</strong></td>
+<td>目标</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>关键</strong>：用户感知的是"整个任务要多久"。5 步任务在缓存命中情况下应 ≤ 8s，无缓存 ≤ 25s。</p>
+<h3 id="62">6.2 内存预算</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th style="text-align: center;">预算</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>应用常驻（无任务）</td>
+<td style="text-align: center;">≤ 120 MB</td>
+<td>悬浮窗 + 前台服务</td>
+</tr>
+<tr>
+<td>任务执行峰值</td>
+<td style="text-align: center;">≤ 400 MB</td>
+<td>含截图 Bitmap</td>
+</tr>
+<tr>
+<td>单张截图 Bitmap</td>
+<td style="text-align: center;">≤ 12 MB</td>
+<td>1440p ARGB_8888 ≈ 14.7MB，<strong>必须用 RGB_565 或缩放</strong></td>
+</tr>
+<tr>
+<td>端侧模型加载</td>
+<td style="text-align: center;">≤ 1.5 GB</td>
+<td>仅在启用本地模式时</td>
+</tr>
+<tr>
+<td>数据库</td>
+<td style="text-align: center;">≤ 50 MB</td>
+<td>不含对话附件</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>红线</strong>：截图 Bitmap 必须在 <code>ScreenSnapshot.dispose()</code> 中 recycle，<strong>任务结束前不得同时持有超过 2 张</strong>。</p>
+<h3 id="63">6.3 耗电预算</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th style="text-align: center;">预算</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>后台待机（悬浮窗常驻）</td>
+<td style="text-align: center;">≤ 3% / 天</td>
+<td>无障碍事件节流到 100ms 是关键</td>
+</tr>
+<tr>
+<td>连续执行任务</td>
+<td style="text-align: center;">≤ 8% / 小时</td>
+<td></td>
+</tr>
+<tr>
+<td>屏幕采集空闲时</td>
+<td style="text-align: center;">0</td>
+<td><strong>不采集时不得有任何轮询</strong>，必须由事件驱动</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="64-token">6.4 成本预算（用户 token 支出）</h3>
+<p>以 DeepSeek + 一个多模态模型为例，单次 5 步任务：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>环节</th>
+<th style="text-align: center;">调用次数</th>
+<th style="text-align: center;">单次 token</th>
+<th style="text-align: center;">小计</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Orchestrator 规划</td>
+<td style="text-align: center;">1 + 重规划</td>
+<td style="text-align: center;">~2000 in / 300 out</td>
+<td style="text-align: center;">~2300</td>
+</tr>
+<tr>
+<td>Grounder（缓存命中）</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;"><strong>0</strong></td>
+</tr>
+<tr>
+<td>Grounder（云端）</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">~1500 in / 50 out</td>
+<td style="text-align: center;">~4650</td>
+</tr>
+<tr>
+<td>截图理解</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">~1200 in（压缩后）</td>
+<td style="text-align: center;">~2400</td>
+</tr>
+<tr>
+<td>Verifier（规则层）</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;"><strong>0</strong></td>
+</tr>
+<tr>
+<td><strong>合计</strong></td>
+<td style="text-align: center;"></td>
+<td style="text-align: center;"></td>
+<td style="text-align: center;"><strong>~9350 token</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>成本优化目标（M2）</strong>：通过 UI 图谱缓存 + 规则层校验 + 截图裁剪，把单任务 token 从 ~9350 降到 ≤ 4500（降幅 ≥ 50%）。</p>
+<p><strong>熔断规则</strong>：用户可设每日预算。达到 80% 时提示，100% 时停止调用云端模型并提示切换本地模型。</p>
+<hr />
+<h2 id="7">7. 测试策略与真机回归框架</h2>
+<h3 id="71">7.1 测试分层</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>层级</th>
+<th>覆盖对象</th>
+<th>工具</th>
+<th>执行频率</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>单元测试</td>
+<td><code>core/*</code>、<code>provider/*</code> 的协议解析、<code>LogSanitizer</code>、<code>SensitivePageRules</code></td>
+<td>JUnit5 + MockK + Turbine</td>
+<td>每次提交</td>
+</tr>
+<tr>
+<td>契约测试</td>
+<td>各 Provider 实现是否符合 <code>LlmProvider</code> 契约</td>
+<td>自建 Contract Test</td>
+<td>每次提交（用 Mock Server）</td>
+</tr>
+<tr>
+<td>集成测试</td>
+<td>感知 → 决策 → 执行的链路（用 fixture 回放）</td>
+<td>Robolectric + 快照回放</td>
+<td>每日</td>
+</tr>
+<tr>
+<td>真机自动化</td>
+<td>关键场景端到端</td>
+<td>自建框架（见 7.3）</td>
+<td>每版本</td>
+</tr>
+<tr>
+<td>安全测试</td>
+<td>Key 泄漏审计、权限越权</td>
+<td>脚本 + 人工</td>
+<td>每版本（<strong>必过项</strong>）</td>
+</tr>
+<tr>
+<td>兼容性测试</td>
+<td>多机型权限与保活</td>
+<td>人工 + 机型矩阵</td>
+<td>每版本</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="72">7.2 快照回放机制（强烈建议）</h3>
+<p>把真实设备的 <code>ScreenSnapshot</code> 序列化保存为 fixture，测试时回放：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1">// 生产环境：录制</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">BuildConfig</span><span class="p">.</span><span class="na">RECORD_SNAPSHOTS</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">SnapshotRecorder</span><span class="p">.</span><span class="na">save</span><span class="p">(</span><span class="n">taskId</span><span class="p">,</span><span class="w"> </span><span class="n">snapshot</span><span class="p">)</span>
+<span class="p">}</span>
+
+<span class="c1">// 测试环境：回放</span>
+<span class="kd">val</span><span class="w"> </span><span class="nv">snapshots</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">SnapshotFixtures</span><span class="p">.</span><span class="na">load</span><span class="p">(</span><span class="s">"wechat_search_flow"</span><span class="p">)</span>
+<span class="kd">val</span><span class="w"> </span><span class="nv">orchestrator</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">AgentOrchestrator</span><span class="p">(</span><span class="n">perception</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ReplayPerceptionManager</span><span class="p">(</span><span class="n">snapshots</span><span class="p">))</span>
+</code></pre></div>
+
+<p><strong>价值</strong>：无真机也能回归决策逻辑；模型换版本后能对比行为差异；新成员能快速理解真实数据长什么样。</p>
+<blockquote>
+<p>⚠️ Fixture 中含真实屏幕内容，<strong>不得提交到代码仓库</strong>。用 <code>.gitignore</code> 排除，或做文本脱敏后提交。</p>
+</blockquote>
+<h3 id="73">7.3 真机回归框架</h3>
+<p>M0 期间先做最简版，M3 再完善：</p>
+<div class="codehilite"><pre><span></span><code>┌─────────────────────────────────────────┐
+│  PC 端调度器（Python/Node）               │
+│  · adb 控制设备                          │
+│  · 安装 APK                              │
+│  · 下发测试用例（JSON）                    │
+│  · 采集截图与日志                          │
+└──────────────┬──────────────────────────┘
+               │ adb
+┌──────────────▼──────────────────────────┐
+│  被测设备                                 │
+│  · App 执行任务                          │
+│  · 每步上报结构化事件（adb logcat）        │
+└──────────────────────────────────────────┘
+</code></pre></div>
+
+<p><strong>测试用例示例</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"T-001"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"打开设置并进入 WLAN 页面"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"precondition"</span><span class="p">:</span><span class="w"> </span><span class="s2">"回到桌面"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"input"</span><span class="p">:</span><span class="w"> </span><span class="s2">"打开设置，进入 WLAN 页面"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"expect"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"finalActivity"</span><span class="p">:</span><span class="w"> </span><span class="s2">"com.android.settings.Settings$WifiSettingsActivity"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"maxSteps"</span><span class="p">:</span><span class="w"> </span><span class="mi">5</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"maxDurationMs"</span><span class="p">:</span><span class="w"> </span><span class="mi">15000</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">"safetyExpect"</span><span class="p">:</span><span class="w"> </span><span class="s2">"no_sensitive_page_touched"</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<h3 id="74">7.4 必过项（每次版本发布前）</h3>
+<ol>
+<li><strong>Key 泄漏审计</strong>（EX-09 脚本）—— 不过则禁止发布</li>
+<li><strong>敏感页面漏报测试</strong>（EX-10 用例集）—— 漏报率必须为 0</li>
+<li><strong>崩溃率</strong> —— 核心链路无崩溃</li>
+<li><strong>权限引导完成率</strong> —— 内测用户 ≥ 70%</li>
+</ol>
+<hr />
+<h2 id="8">8. 开发规范与协作流程</h2>
+<h3 id="81">8.1 分支模型</h3>
+<div class="codehilite"><pre><span></span><code>main            ← 可发布状态，受保护，禁止直接推送
+ └── develop    ← 集成分支
+      ├── feature/&lt;模块&gt;-&lt;简述&gt;     如 feature/action-shizuku-executor
+      ├── fix/&lt;简述&gt;               如 fix/log-sanitizer-uuid-false-positive
+      └── refactor/&lt;简述&gt;
+ └── release/&lt;版本&gt;                发布准备
+ └── hotfix/&lt;简述&gt;                 紧急修复
+</code></pre></div>
+
+<h3 id="82-conventional-commits">8.2 提交信息（Conventional Commits）</h3>
+<div class="codehilite"><pre><span></span><code>&lt;type&gt;(&lt;scope&gt;): &lt;描述&gt;
+
+type:  feat | fix | refactor | perf | test | docs | build | ci | chore | security
+scope: 模块名，如 action / perception / provider-openai / crypto
+</code></pre></div>
+
+<p>示例：</p>
+<div class="codehilite"><pre><span></span><code>feat(action): 实现 Shizuku 通道的 input tap 与 am start
+security(crypto): Key 使用后强制清零，修复异常路径泄漏
+perf(perception): 无障碍树遍历加 300ms 超时，避免复杂界面卡顿
+</code></pre></div>
+
+<p><strong><code>security</code> 类型的提交必须由技术负责人 review。</strong></p>
+<h3 id="83">8.3 代码风格</h3>
+<ul>
+<li>ktlint + detekt，提交前自动执行</li>
+<li>命名：类用 <code>PascalCase</code>，函数/属性用 <code>camelCase</code>，常量用 <code>SCREAMING_SNAKE_CASE</code></li>
+<li><strong>禁止</strong> <code>!!</code>（除非有明确注释说明为何不可能为 null）</li>
+<li><strong>禁止</strong> 在协程中吞异常（<code>catch (e: Exception) {}</code>）</li>
+<li>公开 API 必须有 KDoc，说明<strong>为什么</strong>而不只是<strong>是什么</strong></li>
+<li>单个文件不超过 500 行，超出则拆分</li>
+</ul>
+<h3 id="84-pr-reviewer">8.4 PR 检查项（Reviewer 必查）</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>检查项</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>是否有明文 Key 落盘/落日志</strong></td>
+<td>最高优先级，见即打回</td>
+</tr>
+<tr>
+<td>是否绕过 <code>LogSanitizer</code> 直接打日志</td>
+<td>打回</td>
+</tr>
+<tr>
+<td>是否直接依赖 <code>AccessibilityService</code> 而非 <code>ActionExecutor</code> 抽象</td>
+<td>打回</td>
+</tr>
+<tr>
+<td>是否新增了未被 <code>SafetyGuard</code> 覆盖的动作路径</td>
+<td>打回</td>
+</tr>
+<tr>
+<td>截图 Bitmap 是否有明确的 recycle 路径</td>
+<td>打回</td>
+</tr>
+<tr>
+<td>是否引入了新的敏感权限</td>
+<td>需技术负责人批准</td>
+</tr>
+<tr>
+<td>单元测试覆盖</td>
+<td>核心逻辑覆盖率 ≥ 70%</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="85-ci">8.5 CI 流程</h3>
+<div class="codehilite"><pre><span></span><code>push / PR
+   ↓
+[1] ktlint + detekt
+   ↓
+[2] 单元测试（./gradlew test）
+   ↓
+[3] 构建 debug APK
+   ↓
+[4] 安全扫描（Key 泄漏正则扫描 + 依赖漏洞扫描）
+   ↓
+[5] 上传 APK 到内测分发
+   ↓
+[6] （每日）真机回归
+</code></pre></div>
+
+<hr />
+<h2 id="9-m0">9. M0 排期与分工</h2>
+<h3 id="91">9.1 三周排期</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th style="text-align: center;">周</th>
+<th>任务</th>
+<th>负责</th>
+<th>交付</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;"><strong>W1</strong></td>
+<td>环境准备（Studio + SDK + 真机）</td>
+<td>全员</td>
+<td>可编译的空工程</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td>工程骨架落地、首次编译通过</td>
+<td>Android 高级工程师 ×2</td>
+<td><code>assembleDebug</code> 成功</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td>EX-08 Provider 链路（先用本机 Ollama）</td>
+<td>Android 工程师</td>
+<td>流式对话跑通</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td>EX-01 无障碍覆盖率采集工具</td>
+<td>Android 高级工程师</td>
+<td>数据采集脚本 + 首批数据</td>
+</tr>
+<tr>
+<td style="text-align: center;"><strong>W2</strong></td>
+<td>EX-02 手势执行可靠性</td>
+<td>Android 高级工程师</td>
+<td>数据报告</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td>EX-03 Android 17 APM 实测 ★</td>
+<td>Android 高级工程师</td>
+<td>结论报告</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td>EX-04 截图链路</td>
+<td>Android 高级工程师</td>
+<td>可复用模块</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td>EX-05 Shizuku 通道 ★</td>
+<td>Android 高级工程师</td>
+<td>可复用模块</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td>EX-09 Key 安全审计 ★</td>
+<td>安全顾问 + 工程师</td>
+<td>审计报告</td>
+</tr>
+<tr>
+<td style="text-align: center;"><strong>W3</strong></td>
+<td>EX-06 截图成本基线</td>
+<td>AI 工程师</td>
+<td>参数标准</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td>EX-10 敏感页面识别 ★</td>
+<td>Android 工程师</td>
+<td>规则库 v1 + 用例集</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td>EX-11 UI 图谱缓存验证</td>
+<td>AI 工程师</td>
+<td>指纹算法</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td>EX-12 机型适配矩阵</td>
+<td>测试工程师</td>
+<td>适配矩阵</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td>EX-07 端侧模型性能</td>
+<td>AI 工程师</td>
+<td>可行性结论</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td><strong>M0 决策门评审</strong></td>
+<td>全员</td>
+<td>Go / No-Go 结论</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="92-4">9.2 分工（最小配置 4 人）</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>角色</th>
+<th style="text-align: center;">人数</th>
+<th>M0 主要职责</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>技术负责人</td>
+<td style="text-align: center;">1</td>
+<td>架构把关、EX-03/EX-05 结论、决策门评审</td>
+</tr>
+<tr>
+<td>Android 高级工程师</td>
+<td style="text-align: center;">2</td>
+<td>无障碍、截图、Shizuku、工程骨架</td>
+</tr>
+<tr>
+<td>AI 工程师</td>
+<td style="text-align: center;">1</td>
+<td>Provider 接入、成本基线、缓存算法、端侧模型</td>
+</tr>
+<tr>
+<td>测试/安全（可兼职）</td>
+<td style="text-align: center;">0.5</td>
+<td>EX-09 审计、EX-12 机型矩阵</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="93">9.3 并行化建议</h3>
+<ul>
+<li>EX-01/02/04 可并行（都依赖无障碍与截图，但互不阻塞）</li>
+<li>EX-03 与 EX-05 应<strong>串行</strong>（先确认 APM 限制，再决定 Shizuku 投入）</li>
+<li>EX-08 与 EX-06/07 可并行（网络链路 vs 成本与端侧）</li>
+<li>EX-09 应在 EX-08 完成后立即做（有了 Key 存储才有得审计）</li>
+</ul>
+<hr />
+<h2 id="10-go-no-go">10. Go / No-Go 判定标准</h2>
+<h3 id="101">10.1 必须全部通过（硬性）</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>判定项</th>
+<th>标准</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>工程可构建</td>
+<td><code>assembleDebug</code> 成功，APK 可安装</td>
+</tr>
+<tr>
+<td>2</td>
+<td>核心链路打通</td>
+<td>读屏 → 决策 → 执行 → 校验 端到端跑通</td>
+</tr>
+<tr>
+<td>3</td>
+<td>单步成功率</td>
+<td>≥ 80%（M0 目标，M1 要提到 95%）</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>Key 安全审计</strong></td>
+<td>全链路无明文 Key 落盘或落日志</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>敏感页面漏报率</strong></td>
+<td><strong>= 0</strong></td>
+</tr>
+<tr>
+<td>6</td>
+<td>至少两条执行通道可用</td>
+<td>无障碍 + Shizuku 或 IME</td>
+</tr>
+<tr>
+<td>7</td>
+<td>至少 3 家 Provider 可用</td>
+<td>含 1 家本地模型</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="102-no-go">10.2 出现以下情况则 No-Go（需重新设计）</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>信号</th>
+<th>含义</th>
+<th>应对</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>无障碍与 Shizuku <strong>都不可用</strong></td>
+<td>无法代操作，产品形态不成立</td>
+<td>转为「屏幕分析 + 步骤引导」形态，重新评估产品定位</td>
+</tr>
+<tr>
+<td>截图成本压不下来（单任务 &gt; 20000 token）</td>
+<td>用户成本不可接受</td>
+<td>感知层全面转向无障碍树优先，截图仅用于"截图问答"</td>
+</tr>
+<tr>
+<td>敏感页面无法做到零漏报</td>
+<td>合规风险不可控</td>
+<td>扩大黑名单到"只允许白名单 App"，或放弃跨 App 任务</td>
+</tr>
+<tr>
+<td>Key 无法做到无泄漏</td>
+<td>安全底线失守</td>
+<td>停止开发，重做安全设计</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="103">10.3 决策门输出物</h3>
+<p>M0 结束时必须产出：</p>
+<ol>
+<li><strong>《平台能力边界报告》</strong> —— 逐项列出可用/不可用能力及系统版本差异</li>
+<li><strong>《Key 安全审计报告》</strong> —— 含审计方法与结果</li>
+<li><strong>《成本基线报告》</strong> —— 单任务 token 成本与优化空间</li>
+<li><strong>《机型适配矩阵》</strong> —— 覆盖主流 ROM</li>
+<li><strong>《技术选型确认书》</strong> —— 确认或修正方案文档的技术选型</li>
+<li><strong>M1 详细排期</strong> —— 基于 M0 的实测数据重新估算</li>
+</ol>
+<hr />
+<h2 id="checklist">附：开工前 Checklist</h2>
+<div class="codehilite"><pre><span></span><code>□ 用户已确认 10 个决策点（见方案文档 12.5）
+□ Android Studio 已安装，SDK 路径已配置
+□ 至少 1 台 Android 真机可用（Android 13+）
+□ 至少 1 个可用的 API Key（推荐 OpenRouter，一个 Key 通吃）
+□ 本机 Ollama 已启动并验证 /v1/models 可访问
+□ 手机与电脑在同一局域网（本地模型联调）
+□ 工程骨架已首次编译通过
+□ 安全审计脚本已就绪（EX-09）
+□ 测试用微信/支付宝账号已准备（不要用主账号）
+□ Git 仓库已初始化，分支保护已配置
+</code></pre></div>
+
+<hr />
+<p><em>手册结束。M0 完成后按第 10 章评审，通过则进入 M1。</em></p>
+  </main>
+</div>
+</body>
+</html>

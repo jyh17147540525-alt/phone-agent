@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- ══════════════════════════════════════════════════════════
+         网络：BYOK 架构下客户端直连用户指定的 Provider
+         ⚠️ cleartextTrafficPermitted 仅对本地模型（LAN）放行，
+            公网 Provider 强制 HTTPS，见 network_security_config.xml
+         ══════════════════════════════════════════════════════════ -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- ══════════════════════════════════════════════════════════
+         核心系统能力
+         ══════════════════════════════════════════════════════════ -->
+
+    <!-- 悬浮窗：悬浮球与执行过程可视化，唯一不受无障碍政策影响的入口 -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!-- 前台服务：截图会话与无障碍服务必须以前台服务运行 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <!-- 截图：MediaProjection 的载体 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- 通知监听：读取通知内容用于上下文理解（可选，用户可拒绝） -->
+    <uses-permission android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+        tools:ignore="ProtectedPermissions" />
+
+    <!-- 语音输入（V1） -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- 生物识别：保护 API Key 存储（可选开启） -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+
+    <!-- ══════════════════════════════════════════════════════════
+         包可见性（Android 11+）：需要检测目标 App 是否安装、
+         以及维护 App 深层链接映射表
+         ══════════════════════════════════════════════════════════ -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <!-- Shizuku 需要能发现自身 -->
+        <package android:name="moe.shizuku.privileged.api" />
+    </queries>
+
+    <application
+        android:name=".PocketAgentApp"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.PocketAgent"
+        tools:targetApi="36">
+
+        <!-- ── 主界面 ──────────────────────────────────────── -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- ── 无障碍服务（通道 A）────────────────────────────
+             ⚠️ 关键合规点：必须在 meta-data 中精确声明能力范围，
+                并保证 canRetrieveWindowContent 等标志最小化。
+                 Android 17+ 在高级保护模式下会校验应用类别。
+             ─────────────────────────────────────────────────── -->
+        <service
+            android:name=".assistant.AgentAccessibilityService"
+            android:exported="true"
+            android:label="@string/accessibility_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/agent_accessibility_service" />
+        </service>
+
+        <!-- ── 通知监听服务（可选能力）───────────────────────── -->
+        <service
+            android:name=".assistant.AgentNotificationListenerService"
+            android:exported="true"
+            android:label="@string/notification_listener_label"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- ── 前台服务：截图会话 + 任务执行 ────────────────── -->
+        <service
+            android:name=".assistant.AgentForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection|specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="AI 助手任务执行与屏幕感知会话" />
+        </service>
+
+        <!-- ── 悬浮窗服务 ──────────────────────────────────── -->
+        <service
+            android:name=".overlay.OverlayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="AI 助手悬浮球与执行过程展示" />
+        </service>
+
+        <!-- ── Shizuku 权限提供者（通道 B）──────────────────── -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:enabled="true"
+            android:exported="true"
+            android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+
+        <!-- ── 桌面组件（V1）───────────────────────────────── -->
+        <receiver
+            android:name=".widget.QuickTaskWidget"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/quick_task_widget_info" />
+        </receiver>
+
+    </application>
+</manifest>

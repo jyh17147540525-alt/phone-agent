@@ -1,0 +1,2244 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>社区分发版方案 v2.0（增补与修订）</title>
+<style>
+:root {
+  --bg: #14161a;
+  --bg-soft: #1a1d22;
+  --panel: #1e2228;
+  --panel-2: #23272f;
+  --border: #2e343d;
+  --text: #e6e9ee;
+  --text-dim: #9aa4b2;
+  --text-faint: #6b7684;
+  --accent: #6ea8fe;
+  --accent-2: #7ee0c0;
+  --warn: #f0b429;
+  --danger: #f2685c;
+  --ok: #57c98a;
+  --code-bg: #15181d;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+               "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans SC", sans-serif;
+  font-size: 15.5px;
+  line-height: 1.85;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { display: flex; max-width: 1500px; margin: 0 auto; }
+aside {
+  width: 300px; flex: 0 0 300px;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  padding: 28px 18px 60px 28px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-soft);
+  font-size: 13.5px;
+}
+aside .brand {
+  font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--text-faint); margin-bottom: 4px;
+}
+aside .title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 20px; line-height: 1.5; }
+aside ul { list-style: none; padding-left: 0; margin: 0; }
+aside ul ul { padding-left: 14px; margin-top: 4px; }
+aside li { margin: 2px 0; }
+aside a {
+  color: var(--text-dim); text-decoration: none; display: block;
+  padding: 4px 8px; border-radius: 6px; border-left: 2px solid transparent;
+  transition: .15s;
+}
+aside a:hover { color: var(--text); background: var(--panel-2); border-left-color: var(--accent); }
+main { flex: 1; min-width: 0; padding: 44px 56px 120px; max-width: 1080px; }
+
+h1 {
+  font-size: 30px; line-height: 1.35; margin: 0 0 8px; font-weight: 800;
+  letter-spacing: -.01em;
+}
+h2 {
+  font-size: 22px; margin: 56px 0 18px; padding-bottom: 10px;
+  border-bottom: 1px solid var(--border); font-weight: 700; scroll-margin-top: 20px;
+}
+h3 { font-size: 17.5px; margin: 34px 0 12px; font-weight: 700; color: #dfe5ee; scroll-margin-top: 20px; }
+h4 { font-size: 15.5px; margin: 24px 0 10px; font-weight: 700; color: var(--text-dim); }
+p { margin: 12px 0; }
+a { color: var(--accent); }
+strong { color: #fff; font-weight: 700; }
+hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+blockquote {
+  margin: 18px 0; padding: 14px 20px;
+  background: linear-gradient(90deg, rgba(110,168,254,.10), rgba(110,168,254,.02));
+  border-left: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0; color: #cfd6e0;
+}
+blockquote p { margin: 6px 0; }
+
+ul, ol { padding-left: 24px; margin: 12px 0; }
+li { margin: 5px 0; }
+li > ul, li > ol { margin: 5px 0; }
+
+.tw { overflow-x: auto; margin: 18px 0; border: 1px solid var(--border); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--panel); }
+th, td { padding: 9px 14px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { background: var(--panel-2); font-weight: 700; color: #fff; white-space: nowrap; font-size: 13.5px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: rgba(110,168,254,.045); }
+
+code {
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+  font-size: 13px; background: var(--code-bg); padding: 2px 6px;
+  border-radius: 5px; color: #8fd3ff; border: 1px solid var(--border);
+}
+pre {
+  background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px;
+  padding: 18px 20px; overflow-x: auto; margin: 18px 0;
+  font-size: 12.8px; line-height: 1.65;
+}
+pre code {
+  background: none; border: none; padding: 0; color: #cfd8e3;
+  white-space: pre; font-family: "JetBrains Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+}
+.codehilite { background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; margin: 18px 0; }
+.codehilite pre { border: none; margin: 0; background: none; }
+.codehilite .k, .codehilite .kd, .codehilite .kn { color: #ff7b9c; }
+.codehilite .s, .codehilite .s1, .codehilite .s2 { color: #7ee0c0; }
+.codehilite .c1, .codehilite .cm { color: #5f6b7a; font-style: italic; }
+.codehilite .n, .codehilite .nf, .codehilite .nc { color: #8fd3ff; }
+.codehilite .m, .codehilite .mi { color: #f0b429; }
+
+@media (max-width: 1000px) {
+  aside { display: none; }
+  main { padding: 28px 20px 80px; }
+  body { font-size: 15px; }
+  h1 { font-size: 24px; }
+  h2 { font-size: 19px; }
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: #333a45; border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: #414a58; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <aside>
+    <div class="brand">Project Plan</div>
+    <div class="title">社区分发版方案 v2.0（增补与修订）</div>
+    <div class="toc">
+<ul>
+<li><a href="#0">0. 本次转向的实质影响（先读这页）</a><ul>
+<li><a href="#01">0.1 三个约束变化带来的连锁反应</a></li>
+<li><a href="#02">0.2 一句话总结这次转向</a></li>
+<li><a href="#03">0.3 修订后的核心策略</a></li>
+</ul>
+</li>
+<li><a href="#1">1. 分发与合规现实</a><ul>
+<li><a href="#11-restricted-settings">1.1 侧载应用的权限拦路虎：受限设置（Restricted Settings）</a></li>
+<li><a href="#12-android-1415">1.2 Android 14/15+ 侧载的其他限制</a></li>
+<li><a href="#13-app">1.3 App 备案：绕不开但敞口可控</a></li>
+<li><a href="#14">1.4 与商店版本的对比总结</a></li>
+</ul>
+</li>
+<li><a href="#2">2. 功能设计（社区场景驱动）</a><ul>
+<li><a href="#21">2.1 社区用户的真实需求画像</a></li>
+<li><a href="#22">2.2 功能优先级重排</a></li>
+<li><a href="#23">2.3 新增功能详细定义</a></li>
+</ul>
+</li>
+<li><a href="#3">3. 本体与插件页的职责边界</a><ul>
+<li><a href="#31">3.1 一句话原则</a></li>
+<li><a href="#32">3.2 职责划分表</a></li>
+<li><a href="#33">3.3 硬性边界（不可逾越）</a></li>
+<li><a href="#34">3.4 插件页的界面结构</a></li>
+</ul>
+</li>
+<li><a href="#4">4. 插件拓展机制</a><ul>
+<li><a href="#41">4.1 三级插件体系</a></li>
+<li><a href="#42-l1">4.2 L1 规则包规范</a></li>
+<li><a href="#43-l2">4.3 L2 脚本插件规范</a></li>
+<li><a href="#44-l3">4.4 L3 原生插件规范</a></li>
+<li><a href="#45-capability">4.5 插件能力白名单（Capability 清单）</a></li>
+<li><a href="#46">4.6 订阅机制（去中心化）</a></li>
+<li><a href="#47">4.7 插件开发工具链</a></li>
+</ul>
+</li>
+<li><a href="#5">5. 社区传播与发布策略</a><ul>
+<li><a href="#51">5.1 信任建立（第一优先级）</a></li>
+<li><a href="#52">5.2 分发渠道矩阵</a></li>
+<li><a href="#53">5.3 渠道号与统计（隐私友好）</a></li>
+<li><a href="#54">5.4 版本与发布节奏</a></li>
+<li><a href="#55">5.5 社区运营机制</a></li>
+<li><a href="#56">5.6 风险与应对</a></li>
+</ul>
+</li>
+<li><a href="#6-k60">6. 红米 K60 适配与优化要点</a><ul>
+<li><a href="#61">6.1 设备规格与影响</a></li>
+<li><a href="#62-hyperos-miui">6.2 HyperOS / MIUI 权限配置清单 ★必做</a></li>
+<li><a href="#63-2k">6.3 2K 屏的截图成本优化 ★关键</a></li>
+<li><a href="#64-hyperos">6.4 HyperOS 特有行为适配</a></li>
+<li><a href="#65-8-gen-1">6.5 性能优化要点（针对骁龙 8+ Gen 1）</a></li>
+</ul>
+</li>
+<li><a href="#7">7. 修订后的模块划分</a><ul>
+<li><a href="#71">7.1 新增模块</a></li>
+<li><a href="#72">7.2 更新后的整体结构</a></li>
+<li><a href="#73">7.3 关键依赖约束（新增）</a></li>
+</ul>
+</li>
+<li><a href="#8">8. 修订后的分阶段计划</a><ul>
+<li><a href="#81">8.1 与原计划的差异</a></li>
+<li><a href="#82">8.2 修订后的路线图</a></li>
+<li><a href="#83-m0">8.3 M0 新增验证实验</a></li>
+</ul>
+</li>
+<li><a href="#9">9. 待确认决策点（修订版）</a></li>
+<li><a href="#v10">附：本次修订对 v1.0 的实质性变更清单</a></li>
+</ul>
+</div>
+
+  </aside>
+  <main>
+<h1 id="v20">社区分发版方案 v2.0（增补与修订）</h1>
+<blockquote>
+<p>项目：PocketAgent（手机 AI 智能体助手 · BYOK 版）
+版本：v2.0 ｜ 日期：2026-09-21
+前置文档：《手机AI智能体助手-项目方案-v1.0.md》《M0技术验证与工程落地手册-v1.0.md》
+<strong>本文档的性质</strong>：v1.0 是在"假定上架应用商店"前提下的设计。本版因分发策略转向，对若干核心假设做了<strong>实质性修订</strong>，不是补丁。</p>
+</blockquote>
+<hr />
+<hr />
+<h2 id="0">0. 本次转向的实质影响（先读这页）</h2>
+<h3 id="01">0.1 三个约束变化带来的连锁反应</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>变化</th>
+<th>解锁了什么</th>
+<th>新增了什么麻烦</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>不上架应用商店</strong></td>
+<td>① 无障碍权限不再受商店审核约束（这是最大的收益）② 不受 Google Play 第三方 AI 集成条款约束 ③ 迭代节奏完全自主，无需等审核</td>
+<td>① <strong>侧载应用的「受限设置」会拦住无障碍权限</strong>（Android 13+）② 失去商店的信任背书，用户下载前会犹豫 ③ 无商店更新机制，必须自建 ④ App 备案问题无法靠"已上架"糊过去</td>
+</tr>
+<tr>
+<td><strong>主要面向安卓</strong></td>
+<td>技术栈可以 100% 聚焦原生能力，不用为 iOS 做任何妥协</td>
+<td>无（本来就该这样）</td>
+</tr>
+<tr>
+<td><strong>本体 + 插件页架构</strong></td>
+<td>① 功能可无限扩展而不膨胀本体 ② 社区可以贡献适配规则，解决"App 千千万，你适配不过来"的死结 ③ 插件生态本身成为护城河</td>
+<td>① 插件安全模型必须设计好，否则插件就是后门 ② 插件 API 一旦发布就是兼容性负债 ③ 需要额外做插件开发工具链与文档</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="02">0.2 一句话总结这次转向</h3>
+<blockquote>
+<p><strong>不上商店不是"少了个渠道"，而是把"审核合规"的约束换成了"信任建立"的约束。</strong>
+v1.0 里最大的技术风险是"Android 17 收紧无障碍"，而转向社区分发后，
+新的最大风险变成了 <strong>"用户凭什么敢把一个能读屏、能代操作、还能加载第三方插件的 APK 装到自己手机上"</strong>。</p>
+</blockquote>
+<p>这个问题必须用产品设计正面回答，而不是靠一句"我们是开源的"。</p>
+<h3 id="03">0.3 修订后的核心策略</h3>
+<div class="codehilite"><pre><span></span><code>分发：   GitHub Releases 为主 + 网盘/群文件为辅，应用内自更新
+信任：   开源 + 固定签名 + 哈希公示 + 插件能力白名单 + 快照审查工具
+扩展：   三级插件机制（规则包 / JS 脚本 / 原生 APK），L1 规则包为主力
+合规：   无自有服务端 + 不收费 + 不收集数据，把备案与许可证问题降到最低敞口
+适配：   红米 K60 (HyperOS, 3200×1440) 作为一等公民深度优化
+</code></pre></div>
+
+<hr />
+<h2 id="1">1. 分发与合规现实</h2>
+<blockquote>
+<p>这一章是"丑话说在前面"。绕过商店不等于绕过监管，只是把监管的抓手换了一批。</p>
+</blockquote>
+<h3 id="11-restricted-settings">1.1 侧载应用的权限拦路虎：受限设置（Restricted Settings）</h3>
+<p><strong>这是转向社区分发后</strong>第一个必须解决的技术问题。</p>
+<p>Android 13 起引入「受限设置」机制：<strong>通过侧载（非商店渠道）安装的应用，默认无法被授予无障碍服务、通知监听等敏感权限</strong>。Android 14 进一步收紧。</p>
+<p><strong>具体表现</strong>：
+- 用户在「设置 → 无障碍」里找不到你的应用，或开关是灰色的
+- 点击时提示"出于安全考虑，此设置当前不可用"</p>
+<p><strong>解除方式</strong>（必须做进引导流程）：</p>
+<div class="codehilite"><pre><span></span><code>设置 → 应用 → 应用管理 → 找到本应用 → 右上角菜单（或"应用信息"页内）
+  → 「允许受限设置」/「允许使用受限设置」 → 允许
+  → 然后才能到「设置 → 更多设置 → 无障碍」中开启本应用
+</code></pre></div>
+
+<blockquote>
+<p>⚠️ <strong>关键细节</strong>：<strong>每次通过侧载方式覆盖安装（更新）后，受限设置可能被重置</strong>，
+用户需要重新授权一次。这意味着<strong>应用内自更新会导致无障碍权限失效</strong>，
+必须在更新后检测并引导用户重新授权，否则用户会以为"更新完就坏了"。</p>
+</blockquote>
+<p><strong>产品化处理</strong>：
+1. 首次启动的权限引导中，把"允许受限设置"作为独立一屏，附<strong>截图级的分步指引</strong>
+2. 提供「权限自检」按钮：一键检测无障碍服务是否可用，不可用时给出<strong>当前机型的具体解除路径</strong>
+3. 应用内更新完成后，<strong>主动检测无障碍服务状态</strong>，失效则弹窗引导，而不是等用户发现功能坏了
+4. 更新包优先引导用户用「系统安装器」而非应用内直接安装，减少受限设置重置的概率</p>
+<h3 id="12-android-1415">1.2 Android 14/15+ 侧载的其他限制</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>限制</th>
+<th>影响</th>
+<th>应对</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>安装来源 App 每次安装都需用户确认</td>
+<td>更新流程变长</td>
+<td>更新说明中提前告知，减少用户困惑</td>
+</tr>
+<tr>
+<td>目标 SDK &lt; 23 的 APK 无法安装</td>
+<td>无（我们的 targetSdk 是 36）</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>Android 15：Play Protect 实时行为监控</strong></td>
+<td>系统会扫描"屏幕读取和按键记录"类行为，<strong>本产品的核心能力正好命中这些特征</strong>，可能触发警告</td>
+<td>① 不申请无关权限，降低行为特征 ② 在官网/README 提供 VirusTotal 报告 ③ 明确告知用户"如果 Play Protect 提示，这是误报，原因是本应用需要读屏" ④ 考虑提供"关闭 Play Protect"的说明（但这会降低安全性，需谨慎措辞）</td>
+</tr>
+<tr>
+<td>Android 15：静默安装被全面封杀</td>
+<td>不能用 ADB/脚本自动装更新</td>
+<td>更新必须用户手动确认，接受这个流程</td>
+</tr>
+<tr>
+<td>Android 15+：安装来源 App 需来自可信来源</td>
+<td>用户用第三方文件管理器可能装不上</td>
+<td>引导用户用系统自带的文件管理器</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>⚠️ <strong>Play Protect 这一条要高度重视</strong>。本产品的行为特征（读屏 + 模拟点击 + 后台常驻）
+与银行木马高度相似。国内 ROM 的"安全中心"也可能拦截。建议：
+<strong>主动去各家安全中心做误报申诉</strong>，并在社区维护一份"误报处理指南"。</p>
+</blockquote>
+<h3 id="13-app">1.3 App 备案：绕不开但敞口可控</h3>
+<p><strong>法律现实</strong>（工信部《关于开展移动互联网应用程序备案工作的通知》，2023-07）：</p>
+<ul>
+<li>在境内从事互联网信息服务的 App 主办者，须向省级通信管理局履行备案手续</li>
+<li>2024-07 起转入常态化执法，对未备案 App 采取"<strong>先通报、后下架、再处罚</strong>"的处置链条</li>
+<li>备案号格式：<code>京ICP备2023111111号-1A</code>（App 后缀是 <code>-1A</code>，网站是 <code>-1</code>）</li>
+<li>备案绑定的是「<strong>应用名称 + 包名 + 签名</strong>」</li>
+</ul>
+<p><strong>执法抓手在哪</strong>（这决定了实际风险敞口）：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>抓手</th>
+<th>对本项目是否适用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>应用市场下架</td>
+<td>❌ 不适用（不上架）</td>
+</tr>
+<tr>
+<td>接入服务商拦截域名</td>
+<td>❌ 不适用（<strong>无自有服务端、无域名</strong>）</td>
+</tr>
+<tr>
+<td>智能终端厂商配合治理</td>
+<td>⚠️ 部分适用（国内 ROM 的安全中心可能配合）</td>
+</tr>
+<tr>
+<td>分发平台配合</td>
+<td>⚠️ 部分适用（网盘、论坛可能被要求配合清理）</td>
+</tr>
+<tr>
+<td>传播渠道（群组、论坛）</td>
+<td>⚠️ 适用（平台方可能被要求处理）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>结论与建议</strong>：</p>
+<ol>
+<li><strong>架构上继续坚持"无自有服务端"</strong>，这不仅是成本与合规优势，也直接消除了最主要的执法抓手（域名拦截）</li>
+<li><strong>不做经营性收费</strong>（无会员、无内购、无广告变现），避免触发 ICP/EDI 许可证要求</li>
+<li><strong>不收集用户数据</strong>（不建账号体系、不做云端同步），降低个人信息保护合规压力</li>
+<li><strong>但必须承认</strong>：法律上备案义务仍然存在，只是执法概率与强度较低。
+   <strong>这是需要用户自行决策并咨询律师的风险点</strong>，本文档不构成法律意见</li>
+<li><strong>准备一条"随时可合规"的路径</strong>：如果项目规模扩大或开始收费，能立刻补办备案
+   （需准备：主体资质、包名与签名固定、服务信息说明）</li>
+</ol>
+<blockquote>
+<p><strong>诚实提示</strong>：如果你的目标只是小范围社区传播、不收费、无自有服务器，备案的实际风险敞口不大。
+但一旦要"做大"，备案就是必须补的第一课。<strong>别抱着"永远不备案"的侥幸做产品规划。</strong></p>
+</blockquote>
+<h3 id="14">1.4 与商店版本的对比总结</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>商店版（v1.0 设想）</th>
+<th>社区版（v2.0）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>无障碍权限</td>
+<td>需商店审核，极易被拒</td>
+<td>✅ 无审核，但需用户手动解除「受限设置」</td>
+</tr>
+<tr>
+<td>第三方 AI 集成条款</td>
+<td>需合规改造</td>
+<td>✅ 不适用</td>
+</tr>
+<tr>
+<td>更新机制</td>
+<td>商店自动更新</td>
+<td>❌ 需自建（应用内检查 + 手动安装）</td>
+</tr>
+<tr>
+<td>用户信任</td>
+<td>商店背书</td>
+<td>❌ 需自建（开源 + 签名 + 哈希）</td>
+</tr>
+<tr>
+<td>迭代速度</td>
+<td>受审核周期约束</td>
+<td>✅ 完全自主</td>
+</tr>
+<tr>
+<td>App 备案</td>
+<td>必须</td>
+<td>⚠️ 义务仍在，执法敞口较小</td>
+</tr>
+<tr>
+<td>恶意二次打包风险</td>
+<td>低</td>
+<td>⚠️ 高（需签名校验 + 哈希公示）</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="2">2. 功能设计（社区场景驱动）</h2>
+<h3 id="21">2.1 社区用户的真实需求画像</h3>
+<p>社区渠道（论坛、群组、社交平台）的用户与商店用户有本质差异：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>特征</th>
+<th>商店用户</th>
+<th>社区用户</th>
+<th>对功能设计的影响</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>技术能力</td>
+<td>参差不齐</td>
+<td><strong>普遍偏高</strong>，愿意折腾</td>
+<td>可以暴露更多高级配置项</td>
+</tr>
+<tr>
+<td>耐心</td>
+<td>低，3 分钟不爽就卸载</td>
+<td>高，愿意看文档配权限</td>
+<td>权限引导可以更详细，但要<strong>可跳过</strong></td>
+</tr>
+<tr>
+<td>期待</td>
+<td>开箱即用</td>
+<td><strong>要能自定义、能改、能看源码</strong></td>
+<td>必须有插件机制与规则编辑器</td>
+</tr>
+<tr>
+<td>传播方式</td>
+<td>商店搜索</td>
+<td><strong>口碑 + 群内分享</strong></td>
+<td>必须有"分享"能力（分享规则、分享配置）</td>
+</tr>
+<tr>
+<td>核心诉求</td>
+<td>省事</td>
+<td><strong>① 别人没有的能力 ② 自己可控 ③ 参与感</strong></td>
+<td>社区贡献机制是留存关键</td>
+</tr>
+<tr>
+<td>对风险的容忍</td>
+<td>低</td>
+<td>中（知道自己在装什么）</td>
+<td>但<strong>仍需要透明的安全说明</strong></td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="22">2.2 功能优先级重排</h3>
+<p>基于社区场景，对 v1.0 的功能清单做优先级调整：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>功能</th>
+<th style="text-align: center;">v1.0 优先级</th>
+<th style="text-align: center;">v2.0 优先级</th>
+<th>调整理由</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Key 管理（多 Provider）</td>
+<td style="text-align: center;">P0</td>
+<td style="text-align: center;"><strong>P0</strong></td>
+<td>不变</td>
+</tr>
+<tr>
+<td>对话能力</td>
+<td style="text-align: center;">P0</td>
+<td style="text-align: center;"><strong>P0</strong></td>
+<td>不变</td>
+</tr>
+<tr>
+<td>屏幕问答</td>
+<td style="text-align: center;">P0</td>
+<td style="text-align: center;"><strong>P0</strong></td>
+<td>不变</td>
+</tr>
+<tr>
+<td>单步执行</td>
+<td style="text-align: center;">P0</td>
+<td style="text-align: center;"><strong>P0</strong></td>
+<td>不变</td>
+</tr>
+<tr>
+<td><strong>插件页与插件机制</strong></td>
+<td style="text-align: center;">未规划</td>
+<td style="text-align: center;"><strong>P0</strong> ⬆️</td>
+<td>社区版的核心差异化，必须 MVP 就有</td>
+</tr>
+<tr>
+<td><strong>规则包导入/订阅</strong></td>
+<td style="text-align: center;">未规划</td>
+<td style="text-align: center;"><strong>P0</strong> ⬆️</td>
+<td>插件的轻量形态，社区最容易贡献</td>
+</tr>
+<tr>
+<td><strong>权限引导与自检向导</strong></td>
+<td style="text-align: center;">P0</td>
+<td style="text-align: center;"><strong>P0</strong> ⬆️</td>
+<td>侧载 + 受限设置让引导难度翻倍</td>
+</tr>
+<tr>
+<td><strong>快照审查工具</strong></td>
+<td style="text-align: center;">未规划</td>
+<td style="text-align: center;"><strong>P1</strong> ⬆️</td>
+<td>让用户能自己写规则（参考 GKD 的成功经验）</td>
+</tr>
+<tr>
+<td>多步任务编排</td>
+<td style="text-align: center;">P1</td>
+<td style="text-align: center;"><strong>P1</strong></td>
+<td>不变（但社区版可以更早开放给用户试）</td>
+</tr>
+<tr>
+<td>UI 图谱缓存</td>
+<td style="text-align: center;">P1</td>
+<td style="text-align: center;"><strong>P1</strong></td>
+<td>不变</td>
+</tr>
+<tr>
+<td>应用内自更新</td>
+<td style="text-align: center;">未规划</td>
+<td style="text-align: center;"><strong>P0</strong> ⬆️</td>
+<td>无商店必须自建</td>
+</tr>
+<tr>
+<td>渠道号与统计</td>
+<td style="text-align: center;">未规划</td>
+<td style="text-align: center;"><strong>P1</strong> ⬆️</td>
+<td>社区传播需要知道哪个渠道有效</td>
+</tr>
+<tr>
+<td>配置导出/分享</td>
+<td style="text-align: center;">未规划</td>
+<td style="text-align: center;"><strong>P1</strong> ⬆️</td>
+<td>社区传播的天然载体</td>
+</tr>
+<tr>
+<td>端侧模型</td>
+<td style="text-align: center;">P1</td>
+<td style="text-align: center;"><strong>P1</strong></td>
+<td>K60 的骁龙 8+ 性能足够，可行</td>
+</tr>
+<tr>
+<td>语音</td>
+<td style="text-align: center;">P2</td>
+<td style="text-align: center;"><strong>P2</strong></td>
+<td>不变</td>
+</tr>
+<tr>
+<td>定时任务</td>
+<td style="text-align: center;">P2</td>
+<td style="text-align: center;"><strong>P2</strong></td>
+<td>不变</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="23">2.3 新增功能详细定义</h3>
+<h4 id="f-01">F-01 插件页（独立页面）</h4>
+<p>App 内的独立一级入口，承担插件的全生命周期管理。详见第 3、4 章。</p>
+<h4 id="f-02">F-02 权限引导与自检向导</h4>
+<p>因为要面对侧载 + 受限设置 + HyperOS 的三重门槛，这套引导必须是<strong>产品级的</strong>：</p>
+<ul>
+<li><strong>分机型定制路径</strong>：检测到小米/HyperOS 就走小米的指引，华为走华为的</li>
+<li><strong>截图级步骤</strong>：每一步都配真实截图（不能只有文字）</li>
+<li><strong>逐步校验</strong>：每完成一步自动检测是否生效，不生效就停在那一步</li>
+<li><strong>一键跳转</strong>：能通过 Intent 直达的设置页就直接跳，减少用户找路径的成本</li>
+<li><strong>失败兜底</strong>：提供"手动排查"清单</li>
+</ul>
+<h4 id="f-03">F-03 快照审查工具</h4>
+<p>让用户能看懂屏幕的节点树，从而写出自己的规则：</p>
+<ul>
+<li>悬浮窗触发 → 冻结当前界面 → 展示节点树（含 vid、text、层级、clickable）</li>
+<li>点击节点可高亮其在屏幕上的位置</li>
+<li>一键生成规则片段（复制到剪贴板）</li>
+<li>导出快照为 JSON（用于提交 issue 或分享）</li>
+</ul>
+<blockquote>
+<p>这个工具是<strong>插件生态的入口</strong>。没有它，用户写不出规则，插件机制就是空中楼阁。
+GKD 的规则生态之所以能起来，快照审查工具是关键基础设施。</p>
+</blockquote>
+<h4 id="f-04">F-04 应用内自更新</h4>
+<p>无商店环境下的更新方案（<strong>不依赖自有服务端</strong>）：</p>
+<div class="codehilite"><pre><span></span><code>启动/定时
+   ↓
+请求 GitHub Releases API（或订阅源中的版本清单）
+   ↓
+比对 versionCode
+   ↓
+有新版本 → 展示更新说明 + 下载链接 + 文件哈希
+   ↓
+用户下载 APK → 校验哈希 → 调用系统安装器
+   ↓
+安装完成 → 检测无障碍服务状态 → 失效则引导重新授权
+</code></pre></div>
+
+<p><strong>关键设计</strong>：
+- 支持<strong>多渠道更新源</strong>（GitHub / 自建静态 JSON / 网盘直链），任一可用即可
+- <strong>必须校验哈希</strong>，并在 UI 上展示，让用户能自己核对
+- 提供"跳过此版本"选项，避免打扰
+- <strong>更新前提示</strong>："更新后可能需要重新授予无障碍权限"</p>
+<h4 id="f-05">F-05 配置与规则的分享</h4>
+<p>社区传播的天然载体：</p>
+<ul>
+<li>导出单个规则包为 <code>.pagent</code> 文件（本质是签名过的 JSON）</li>
+<li>生成分享链接（如果规则托管在 GitHub 上）</li>
+<li>导入时校验签名与来源</li>
+<li><strong>分享内容是规则，不是 Key</strong>（Key 永不出设备）</li>
+</ul>
+<hr />
+<h2 id="3">3. 本体与插件页的职责边界</h2>
+<blockquote>
+<p>这是 v2.0 最重要的架构设计。边界划错了，后期会陷入"插件能做什么、本体该不该做"的无尽争论。</p>
+</blockquote>
+<h3 id="31">3.1 一句话原则</h3>
+<blockquote>
+<p><strong>本体提供「能力」，插件提供「意图」。</strong>
+本体负责"能看见、能操作、能调用模型、能保证安全"；
+插件负责"在什么场景下、按什么条件、做什么"。</p>
+</blockquote>
+<h3 id="32">3.2 职责划分表</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>能力</th>
+<th style="text-align: center;">本体</th>
+<th style="text-align: center;">插件</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>API Key 管理与加解密</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">❌</td>
+<td><strong>安全红线，插件永不接触 Key 明文</strong></td>
+</tr>
+<tr>
+<td>模型调用（LLM）</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">通过能力代理</td>
+<td>插件只能请求"用模型做某事"，不能直接拿 Key</td>
+</tr>
+<tr>
+<td>屏幕感知（节点树/截图/OCR）</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">通过能力代理</td>
+<td>插件拿到的是归一化后的数据，不是原始 AccessibilityNodeInfo</td>
+</tr>
+<tr>
+<td>动作执行（四通道）</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">通过能力代理</td>
+<td>插件不能直接调用 AccessibilityService</td>
+</tr>
+<tr>
+<td>敏感页面拦截</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">❌</td>
+<td><strong>本体强制，插件无法绕过</strong></td>
+</tr>
+<tr>
+<td>任务编排（Agent 多步规划）</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">可调用</td>
+<td>插件可请求本体执行一个子任务</td>
+</tr>
+<tr>
+<td>记忆存储</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">通过能力代理</td>
+<td>插件有独立沙箱存储</td>
+</tr>
+<tr>
+<td>插件加载与生命周期</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">❌</td>
+<td></td>
+</tr>
+<tr>
+<td>插件权限校验</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">❌</td>
+<td></td>
+</tr>
+<tr>
+<td>插件 UI 渲染</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">提供 schema</td>
+<td>插件声明 UI，本体渲染（避免动态代码加载 UI）</td>
+</tr>
+<tr>
+<td><strong>具体场景的规则/逻辑</strong></td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: center;">✅</td>
+<td>这是插件的核心价值</td>
+</tr>
+<tr>
+<td><strong>第三方 App 的适配</strong></td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: center;">✅</td>
+<td>千千万万个 App，本体不可能都适配</td>
+</tr>
+<tr>
+<td><strong>插件自身的配置界面</strong></td>
+<td style="text-align: center;">渲染</td>
+<td style="text-align: center;">定义</td>
+<td></td>
+</tr>
+<tr>
+<td><strong>数据加工/格式转换</strong></td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: center;">✅</td>
+<td></td>
+</tr>
+<tr>
+<td><strong>自定义工作流</strong></td>
+<td style="text-align: center;">❌</td>
+<td style="text-align: center;">✅</td>
+<td></td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="33">3.3 硬性边界（不可逾越）</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>边界</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>❌ 插件<strong>永远无法读取 API Key 明文</strong></td>
+<td>Key 泄漏是产品死线。插件只能通过本体代理发起模型调用</td>
+</tr>
+<tr>
+<td>❌ 插件<strong>无法绕过 SafetyGuard</strong></td>
+<td>敏感页面规则本体强制执行，插件的动作请求也要过一遍</td>
+</tr>
+<tr>
+<td>❌ 插件<strong>无法修改本体行为</strong></td>
+<td>只能通过公开的 API 调用，不能 hook / 反射本体</td>
+</tr>
+<tr>
+<td>❌ 插件<strong>不能访问其他插件的数据</strong></td>
+<td>每个插件独立沙箱存储</td>
+</tr>
+<tr>
+<td>❌ 插件<strong>不能申请 <code>payment.*</code> 类能力</strong></td>
+<td>该能力类别不开放</td>
+</tr>
+<tr>
+<td>❌ 插件<strong>不能常驻后台</strong>（L1/L2）</td>
+<td>插件由本体按需加载，生命周期由本体管理</td>
+</tr>
+<tr>
+<td>⚠️ L3 原生插件可以有自己的后台组件，但必须<strong>显式声明并被用户批准</strong></td>
+<td></td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="34">3.4 插件页的界面结构</h3>
+<div class="codehilite"><pre><span></span><code>插件页（一级入口）
+├── [已安装] 列表
+│   ├── 插件卡片：名称 / 作者 / 版本 / 启用开关 / 状态灯
+│   ├── 点开详情：
+│   │   ├── 权限清单（用大白话解释每项能力）
+│   │   ├── 生效范围（目标 App 列表）
+│   │   ├── 运行日志（最近 N 条）
+│   │   ├── 插件自定义配置界面（由插件的 UI schema 渲染）
+│   │   └── 卸载 / 禁用 / 导出
+│   └── 排序与优先级（冲突时的执行顺序）
+│
+├── [发现] 订阅源管理
+│   ├── 订阅源列表（URL / 最后更新时间 / 插件数）
+│   ├── 添加订阅源（粘贴 URL 或扫二维码）
+│   ├── 检查更新
+│   └── 每个源下可单独启用/禁用插件
+│
+├── [本地导入]
+│   ├── 从文件导入（.pagent / .json / .js）
+│   ├── 从剪贴板导入
+│   └── 扫码导入
+│
+└── [开发工具]（进阶）
+    ├── 快照审查
+    ├── 规则编辑器（语法高亮 + 实时校验）
+    ├── 规则测试台（喂入快照，看匹配结果）
+    └── 插件模板生成
+</code></pre></div>
+
+<hr />
+<h2 id="4">4. 插件拓展机制</h2>
+<h3 id="41">4.1 三级插件体系</h3>
+<blockquote>
+<p>参考 GKD 的成功经验：<strong>规则包（声明式）是主力，脚本是进阶，原生是长尾</strong>。
+不要把"插件"设计成只有一种形态，那样要么太弱（不够用）要么太危险（不敢用）。</p>
+</blockquote>
+<div class="tw"><table>
+<thead>
+<tr>
+<th style="text-align: center;">级别</th>
+<th>形态</th>
+<th>能力边界</th>
+<th>安全模型</th>
+<th style="text-align: center;">开发门槛</th>
+<th style="text-align: center;">预期占比</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;"><strong>L1 规则包</strong></td>
+<td>JSON/YAML 声明式</td>
+<td>页面匹配 + 条件判断 + 动作序列</td>
+<td><strong>纯声明，无代码执行</strong></td>
+<td style="text-align: center;">低（会用快照工具即可）</td>
+<td style="text-align: center;"><strong>80%</strong></td>
+</tr>
+<tr>
+<td style="text-align: center;"><strong>L2 脚本插件</strong></td>
+<td>JavaScript（QuickJS 沙箱）</td>
+<td>L1 能力 + 逻辑运算 + 循环 + 数据加工 + 调用本体 API</td>
+<td>沙箱 + 能力白名单 + 执行超时 + 内存上限</td>
+<td style="text-align: center;">中（需会 JS）</td>
+<td style="text-align: center;">18%</td>
+</tr>
+<tr>
+<td style="text-align: center;"><strong>L3 原生插件</strong></td>
+<td>独立 APK</td>
+<td>完整 Android 能力 + 自定义 UI + 后台组件</td>
+<td>签名白名单 + 用户逐项授权 + 权限清单审查</td>
+<td style="text-align: center;">高（需 Android 开发）</td>
+<td style="text-align: center;">2%</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>为什么主力是 L1？</strong></p>
+<p>因为社区贡献的门槛决定了生态的规模。GKD 的规则生态之所以能起来，就是因为写一条规则不需要会编程——用快照工具看一眼节点树，写几行 JSON 就行。<strong>L2/L3 是给开发者的，L1 是给所有人的。</strong></p>
+<h3 id="42-l1">4.2 L1 规则包规范</h3>
+<h4 id="_1">数据结构</h4>
+<div class="codehilite"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">"manifest"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"community.wechat.auto-reply"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"微信消息速回"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"version"</span><span class="p">:</span><span class="w"> </span><span class="s2">"1.0.3"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"apiVersion"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"author"</span><span class="p">:</span><span class="w"> </span><span class="s2">"某某"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"license"</span><span class="p">:</span><span class="w"> </span><span class="s2">"MIT"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"level"</span><span class="p">:</span><span class="w"> </span><span class="s2">"L1"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"capabilities"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"screen.read"</span><span class="p">,</span><span class="w"> </span><span class="s2">"action.click"</span><span class="p">,</span><span class="w"> </span><span class="s2">"action.input"</span><span class="p">],</span>
+<span class="w">    </span><span class="nt">"targetApps"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"com.tencent.mm"</span><span class="p">],</span>
+<span class="w">    </span><span class="nt">"description"</span><span class="p">:</span><span class="w"> </span><span class="s2">"在微信聊天页快速回复预设内容"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"homepage"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://github.com/xxx/yyy"</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">"rules"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"rule-001"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"聊天页识别"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"enabled"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"priority"</span><span class="p">:</span><span class="w"> </span><span class="mi">100</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"match"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nt">"package"</span><span class="p">:</span><span class="w"> </span><span class="s2">"com.tencent.mm"</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"activity"</span><span class="p">:</span><span class="w"> </span><span class="s2">"com.tencent.mm.ui.LauncherUI"</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"conditions"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">          </span><span class="p">{</span><span class="w"> </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"nodeExists"</span><span class="p">,</span><span class="w"> </span><span class="nt">"selector"</span><span class="p">:</span><span class="w"> </span><span class="s2">"vid:com.tencent.mm:id/chat_input"</span><span class="p">,</span><span class="w"> </span><span class="nt">"timeout"</span><span class="p">:</span><span class="w"> </span><span class="mi">2000</span><span class="w"> </span><span class="p">}</span>
+<span class="w">        </span><span class="p">],</span>
+<span class="w">        </span><span class="nt">"excludeConditions"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">          </span><span class="p">{</span><span class="w"> </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"textContains"</span><span class="p">,</span><span class="w"> </span><span class="nt">"value"</span><span class="p">:</span><span class="w"> </span><span class="s2">"支付"</span><span class="w"> </span><span class="p">},</span>
+<span class="w">          </span><span class="p">{</span><span class="w"> </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"textContains"</span><span class="p">,</span><span class="w"> </span><span class="nt">"value"</span><span class="p">:</span><span class="w"> </span><span class="s2">"转账"</span><span class="w"> </span><span class="p">}</span>
+<span class="w">        </span><span class="p">]</span>
+<span class="w">      </span><span class="p">},</span>
+<span class="w">      </span><span class="nt">"actions"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">        </span><span class="p">{</span><span class="w"> </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"wait"</span><span class="p">,</span><span class="w"> </span><span class="nt">"ms"</span><span class="p">:</span><span class="w"> </span><span class="mi">300</span><span class="w"> </span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="w"> </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"click"</span><span class="p">,</span><span class="w"> </span><span class="nt">"selector"</span><span class="p">:</span><span class="w"> </span><span class="s2">"vid:com.tencent.mm:id/chat_input"</span><span class="w"> </span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="w"> </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"inputText"</span><span class="p">,</span><span class="w"> </span><span class="nt">"text"</span><span class="p">:</span><span class="w"> </span><span class="s2">"{{预设内容}}"</span><span class="w"> </span><span class="p">}</span>
+<span class="w">      </span><span class="p">],</span>
+<span class="w">      </span><span class="nt">"constraints"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nt">"maxTriggersPerMinute"</span><span class="p">:</span><span class="w"> </span><span class="mi">6</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"cooldownMs"</span><span class="p">:</span><span class="w"> </span><span class="mi">5000</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"requireScreenOn"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">]</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<h4 id="css">选择器语言（参考 CSS 风格）</h4>
+<div class="codehilite"><pre><span></span><code>vid:com.tencent.mm:id/menu          按资源 ID
+text:发送                            精确文本
+text^:广告                           文本前缀
+text$:完成                           文本后缀
+text*:确认                           文本包含
+desc:搜索                            内容描述
+class:android.widget.Button          类名
+[clickable=true]                     属性过滤
+</code></pre></div>
+
+<p><strong>组合与层级</strong>（这是精度的关键）：</p>
+<div class="codehilite"><pre><span></span><code>vid:com.tencent.mm:id/menu &gt; [clickable=true] text^:广告
+</code></pre></div>
+
+<p>表示：从 <code>menu</code> 节点向下，找可点击且文本以"广告"开头的子节点。</p>
+<blockquote>
+<p>层级限定能显著降低误触率。GKD 的实践表明，只匹配文本会因同一文本出现在多处而误点，
+<strong>必须把父子路径写进选择器</strong>。</p>
+</blockquote>
+<h4 id="_2">条件类型</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>类型</th>
+<th>参数</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>nodeExists</code></td>
+<td>selector, timeout</td>
+<td>节点存在</td>
+</tr>
+<tr>
+<td><code>textContains</code></td>
+<td>value</td>
+<td>屏幕任意位置出现该文本</td>
+</tr>
+<tr>
+<td><code>textEquals</code></td>
+<td>value</td>
+<td>精确匹配</td>
+</tr>
+<tr>
+<td><code>activityIs</code></td>
+<td>value</td>
+<td>当前 Activity</td>
+</tr>
+<tr>
+<td><code>packageIs</code></td>
+<td>value</td>
+<td>当前包名</td>
+</tr>
+<tr>
+<td><code>timeBetween</code></td>
+<td>start, end</td>
+<td>时间范围</td>
+</tr>
+<tr>
+<td><code>varEquals</code></td>
+<td>name, value</td>
+<td>变量比较（L2 可用）</td>
+</tr>
+</tbody>
+</table></div>
+<h4 id="_3">动作类型</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>类型</th>
+<th>参数</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>click</code></td>
+<td>selector / coord</td>
+<td>点击</td>
+</tr>
+<tr>
+<td><code>longPress</code></td>
+<td>selector, duration</td>
+<td>长按</td>
+</tr>
+<tr>
+<td><code>inputText</code></td>
+<td>text / selector</td>
+<td>输入</td>
+</tr>
+<tr>
+<td><code>scroll</code></td>
+<td>direction, distance</td>
+<td>滚动</td>
+</tr>
+<tr>
+<td><code>swipe</code></td>
+<td>from, to</td>
+<td>滑动</td>
+</tr>
+<tr>
+<td><code>back</code> / <code>home</code></td>
+<td>—</td>
+<td>全局操作</td>
+</tr>
+<tr>
+<td><code>openApp</code></td>
+<td>package / deepLink</td>
+<td>打开应用</td>
+</tr>
+<tr>
+<td><code>wait</code></td>
+<td>ms</td>
+<td>等待</td>
+</tr>
+<tr>
+<td><code>notify</code></td>
+<td>title, content</td>
+<td>发通知（需 <code>notification.post</code> 能力）</td>
+</tr>
+<tr>
+<td><code>callLlm</code></td>
+<td>prompt</td>
+<td>调用模型（需 <code>llm.call</code> 能力，<strong>会消耗 token</strong>）</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="43-l2">4.3 L2 脚本插件规范</h3>
+<p><strong>运行时选型</strong>：QuickJS（推荐，体积小、启动快、可设内存与超时限制）或 Rhino（GKD 的选择，生态成熟）。</p>
+<p><strong>沙箱约束</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1">// 插件可用的全局 API（其余一律不可见）</span>
+<span class="nx">declare</span><span class="w"> </span><span class="kd">const</span><span class="w"> </span><span class="nx">agent</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="c1">// 感知</span>
+<span class="w">  </span><span class="nx">getSnapshot</span><span class="p">()</span><span class="o">:</span><span class="w"> </span><span class="nx">Snapshot</span><span class="p">;</span>
+<span class="w">  </span><span class="nx">findNodes</span><span class="p">(</span><span class="nx">selector</span><span class="o">:</span><span class="w"> </span><span class="nx">string</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nx">Node</span><span class="p">[];</span>
+
+<span class="w">  </span><span class="c1">// 动作</span>
+<span class="w">  </span><span class="nx">click</span><span class="p">(</span><span class="nx">selector</span><span class="o">:</span><span class="w"> </span><span class="nx">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="p">{</span><span class="nx">x</span><span class="o">:</span><span class="w"> </span><span class="nx">number</span><span class="p">,</span><span class="w"> </span><span class="nx">y</span><span class="o">:</span><span class="w"> </span><span class="nx">number</span><span class="p">})</span><span class="o">:</span><span class="w"> </span><span class="nb">Promise</span><span class="o">&lt;</span><span class="ow">void</span><span class="o">&gt;</span><span class="p">;</span>
+<span class="w">  </span><span class="nx">inputText</span><span class="p">(</span><span class="nx">text</span><span class="o">:</span><span class="w"> </span><span class="nx">string</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nb">Promise</span><span class="o">&lt;</span><span class="ow">void</span><span class="o">&gt;</span><span class="p">;</span>
+<span class="w">  </span><span class="nx">scroll</span><span class="p">(</span><span class="nx">direction</span><span class="o">:</span><span class="w"> </span><span class="nx">string</span><span class="p">,</span><span class="w"> </span><span class="nx">distance</span><span class="o">?:</span><span class="w"> </span><span class="nx">number</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nb">Promise</span><span class="o">&lt;</span><span class="ow">void</span><span class="o">&gt;</span><span class="p">;</span>
+
+<span class="w">  </span><span class="c1">// 模型（经本体代理，插件拿不到 Key）</span>
+<span class="w">  </span><span class="nx">llm</span><span class="p">(</span><span class="nx">prompt</span><span class="o">:</span><span class="w"> </span><span class="nx">string</span><span class="p">,</span><span class="w"> </span><span class="nx">opts</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span><span class="nx">model</span><span class="o">?:</span><span class="w"> </span><span class="nx">string</span><span class="p">})</span><span class="o">:</span><span class="w"> </span><span class="nb">Promise</span><span class="o">&lt;</span><span class="nx">string</span><span class="o">&gt;</span><span class="p">;</span>
+
+<span class="w">  </span><span class="c1">// 存储（插件独立沙箱）</span>
+<span class="w">  </span><span class="nx">store</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">get</span><span class="p">(</span><span class="nx">key</span><span class="o">:</span><span class="w"> </span><span class="nx">string</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nx">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">set</span><span class="p">(</span><span class="nx">key</span><span class="o">:</span><span class="w"> </span><span class="nx">string</span><span class="p">,</span><span class="w"> </span><span class="nx">value</span><span class="o">:</span><span class="w"> </span><span class="nx">string</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="ow">void</span><span class="p">;</span>
+<span class="w">  </span><span class="p">};</span>
+
+<span class="w">  </span><span class="c1">// 工具</span>
+<span class="w">  </span><span class="nx">log</span><span class="p">(</span><span class="nx">msg</span><span class="o">:</span><span class="w"> </span><span class="nx">string</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="ow">void</span><span class="p">;</span>
+<span class="w">  </span><span class="nx">sleep</span><span class="p">(</span><span class="nx">ms</span><span class="o">:</span><span class="w"> </span><span class="nx">number</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nb">Promise</span><span class="o">&lt;</span><span class="ow">void</span><span class="o">&gt;</span><span class="p">;</span>
+<span class="p">};</span>
+
+<span class="c1">// ❌ 不可用：require / import / fetch / XMLHttpRequest /</span>
+<span class="c1">//    Java / Packages / 文件系统 / 其他插件的数据</span>
+</code></pre></div>
+
+<p><strong>硬性限制</strong>：
+| 限制 | 默认值 | 说明 |
+|------|:---:|------|
+| 单次执行超时 | 5s | 超时强制终止 |
+| 内存上限 | 32 MB | |
+| 网络请求 | ❌ 默认禁用 | 需要则声明 <code>network.request</code> 能力 + 域名白名单 |
+| 循环上限 | 10,000 次 | 防止死循环 |
+| 递归深度 | 100 | |
+| 执行频率 | ≤ 20 次/分钟 | |</p>
+<h3 id="44-l3">4.4 L3 原生插件规范</h3>
+<p><strong>发现机制</strong>：通过 <code>PackageManager</code> 查询声明了特定 action 的 APK：</p>
+<div class="codehilite"><pre><span></span><code><span class="nt">&lt;intent-filter&gt;</span>
+<span class="w">    </span><span class="nt">&lt;action</span><span class="w"> </span><span class="na">android:name=</span><span class="s">"com.pocketagent.plugin.BIND"</span><span class="w"> </span><span class="nt">/&gt;</span>
+<span class="nt">&lt;/intent-filter&gt;</span>
+<span class="nt">&lt;meta-data</span><span class="w"> </span><span class="na">android:name=</span><span class="s">"pocketagent.plugin.api"</span><span class="w"> </span><span class="na">android:value=</span><span class="s">"1"</span><span class="w"> </span><span class="nt">/&gt;</span>
+</code></pre></div>
+
+<p><strong>通信方式</strong>：AIDL 接口（跨进程），插件在自己的进程中运行。</p>
+<p><strong>安全要求</strong>：
+1. <strong>签名白名单</strong>：本体维护一份可信签名指纹列表，未签名的插件不加载
+2. <strong>能力清单审查</strong>：安装前展示插件声明的所有能力，用户逐项批准
+3. <strong>权限隔离</strong>：插件无法访问本体的 Key 存储与数据库
+4. <strong>可撤销</strong>：用户随时可撤销已授予的能力</p>
+<blockquote>
+<p>⚠️ L3 是双刃剑。它给了插件完整能力，也给了恶意插件完整的攻击面。
+<strong>建议：M1-M3 阶段先不做 L3</strong>，只做 L1 + L2。等社区信任建立、有真实的 L3 需求时再开放。</p>
+</blockquote>
+<h3 id="45-capability">4.5 插件能力白名单（Capability 清单）</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>能力</th>
+<th>说明</th>
+<th style="text-align: center;">风险级</th>
+<th style="text-align: center;">需二次确认</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>screen.read</code></td>
+<td>读取当前界面的节点树</td>
+<td style="text-align: center;">高</td>
+<td style="text-align: center;">✅</td>
+</tr>
+<tr>
+<td><code>screen.capture</code></td>
+<td>截取屏幕</td>
+<td style="text-align: center;">极高</td>
+<td style="text-align: center;">✅</td>
+</tr>
+<tr>
+<td><code>action.click</code></td>
+<td>点击元素</td>
+<td style="text-align: center;">高</td>
+<td style="text-align: center;">✅</td>
+</tr>
+<tr>
+<td><code>action.input</code></td>
+<td>输入文本</td>
+<td style="text-align: center;">高</td>
+<td style="text-align: center;">✅</td>
+</tr>
+<tr>
+<td><code>action.gesture</code></td>
+<td>滑动/长按等手势</td>
+<td style="text-align: center;">中</td>
+<td style="text-align: center;">✅</td>
+</tr>
+<tr>
+<td><code>app.launch</code></td>
+<td>打开指定应用</td>
+<td style="text-align: center;">低</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td><code>notification.post</code></td>
+<td>发送通知</td>
+<td style="text-align: center;">低</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td><code>notification.read</code></td>
+<td>读取通知</td>
+<td style="text-align: center;">高</td>
+<td style="text-align: center;">✅</td>
+</tr>
+<tr>
+<td><code>clipboard.read</code></td>
+<td>读剪贴板</td>
+<td style="text-align: center;">高</td>
+<td style="text-align: center;">✅</td>
+</tr>
+<tr>
+<td><code>clipboard.write</code></td>
+<td>写剪贴板</td>
+<td style="text-align: center;">中</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td><code>storage</code></td>
+<td>插件私有存储</td>
+<td style="text-align: center;">低</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td><code>llm.call</code></td>
+<td>调用用户配置的模型</td>
+<td style="text-align: center;">中</td>
+<td style="text-align: center;">✅（<strong>会花钱</strong>）</td>
+</tr>
+<tr>
+<td><code>network.request</code></td>
+<td>发起网络请求（需域名白名单）</td>
+<td style="text-align: center;">高</td>
+<td style="text-align: center;">✅</td>
+</tr>
+<tr>
+<td><code>payment.*</code></td>
+<td>—</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">❌ <strong>永不开放</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>设计要点</strong>：
+- 能力用<strong>用户能看懂的话</strong>展示，而不是技术名词
+  - ❌ "请求 screen.capture 能力"
+  - ✅ "这个插件可以截取你的屏幕"
+- <code>llm.call</code> 必须提示"会消耗你的 API 额度"
+- 所有能力的授予都记入本地审计日志</p>
+<h3 id="46">4.6 订阅机制（去中心化）</h3>
+<blockquote>
+<p><strong>不建自有服务端</strong>的原则在插件分发上同样适用。用 GitHub 作为基础设施。</p>
+</blockquote>
+<p><strong>订阅源格式</strong>（一个静态 JSON 文件，托管在 GitHub Pages / raw / 任意静态托管）：</p>
+<div class="codehilite"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"某某的规则集"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"author"</span><span class="p">:</span><span class="w"> </span><span class="s2">"xxx"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"updatedAt"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2026-09-21T10:00:00Z"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"apiVersion"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"plugins"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"community.wechat.auto-reply"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"微信消息速回"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"version"</span><span class="p">:</span><span class="w"> </span><span class="s2">"1.0.3"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"level"</span><span class="p">:</span><span class="w"> </span><span class="s2">"L1"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"capabilities"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"screen.read"</span><span class="p">,</span><span class="w"> </span><span class="s2">"action.click"</span><span class="p">],</span>
+<span class="w">      </span><span class="nt">"targetApps"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"com.tencent.mm"</span><span class="p">],</span>
+<span class="w">      </span><span class="nt">"downloadUrl"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://raw.githubusercontent.com/.../wechat.json"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"sha256"</span><span class="p">:</span><span class="w"> </span><span class="s2">"a1b2c3..."</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"signature"</span><span class="p">:</span><span class="w"> </span><span class="s2">"MEUCIQ..."</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">]</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p><strong>关键机制</strong>：
+1. <strong>哈希校验</strong>：下载后必须校验 SHA-256，不匹配则拒绝加载
+2. <strong>签名校验</strong>：插件作者用私钥签名，本体用作者公钥验签（防止中间人篡改）
+3. <strong>更新策略</strong>：手动检查 / 启动时检查 / 定时检查（用户可选）
+4. <strong>多源共存</strong>：支持多个订阅源，同 ID 插件按优先级取版本
+5. <strong>冲突解决</strong>：同一 App 有多个插件时，按优先级顺序执行，UI 上可视化冲突
+6. <strong>社区聚合</strong>：用 GitHub Topic（如 <code>pocketagent-plugin</code>）聚合第三方订阅源，本体内置一个"社区源列表"（可关闭）</p>
+<p><strong>订阅源的信任模型</strong>：
+- 订阅源本身<strong>不能</strong>获得任何权限，它只是插件清单的索引
+- 每个插件的权限仍然逐个向用户申请
+- 用户可以只看清单不安装，也可以只装其中某一个</p>
+<h3 id="47">4.7 插件开发工具链</h3>
+<p>要让生态起来，必须降低贡献门槛：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>作用</th>
+<th style="text-align: center;">优先级</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>快照审查工具</td>
+<td>看节点树、生成选择器</td>
+<td style="text-align: center;">P0（本体内置）</td>
+</tr>
+<tr>
+<td>插件模板仓库</td>
+<td><code>pocketagent-plugin-template</code>，fork 即用</td>
+<td style="text-align: center;">P0</td>
+</tr>
+<tr>
+<td>规则语法校验器</td>
+<td>在线/本地校验规则合法性</td>
+<td style="text-align: center;">P1</td>
+</tr>
+<tr>
+<td>规则测试台</td>
+<td>喂入快照，看匹配结果，不碰真机</td>
+<td style="text-align: center;">P1</td>
+</tr>
+<tr>
+<td>CI 模板</td>
+<td>GitHub Actions，提交即自动校验</td>
+<td style="text-align: center;">P1</td>
+</tr>
+<tr>
+<td>订阅源模板</td>
+<td>生成订阅 JSON 的脚手架</td>
+<td style="text-align: center;">P1</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="5">5. 社区传播与发布策略</h2>
+<h3 id="51">5.1 信任建立（第一优先级）</h3>
+<blockquote>
+<p>没有商店背书，<strong>信任必须靠工程手段建立</strong>，不能只靠"我们是好人"。</p>
+</blockquote>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>手段</th>
+<th>具体做法</th>
+<th>为什么有效</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>开源</strong></td>
+<td>采用 GPL-3.0（与 GKD 一致，防止闭源套壳）或 Apache-2.0（更宽松，利于生态）</td>
+<td>代码可审计，社区可验证</td>
+</tr>
+<tr>
+<td><strong>固定签名</strong></td>
+<td>生成一次签名密钥，<strong>永不更换</strong>，公钥指纹公示在官网与仓库首页</td>
+<td>用户可验证安装的包是官方版本</td>
+</tr>
+<tr>
+<td><strong>哈希公示</strong></td>
+<td>每个 Release 附 SHA-256，官网页可核对</td>
+<td>防篡改</td>
+</tr>
+<tr>
+<td><strong>VirusTotal 报告</strong></td>
+<td>每次发布附扫描链接</td>
+<td>应对"是不是病毒"的质疑</td>
+</tr>
+<tr>
+<td><strong>误报说明</strong></td>
+<td>专门一页说明"为什么安全软件会报毒"，附申诉进度</td>
+<td>主动处理，不等用户来问</td>
+</tr>
+<tr>
+<td><strong>权限透明</strong></td>
+<td>App 内"权限使用说明"页 + 审计日志</td>
+<td>用户可自查</td>
+</tr>
+<tr>
+<td><strong>隐私承诺</strong></td>
+<td>明确"无账号、无云端、数据不出设备"，并在代码中可验证</td>
+<td>可信度最高的承诺是"我没能力作恶"</td>
+</tr>
+<tr>
+<td><strong>使用边界</strong></td>
+<td>README 明确禁止的用法（抢红包/刷单/游戏辅助）</td>
+<td>主动切割灰产</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="52">5.2 分发渠道矩阵</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>渠道</th>
+<th>用途</th>
+<th>优点</th>
+<th>风险</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>GitHub Releases</strong></td>
+<td>主发布渠道</td>
+<td>稳定、可追溯、自带哈希</td>
+<td>国内访问不稳定，需备镜像</td>
+</tr>
+<tr>
+<td><strong>GitHub Pages</strong></td>
+<td>官网 + 更新源 JSON</td>
+<td>免费、无需服务器</td>
+<td>同上</td>
+</tr>
+<tr>
+<td><strong>网盘（蓝奏云等）</strong></td>
+<td>国内备选下载</td>
+<td>国内速度快</td>
+<td>可能被清理，需多备份</td>
+</tr>
+<tr>
+<td><strong>私域群文件</strong></td>
+<td>直接触达</td>
+<td>转化率高</td>
+<td>群可能被封</td>
+</tr>
+<tr>
+<td><strong>论坛/社区帖</strong></td>
+<td>引流</td>
+<td>长尾流量</td>
+<td>可能被删帖</td>
+</tr>
+<tr>
+<td><strong>应用内分享</strong></td>
+<td>用户带用户</td>
+<td>传播成本最低</td>
+<td>需设计好分享内容</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>分发原则</strong>：
+1. <strong>不依赖单一渠道</strong>，任何渠道失效都不影响其他渠道
+2. <strong>所有渠道的包哈希一致</strong>，用户可交叉验证
+3. <strong>每个渠道独立渠道号</strong>，用于统计转化</p>
+<h3 id="53">5.3 渠道号与统计（隐私友好）</h3>
+<div class="codehilite"><pre><span></span><code><span class="c1">// 构建时注入，不联网上报，仅本地记录</span>
+<span class="n">buildConfigField</span><span class="p">(</span><span class="s">"String"</span><span class="p">,</span><span class="w"> </span><span class="s">"CHANNEL"</span><span class="p">,</span><span class="w"> </span><span class="s">"\"github\""</span><span class="p">)</span>
+</code></pre></div>
+
+<p><strong>统计原则</strong>（避免触碰隐私红线）：
+- ❌ 不做设备指纹
+- ❌ 不上报用户行为到自有服务器
+- ✅ 渠道号随 APK 打包，本地记录
+- ✅ 用户<strong>主动</strong>选择是否分享匿名统计（默认关闭）
+- ✅ 可选：使用开源的自托管统计（如 Umami），但<strong>默认不启用</strong></p>
+<blockquote>
+<p>说句实话：社区分发 + 不收集数据，意味着你<strong>很难做数据驱动的运营</strong>。
+这是代价，要接受。用社区反馈（issue、群讨论）替代数据看板。</p>
+</blockquote>
+<h3 id="54">5.4 版本与发布节奏</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>通道</th>
+<th>频率</th>
+<th>内容</th>
+<th>稳定性</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>stable</strong></td>
+<td>2-4 周</td>
+<td>经过验证的功能</td>
+<td>高</td>
+</tr>
+<tr>
+<td><strong>beta</strong></td>
+<td>1-2 周</td>
+<td>新功能预览</td>
+<td>中</td>
+</tr>
+<tr>
+<td><strong>nightly</strong></td>
+<td>每日（可选）</td>
+<td>最新提交</td>
+<td>低</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>版本号规则</strong>：<code>主版本.次版本.修订号</code>（语义化版本）
+- 主版本：不兼容的架构变更（如插件 API 破坏性升级）
+- 次版本：向后兼容的功能新增
+- 修订号：bug 修复</p>
+<p><strong>发布检查清单</strong>：</p>
+<div class="codehilite"><pre><span></span><code>□ 单元测试全部通过
+□ 安全审计通过（Key 无泄漏）
+□ 敏感页面漏报测试通过
+□ 在红米 K60 上真机验证核心链路
+□ 更新说明已写（含"更新后可能需重新授权无障碍"提示）
+□ APK 已签名（固定密钥）
+□ SHA-256 已计算并公示
+□ VirusTotal 扫描并附链接
+□ 已上传 GitHub Releases
+□ 已同步网盘备份
+□ 已在社区发布公告
+</code></pre></div>
+
+<h3 id="55">5.5 社区运营机制</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>机制</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>插件贡献激励</strong></td>
+<td>README 致谢榜、插件页展示作者、优质插件推荐位</td>
+</tr>
+<tr>
+<td><strong>规则仓库聚合</strong></td>
+<td>用 GitHub Topic 聚合，本体内置社区源列表</td>
+</tr>
+<tr>
+<td><strong>问题反馈</strong></td>
+<td>GitHub Issues 为主，群组为辅（群里的问题要归档到 issue）</td>
+</tr>
+<tr>
+<td><strong>文档</strong></td>
+<td>官网 + 仓库 Wiki：安装指南、权限指南、插件开发指南、FAQ</td>
+</tr>
+<tr>
+<td><strong>误报处理</strong></td>
+<td>维护"安全软件误报处理"文档，收集各家的申诉入口</td>
+</tr>
+<tr>
+<td><strong>版本公告</strong></td>
+<td>每个版本在群内 + 论坛同步发布，附更新说明</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="56">5.6 风险与应对</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>风险</th>
+<th style="text-align: center;">概率</th>
+<th style="text-align: center;">影响</th>
+<th>应对</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>被恶意二次打包</strong></td>
+<td style="text-align: center;">高</td>
+<td style="text-align: center;">严重</td>
+<td>固定签名 + 公钥指纹公示 + 应用内自检签名并在 UI 上展示</td>
+</tr>
+<tr>
+<td><strong>被安全软件误报</strong></td>
+<td style="text-align: center;">高</td>
+<td style="text-align: center;">中</td>
+<td>主动申诉 + VirusTotal + 误报说明页</td>
+</tr>
+<tr>
+<td><strong>被定性为灰产工具</strong></td>
+<td style="text-align: center;">中</td>
+<td style="text-align: center;">严重</td>
+<td>README 明确边界 + 不做薅羊毛场景 + 主动放弃支付环节</td>
+</tr>
+<tr>
+<td><strong>群组/帖子被封</strong></td>
+<td style="text-align: center;">中</td>
+<td style="text-align: center;">中</td>
+<td>多渠道冗余 + 内容措辞避免敏感词</td>
+</tr>
+<tr>
+<td><strong>插件被植入恶意代码</strong></td>
+<td style="text-align: center;">中</td>
+<td style="text-align: center;">严重</td>
+<td>签名校验 + 能力白名单 + 用户逐项授权 + 社区审查</td>
+</tr>
+<tr>
+<td><strong>项目做大后被迫合规</strong></td>
+<td style="text-align: center;">中</td>
+<td style="text-align: center;">中</td>
+<td>预留备案路径 + 不收费 + 无自有服务端</td>
+</tr>
+<tr>
+<td><strong>核心作者流失</strong></td>
+<td style="text-align: center;">中</td>
+<td style="text-align: center;">严重</td>
+<td>开源 + 文档完善 + 降低贡献门槛（这是开源项目的永恒课题）</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="6-k60">6. 红米 K60 适配与优化要点</h2>
+<h3 id="61">6.1 设备规格与影响</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>规格</th>
+<th>对开发的影响</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>处理器</td>
+<td>骁龙 8+ Gen 1</td>
+<td>✅ 性能充足，端侧小模型推理可行（NPU 可用）</td>
+</tr>
+<tr>
+<td><strong>屏幕</strong></td>
+<td><strong>6.67" 3200×1440（2K）</strong></td>
+<td>⚠️ <strong>重大影响</strong>：截图原始分辨率极高，直接送模型的 token 成本是 1080p 机型的 <strong>1.8 倍</strong>。<strong>必须做缩放</strong>（见 6.3）</td>
+</tr>
+<tr>
+<td>内存</td>
+<td>8/12/16 GB</td>
+<td>✅ 充足，但端侧模型加载仍需控制</td>
+</tr>
+<tr>
+<td>系统</td>
+<td>MIUI 14 → HyperOS</td>
+<td>⚠️ 后台管控严格，需专门适配（见 6.2）</td>
+</tr>
+<tr>
+<td>电池</td>
+<td>5000 mAh，120W 快充</td>
+<td>✅ 耗电不是瓶颈</td>
+</tr>
+<tr>
+<td>刷新率</td>
+<td>120 Hz</td>
+<td>⚠️ 手势执行时注意帧率与事件节流</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="62-hyperos-miui">6.2 HyperOS / MIUI 权限配置清单 ★必做</h3>
+<p><strong>这是本机型（以及所有小米系设备）能不能用的关键。</strong> 必须做进引导流程：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th style="text-align: center;">#</th>
+<th>设置项</th>
+<th>路径</th>
+<th>为什么需要</th>
+<th style="text-align: center;">默认状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;">1</td>
+<td><strong>安装未知应用</strong></td>
+<td>设置 → 安全 → 更多安全设置 → 安装未知应用 → 授权给文件管理器/浏览器</td>
+<td>首次安装</td>
+<td style="text-align: center;">关</td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td><strong>允许受限设置</strong></td>
+<td>设置 → 应用 → 应用管理 → 本应用 → 右上角 ⋮ → 允许受限设置</td>
+<td><strong>侧载应用开无障碍的前置条件</strong></td>
+<td style="text-align: center;">关</td>
+</tr>
+<tr>
+<td style="text-align: center;">3</td>
+<td><strong>无障碍服务</strong></td>
+<td>设置 → 更多设置 → 无障碍 → 已下载的应用 → 本应用 → 开启</td>
+<td>核心能力</td>
+<td style="text-align: center;">关</td>
+</tr>
+<tr>
+<td style="text-align: center;">4</td>
+<td><strong>悬浮窗权限</strong></td>
+<td>设置 → 应用 → 应用管理 → 本应用 → 权限管理 → 显示悬浮窗</td>
+<td>悬浮球</td>
+<td style="text-align: center;">关</td>
+</tr>
+<tr>
+<td style="text-align: center;">5</td>
+<td><strong>后台弹出界面</strong></td>
+<td>设置 → 应用 → 应用管理 → 本应用 → 权限管理 → 后台弹出界面</td>
+<td><strong>MIUI 特有</strong>，不开则悬浮窗/Activity 无法从后台弹出</td>
+<td style="text-align: center;">关</td>
+</tr>
+<tr>
+<td style="text-align: center;">6</td>
+<td><strong>自启动</strong></td>
+<td>设置 → 应用 → 应用管理 → 本应用 → 自启动</td>
+<td>开机后服务能起来</td>
+<td style="text-align: center;">关</td>
+</tr>
+<tr>
+<td style="text-align: center;">7</td>
+<td><strong>省电策略</strong></td>
+<td>设置 → 应用 → 应用管理 → 本应用 → 省电策略 → <strong>无限制</strong></td>
+<td>防止后台被杀</td>
+<td style="text-align: center;">智能省电</td>
+</tr>
+<tr>
+<td style="text-align: center;">8</td>
+<td><strong>锁屏显示</strong></td>
+<td>设置 → 应用 → 应用管理 → 本应用 → 权限管理 → 锁屏显示</td>
+<td>锁屏时悬浮球可见</td>
+<td style="text-align: center;">关</td>
+</tr>
+<tr>
+<td style="text-align: center;">9</td>
+<td><strong>通知权限</strong></td>
+<td>设置 → 应用 → 应用管理 → 本应用 → 通知管理 → 允许通知</td>
+<td>前台服务常驻通知</td>
+<td style="text-align: center;">开</td>
+</tr>
+<tr>
+<td style="text-align: center;">10</td>
+<td><strong>电池优化白名单</strong></td>
+<td>设置 → 应用 → 特殊应用权限 → 电池优化 → 本应用 → 不优化</td>
+<td>辅助保活</td>
+<td style="text-align: center;">优化</td>
+</tr>
+<tr>
+<td style="text-align: center;">11</td>
+<td><strong>最近任务锁定</strong></td>
+<td>最近任务界面 → 下拉应用卡片 → 加锁</td>
+<td>防止一键清理杀掉</td>
+<td style="text-align: center;">未锁</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>产品化方案</strong>：</p>
+<div class="codehilite"><pre><span></span><code>权限引导向导
+├── 自动检测当前机型（Build.MANUFACTURER / ROM 标识）
+├── 若为小米系 → 加载小米专属引导流程
+├── 逐项引导：每项含
+│   ├── 为什么要这个（大白话）
+│   ├── 截图级步骤（真实截图，不是文字描述）
+│   ├── [一键跳转] 按钮（能直达就直达）
+│   └── 状态检测（自动判断是否已生效）
+└── 完成后 → 权限自检页，可随时复查
+</code></pre></div>
+
+<p><strong>技术实现要点</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1">// 部分设置可以用 Intent 直达</span>
+<span class="c1">// 无障碍设置</span>
+<span class="n">Intent</span><span class="p">(</span><span class="n">Settings</span><span class="p">.</span><span class="na">ACTION_ACCESSIBILITY_SETTINGS</span><span class="p">)</span>
+<span class="c1">// 悬浮窗权限</span>
+<span class="n">Intent</span><span class="p">(</span><span class="n">Settings</span><span class="p">.</span><span class="na">ACTION_MANAGE_OVERLAY_PERMISSION</span><span class="p">,</span><span class="w"> </span><span class="n">Uri</span><span class="p">.</span><span class="na">parse</span><span class="p">(</span><span class="s">"package:</span><span class="si">$</span><span class="n">packageName</span><span class="s">"</span><span class="p">))</span>
+<span class="c1">// 应用详情页（受限设置、自启动、省电策略都在这里）</span>
+<span class="n">Intent</span><span class="p">(</span><span class="n">Settings</span><span class="p">.</span><span class="na">ACTION_APPLICATION_DETAILS_SETTINGS</span><span class="p">,</span><span class="w"> </span><span class="n">Uri</span><span class="p">.</span><span class="na">parse</span><span class="p">(</span><span class="s">"package:</span><span class="si">$</span><span class="n">packageName</span><span class="s">"</span><span class="p">))</span>
+<span class="c1">// 电池优化</span>
+<span class="n">Intent</span><span class="p">(</span><span class="n">Settings</span><span class="p">.</span><span class="na">ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS</span><span class="p">,</span><span class="w"> </span><span class="n">Uri</span><span class="p">.</span><span class="na">parse</span><span class="p">(</span><span class="s">"package:</span><span class="si">$</span><span class="n">packageName</span><span class="s">"</span><span class="p">))</span>
+
+<span class="c1">// ⚠️ MIUI 的「后台弹出界面」「自启动」「省电策略」没有公开 Intent，</span>
+<span class="c1">//    只能引导用户手动找路径 → 必须配截图</span>
+</code></pre></div>
+
+<h3 id="63-2k">6.3 2K 屏的截图成本优化 ★关键</h3>
+<p><strong>问题</strong>：K60 的屏幕是 3200×1440。原生截图直接送多模态模型，token 消耗会非常可观。</p>
+<p><strong>计算示例</strong>（以常见的视觉 token 计算方式估算）：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>处理方式</th>
+<th>分辨率</th>
+<th style="text-align: center;">估算 token</th>
+<th style="text-align: center;">相对成本</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>原图直送</td>
+<td>3200×1440</td>
+<td style="text-align: center;">~2800</td>
+<td style="text-align: center;">100%</td>
+</tr>
+<tr>
+<td>缩放到 1920×864</td>
+<td>1920×864</td>
+<td style="text-align: center;">~1100</td>
+<td style="text-align: center;">39%</td>
+</tr>
+<tr>
+<td>缩放到 1280×576</td>
+<td>1280×576</td>
+<td style="text-align: center;">~520</td>
+<td style="text-align: center;"><strong>19%</strong></td>
+</tr>
+<tr>
+<td>1280 + WebP q75</td>
+<td>1280×576</td>
+<td style="text-align: center;">~520（+体积更小）</td>
+<td style="text-align: center;">19%</td>
+</tr>
+<tr>
+<td>只截变化区域（半屏）</td>
+<td>~1280×288</td>
+<td style="text-align: center;">~280</td>
+<td style="text-align: center;"><strong>10%</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>推荐策略（写入 <code>CaptureOptions</code> 默认值）</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1">// 针对 2K 屏的默认参数</span>
+<span class="n">CaptureOptions</span><span class="p">(</span>
+<span class="w">    </span><span class="n">maxScreenshotEdge</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">1280</span><span class="p">,</span><span class="w">      </span><span class="c1">// 长边缩放到 1280</span>
+<span class="w">    </span><span class="n">screenshotQuality</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">75</span><span class="p">,</span><span class="w">        </span><span class="c1">// WebP 质量</span>
+<span class="w">    </span><span class="n">enableOcr</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span><span class="w">             </span><span class="c1">// 按需开启</span>
+<span class="p">)</span>
+</code></pre></div>
+
+<p><strong>但要注意</strong>：缩放到 1280 后，<strong>小字和密集控件的识别准确率会下降</strong>。所以：</p>
+<ol>
+<li><strong>优先用无障碍树</strong>（K60 的树信息质量好，这是最省钱的路径）</li>
+<li><strong>只在树不可用时截图</strong></li>
+<li><strong>截图时优先"区域裁剪"</strong>：只截当前操作相关的区域，而非全屏</li>
+<li><strong>建立准确率-成本曲线</strong>：EX-06 实验必须在 K60 上跑，找到准确率下降 &lt; 5% 的最小分辨率</li>
+</ol>
+<h3 id="64-hyperos">6.4 HyperOS 特有行为适配</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>行为</th>
+<th>说明</th>
+<th>应对</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>应用行为记录</strong></td>
+<td>HyperOS 会记录并展示应用的敏感行为（读屏、后台唤起等）</td>
+<td>① 这是好事，说明行为透明 ② 在引导中主动解释"你会看到我的读屏记录，这是正常的" ③ 不要试图隐藏行为</td>
+</tr>
+<tr>
+<td><strong>权限使用提醒</strong></td>
+<td>长期后台运行会弹"应用正在后台运行"提醒</td>
+<td>引导用户选择"不再提醒"</td>
+</tr>
+<tr>
+<td><strong>内存清理</strong></td>
+<td>一键清理会杀掉后台服务</td>
+<td>引导用户锁定最近任务卡片</td>
+</tr>
+<tr>
+<td><strong>无障碍服务被系统关闭</strong></td>
+<td>系统更新或长时间不用可能自动关闭</td>
+<td>① 前台服务常驻 + 通知栏提示 ② 启动时自检 ③ 提供"服务已断开"的明显提示</td>
+</tr>
+<tr>
+<td><strong>多用户/分身</strong></td>
+<td>MIUI 的应用双开可能与无障碍服务冲突</td>
+<td>明确不支持双开环境，检测到则提示</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="65-8-gen-1">6.5 性能优化要点（针对骁龙 8+ Gen 1）</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>优化手段</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>无障碍事件处理</td>
+<td>节流到 100ms，避免高频回调耗电</td>
+</tr>
+<tr>
+<td>节点树遍历</td>
+<td>300ms 超时 + 只遍历可见节点 + 结果缓存</td>
+</tr>
+<tr>
+<td>截图</td>
+<td>复用 ImageReader 的 Buffer，避免频繁分配</td>
+</tr>
+<tr>
+<td>端侧模型</td>
+<td>利用 Hexagon NPU（通过 QNN delegate），而非纯 CPU</td>
+</tr>
+<tr>
+<td>内存</td>
+<td>截图 Bitmap 用 RGB_565 或及时 recycle，避免 OOM</td>
+</tr>
+<tr>
+<td>手势执行</td>
+<td>与 120Hz 刷新率配合，滑动用贝塞尔曲线而非直线</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="7">7. 修订后的模块划分</h2>
+<h3 id="71">7.1 新增模块</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>模块</th>
+<th>职责</th>
+<th style="text-align: center;">优先级</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>:plugin:api</code></td>
+<td>插件接口契约、能力定义、Manifest 数据结构</td>
+<td style="text-align: center;">P0</td>
+</tr>
+<tr>
+<td><code>:plugin:runtime</code></td>
+<td>插件加载器、生命周期、能力代理、沙箱</td>
+<td style="text-align: center;">P0</td>
+</tr>
+<tr>
+<td><code>:plugin:rules</code></td>
+<td>L1 规则包解析、选择器引擎、匹配器、动作执行器</td>
+<td style="text-align: center;">P0</td>
+</tr>
+<tr>
+<td><code>:plugin:script</code></td>
+<td>L2 JS 运行时（QuickJS/Rhino 封装）、沙箱约束</td>
+<td style="text-align: center;">P1</td>
+</tr>
+<tr>
+<td><code>:plugin:store</code></td>
+<td><strong>插件页</strong>：列表、订阅源管理、导入导出、冲突检测</td>
+<td style="text-align: center;">P0</td>
+</tr>
+<tr>
+<td><code>:plugin:devtools</code></td>
+<td>快照审查、规则编辑器、测试台</td>
+<td style="text-align: center;">P1</td>
+</tr>
+<tr>
+<td><code>:update</code></td>
+<td>应用内自更新、版本检查、哈希校验</td>
+<td style="text-align: center;">P0</td>
+</tr>
+<tr>
+<td><code>:channel</code></td>
+<td>渠道号、本地统计（隐私友好）</td>
+<td style="text-align: center;">P1</td>
+</tr>
+<tr>
+<td><code>:onboarding</code></td>
+<td>权限引导向导（分机型）、自检工具</td>
+<td style="text-align: center;">P0</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="72">7.2 更新后的整体结构</h3>
+<div class="codehilite"><pre><span></span><code>┌──────────────────────────────────────────────────────────────┐
+│                        app (UI 壳)                            │
+│  对话页 │ Key 管理页 │ 任务页 │ 插件页 │ 设置页 │ 权限引导页     │
+└───────────────────────────┬──────────────────────────────────┘
+                            │
+┌───────────────────────────▼──────────────────────────────────┐
+│                    plugin 层（v2.0 新增）                      │
+│  :plugin:api  │  :plugin:runtime  │  :plugin:rules            │
+│  :plugin:script │ :plugin:store(插件页) │ :plugin:devtools     │
+└───────────────────────────┬──────────────────────────────────┘
+                            │
+┌───────────────────────────▼──────────────────────────────────┐
+│                    Domain Layer (纯 Kotlin)                   │
+│  UseCase │ Entity │ Repository 接口 │ 业务规则                 │
+└───────────────────────────┬──────────────────────────────────┘
+                            │
+┌───────────────────────────▼──────────────────────────────────┐
+│                       Data Layer                              │
+│  Repository 实现 │ Room │ OkHttp │ Keystore │ :update │ :channel│
+└───────────────────────────┬──────────────────────────────────┘
+                            │
+┌───────────────────────────▼──────────────────────────────────┐
+│                   Platform Layer (系统能力)                    │
+│  无障碍 │ Shizuku │ MediaProjection │ 悬浮窗 │ 通知 │ IME       │
+└──────────────────────────────────────────────────────────────┘
+</code></pre></div>
+
+<h3 id="73">7.3 关键依赖约束（新增）</h3>
+<ul>
+<li><code>:plugin:*</code> <strong>不得直接依赖</strong> <code>:perception</code> / <code>:action</code>，只能依赖 <code>:plugin:api</code> 暴露的能力接口</li>
+<li><code>:plugin:runtime</code> 是唯一能触达平台层的插件模块，且必须经过能力代理与 SafetyGuard</li>
+<li><code>:plugin:api</code> <strong>零 Android 依赖</strong>，保证插件作者可在纯 JVM 环境开发与测试</li>
+<li>插件<strong>永远无法</strong>依赖 <code>:core:crypto</code> 或 <code>:keymgmt</code></li>
+</ul>
+<hr />
+<h2 id="8">8. 修订后的分阶段计划</h2>
+<h3 id="81">8.1 与原计划的差异</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>v1.0</th>
+<th>v2.0 修订</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>M0</td>
+<td>技术验证（3 周）</td>
+<td><strong>不变</strong>，但新增 EX-13（受限设置解除流程验证）与 EX-14（K60 2K 屏成本基线）</td>
+</tr>
+<tr>
+<td>M1</td>
+<td>MVP（6-8 周）</td>
+<td><strong>新增插件框架（L1 规则包 + 插件页）</strong>，因为这是社区版的核心差异化</td>
+</tr>
+<tr>
+<td>M2</td>
+<td>任务引擎（8-10 周）</td>
+<td><strong>新增 L2 脚本插件 + 订阅机制</strong></td>
+</tr>
+<tr>
+<td>M3</td>
+<td>稳定与体验（6 周）</td>
+<td><strong>新增快照审查工具 + 更新机制 + 渠道统计</strong></td>
+</tr>
+<tr>
+<td>M4</td>
+<td>合规与发布（4 周）</td>
+<td><strong>改为"信任建设与发布"</strong>：开源准备、签名公示、误报申诉、文档、官网</td>
+</tr>
+<tr>
+<td>M5</td>
+<td>生态扩展</td>
+<td><strong>重心转为插件生态运营</strong>（L3 插件视社区需求决定）</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="82">8.2 修订后的路线图</h3>
+<div class="codehilite"><pre><span></span><code>M0 技术验证 ──► M1 MVP+插件框架 ──► M2 任务引擎+脚本插件 ──► M3 体验+开发工具 ──► M4 信任建设+发布 ──► M5 生态运营
+  3周              8-10周              8-10周                6周                4周              持续
+  (含 K60 专项)    (可内测)            (可公开测试)          (稳定版)          (正式发布)       (插件生态)
+</code></pre></div>
+
+<h3 id="83-m0">8.3 M0 新增验证实验</h3>
+<h4 id="ex-13">EX-13 侧载应用的受限设置解除流程验证 ★关键</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>假设</strong></td>
+<td>在红米 K60（HyperOS）上，能通过清晰的引导让用户成功解除受限设置并开启无障碍</td>
+</tr>
+<tr>
+<td><strong>方法</strong></td>
+<td>① 侧载安装 APK ② 尝试直接开无障碍，记录系统提示 ③ 走"允许受限设置"流程，记录每一步的实际路径 ④ 记录截图 ⑤ <strong>覆盖安装后再次检测，确认权限是否被重置</strong> ⑥ 统计整个流程的步骤数与耗时</td>
+</tr>
+<tr>
+<td><strong>通过标准</strong></td>
+<td>找到完整可行的解除路径；覆盖安装后的权限重置行为有明确结论；整个流程 ≤ 6 步</td>
+</tr>
+<tr>
+<td><strong>失败预案</strong></td>
+<td>若无法解除，则<strong>整个产品形态在 Android 13+ 侧载场景下不成立</strong>，必须重新评估（可能只能靠 Shizuku 通道）</td>
+</tr>
+<tr>
+<td><strong>产出</strong></td>
+<td>《小米/HyperOS 权限配置指南》（含截图）+ 引导流程设计</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>⚠️ <strong>这是 v2.0 新增的最高优先级实验。</strong> v1.0 假定无障碍权限能正常获取，
+但那是基于商店安装的假设。侧载场景下这一步完全可能走不通。</p>
+</blockquote>
+<h4 id="ex-14-k60-2k">EX-14 K60 2K 屏截图成本与准确率基线 ★关键</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>假设</strong></td>
+<td>在 3200×1440 屏幕上，缩放到 1280 长边后元素定位准确率下降不超过 5%</td>
+</tr>
+<tr>
+<td><strong>方法</strong></td>
+<td>在 K60 上采集 20 个典型界面，分别用 5 种分辨率/压缩组合送模型，对比 token 数与定位准确率</td>
+</tr>
+<tr>
+<td><strong>通过标准</strong></td>
+<td>找到「token 降至 25% 以下且准确率下降 ≤ 5%」的参数组合</td>
+</tr>
+<tr>
+<td><strong>失败预案</strong></td>
+<td>若缩放到 1280 准确率掉太多，则改为"区域裁剪 + 高分辨率"，或强制走无障碍树路径</td>
+</tr>
+<tr>
+<td><strong>产出</strong></td>
+<td>K60 专用的截图参数标准（写入默认 <code>CaptureOptions</code>）</td>
+</tr>
+</tbody>
+</table></div>
+<h4 id="ex-15-hyperos">EX-15 HyperOS 后台保活验证</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>假设</strong></td>
+<td>完成 11 项权限配置后，悬浮窗与前台服务能稳定存活</td>
+</tr>
+<tr>
+<td><strong>方法</strong></td>
+<td>按 6.2 清单逐项配置后，测试：① 切后台 1 小时 ② 锁屏 4 小时 ③ 一键清理内存 ④ 重启手机 ⑤ 系统更新后</td>
+</tr>
+<tr>
+<td><strong>通过标准</strong></td>
+<td>悬浮窗存活率 ≥ 95%（除用户主动清理）</td>
+</tr>
+<tr>
+<td><strong>产出</strong></td>
+<td>《HyperOS 保活配置清单》+ 自检工具</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="9">9. 待确认决策点（修订版）</h2>
+<p>v1.0 的 D1-D10 中，D1（Android only）、D3（无自有后端）、D4（Google Play 后置）已被本次转向确定。以下是新增/修订的决策点：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>决策点</th>
+<th>选项</th>
+<th>建议</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>D11</strong></td>
+<td>开源许可证</td>
+<td>GPL-3.0 / Apache-2.0 / 不开源</td>
+<td><strong>GPL-3.0</strong>（防止闭源套壳，与 GKD 一致）；若希望更利于生态扩散可选 Apache-2.0</td>
+</tr>
+<tr>
+<td><strong>D12</strong></td>
+<td>是否做 L3 原生插件</td>
+<td>做 / 暂不做</td>
+<td><strong>M1-M3 暂不做</strong>，等 L1/L2 生态成熟后再评估</td>
+</tr>
+<tr>
+<td><strong>D13</strong></td>
+<td>L2 脚本运行时</td>
+<td>QuickJS / Rhino / 暂不做</td>
+<td><strong>QuickJS</strong>（体积小、可严格限资源）；若想复用 GKD 生态则选 Rhino</td>
+</tr>
+<tr>
+<td><strong>D14</strong></td>
+<td>插件 API 版本策略</td>
+<td>一次定死 / 允许演进</td>
+<td><strong>允许演进但保证向后兼容</strong>，<code>apiVersion</code> 字段控制</td>
+</tr>
+<tr>
+<td><strong>D15</strong></td>
+<td>订阅源默认是否内置社区源列表</td>
+<td>内置 / 不内置</td>
+<td><strong>内置但默认关闭</strong>，用户主动开启（避免"本体推荐了恶意插件"的责任）</td>
+</tr>
+<tr>
+<td><strong>D16</strong></td>
+<td>是否提供匿名统计</td>
+<td>提供（默认关）/ 不提供</td>
+<td><strong>提供但默认关闭</strong>，且必须自托管或用开源方案</td>
+</tr>
+<tr>
+<td><strong>D17</strong></td>
+<td>是否收费</td>
+<td>不收费 / 捐赠 / 增值</td>
+<td><strong>不收费 + 自愿捐赠</strong>（收费会触发 ICP 许可证问题，且与社区分发定位冲突）</td>
+</tr>
+<tr>
+<td><strong>D18</strong></td>
+<td>是否做"免费试用 Key 池"</td>
+<td>做 / 不做</td>
+<td><strong>不做</strong>（社区版无需降低门槛，且会引入成本与合规问题）</td>
+</tr>
+<tr>
+<td><strong>D19</strong></td>
+<td>主仓库托管平台</td>
+<td>GitHub / Gitee / 双平台</td>
+<td><strong>GitHub 为主 + Gitee 镜像</strong>（国内访问稳定性）</td>
+</tr>
+<tr>
+<td><strong>D20</strong></td>
+<td>是否申请 App 备案</td>
+<td>现在办 / 暂不办 / 永远不办</td>
+<td><strong>暂不办，但预留路径</strong>。规模扩大或收费时立即补办（见 1.3 的风险说明）</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="v10">附：本次修订对 v1.0 的实质性变更清单</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>v1.0 的内容</th>
+<th>v2.0 的修订</th>
+<th>性质</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>假定上架应用商店，考虑商店审核</td>
+<td>完全不上架，改为社区分发</td>
+<td><strong>战略级</strong></td>
+</tr>
+<tr>
+<td>2</td>
+<td>未考虑侧载的「受限设置」</td>
+<td>新增第 1.1 节，并列为 M0 最高优先级实验（EX-13）</td>
+<td><strong>新增关键风险</strong></td>
+</tr>
+<tr>
+<td>3</td>
+<td>未规划插件机制</td>
+<td>新增第 3、4 章，三级插件体系</td>
+<td><strong>架构级新增</strong></td>
+</tr>
+<tr>
+<td>4</td>
+<td>模块划分 22 个</td>
+<td>新增 9 个模块（plugin 系列 + update + channel + onboarding）</td>
+<td><strong>架构级</strong></td>
+</tr>
+<tr>
+<td>5</td>
+<td>M1 只做基础功能</td>
+<td>M1 新增插件框架与插件页</td>
+<td><strong>计划级</strong></td>
+</tr>
+<tr>
+<td>6</td>
+<td>M4 为"合规与发布"</td>
+<td>改为"信任建设与发布"（开源、签名、误报申诉）</td>
+<td><strong>计划级</strong></td>
+</tr>
+<tr>
+<td>7</td>
+<td>通用机型适配</td>
+<td>新增第 6 章，红米 K60 / HyperOS 深度适配</td>
+<td><strong>新增</strong></td>
+</tr>
+<tr>
+<td>8</td>
+<td>未考虑 2K 屏成本</td>
+<td>新增 6.3 节，2K 屏截图成本优化</td>
+<td><strong>新增关键优化</strong></td>
+</tr>
+<tr>
+<td>9</td>
+<td>Google Play 政策为主要合规约束</td>
+<td>不适用，改为 App 备案 + 侧载限制</td>
+<td><strong>合规约束变更</strong></td>
+</tr>
+<tr>
+<td>10</td>
+<td>未考虑恶意二次打包</td>
+<td>新增签名校验、哈希公示、应用内自检</td>
+<td><strong>新增安全要求</strong></td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<p><em>文档结束。修订后的方案已可支撑开工，建议先跑 EX-13（受限设置）与 EX-14（2K 屏成本）这两个实验，它们的结论会直接影响 M1 的设计。</em></p>
+  </main>
+</div>
+</body>
+</html>

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  无障碍服务能力声明 —— 最小化原则
+
+  ⚠️ 合规与安全要点：
+  1. canRetrieveWindowContent=true 是读屏的必需项，但会在应用商店审核中被重点检查，
+     必须在隐私政策与商店描述中明确说明用途。
+  2. 不要声明 flagRequestFilterKeyEvents / flagRequestTouchExplorationMode 等
+     与读屏无关的标志，避免被判定为滥用。
+  3. Android 17+ 高级保护模式会校验应用类别，若本服务声明为无障碍工具，
+     需在 Play Console / 国内商店同步标注类别。
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged|typeViewClicked|typeViewFocused|typeViewScrolled"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows|flagReportViewIds|flagIncludeNotImportantViews"
+    android:canPerformGestures="true"
+    android:canRetrieveWindowContent="true"
+    android:description="@string/accessibility_service_description"
+    android:notificationTimeout="100"
+    android:settingsActivity="com.pocketagent.settings.AccessibilitySettingsActivity"
+    android:summary="@string/accessibility_service_summary" />
+
+<!--
+  说明：
+  - canPerformGestures=true          允许 dispatchGesture 执行点击/滑动（通道 A 的核心）
+  - flagReportViewIds                允许读取 viewIdResourceName，用于稳定元素定位与 UI 图谱缓存
+  - flagRetrieveInteractiveWindows   允许多窗口场景（分屏、悬浮窗）下的节点读取
+  - flagIncludeNotImportantViews     包含未标记 importantForAccessibility 的节点，
+                                     对自绘 UI 的覆盖率提升明显（代价是节点数变多）
+  - notificationTimeout=100ms        事件节流，避免高频回调导致耗电
+
+  不做的事：
+  - 不监听 typeViewTextChanged（涉及输入内容，隐私风险高，且非必要）
+  - 不声明 flagRequestFilterKeyEvents（涉及按键内容，风控与合规双重风险）
+-->
