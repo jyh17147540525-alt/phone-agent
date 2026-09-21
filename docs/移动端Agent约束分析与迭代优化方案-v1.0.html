@@ -1,0 +1,1544 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>移动端 Agent 约束分析与迭代优化方案</title>
+<style>
+:root {
+  --bg: #14161a;
+  --bg-soft: #1a1d22;
+  --panel: #1e2228;
+  --panel-2: #23272f;
+  --border: #2e343d;
+  --text: #e6e9ee;
+  --text-dim: #9aa4b2;
+  --text-faint: #6b7684;
+  --accent: #6ea8fe;
+  --accent-2: #7ee0c0;
+  --warn: #f0b429;
+  --danger: #f2685c;
+  --ok: #57c98a;
+  --code-bg: #15181d;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+               "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans SC", sans-serif;
+  font-size: 15.5px;
+  line-height: 1.85;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { display: flex; max-width: 1500px; margin: 0 auto; }
+aside {
+  width: 300px; flex: 0 0 300px;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  padding: 28px 18px 60px 28px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-soft);
+  font-size: 13.5px;
+}
+aside .brand {
+  font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--text-faint); margin-bottom: 4px;
+}
+aside .title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 20px; line-height: 1.5; }
+aside ul { list-style: none; padding-left: 0; margin: 0; }
+aside ul ul { padding-left: 14px; margin-top: 4px; }
+aside li { margin: 2px 0; }
+aside a {
+  color: var(--text-dim); text-decoration: none; display: block;
+  padding: 4px 8px; border-radius: 6px; border-left: 2px solid transparent;
+  transition: .15s;
+}
+aside a:hover { color: var(--text); background: var(--panel-2); border-left-color: var(--accent); }
+main { flex: 1; min-width: 0; padding: 44px 56px 120px; max-width: 1080px; }
+
+h1 {
+  font-size: 30px; line-height: 1.35; margin: 0 0 8px; font-weight: 800;
+  letter-spacing: -.01em;
+}
+h2 {
+  font-size: 22px; margin: 56px 0 18px; padding-bottom: 10px;
+  border-bottom: 1px solid var(--border); font-weight: 700; scroll-margin-top: 20px;
+}
+h3 { font-size: 17.5px; margin: 34px 0 12px; font-weight: 700; color: #dfe5ee; scroll-margin-top: 20px; }
+h4 { font-size: 15.5px; margin: 24px 0 10px; font-weight: 700; color: var(--text-dim); }
+p { margin: 12px 0; }
+a { color: var(--accent); }
+strong { color: #fff; font-weight: 700; }
+hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+blockquote {
+  margin: 18px 0; padding: 14px 20px;
+  background: linear-gradient(90deg, rgba(110,168,254,.10), rgba(110,168,254,.02));
+  border-left: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0; color: #cfd6e0;
+}
+blockquote p { margin: 6px 0; }
+
+ul, ol { padding-left: 24px; margin: 12px 0; }
+li { margin: 5px 0; }
+li > ul, li > ol { margin: 5px 0; }
+
+.tw { overflow-x: auto; margin: 18px 0; border: 1px solid var(--border); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--panel); }
+th, td { padding: 9px 14px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { background: var(--panel-2); font-weight: 700; color: #fff; white-space: nowrap; font-size: 13.5px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: rgba(110,168,254,.045); }
+
+code {
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+  font-size: 13px; background: var(--code-bg); padding: 2px 6px;
+  border-radius: 5px; color: #8fd3ff; border: 1px solid var(--border);
+}
+pre {
+  background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px;
+  padding: 18px 20px; overflow-x: auto; margin: 18px 0;
+  font-size: 12.8px; line-height: 1.65;
+}
+pre code {
+  background: none; border: none; padding: 0; color: #cfd8e3;
+  white-space: pre; font-family: "JetBrains Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+}
+.codehilite { background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; margin: 18px 0; }
+.codehilite pre { border: none; margin: 0; background: none; }
+.codehilite .k, .codehilite .kd, .codehilite .kn { color: #ff7b9c; }
+.codehilite .s, .codehilite .s1, .codehilite .s2 { color: #7ee0c0; }
+.codehilite .c1, .codehilite .cm { color: #5f6b7a; font-style: italic; }
+.codehilite .n, .codehilite .nf, .codehilite .nc { color: #8fd3ff; }
+.codehilite .m, .codehilite .mi { color: #f0b429; }
+
+@media (max-width: 1000px) {
+  aside { display: none; }
+  main { padding: 28px 20px 80px; }
+  body { font-size: 15px; }
+  h1 { font-size: 24px; }
+  h2 { font-size: 19px; }
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: #333a45; border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: #414a58; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <aside>
+    <div class="brand">Project Plan</div>
+    <div class="title">移动端 Agent 约束分析与迭代优化方案</div>
+    <div class="toc">
+<ul>
+<li><a href="#0">0. 结论速览</a></li>
+<li><a href="#11">1.1 实现进度盘点（实测）</a></li>
+<li><a href="#12">1.2 七个结构性不足</a><ul>
+<li><a href="#n1">N1 · 移动端约束没有系统性建模</a></li>
+<li><a href="#n2">N2 · "移植思维"压倒"移动端原生思维"</a></li>
+<li><a href="#n3">N3 · 感知层被设计成"能感知就感知"，方向反了</a></li>
+<li><a href="#n4">N4 · 没有任何能耗、稳定性、长时运行的验证设计</a></li>
+<li><a href="#n5-18-3">N5 · 18 个实验全部未执行，而其中 3 个是决定性的</a></li>
+<li><a href="#n6">N6 · 缺少"随时被打断"的设计</a></li>
+<li><a href="#n7">N7 · 没有"任务幂等性"设计</a></li>
+</ul>
+</li>
+<li><a href="#21">2.1 权限约束</a></li>
+<li><a href="#22">2.2 资源约束</a></li>
+<li><a href="#23">2.3 后台运行约束</a></li>
+<li><a href="#24">2.4 能耗约束</a><ul>
+<li><a href="#a">单次任务的能耗构成（估算，方法见附录 A）</a></li>
+</ul>
+</li>
+<li><a href="#25">2.5 隐私约束</a></li>
+<li><a href="#26">2.6 网络与交互约束</a></li>
+<li><a href="#27">2.7 约束汇总：与桌面的本质差异</a></li>
+<li><a href="#31">3.1 七条设计原则</a></li>
+<li><a href="#32-c">3.2 架构调整（相对路线 C）</a></li>
+<li><a href="#41-p0">4.1 P0 · 阻断项（不做则后续全部可能作废）</a></li>
+<li><a href="#42-p1">4.2 P1 · 正确性（把核心链路做对）</a></li>
+<li><a href="#43-p2">4.3 P2 · 移动端专属能力（本轮的真正增量）</a></li>
+<li><a href="#44-p3">4.4 P3 · 打磨与交付</a></li>
+<li><a href="#45">4.5 优先级总表（一句话版）</a></li>
+<li><a href="#51">5.1 安全验证（四层，逐层加严）</a></li>
+<li><a href="#52">5.2 稳定性验证（五类指标）</a></li>
+<li><a href="#53">5.3 自动化验证工具（现有资产盘点）</a></li>
+<li><a href="#54">5.4 发布验收门（必须全过）</a></li>
+<li><a href="#61">6.1 新增风险</a></li>
+<li><a href="#62-d-a-d-q">6.2 待决策（接续 D-A ~ D-Q）</a></li>
+<li><a href="#a1">A.1 模块实现盘点</a></li>
+<li><a href="#a2-24">A.2 能耗估算方法（§2.4 的依据）</a></li>
+<li><a href="#a3-22">A.3 内存估算方法（§2.2 的依据）</a></li>
+</ul>
+</div>
+
+  </aside>
+  <main>
+<h1 id="agent">移动端 Agent 约束分析与迭代优化方案</h1>
+<blockquote>
+<p>版本 v1.0 ｜ 2026-09-21 ｜ 状态：<strong>方案稿（待评审）</strong></p>
+<p>前置文档：
+- <code>docs/豆包手机智能体考察与dsh移植可行性研讨-v1.0.md</code>（下称"研讨文档"）
+- <code>docs/BYOK模型接入与dsh代理设计-v1.0.md</code>（下称"BYOK 文档"）
+- <code>docs/M0技术验证与工程落地手册-v1.0.md</code>（下称"M0 手册"）</p>
+<p><strong>本文的立场：把 PocketAgent 从「桌面 agent 的手机移植版」重新定义为「移动端原生 agent」。</strong>
+这个转向不是修辞，它改变了架构取舍的优先级。</p>
+</blockquote>
+<hr />
+<h2 id="0">0. 结论速览</h2>
+<p><strong>三条必须最先接受的结论：</strong></p>
+<p><strong>① 现有方案缺的不是细节，是一个视角 —— 它默认"手机是小一号的电脑"。</strong></p>
+<p>通读四份既有文档，约束被当成<strong>待处理的麻烦</strong>（11 项权限配置、保活策略、
+耗电 ≤3%/天），而不是<strong>设计的出发点</strong>。这导致几个关键取舍被做反了：
+比如感知层被设计成"能截图就截图"，而移动端的第一原则应该是"<strong>能不感知就不感知</strong>"。</p>
+<p><strong>② 移动端 agent 的真正瓶颈不是算力，是「轮次」。</strong></p>
+<p>手机 SoC 已经很强（K60 是骁龙 8+ Gen 1），单次截图/推理都不慢。
+但 agent 循环的<strong>每一步都要截图 + 上传 + 推理</strong>，能耗与流量随轮次线性增长。
+<strong>一次 8 轮的任务约耗 0.07% 电量；失控到 30 轮就是 0.27%。</strong>
+所以省电的第一手段不是"优化单步"，而是"<strong>减少轮次</strong>"——
+这需要 <code>AgentBudget</code>（轮次预算）成为一等公民，而不是事后优化项。</p>
+<p><strong>③ 最大的实现缺口是感知层与执行层，而它们恰好是移动端最难的部分。</strong></p>
+<p>实测模块盘点（附录 A）：<code>perception</code> 与 <code>action</code> <strong>各只有 1 个文件</strong>，
+<code>agent</code> 也只有 1 个。而 17 个模块完全空壳，包括 <code>keymgmt</code>（BYOK 闭环）
+与 <code>plugin/runtime</code>（插件体系运行时）。
+<strong>"方案完备度"与"实现完备度"之间存在巨大落差</strong> —— 这本身就是最大的风险。</p>
+<hr />
+<h1 id="_1">第一部分 · 现有方案的不足（量化）</h1>
+<h2 id="11">1.1 实现进度盘点（实测）</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>分类</th>
+<th style="text-align: center;">模块数</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>有实质实现</strong>（主代码 ≥3 文件）</td>
+<td style="text-align: center;">4</td>
+<td><code>app</code>(15) / <code>plugin/api</code>(7) / <code>safety</code>(3) / <code>provider/openai-compat</code>(3)</td>
+</tr>
+<tr>
+<td><strong>仅骨架</strong>（1 个文件）</td>
+<td style="text-align: center;">8</td>
+<td><code>core/crypto</code> / <code>core/network</code> / <code>provider/api</code> / <code>perception</code> / <code>action</code> / <code>agent</code> / <code>display</code> / <code>github</code></td>
+</tr>
+<tr>
+<td><strong>完全空壳</strong>（0 文件）</td>
+<td style="text-align: center;"><strong>17</strong></td>
+<td>见下</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>17 个空壳模块：</strong></p>
+<div class="codehilite"><pre><span></span><code>core/common          core/database        memory               keymgmt ★
+provider/anthropic   provider/gemini      provider/local
+plugin/rules         plugin/script        plugin/runtime ★     plugin/store
+plugin/devtools      display/preview      overlay              onboarding
+update               channel              contribute
+</code></pre></div>
+
+<p>★ 标记的是<strong>关键路径上的空壳</strong>：
+- <code>keymgmt</code> —— 用户最关心的 BYOK 闭环，一行代码没有
+- <code>plugin/runtime</code> —— 插件体系的核心，一级插件市场因此无法真正跑起来</p>
+<p><strong>测试分布</strong>：11 个测试文件，集中在 <code>plugin/api</code>(5) / <code>provider/openai-compat</code>(3) /
+<code>safety</code>(2) / <code>core/network</code>(1)。
+<strong><code>perception</code> / <code>action</code> / <code>agent</code> 三个核心模块零测试。</strong></p>
+<blockquote>
+<p>📌 这不是"进度慢"的问题，而是<strong>风险结构</strong>的问题：
+有测试的模块（插件 API、Provider、安全）都是<strong>纯逻辑、易验证</strong>的部分；
+没有测试的模块（感知、执行、agent 循环）都是<strong>强依赖真机、难验证</strong>的部分。
+<strong>风险最高的地方验证最薄。</strong></p>
+</blockquote>
+<h2 id="12">1.2 七个结构性不足</h2>
+<h3 id="n1">N1 · 移动端约束没有系统性建模</h3>
+<p>现有文档里关于移动端的约束散落在四处：v2.0 的 11 项权限配置、
+M0 手册的保活实验、v3.0 的虚拟屏实验、项目方案的"耗电 ≤3%/天"。
+<strong>没有一处把它们当作设计输入统一建模。</strong></p>
+<p>后果：约束是<strong>事后补救</strong>的（"跑起来发现耗电高再优化"），而不是<strong>前置约束</strong>的
+（"给定耗电预算，反推感知频率上限"）。</p>
+<h3 id="n2">N2 · "移植思维"压倒"移动端原生思维"</h3>
+<p>研讨文档的路线 C（dsh 为脑 + Android 为能力端）本质是<strong>移植方案</strong>：
+把一个桌面 agent 框架搬过来，再给它接上手机的手脚。</p>
+<p><strong>移植方案的系统性偏差</strong>：它会保留桌面框架的隐含假设 ——
+长会话、充裕内存、稳定后台、不计能耗、任务可以慢慢做。
+这些假设在手机上<strong>全部不成立</strong>。</p>
+<h3 id="n3">N3 · 感知层被设计成"能感知就感知"，方向反了</h3>
+<p>研讨文档 §3.3 的能力映射表里，<code>screen_read</code> 和 <code>screen_capture</code> 是并列的两个核心能力。
+但移动端的第一原则应该是：<strong>能不感知就不感知。</strong></p>
+<p>理由：
+- 每次感知 = 一次截图/树遍历 = 能耗 + 时间 + 隐私暴露面
+- 很多步骤<strong>不需要看屏幕</strong>就能完成（如"打开设置"→ 直接 <code>am start</code>，不用看）
+- 树可用时优先用树是对的，但<strong>"这一步是否需要感知"这个决策本身缺失了</strong></p>
+<h3 id="n4">N4 · 没有任何能耗、稳定性、长时运行的验证设计</h3>
+<p>M0 手册的实验清单（EX-01~EX-12）覆盖了功能可用性，但<strong>能耗测试是空白</strong>。
+EX-12 测"保活"、EX-15 测"后台存活"，都是<strong>能不能活</strong>，不是<strong>活得多贵</strong>。</p>
+<p><strong>缺失的验证维度：</strong>
+- 单次任务的能耗（mAh 或 %）
+- 常驻时的静态功耗
+- 连续 7 天的内存增长趋势（泄漏）
+- 弱网/断网下的行为
+- 长时间运行的稳定性</p>
+<h3 id="n5-18-3">N5 · 18 个实验全部未执行，而其中 3 个是决定性的</h3>
+<p>EX-01 ~ EX-18 全部停留在文档阶段。其中三个是<strong>决定产品形态</strong>的：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>实验</th>
+<th>决定什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>EX-16</strong></td>
+<td>虚拟屏能否实现 → "不影响用户使用"是否成立</td>
+</tr>
+<tr>
+<td><strong>EX-13</strong></td>
+<td>侧载能否拿到无障碍 → 整个产品形态是否成立</td>
+</tr>
+<tr>
+<td><strong>P0（Node 20+）</strong></td>
+<td>路线 C 是否成立</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>在三个决定性实验都没做的情况下继续深化方案，是在给一个可能不存在的地基画装修图。</strong></p>
+<h3 id="n6">N6 · 缺少"随时被打断"的设计</h3>
+<p>手机场景下，任务被打断是<strong>常态</strong>而非异常：来电、切应用、锁屏、系统杀进程、
+用户主动放弃。现有方案没有任何<strong>任务状态持久化与恢复</strong>的设计。</p>
+<p>对比：桌面 agent 被打断的代价是"重跑一次"，移动端被打断的代价是
+<strong>"App 被杀了，任务做到一半，用户不知道现在是什么状态"</strong> —— 更糟的是，
+agent 可能已经执行了部分<strong>写操作</strong>（发了一条消息、下了一个订单）。</p>
+<h3 id="n7">N7 · 没有"任务幂等性"设计</h3>
+<p>接 N6：如果任务在中途恢复，如何避免重复执行已完成的步骤？
+现有方案没有 checkpoint / 幂等键 / 回滚机制的概念。</p>
+<hr />
+<h1 id="agent_1">第二部分 · 移动端 Agent 的六类硬约束</h1>
+<blockquote>
+<p>本章是全文的设计依据。每类约束给出：<strong>与桌面的差异 → 具体量化 → 对架构的强制要求</strong>。</p>
+</blockquote>
+<h2 id="21">2.1 权限约束</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th></th>
+<th>桌面 agent</th>
+<th>移动端 agent</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>文件系统</td>
+<td>完整读写</td>
+<td>沙箱 + Scoped Storage</td>
+</tr>
+<tr>
+<td>进程控制</td>
+<td>任意</td>
+<td>仅自己</td>
+</tr>
+<tr>
+<td>输入注入</td>
+<td>合成事件 API</td>
+<td><strong>需无障碍或 Shizuku</strong></td>
+</tr>
+<tr>
+<td>屏幕读取</td>
+<td>任意截图</td>
+<td><strong>需 MediaProjection 或无障碍</strong></td>
+</tr>
+<tr>
+<td>授权方式</td>
+<td>安装时一次</td>
+<td><strong>逐项、运行时、可随时撤销</strong></td>
+</tr>
+<tr>
+<td>政策风险</td>
+<td>低</td>
+<td><strong>高且持续收紧</strong>（Android 17 APM）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>硬数字</strong>：需要 5–7 项运行时权限 + 3 项特殊权限（无障碍、悬浮窗、通知监听），
+外加 HyperOS 的 11 项系统配置。<strong>任一项缺失，功能就残缺。</strong></p>
+<p><strong>不可得性（研讨文档已论证）</strong>：<code>READ_FRAME_BUFFER</code> / <code>INJECT_EVENTS</code> /
+headless 虚拟屏三者依赖<strong>系统签名预装</strong>，第三方侧载应用<strong>物理上拿不到</strong>。</p>
+<blockquote>
+<p><strong>对架构的强制要求</strong>
+1. <strong>权限必须可降级</strong> —— 不能假设"用户会全部授权"，每一档权限组合都要有可用形态
+2. <strong>权限状态要可自检</strong> —— 启动时检测，缺失时给出<strong>可操作</strong>的修复指引
+3. <strong>不得依赖任何不可得权限</strong> —— 这条已经写进架构原则，但要持续审计</p>
+</blockquote>
+<h2 id="22">2.2 资源约束</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>资源</th>
+<th>桌面</th>
+<th>移动端</th>
+<th>PocketAgent 预算</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>内存</td>
+<td>32GB 随便用</td>
+<td>12GB 与系统+其他 App 分</td>
+<td><strong>App 常驻 ≤ 150MB，任务期峰值 ≤ 400MB</strong>（建议值）</td>
+</tr>
+<tr>
+<td>存储</td>
+<td>充裕</td>
+<td>128–512GB 且用户敏感</td>
+<td>APK ≤ 130MB + 数据 ≤ 200MB</td>
+</tr>
+<tr>
+<td>CPU</td>
+<td>不关心</td>
+<td>强但<strong>跑满会烫</strong></td>
+<td>单核占用避免长时间 &gt;50%</td>
+</tr>
+<tr>
+<td>内存回收</td>
+<td>手动</td>
+<td><strong>LMK 随时杀</strong></td>
+<td>必须能承受随时被回收</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>参考量级</strong>：豆包手机助手的 <code>aikernel</code> 进程常驻约 <strong>160MB</strong>
+（研讨文档 §1.6，第三方逆向分析）。</p>
+<p><strong>PocketAgent 的内存账（路线 C，估算）：</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>组件</th>
+<th>估算</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Android App 本体（Compose UI + 服务）</td>
+<td>80–120 MB</td>
+</tr>
+<tr>
+<td>Node 运行时（单 ABI）</td>
+<td>30–40 MB</td>
+</tr>
+<tr>
+<td>dsh 裁剪后 profile（JS 堆）</td>
+<td>40–70 MB</td>
+</tr>
+<tr>
+<td><strong>合计常驻</strong></td>
+<td><strong>150–230 MB</strong></td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>⚠️ <strong>这个数字值得警惕。</strong> 如果 Node 与 dsh <strong>常驻</strong>，
+内存占用会超过豆包的 aikernel，且是在用户手机上常驻。
+<strong>这直接支持 D-J 的结论：Node 进程应当"任务期间才启动"，而非常驻。</strong>
+但"按需启动"又会带来启动延迟（Node 冷启动 + dsh 加载 profile 可能要 1–3 秒），
+这是<strong>体验与资源的直接冲突</strong>，需要一个折中（见 §4.2 P2-1）。</p>
+</blockquote>
+<h2 id="23">2.3 后台运行约束</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>机制</th>
+<th>影响</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Doze / App Standby</strong></td>
+<td>息屏后网络与唤醒被延迟</td>
+</tr>
+<tr>
+<td><strong>后台执行限制</strong></td>
+<td>后台服务被限制，需前台服务</td>
+</tr>
+<tr>
+<td><strong>前台服务类型限制</strong>（Android 14+）</td>
+<td>必须声明类型并符合用途，否则启动失败</td>
+</tr>
+<tr>
+<td><strong>国产 ROM 额外管控</strong></td>
+<td>HyperOS 需 11 项配置；且<strong>系统更新可能重置</strong></td>
+</tr>
+<tr>
+<td><strong>LMK 低内存杀进程</strong></td>
+<td>任何时候可能被杀</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>关键结构性问题</strong>：<strong>Node 进程是 App 的子进程。</strong>
+App 被系统杀掉，Node 必然一起死 —— 无法通过"让 Node 独立保活"绕过。</p>
+<p><strong>且</strong>：无障碍服务被系统关闭（长时间不用/系统更新）时，
+agent 会静默失效 —— 用户不知道它已经不能工作了。</p>
+<blockquote>
+<p><strong>对架构的强制要求</strong>
+1. <strong>状态必须落盘</strong> —— 假设进程随时会死，所有关键状态持久化
+2. <strong>启动时全量自检</strong> —— 权限、服务、Node 可用性逐项检测并可视化
+3. <strong>失效要显性</strong> —— 不能静默降级，必须让用户看见
+4. <strong>保活策略分级</strong> —— 常驻（任务期）/ 按需（空闲）两档，不要一味追求"永不被杀"</p>
+</blockquote>
+<h2 id="24">2.4 能耗约束</h2>
+<p><strong>现有指标</strong>：项目方案 M3 验收写"后台耗电 ≤ 3%/天"。<strong>这个指标不足以约束 agent 行为</strong> ——
+它只管"待机"，不管"干活"。</p>
+<h3 id="a">单次任务的能耗构成（估算，方法见附录 A）</h3>
+<p>假设一次 8 轮的任务，K60（5500mAh / 3.87V ≈ 21.3Wh ≈ 76,700J）：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>环节</th>
+<th>单轮耗时</th>
+<th>估算功耗</th>
+<th>单轮能耗</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>截图 + 编码（2K）</td>
+<td>~150 ms</td>
+<td>1–2 W</td>
+<td>~0.3 J</td>
+</tr>
+<tr>
+<td>图片上传（~200KB）</td>
+<td>~0.5 s</td>
+<td>~1.5 W</td>
+<td>~0.75 J</td>
+</tr>
+<tr>
+<td>等待云端推理（屏幕亮 + 网络保持）</td>
+<td>~3 s</td>
+<td>~2 W</td>
+<td>~6 J</td>
+</tr>
+<tr>
+<td><strong>单轮合计</strong></td>
+<td></td>
+<td></td>
+<td><strong>~7 J</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>推论：</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th style="text-align: center;">轮次</th>
+<th>单次任务能耗</th>
+<th>占电池</th>
+<th>每天 20 次</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;">5 轮</td>
+<td>~35 J</td>
+<td>0.05%</td>
+<td>0.9%</td>
+</tr>
+<tr>
+<td style="text-align: center;"><strong>8 轮</strong></td>
+<td><strong>~56 J</strong></td>
+<td><strong>0.07%</strong></td>
+<td><strong>1.5%</strong></td>
+</tr>
+<tr>
+<td style="text-align: center;">15 轮</td>
+<td>~105 J</td>
+<td>0.14%</td>
+<td>2.7%</td>
+</tr>
+<tr>
+<td style="text-align: center;"><strong>30 轮（失控）</strong></td>
+<td><strong>~210 J</strong></td>
+<td><strong>0.27%</strong></td>
+<td><strong>5.5%</strong></td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>⚠️ <strong>这是估算不是实测，但量级足以支撑一个关键判断：</strong>
+<strong>能耗几乎完全由"轮次"决定，而非单步优化。</strong>
+把单步截图优化 20% 只省 0.06J/轮；而把 30 轮压到 8 轮，省 154J —— <strong>差三个数量级。</strong></p>
+</blockquote>
+<p><strong>另一个大头：常驻功耗。</strong> 前台服务 + 无障碍监听 + （若常驻的）Node 进程，
+会持续拉高待机功耗。<strong>这比单次任务更容易失控</strong>，因为它是 24 小时持续的。</p>
+<blockquote>
+<p><strong>对架构的强制要求</strong>
+1. <strong><code>AgentBudget</code> 是一等公民</strong> —— 轮次上限、时长上限、能耗上限，超限主动中止
+2. <strong>减少轮次优先于优化单步</strong> —— 合并步骤、批量操作、避免无谓感知
+3. <strong>任务期与空闲期分离</strong> —— 空闲时 Node 不运行，无障碍事件降到最低
+4. <strong>能耗必须可测</strong> —— 没有度量就没有优化（见 §5.2）</p>
+</blockquote>
+<h2 id="25">2.5 隐私约束</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>数据类型</th>
+<th>敏感度</th>
+<th>现有措施</th>
+<th>缺口</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>API Key</td>
+<td>极高</td>
+<td>Keystore + AES-GCM，永不落明文</td>
+<td>路线 C 的跨进程问题（BYOK 文档已解）</td>
+</tr>
+<tr>
+<td><strong>屏幕内容</strong></td>
+<td><strong>极高</strong></td>
+<td>支付页面停止、不落盘</td>
+<td><strong>无数据最小化设计</strong></td>
+</tr>
+<tr>
+<td>短信/通讯录/相册</td>
+<td>高</td>
+<td>未涉及</td>
+<td>—</td>
+</tr>
+<tr>
+<td>剪贴板</td>
+<td>高</td>
+<td>导入 Key 后清空</td>
+<td>其他场景未处理</td>
+</tr>
+<tr>
+<td>通知内容</td>
+<td>中</td>
+<td>未涉及</td>
+<td>—</td>
+</tr>
+<tr>
+<td>使用记录/任务历史</td>
+<td>中</td>
+<td>本地存储</td>
+<td>未定义保留策略</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>核心洞察：屏幕内容是移动端 agent 独有的、也是最大的隐私暴露面。</strong></p>
+<p>它同时包含：用户当时在做什么、和谁聊天、余额多少、住址、健康信息……
+<strong>而 agent 的设计要求是"频繁读取它"。</strong> 这两者天然冲突。</p>
+<p><strong>现有方案的不足：</strong>
+- 只做了"<strong>不做什么</strong>"（支付页面停止），没做"<strong>少做什么</strong>"（数据最小化）
+- 截图上传给云端模型时<strong>没有裁剪/降质/脱敏</strong> —— 全屏原图直接发出去
+- 没有"上传内容告知"机制 —— 用户不知道到底传了什么</p>
+<blockquote>
+<p><strong>对架构的强制要求</strong>
+1. <strong>数据最小化</strong>：上传前裁剪到相关区域、降质、必要时 OCR 后只传文本
+2. <strong>敏感区域本地遮蔽</strong>：状态栏（含通知）、输入框（可能含密码）本地涂黑
+3. <strong>可审计</strong>：用户能查看"最近上传了什么"（本地保留，不上报）
+4. <strong>默认不上传</strong>：能本地判断的不上云</p>
+</blockquote>
+<h2 id="26">2.6 网络与交互约束</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th></th>
+<th>桌面</th>
+<th>移动端</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>网络</td>
+<td>稳定宽带有线</td>
+<td>4G/5G/WiFi 切换、弱网、地铁隧道</td>
+</tr>
+<tr>
+<td>流量</td>
+<td>不限</td>
+<td>用户敏感（尤其非 WiFi）</td>
+</tr>
+<tr>
+<td>交互</td>
+<td>键鼠、大屏、可长时间专注</td>
+<td>触屏、小屏、碎片时间、随时离开</td>
+</tr>
+<tr>
+<td>任务节奏</td>
+<td>一次做完</td>
+<td><strong>被打断后要能接着做</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>流量账</strong>：每轮上传 ~200KB，8 轮 ≈ 1.6MB/任务。
+每天 20 次 ≈ 32MB/天 ≈ <strong>1GB/月</strong>（仅上传，不含返回）。
+<strong>在非 WiFi 环境下这是用户可感知的消耗</strong>，应提供"仅 WiFi 下执行重任务"的选项。</p>
+<blockquote>
+<p><strong>对架构的强制要求</strong>
+1. <strong>网络感知的任务调度</strong> —— 弱网时降级（少截图、只传文本）
+2. <strong>流量预算与提示</strong> —— 非 WiFi 下提示或限制
+3. <strong>输出适配小屏</strong> —— 长文本要折叠、摘要优先
+4. <strong>中断友好</strong> —— 见 N6 / N7</p>
+</blockquote>
+<h2 id="27">2.7 约束汇总：与桌面的本质差异</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>桌面 agent</th>
+<th><strong>移动端专属 agent</strong></th>
+<th>架构含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>任务时长</td>
+<td>分钟–小时</td>
+<td><strong>秒–分钟</strong></td>
+<td>不需要长会话优化，需要<strong>快速收敛</strong></td>
+</tr>
+<tr>
+<td>中断频率</td>
+<td>低</td>
+<td><strong>极高</strong></td>
+<td>必须<strong>可恢复</strong></td>
+</tr>
+<tr>
+<td>内存</td>
+<td>充裕</td>
+<td><strong>紧张</strong></td>
+<td>Node/dsh 不能常驻</td>
+</tr>
+<tr>
+<td>能耗</td>
+<td>不关心</td>
+<td><strong>核心指标</strong></td>
+<td><strong>轮次预算制</strong></td>
+</tr>
+<tr>
+<td>网络</td>
+<td>稳定</td>
+<td><strong>不稳定</strong></td>
+<td>分级降质</td>
+</tr>
+<tr>
+<td>交互</td>
+<td>键鼠大屏</td>
+<td><strong>触屏小屏</strong></td>
+<td>语音优先、输出精简</td>
+</tr>
+<tr>
+<td>隐私面</td>
+<td>文件</td>
+<td><strong>全部数字生活</strong></td>
+<td>数据最小化</td>
+</tr>
+<tr>
+<td>失败代价</td>
+<td>重试即可</td>
+<td><strong>可能误操作真实账号</strong></td>
+<td>幂等 + 确认</td>
+</tr>
+<tr>
+<td>权限</td>
+<td>一次授权</td>
+<td><strong>逐项、可撤销、政策收紧</strong></td>
+<td>全链路可降级</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h1 id="agent_2">第三部分 · 什么是「移动端专属 Agent」</h1>
+<h2 id="31">3.1 七条设计原则</h2>
+<blockquote>
+<p>从 §2 的约束<strong>反推</strong>出来的，不是从桌面 agent 抄来的。</p>
+</blockquote>
+<p><strong>原则 1 · 轮次预算制（最重要）</strong></p>
+<p>每个任务有明确的<strong>轮次上限</strong>（默认 8，可配），到达上限时：
+不是"继续硬跑"，而是<strong>主动停下、报告进度、交还用户</strong>。</p>
+<p>理由：能耗 ≈ 轮次 × 单轮成本（§2.4），轮次是唯一的一阶杠杆。</p>
+<p><strong>原则 2 · 可中断可恢复</strong></p>
+<p>任务状态在<strong>每一步之后</strong>持久化（checkpoint）。任何时刻被杀，
+重启后能报告"做到哪了"并选择继续或放弃。</p>
+<p>理由：手机上被打断是常态（§2.3 / §2.6）。</p>
+<p><strong>原则 3 · 感知降级阶梯</strong></p>
+<p>按代价从低到高排列，<strong>能用低档就不用高档</strong>：</p>
+<div class="codehilite"><pre><span></span><code>第 0 档  不感知      —— 直接执行（如"打开设置"用 am start）
+第 1 档  无障碍树    —— 结构化、便宜、无隐私图像
+第 2 档  树 + 局部截图 —— 只截相关区域
+第 3 档  全屏截图（降质）—— 树不可用时
+第 4 档  全屏截图（原质）—— 兜底
+</code></pre></div>
+
+<p><strong>关键：第 0 档的存在。</strong> 现有方案默认"总是要看屏幕"，
+但很多步骤根本不需要 —— 这是最大的优化空间。</p>
+<p><strong>原则 4 · 本地优先判断</strong></p>
+<p>能用规则/小模型在本地判断的，不上云。
+例：判断"当前页面是否是支付页面"应该是本地规则，不是问模型。</p>
+<p>理由：省钱、省电、省流量、少隐私暴露。</p>
+<p><strong>原则 5 · 权限最小化 + 运行时降级</strong></p>
+<p>从"能不用就不用"出发，而非"能拿到就都拿"。
+每一档权限组合都要有可用形态（见 §2.1）。</p>
+<p><strong>原则 6 · 数据最小化</strong></p>
+<p>上传给模型的内容应当是<strong>完成任务所必需的最小子集</strong>：
+裁剪、降质、遮蔽敏感区域、必要时先本地 OCR 转文本。</p>
+<p><strong>原则 7 · 写操作幂等 + 确认</strong></p>
+<p>任何改变真实世界的操作（发消息、下单、转账）必须：
+- 有幂等键，避免恢复时重复执行
+- 高风险的强制用户确认
+- <strong>支付环节永久放弃</strong>（既有原则，保持不变）</p>
+<h2 id="32-c">3.2 架构调整（相对路线 C）</h2>
+<p>在研讨文档的 L0–L4 之上，<strong>新增五个横切组件</strong>：</p>
+<div class="codehilite"><pre><span></span><code>┌─────────────────────────────────────────────────────────────┐
+│  L0 宿主层                                                   │
+├─────────────────────────────────────────────────────────────┤
+│  L1 运行时层（Node）  ← PowerGovernor 控制其启停              │
+├─────────────────────────────────────────────────────────────┤
+│  L2 智能体内核 dsh    ← AgentBudget 约束其轮次                │
+├─────────────────────────────────────────────────────────────┤
+│  L3 能力桥 MCP + LLM 网关                                    │
+├─────────────────────────────────────────────────────────────┤
+│  L4 能力端                                                   │
+│     PerceptionLadder（感知降级阶梯）★新增                     │
+│     PrivacyFilter（上传前最小化）★新增                        │
+│     TaskCheckpoint（状态持久化）★新增                         │
+│     AgentBudget（轮次/时长/能耗预算）★新增                    │
+│     PowerGovernor（能耗监测与降级）★新增                      │
+│     SafetyGuard（既有）                                       │
+└─────────────────────────────────────────────────────────────┘
+</code></pre></div>
+
+<div class="tw"><table>
+<thead>
+<tr>
+<th>新组件</th>
+<th>职责</th>
+<th>为什么必须是独立组件</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>AgentBudget</strong></td>
+<td>轮次/时长/能耗上限，超限中止</td>
+<td>它是<strong>跨层约束</strong>，不能属于任何单层</td>
+</tr>
+<tr>
+<td><strong>TaskCheckpoint</strong></td>
+<td>每步后持久化任务状态</td>
+<td>进程随时会死（§2.3），必须独立于内存</td>
+</tr>
+<tr>
+<td><strong>PerceptionLadder</strong></td>
+<td>五档感知降级决策</td>
+<td>它是<strong>策略</strong>，与具体感知实现解耦</td>
+</tr>
+<tr>
+<td><strong>PrivacyFilter</strong></td>
+<td>上传前裁剪/降质/遮蔽</td>
+<td>必须是<strong>唯一出口</strong>，否则容易漏</td>
+</tr>
+<tr>
+<td><strong>PowerGovernor</strong></td>
+<td>能耗采集 + 触发降级</td>
+<td>需要全局视角（App + Node + 网络）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>关键设计约束</strong>：<code>PrivacyFilter</code> 必须是<strong>所有上传路径的唯一出口</strong> ——
+与"SafetyGuard 必须前置于所有能力调用"同构。
+<strong>否则一定会有某条路径漏掉。</strong></p>
+<hr />
+<h1 id="_2">第四部分 · 迭代方案与优先级</h1>
+<h2 id="41-p0">4.1 P0 · 阻断项（不做则后续全部可能作废）</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>ID</th>
+<th>事项</th>
+<th>为什么是 P0</th>
+<th>验收标准</th>
+<th>依赖</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>P0-1</strong></td>
+<td><strong>Node 20+ 在 K60 上跑起来</strong></td>
+<td>路线 C 的唯一前置关卡</td>
+<td><code>dsh --profile headless "1+1"</code> 返回结果</td>
+<td>无</td>
+</tr>
+<tr>
+<td><strong>P0-2</strong></td>
+<td><strong>EX-13 侧载受限设置解除</strong></td>
+<td>决定产品形态是否成立</td>
+<td>侧载安装后能稳定拿到无障碍权限</td>
+<td>真机</td>
+</tr>
+<tr>
+<td><strong>P0-3</strong></td>
+<td><strong>EX-16 虚拟屏可行性</strong></td>
+<td>决定"不影响用户使用"是否成立</td>
+<td>Shizuku 能把第三方 App 启到副屏</td>
+<td>P0-2</td>
+</tr>
+<tr>
+<td><strong>P0-4</strong></td>
+<td><strong>内存预算实测</strong></td>
+<td>150–230MB 常驻能否接受？</td>
+<td>实测 Node+dsh 在 K60 上的常驻与峰值</td>
+<td>P0-1</td>
+</tr>
+<tr>
+<td><strong>P0-5</strong></td>
+<td><strong>能耗基线实测</strong></td>
+<td>§2.4 全是估算，必须验证</td>
+<td>单次 8 轮任务的实测 mAh</td>
+<td>P0-1</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>⚠️ <strong>P0 的 5 项全部是"验证"而非"开发"。</strong>
+这不是拖延 —— 在三个决定性实验都没做的情况下写更多代码，
+是在给可能不存在的地基做装修（见 N5）。</p>
+<p><strong>建议：P0-1 与 P0-2 可以并行</strong>（一个测 Node，一个测权限），<strong>P0-3 必须在 P0-2 之后</strong>。</p>
+</blockquote>
+<h2 id="42-p1">4.2 P1 · 正确性（把核心链路做对）</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>ID</th>
+<th>事项</th>
+<th>现状</th>
+<th>目标</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>P1-1</strong></td>
+<td><strong>感知层落地</strong></td>
+<td><code>perception</code> 仅 1 文件</td>
+<td>五档阶梯 + 覆盖率可测（EX-01）</td>
+</tr>
+<tr>
+<td><strong>P1-2</strong></td>
+<td><strong>执行层落地</strong></td>
+<td><code>action</code> 仅 1 文件</td>
+<td>多通道 + 可靠性可测（EX-02）</td>
+</tr>
+<tr>
+<td><strong>P1-3</strong></td>
+<td><strong>keymgmt + LlmGateway</strong></td>
+<td><code>keymgmt</code> <strong>完全空</strong></td>
+<td>BYOK 闭环，Key 不进 Node</td>
+</tr>
+<tr>
+<td><strong>P1-4</strong></td>
+<td><strong>SafetyGuard 前置</strong></td>
+<td>有 3 文件 + 2 测试</td>
+<td>敏感页面漏报 = 0（EX-10）</td>
+</tr>
+<tr>
+<td><strong>P1-5</strong></td>
+<td><strong>agent 循环</strong></td>
+<td><code>agent</code> 仅 1 文件</td>
+<td>能完成一次真实任务</td>
+</tr>
+<tr>
+<td><strong>P1-6</strong></td>
+<td><strong>核心模块补测试</strong></td>
+<td><code>perception</code>/<code>action</code>/<code>agent</code> <strong>零测试</strong></td>
+<td>见 §5.3</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="43-p2">4.3 P2 · 移动端专属能力（本轮的真正增量）</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>ID</th>
+<th>事项</th>
+<th>对应原则</th>
+<th>验收标准</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>P2-1</strong></td>
+<td><strong>AgentBudget</strong></td>
+<td>原则 1</td>
+<td>超轮次主动中止并报告，实测生效</td>
+</tr>
+<tr>
+<td><strong>P2-2</strong></td>
+<td><strong>TaskCheckpoint</strong></td>
+<td>原则 2</td>
+<td>任务中强杀 App，重启后能续做</td>
+</tr>
+<tr>
+<td><strong>P2-3</strong></td>
+<td><strong>PerceptionLadder</strong></td>
+<td>原则 3</td>
+<td>第 0 档命中率可测；平均感知次数下降</td>
+</tr>
+<tr>
+<td><strong>P2-4</strong></td>
+<td><strong>PrivacyFilter</strong></td>
+<td>原则 6</td>
+<td>上传内容可审计；敏感区域已遮蔽</td>
+</tr>
+<tr>
+<td><strong>P2-5</strong></td>
+<td><strong>PowerGovernor</strong></td>
+<td>§2.4</td>
+<td>能耗可采集；超预算触发降级</td>
+</tr>
+<tr>
+<td><strong>P2-6</strong></td>
+<td><strong>Node 按需启停</strong></td>
+<td>§2.2 / D-J</td>
+<td>空闲时无 Node 进程；冷启动延迟 ≤ 2s</td>
+</tr>
+<tr>
+<td><strong>P2-7</strong></td>
+<td><strong>网络感知调度</strong></td>
+<td>§2.6</td>
+<td>弱网自动降级；非 WiFi 提示</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>P2 是本文与既有文档的</strong>真正差异所在<strong>。P1 是把既定方案做完，
+P2 才是"移动端专属"这个定位的落地。</strong></p>
+<h2 id="44-p3">4.4 P3 · 打磨与交付</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>ID</th>
+<th>事项</th>
+<th>现状</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>P3-1</td>
+<td>插件运行时（<code>plugin/runtime</code>）</td>
+<td>完全空</td>
+</tr>
+<tr>
+<td>P3-2</td>
+<td>引导与诊断工具（<code>onboarding</code>）</td>
+<td>完全空</td>
+</tr>
+<tr>
+<td>P3-3</td>
+<td>自更新（<code>update</code>）</td>
+<td>完全空</td>
+</tr>
+<tr>
+<td>P3-4</td>
+<td>叠加窗口（<code>overlay</code>）</td>
+<td>完全空</td>
+</tr>
+<tr>
+<td>P3-5</td>
+<td>兼容性矩阵（EX-12）</td>
+<td>未做</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="45">4.5 优先级总表（一句话版）</h2>
+<div class="codehilite"><pre><span></span><code>P0  验证能不能做        ← 现在应该只做这个
+P1  把核心链路做对      ← 在 P0 通过后启动
+P2  做成"移动端专属"    ← P1 基本可用后
+P3  打磨与交付          ← 持续
+</code></pre></div>
+
+<p><strong>⚠️ 最重要的建议：不要跳过 P0。</strong>
+现有方案给人一种"设计已经很完备，可以开工写代码了"的错觉，
+但<strong>三个决定性实验的结论都可能推翻当前设计</strong>。</p>
+<hr />
+<h1 id="_3">第五部分 · 安全性与稳定性的验证方案</h1>
+<h2 id="51">5.1 安全验证（四层，逐层加严）</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>层</th>
+<th>方法</th>
+<th>覆盖</th>
+<th>频率</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>L1 静态</strong></td>
+<td>Manifest 权限审计、依赖漏洞扫描、APK 签名校验</td>
+<td>配置错误</td>
+<td>每次提交</td>
+</tr>
+<tr>
+<td><strong>L2 数据</strong></td>
+<td>Key 泄漏审计（EX-09）、日志脱敏扫描、应用数据目录全盘 grep、内存 dump 检查</td>
+<td>凭据泄露</td>
+<td>每次发布</td>
+</tr>
+<tr>
+<td><strong>L3 行为</strong></td>
+<td>敏感页面识别（EX-10）、越权调用测试、护栏绕过尝试</td>
+<td>运行时失控</td>
+<td>每次发布</td>
+</tr>
+<tr>
+<td><strong>L4 对抗</strong></td>
+<td>恶意插件注入、伪造 UI 诱导、提示注入测试</td>
+<td>主动攻击</td>
+<td>里程碑</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>关键：L2 与 L3 的验收是"零容忍"。</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>检查项</th>
+<th>标准</th>
+<th>依据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Key 明文出现在任何日志/文件/上报</td>
+<td><strong>0 次</strong></td>
+<td>架构原则第 7 条</td>
+</tr>
+<tr>
+<td>敏感页面被操作（漏报）</td>
+<td><strong>0 次</strong></td>
+<td>架构原则第 4 条</td>
+</tr>
+<tr>
+<td>插件读到 Key 明文或原始节点</td>
+<td><strong>0 次</strong></td>
+<td>架构原则第 8 条</td>
+</tr>
+<tr>
+<td>上传内容含未遮蔽的敏感区域</td>
+<td><strong>0 次</strong></td>
+<td>本文原则 6</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>EX-09 的具体做法（M0 手册已有）</strong>：</p>
+<div class="codehilite"><pre><span></span><code>adb<span class="w"> </span>shell<span class="w"> </span>run-as<span class="w"> </span>com.pocketagent.debug<span class="w"> </span>tar<span class="w"> </span>-c<span class="w"> </span>-f<span class="w"> </span>-<span class="w"> </span>.<span class="w"> </span><span class="p">|</span><span class="w"> </span>tar<span class="w"> </span>-x<span class="w"> </span>-C<span class="w"> </span>./dump
+adb<span class="w"> </span>logcat<span class="w"> </span>-d<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-i<span class="w"> </span><span class="s2">"sk-\|api.key\|bearer"</span>
+</code></pre></div>
+
+<p><strong>本文补充</strong>：还应检查 <strong>Node 进程的 <code>/proc/&lt;pid&gt;/environ</code> 与 <code>cmdline</code></strong> ——
+这正是 BYOK 文档要防的那条路径，<strong>必须实测确认它真的是空的</strong>。</p>
+<h2 id="52">5.2 稳定性验证（五类指标）</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>指标</th>
+<th>目标值</th>
+<th>采集方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><strong>任务成功率</strong></td>
+<td>≥ 85%</td>
+<td>场景化回归用例集</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>崩溃率</strong></td>
+<td>&lt; 0.1%</td>
+<td>本地统计（不上报）</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>后台耗电</strong></td>
+<td>≤ 3%/天（待机）</td>
+<td><code>dumpsys batterystats</code></td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>单次任务能耗</strong></td>
+<td>≤ 0.1%（8 轮）</td>
+<td><code>dumpsys batterystats</code> 前后差值</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>内存</strong></td>
+<td>常驻 ≤ 150MB / 峰值 ≤ 400MB</td>
+<td><code>dumpsys meminfo</code></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>补充指标（现有文档缺失的）：</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>指标</th>
+<th>为什么重要</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>6</td>
+<td><strong>7 天内存增长</strong></td>
+<td>检测泄漏。手机长时运行，泄漏是慢性杀手</td>
+</tr>
+<tr>
+<td>7</td>
+<td><strong>保活时长（各 ROM）</strong></td>
+<td>EX-12/EX-15 已有，但需量化到小时</td>
+</tr>
+<tr>
+<td>8</td>
+<td><strong>冷启动耗时</strong></td>
+<td>Node 按需启动的体验代价（P2-6）</td>
+</tr>
+<tr>
+<td>9</td>
+<td><strong>弱网降级正确性</strong></td>
+<td>断网/高延迟下是否优雅降级而非卡死</td>
+</tr>
+<tr>
+<td>10</td>
+<td><strong>恢复正确性</strong></td>
+<td>强杀后恢复的任务，是否有重复写操作</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="53">5.3 自动化验证工具（现有资产盘点）</h2>
+<p><strong>已有设计</strong>（M0 手册 §7.3）：
+- PC 端调度器（adb 控制设备 + 下发 JSON 用例 + 采集日志）
+- Fixture 回放（<code>ReplayPerceptionManager</code>）—— <strong>无真机也能回归决策逻辑</strong>
+- 测试用例格式（<code>id</code> / <code>precondition</code> / <code>input</code> / <code>expect</code> / <code>safetyExpect</code>）</p>
+<p><strong>需要补充的：</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>能耗采集脚本</strong></td>
+<td>任务前后自动取 <code>batterystats</code>，输出 mAh 差值</td>
+</tr>
+<tr>
+<td><strong>内存趋势脚本</strong></td>
+<td>定时采样 <code>meminfo</code>，画 7 天曲线</td>
+</tr>
+<tr>
+<td><strong>恢复测试框架</strong></td>
+<td>任务执行到第 N 步时强杀 App，验证恢复行为</td>
+</tr>
+<tr>
+<td><strong>上传内容审计器</strong></td>
+<td>拦截 <code>PrivacyFilter</code> 出口，记录并报告上传了什么（本地）</td>
+</tr>
+<tr>
+<td><strong>Key 泄漏全路径扫描</strong></td>
+<td>覆盖 <code>logcat</code> + 数据目录 + <strong>Node 进程环境</strong></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="54">5.4 发布验收门（必须全过）</h2>
+<div class="codehilite"><pre><span></span><code>□ 安全：Key 泄漏 0 次（含 Node 进程环境）        —— 不过禁止发布
+□ 安全：敏感页面漏报 0 次                        —— 不过禁止发布
+□ 安全：上传内容无未遮蔽敏感区域                  —— 不过禁止发布
+□ 稳定：连续 7 天无崩溃
+□ 稳定：任务成功率 ≥ 85%
+□ 稳定：后台耗电 ≤ 3%/天
+□ 稳定：7 天内存增长 &lt; 20%
+□ 功能：五档感知阶梯可工作，第 0 档命中率 &gt; 20%
+□ 功能：任务可恢复（强杀后可续做）
+□ 兼容：至少 3 个 ROM 上通过保活验证
+</code></pre></div>
+
+<hr />
+<h1 id="_4">第六部分 · 风险与待决策</h1>
+<h2 id="61">6.1 新增风险</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>ID</th>
+<th>风险</th>
+<th>概率</th>
+<th>影响</th>
+<th>缓解</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>R14</strong></td>
+<td>内存占用超预算（Node+dsh 常驻 150–230MB）</td>
+<td><strong>中高</strong></td>
+<td>高（用户会卸载）</td>
+<td>P0-4 实测；P2-6 按需启停</td>
+</tr>
+<tr>
+<td><strong>R15</strong></td>
+<td>轮次失控导致能耗与成本双超</td>
+<td><strong>中高</strong></td>
+<td>中</td>
+<td>P2-1 AgentBudget 硬上限</td>
+</tr>
+<tr>
+<td><strong>R16</strong></td>
+<td>感知降级阶梯第 0 档命中率低，优化落空</td>
+<td>中</td>
+<td>中</td>
+<td>P2-3 先测命中率再决定投入</td>
+</tr>
+<tr>
+<td><strong>R17</strong></td>
+<td>PrivacyFilter 被绕过（新上传路径未接入）</td>
+<td>中</td>
+<td><strong>高</strong>（隐私事故）</td>
+<td>设计成唯一出口 + 审计器监控</td>
+</tr>
+<tr>
+<td><strong>R18</strong></td>
+<td>7 天内存泄漏</td>
+<td>中</td>
+<td>中</td>
+<td>指标 6 纳入验收门</td>
+</tr>
+<tr>
+<td><strong>R19</strong></td>
+<td>恢复后重复执行写操作</td>
+<td>低</td>
+<td><strong>高</strong>（真实损失）</td>
+<td>原则 7 幂等键</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="62-d-a-d-q">6.2 待决策（接续 D-A ~ D-Q）</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>ID</th>
+<th>问题</th>
+<th>选项</th>
+<th>建议</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>D-R</strong> ★</td>
+<td><strong>是否接受"移动端原生"这个转向？</strong></td>
+<td>接受（重构感知/预算设计）／保持移植思路</td>
+<td><strong>接受</strong>。本文的全部建议都基于此</td>
+</tr>
+<tr>
+<td><strong>D-S</strong> ★</td>
+<td><strong>默认轮次上限设多少？</strong></td>
+<td>5 / <strong>8</strong> / 15 / 不限制</td>
+<td><strong>8</strong>，且可配。超限主动交还用户</td>
+</tr>
+<tr>
+<td><strong>D-T</strong></td>
+<td><strong>内存预算上限？</strong></td>
+<td>常驻 ≤150MB / ≤250MB / 不限</td>
+<td><strong>常驻 ≤150MB、峰值 ≤400MB</strong></td>
+</tr>
+<tr>
+<td><strong>D-U</strong></td>
+<td><strong>Node 是否常驻？</strong></td>
+<td>常驻（快）／按需（省）</td>
+<td><strong>按需</strong>，接受 ≤2s 冷启动（与 D-J 一致）</td>
+</tr>
+<tr>
+<td><strong>D-V</strong></td>
+<td><strong>单次任务能耗上限？</strong></td>
+<td>0.1% / 0.2% / 不限</td>
+<td><strong>0.1%</strong>（对应约 8 轮）</td>
+</tr>
+<tr>
+<td><strong>D-W</strong></td>
+<td><strong>是否做"仅 WiFi 执行重任务"？</strong></td>
+<td>做／不做</td>
+<td><strong>做</strong>，默认开启（流量 ~1GB/月）</td>
+</tr>
+<tr>
+<td><strong>D-X</strong></td>
+<td><strong>先做 P0 还是先写代码？</strong></td>
+<td><strong>P0 优先</strong>／并行</td>
+<td><strong>P0 优先</strong>。三个决定性实验未做</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h1 id="a_1">附录 A · 实测数据与方法</h1>
+<h2 id="a1">A.1 模块实现盘点</h2>
+<div class="codehilite"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>D:/手机agent开发/android
+<span class="k">for</span><span class="w"> </span>m<span class="w"> </span><span class="k">in</span><span class="w"> </span>app<span class="w"> </span>core/common<span class="w"> </span>core/crypto<span class="w"> </span>core/database<span class="w"> </span>core/network<span class="w"> </span><span class="se">\</span>
+<span class="w">         </span>provider/api<span class="w"> </span>provider/openai-compat<span class="w"> </span>provider/anthropic<span class="w"> </span>provider/gemini<span class="w"> </span>provider/local<span class="w"> </span><span class="se">\</span>
+<span class="w">         </span>keymgmt<span class="w"> </span>perception<span class="w"> </span>action<span class="w"> </span>agent<span class="w"> </span>safety<span class="w"> </span>memory<span class="w"> </span><span class="se">\</span>
+<span class="w">         </span>plugin/api<span class="w"> </span>plugin/rules<span class="w"> </span>plugin/script<span class="w"> </span>plugin/runtime<span class="w"> </span>plugin/store<span class="w"> </span>plugin/devtools<span class="w"> </span><span class="se">\</span>
+<span class="w">         </span>display<span class="w"> </span>display/preview<span class="w"> </span>overlay<span class="w"> </span>onboarding<span class="w"> </span>update<span class="w"> </span>channel<span class="w"> </span>github<span class="w"> </span>contribute<span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<span class="w">  </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"</span><span class="nv">$m</span><span class="s2">: main=</span><span class="k">$(</span>find<span class="w"> </span><span class="s2">"</span><span class="nv">$m</span><span class="s2">/src/main"</span><span class="w"> </span>-name<span class="w"> </span><span class="s1">'*.kt'</span><span class="w"> </span><span class="m">2</span>&gt;/dev/null<span class="w"> </span><span class="p">|</span><span class="w"> </span>wc<span class="w"> </span>-l<span class="k">)</span><span class="s2"> test=</span><span class="k">$(</span>find<span class="w"> </span><span class="s2">"</span><span class="nv">$m</span><span class="s2">/src/test"</span><span class="w"> </span>-name<span class="w"> </span><span class="s1">'*.kt'</span><span class="w"> </span><span class="m">2</span>&gt;/dev/null<span class="w"> </span><span class="p">|</span><span class="w"> </span>wc<span class="w"> </span>-l<span class="k">)</span><span class="s2">"</span>
+<span class="k">done</span>
+</code></pre></div>
+
+<p><strong>结果摘要</strong>：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>分类</th>
+<th>模块</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>有实质实现（≥3）</td>
+<td><code>app</code>(15) / <code>plugin/api</code>(7) / <code>safety</code>(3) / <code>provider/openai-compat</code>(3)</td>
+</tr>
+<tr>
+<td>仅骨架（1）</td>
+<td><code>core/crypto</code> / <code>core/network</code> / <code>provider/api</code> / <code>perception</code> / <code>action</code> / <code>agent</code> / <code>display</code> / <code>github</code></td>
+</tr>
+<tr>
+<td>完全空壳（0）</td>
+<td>其余 <strong>17 个</strong></td>
+</tr>
+<tr>
+<td>测试集中处</td>
+<td><code>plugin/api</code>(5) / <code>provider/openai-compat</code>(3) / <code>safety</code>(2) / <code>core/network</code>(1)</td>
+</tr>
+<tr>
+<td><strong>零测试的核心模块</strong></td>
+<td><strong><code>perception</code> / <code>action</code> / <code>agent</code></strong></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="a2-24">A.2 能耗估算方法（§2.4 的依据）</h2>
+<p><strong>方法</strong>：自下而上估算，非实测。</p>
+<ol>
+<li><strong>电池能量</strong>：K60 5500mAh × 3.87V（标称）≈ 21.3 Wh ≈ 76,700 J</li>
+<li><strong>单轮各环节耗时</strong>：取保守估计（截图 150ms / 上传 0.5s / 等待推理 3s）</li>
+<li><strong>功耗取值</strong>：截图与编码按 1–2W，网络按 1.5W，屏幕亮 + 待机按 2W</li>
+<li><strong>单轮能耗</strong> = Σ(耗时 × 功耗) ≈ 7 J</li>
+<li><strong>总能耗</strong> = 轮次 × 7 J</li>
+</ol>
+<blockquote>
+<p>⚠️ <strong>这是数量级估算，不是实测。</strong> 误差可能达 2–3 倍。
+但结论（能耗与轮次线性相关、轮次是唯一一阶杠杆）<strong>不受误差影响</strong>。
+<strong>实测验证列为 P0-5。</strong></p>
+</blockquote>
+<h2 id="a3-22">A.3 内存估算方法（§2.2 的依据）</h2>
+<ul>
+<li>Android App（Compose + 服务）：按同类应用经验值 80–120MB</li>
+<li>Node 运行时（单 ABI）：参照 Termux 的 node 二进制体积（30–40MB）</li>
+<li>dsh 裁剪后 profile：研讨文档 §2.3 的 JS 部分估算（40–70MB）</li>
+<li>参考对照：豆包 <code>aikernel</code> 约 160MB（第三方逆向分析）</li>
+</ul>
+<blockquote>
+<p>⚠️ <strong>同为估算，实测列为 P0-4。</strong></p>
+</blockquote>
+<hr />
+<h1 id="b">附录 B · 本文的确定性分级</h1>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>内容</th>
+<th>确定性</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>模块实现盘点（§1.1 / 附录 A.1）</td>
+<td><strong>实测</strong>（本机命令，可复现）</td>
+</tr>
+<tr>
+<td>17 个空壳模块、三个核心模块零测试</td>
+<td><strong>实测</strong></td>
+</tr>
+<tr>
+<td>权限不可得性（§2.1）</td>
+<td><strong>研讨文档已论证</strong>（第三方逆向 + 官方口径）</td>
+</tr>
+<tr>
+<td>豆包 <code>aikernel</code> 160MB</td>
+<td><strong>第三方逆向分析</strong>，非官方</td>
+</tr>
+<tr>
+<td>能耗估算（§2.4）</td>
+<td><strong>本文估算</strong>，误差可能 2–3 倍，待实测</td>
+</tr>
+<tr>
+<td>内存估算（§2.2）</td>
+<td><strong>本文估算</strong>，待实测</td>
+</tr>
+<tr>
+<td>七条设计原则、五个新增组件</td>
+<td><strong>本文建议</strong>，待评审</td>
+</tr>
+<tr>
+<td>优先级排序 P0–P3</td>
+<td><strong>本文建议</strong>，待评审</td>
+</tr>
+<tr>
+<td>验收指标的目标值</td>
+<td><strong>本文建议</strong>，需结合实际调整</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h1 id="c">附录 C · 与既有文档的关系</h1>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>本文内容</th>
+<th>与既有文档的关系</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>§2.1 权限约束</td>
+<td>汇总并强化 <code>社区分发版方案-v2.0</code> §6 的 11 项配置</td>
+</tr>
+<tr>
+<td>§2.3 后台约束</td>
+<td>与 <code>M0手册</code> EX-12 / <code>v2.0</code> EX-15 衔接</td>
+</tr>
+<tr>
+<td>§2.4 能耗约束</td>
+<td><strong>新增</strong>。既有文档只有"后台耗电 ≤3%/天"一个指标</td>
+</tr>
+<tr>
+<td>§2.5 隐私约束</td>
+<td><strong>新增</strong>。既有文档只有"支付页面停止"等被动措施</td>
+</tr>
+<tr>
+<td>§3.2 五个新组件</td>
+<td>在研讨文档 L0–L4 之上的<strong>增量</strong>，不改变分层</td>
+</tr>
+<tr>
+<td>§4 P0 五项</td>
+<td>整合研讨文档 P0 + <code>v2.0</code> EX-13 + <code>v3.0</code> EX-16</td>
+</tr>
+<tr>
+<td>§5 验证方案</td>
+<td>扩展 <code>M0手册</code> §7 的回归框架，补能耗/内存/恢复三类</td>
+</tr>
+</tbody>
+</table></div>
+  </main>
+</div>
+</body>
+</html>
