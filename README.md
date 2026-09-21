@@ -8,27 +8,45 @@
 
 ---
 
-## ⚠️ 项目状态：设计阶段
+## ⚠️ 项目状态：M0 进行中
 
-**当前仓库只有设计方案与工程骨架，尚无可用功能。**
+**可以构建出可安装的 APK 了，但它还不会「干活」。**
 
 已完成：
-- ✅ 完整项目方案（v1.0 / v2.0 / v3.0）
-- ✅ M0 技术验证手册（18 个验证实验）
-- ✅ 工程骨架（30 个模块的 Gradle 配置 + 核心接口契约）
-- ✅ Provider 层实现（OpenAI 兼容协议，覆盖 11 家厂商）
-- ✅ 安全护栏实现（敏感页面 / 敏感控件 / 危险动作 / 频率限制 + 审计）
-- ✅ **165 个单元测试全绿**
+- ✅ 完整项目方案（v1.0 / v2.0 / v3.0）与 M0 技术验证手册（18 个实验）
+- ✅ 工程骨架（26 个 Gradle 模块）
+- ✅ Provider 层（OpenAI 兼容协议，覆盖 11 家厂商）
+- ✅ 安全护栏（敏感页面 / 敏感控件 / 危险动作 / 频率限制 + 审计）
+- ✅ **插件体系** —— 契约、三级分级、能力白名单、禁止前缀拦截
+- ✅ **插件市场** —— 浏览 / 搜索 / 下载 / 安装。无服务端，订阅式静态源
+- ✅ **本地导入** —— `.pagent` 包，逐条风险告知，高危插件需手打确认词
+- ✅ **插件管理** —— 查看能力与风险、卸载（二次确认）
+- ✅ **订阅源管理** —— 添加 / 移除 / 恢复内置源
+- ✅ **295 个单元测试全绿**
+- ✅ **可构建的 debug APK**
 
 未完成：
-- ❌ 可运行的 APK
-- ❌ 感知层 / 执行层 / agent 循环的实际实现
+- ❌ **感知层 / 执行层 / agent 循环** —— 也就是 AI 真正"替你办事"的部分
+- ❌ API Key 管理界面
+- ❌ release 签名
 
-**两个决定性问题尚未验证**，它们决定产品形态是否成立：
+### 当前 APK 能做什么，不能做什么
+
+**能**：装插件、看插件、卸载插件、管理订阅源。插件包会被完整校验 ——
+哈希、zip slip / zip bomb 防护、清单规则、禁止能力拦截，一道都不少。
+
+**不能**：它**不会读屏、不会点击、不会调用模型**。装好的插件也不会运行，
+因为执行引擎还没落地。界面上对此有明确说明 —— 不会给一个点了没反应的假开关。
+
+> 之所以先把插件体系做完整，是因为它是**唯一能在没有无障碍权限、没有 Shizuku、
+> 没有真机的情况下被完整验证**的部分。而它恰好又是安全上最要命的部分：
+> 校验、解压、能力白名单 —— 这些代码写错了不会报错，只会安静地放行一个恶意插件。
+
+### 两个决定性问题仍未验证
+
+它们决定产品形态是否成立：
 1. **EX-16 虚拟屏可行性** —— Shizuku 能否把第三方 App 启动到虚拟屏上
 2. **EX-13 侧载受限设置** —— Android 13+ 侧载安装后能否获得无障碍权限
-
-**在 APK 发布之前，请勿期待可用性。** 想看进度请看 [Issues](../../issues) 与方案文档。
 
 ---
 
@@ -120,6 +138,29 @@
 
 ---
 
+## 安装
+
+目前没有正式发布渠道，需要自己构建：
+
+```bash
+cd android && ./gradlew assembleDebug
+# 产物：android/app/build/outputs/apk/debug/app-debug.apk（约 61 MB）
+```
+
+把 APK 传到手机，在文件管理器里点开安装。首次安装需要在系统里允许「安装未知应用」。
+
+> ⚠️ 当前是 **debug 签名**（`CN=Android Debug`），包名带 `.debug` 后缀，
+> 因此可以与未来的 release 版共存安装。release 签名策略尚未确定 ——
+> 社区分发要求所有版本用同一个 keystore（否则用户无法覆盖安装更新），
+> 而 keystore 该由谁保管、要不要进公开仓库，需要维护者拍板。
+
+> ⚠️ **Android 13+ 的「受限设置」**：侧载安装的应用会被系统标记为受限，
+> 这会拦住后续的权限授予（尤其无障碍权限），且**覆盖安装后会重置**。
+> 这是社区分发路线上的头号风险，详见方案文档的社区分发章节。
+> M0 阶段用不到无障碍权限，所以暂时不受影响。
+
+---
+
 ## 路线图
 
 | 阶段 | 内容 | 状态 |
@@ -164,33 +205,58 @@
 
 ## 开发与验证
 
-### 完整构建（需要 Android SDK）
+### 完整构建（需要 JDK 17 + Android SDK 36）
 
 ```bash
 cd android
 ./gradlew test          # 单元测试
-./gradlew assembleDebug # 打 APK
+./gradlew assembleDebug # 打 APK → app/build/outputs/apk/debug/app-debug.apk
 ```
 
-需要 JDK 17（**不要用 JDK 21+，AGP 8.x 对高版本 JDK 支持不稳**）与 Android SDK 36。
+JDK 用 **17**（不要用 21+，AGP 8.x 对高版本 JDK 支持不稳）。
 
-### 不装 Android SDK 也能跑的逻辑测试
+> ⚠️ **项目路径不能含非 ASCII 字符**（比如中文目录名）—— AGP 在 Windows 上会直接拒绝构建。
+> 临时绕过：`./gradlew assembleDebug -Pandroid.overridePathCheck=true`。
+> 这是本地环境的权宜之计，**不要写进 `gradle.properties`** —— 不该让所有协作者继承这个绕过。
 
-本项目绝大多数高风险逻辑（SSE 解析、密钥脱敏、token 估算、费用计算）
-都在**零 Android 依赖**的纯 Kotlin 模块里，但它们所在的 Gradle 模块
-声明了 `com.android.library` 插件 —— 没有 SDK 就连编译都过不去。
+### 版本上限（改依赖前必看）
 
-`tools/verify/run_logic_tests.py` 绕开 Gradle 与 AGP，直接用 Kotlin 命令行
-编译器把这些模块抓出来编译并跑 JUnit：
+| 依赖 | 当前 | 为什么不能更高 |
+|---|---|---|
+| Compose BOM | `2026.06.01` | 1.12.0 起要求 `minCompileSdk=37` / `minAGP=9.1.0`，超出本项目工具链 |
+| `activity-compose` | 1.11.0 | 要求 `minCompileSdk=36` / `minAGP=8.9.1`，**正好卡在线上** |
+| `core-ktx` | 1.17.0 | 同上 |
+
+### 四个验证脚本（`tools/verify/`）
 
 ```bash
-python tools/verify/run_logic_tests.py
+python tools/verify/run_logic_tests.py                     # 离线单测，不需要 Android SDK
+python tools/verify/check_version_catalog.py android       # libs.* 访问器对账
+python tools/verify/check_kt_quotes.py android             # 中文文案里的 ASCII 引号误用
+python tools/verify/check_aar_metadata.py --bom 2026.06.01 # 读 aar 里的 compileSdk 门槛
 ```
 
+**`run_logic_tests.py`** —— 本项目绝大多数高风险逻辑（SSE 解析、密钥脱敏、
+token 估算、费用计算、插件校验、zip 防护）都在**零 Android 依赖**的纯 Kotlin 模块里，
+但它们所在的 Gradle 模块声明了 `com.android.library`，没有 SDK 连编译都过不去。
+这个脚本绕开 Gradle 与 AGP，直接用 Kotlin 命令行编译器把它们抓出来编译并跑 JUnit。
 依赖（约 70MB）自动下载到用户级缓存目录，不进仓库。
 
-> ⚠️ 这只是**没有 Android SDK 时的过渡手段**。SDK 就位后，
-> `./gradlew test` 才是唯一权威。两者都要能通过。
+> 这只是**没有 Android SDK 时的过渡手段**。SDK 就位后 `./gradlew test` 才是唯一权威，
+> 两者都要能通过。
+
+**`check_version_catalog.py`** —— Gradle 版本目录的访问器（`libs.androidx.core.ktx`）
+是**编译期**解析的。26 个模块里任何一个写错别名，配置阶段就失败，而且报错指向
+一个你根本没在用的模块。这个脚本在构建之前把 31 个 `build.gradle.kts` 全对一遍。
+
+**`check_aar_metadata.py`** —— 直接下载 aar、读出里面的
+`META-INF/com/android/build/gradle/aar-metadata.properties`，把 `minCompileSdk`
+和 `minAndroidGradlePluginVersion` 打出来。升任何 AndroidX 依赖前先跑它，
+就不用等四分钟的构建报错。
+
+**`check_kt_quotes.py`** —— 中文文案里写引号时很容易打成 ASCII `"`，而它在 Kotlin 里
+是字符串定界符，会让字符串提前终止。这个错误在等宽字体下几乎看不出来，
+报错行还会指向后面几行。
 
 ---
 
