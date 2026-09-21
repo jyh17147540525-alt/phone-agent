@@ -86,21 +86,28 @@ dependencies {
     //
     // ⚠️ M0 只挂真正被引用的模块，其余保留为注释。
     //
-    // 理由和 Manifest 收窄权限是同一条：现在挂上 :perception / :agent /
-    // :keymgmt，会连带把 ML Kit、SQLCipher、Shizuku 这些重依赖拖进构建，
-    // 而这个阶段的代码一行都没用到它们。构建时间和包体白涨，
+    // 理由和 Manifest 收窄权限是同一条：现在挂上 :perception / :agent，
+    // 会连带把 ML Kit、Shizuku 这些重依赖拖进构建，而这个阶段的代码
+    // 一行都没用到它们。构建时间和包体白涨，
     // 更糟的是**让人误以为这些能力已经可用**。
     //
     // 逐项启用的时机 = 对应模块写出第一行代码的时候。
-    implementation(project(":plugin:api"))   // 插件契约、校验、市场索引、完整性校验
+    //
+    // ⚠️ 代价要说清楚：`:core:database` 会把 SQLCipher 的四个 ABI 原生库
+    //    （arm64-v8a / armeabi-v7a / x86 / x86_64）打进包体。目前 Key 管理
+    //    确实需要它，所以这个代价是实的。等 M0 结束、要开始控制包体时，
+    //    应该考虑用 `ndk { abiFilters }` 只留 arm64-v8a —— 但那是**发布前**
+    //    的决定，现在就砍掉会让模拟器（x86_64）没法跑。
+    implementation(project(":plugin:api"))            // 插件契约、校验、市场索引、完整性校验
+    implementation(project(":core:crypto"))           // Keystore 主密钥 + AES-GCM
+    implementation(project(":core:database"))         // SQLCipher + 凭据表（含 Room schema）
+    implementation(project(":provider:api"))          // LlmProvider 契约与 ProviderCredential
+    implementation(project(":provider:openai-compat"))// 11 家内置服务商（都走 OpenAI 兼容协议）
+    implementation(project(":keymgmt"))               // API Key 的存储 / 校验 / 取用
 
     // 以下随对应模块落地启用：
     // implementation(project(":core:common"))
-    // implementation(project(":core:crypto"))
-    // implementation(project(":core:database"))
     // implementation(project(":core:network"))
-    // implementation(project(":provider:api"))
-    // implementation(project(":provider:openai-compat"))
     // implementation(project(":provider:anthropic"))
     // implementation(project(":provider:gemini"))
     // implementation(project(":provider:local"))
@@ -108,7 +115,6 @@ dependencies {
     // implementation(project(":action"))
     // implementation(project(":agent"))
     // implementation(project(":safety"))
-    // implementation(project(":keymgmt"))
     // implementation(project(":memory"))
     // implementation(project(":overlay"))
 

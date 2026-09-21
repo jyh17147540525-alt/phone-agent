@@ -98,6 +98,20 @@ LIBRARY_JARS = [
 #
 # ⚠️ 新增模块时必须确认它**零 Android 依赖**（不 import android.* / androidx.*），
 #    否则编译会失败。这不是可以放宽的条件。
+#
+# 已知**不能**加进来的模块（不是遗漏，是设计使然）：
+#
+#   · android/core/database —— 整个模块建立在 androidx.room 与
+#     net.zetetic.database.sqlcipher 之上，还用到 android.content.Context。
+#     要在这里跑它，得先给 Room 的注解和 SQLCipher 的工厂类写一整套桩，
+#     而桩一旦与真实现有偏差，测试会变得比没有更不可信。
+#
+#   · android/keymgmt —— CredentialRepository 用了 androidx.room.withTransaction，
+#     且它依赖 core:database。本脚本按模块**整目录**编译 src/main/kotlin，
+#     没法只挑出"纯逻辑的那几个文件"。
+#
+#   这两个模块的单测由 Gradle 跑（已实测通过）：
+#     ./gradlew :core:database:testDebugUnitTest :keymgmt:testDebugUnitTest
 MODULES = [
     "android/provider/api",
     "android/provider/openai-compat",

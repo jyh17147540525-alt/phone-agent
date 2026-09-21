@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -37,11 +38,14 @@ import com.pocketagent.ui.design.PaNavItem
 import com.pocketagent.ui.design.PaTransition
 import com.pocketagent.ui.importer.ImportScreen
 import com.pocketagent.ui.importer.ImportViewModel
+import com.pocketagent.ui.keys.KeysScreen
+import com.pocketagent.ui.keys.KeysViewModel
 import com.pocketagent.ui.market.MarketScreen
 import com.pocketagent.ui.market.MarketViewModel
 import com.pocketagent.ui.plugins.InstalledPluginsViewModel
 import com.pocketagent.ui.plugins.PluginsScreen
 import com.pocketagent.ui.settings.SettingsScreen
+import com.pocketagent.ui.settings.SettingsViewModel
 import com.pocketagent.ui.sources.SourcesScreen
 import com.pocketagent.ui.sources.SourcesViewModel
 import com.pocketagent.ui.tasks.TasksScreen
@@ -76,6 +80,7 @@ object Routes {
     const val MARKET = "market"
     const val IMPORT = "import"
     const val SOURCES = "sources"
+    const val KEYS = "keys"
 }
 
 /**
@@ -112,7 +117,7 @@ private val TABS = listOf(
         route = Routes.SETTINGS,
         label = "设置",
         icon = Icons.Default.Tune,
-        owns = setOf(Routes.SETTINGS, Routes.SOURCES),
+        owns = setOf(Routes.SETTINGS, Routes.SOURCES, Routes.KEYS),
     ),
 )
 
@@ -218,12 +223,24 @@ fun AppShell(container: AppContainer) {
 
                 // ── 设置 ────────────────────────────────────────
                 composable(Routes.SETTINGS) {
+                    // 徽章要反映真实状态，所以设置页也需要一个状态持有者。
+                    // 见 SettingsViewModel 的注释：写死成"未配置"会在用户
+                    // 配好 Key 之后变成一句假话。
+                    val vm: SettingsViewModel = viewModel(
+                        factory = viewModelFactory {
+                            initializer {
+                                SettingsViewModel(openStore = container::openCredentialStore)
+                            }
+                        }
+                    )
+                    val keyStatus by vm.keyStatus.collectAsStateWithLifecycle()
+
                     SettingsScreen(
-                        // ⚠️ API Key 页与权限页**尚未实现**，传 null。
+                        keyStatus = keyStatus,
+                        // ⚠️ 权限页**尚未实现**，传 null。
                         //    传 null 的效果是那一行右侧不画箭头 —— 用户一眼就知道进不去。
                         //    绝不能传 `{}`：箭头照画、点了没反应，用户会认为应用坏了。
-                        //    这两个页面的实现在 keymgmt 模块落地后接上。
-                        onOpenKeys = null,
+                        onOpenKeys = { navController.navigate(Routes.KEYS) },
                         onOpenSources = { navController.navigate(Routes.SOURCES) },
                         onOpenImport = { navController.navigate(Routes.IMPORT) },
                         onOpenPermissions = null,
@@ -272,6 +289,29 @@ fun AppShell(container: AppContainer) {
                         }
                     )
                     SourcesScreen(
+                        viewModel = vm,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+
+                // API Key 管理。
+                //
+                // ⚠️ ViewModel 通过两个挂起函数拿依赖，而不是直接吃 container。
+                //    这样"存储打不开"的三条分支（Unrecoverable / Retryable /
+                //    Ready）不需要真机 Keystore 就能单测 —— 而它们恰恰是最容易
+                //    写错、也最难在真机上复现的路径。
+                composable(Routes.KEYS) {
+                    val vm: KeysViewModel = viewModel(
+                        factory = viewModelFactory {
+                            initializer {
+                                KeysViewModel(
+                                    openStore = container::openCredentialStore,
+                                    resetStore = container::resetCredentialStore,
+                                )
+                            }
+                        }
+                    )
+                    KeysScreen(
                         viewModel = vm,
                         onBack = { navController.popBackStack() },
                     )

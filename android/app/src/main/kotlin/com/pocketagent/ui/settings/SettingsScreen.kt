@@ -52,11 +52,14 @@ import com.pocketagent.ui.design.PaSpace
 @Composable
 fun SettingsScreen(
     modifier: Modifier = Modifier,
+    keyStatus: SettingsViewModel.KeyStatus = SettingsViewModel.KeyStatus.Loading,
     onOpenKeys: (() -> Unit)? = null,
     onOpenSources: (() -> Unit)? = null,
     onOpenImport: (() -> Unit)? = null,
     onOpenPermissions: (() -> Unit)? = null,
 ) {
+    val (keyBadge, keyTone) = keyBadgeFor(keyStatus)
+
     PaScreen(title = "设置", modifier = modifier) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -76,8 +79,8 @@ fun SettingsScreen(
                         icon = Icons.Default.Key,
                         title = "API Key 与模型",
                         subtitle = "用自己的 Key 调用任意大模型",
-                        badge = "未配置",
-                        badgeTone = PaBadgeTone.Warning,
+                        badge = keyBadge,
+                        badgeTone = keyTone,
                         onClick = onOpenKeys,
                     )
                 }
@@ -140,3 +143,25 @@ fun SettingsScreen(
         }
     }
 }
+
+/**
+ * 凭据状态 → 徽章文案与色调。
+ *
+ * ⚠️ "都不可用"用 `Warning` 而不是 `Danger`。
+ *    它的意思是"需要你去处理一下"，而 Key 本身可能完好 ——
+ *    比如余额没了（充值即可）、或者只是连不上（检查网络）。
+ *    标红会让用户以为 Key 坏了然后去删它，而那正是本设计
+ *    从头到尾在避免的那个动作。
+ */
+private fun keyBadgeFor(status: SettingsViewModel.KeyStatus): Pair<String, PaBadgeTone> =
+    when (status) {
+        SettingsViewModel.KeyStatus.Loading -> "…" to PaBadgeTone.Neutral
+
+        is SettingsViewModel.KeyStatus.Configured -> when {
+            status.total == 0 -> "未配置" to PaBadgeTone.Warning
+            status.usable > 0 -> "可用" to PaBadgeTone.Success
+            else -> "都不可用" to PaBadgeTone.Warning
+        }
+
+        SettingsViewModel.KeyStatus.Broken -> "打不开" to PaBadgeTone.Danger
+    }

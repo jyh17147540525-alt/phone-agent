@@ -27,6 +27,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 
 /**
@@ -62,6 +63,15 @@ fun PaTextField(
     maxLines: Int = if (singleLine) 1 else 4,
     enabled: Boolean = true,
     isError: Boolean = false,
+    /**
+     * 文本显示变换。API Key 输入框传 `PasswordVisualTransformation()` 把内容遮起来。
+     *
+     * ⚠️ 遮罩**不是**安全措施 —— 明文该在内存里还是在内存里。它挡的是
+     *    最朴素的一种泄露：旁边有人看了一眼屏幕。
+     */
+    visualTransformation: VisualTransformation = VisualTransformation.None,
+    /** 尾部插槽。用于"显示/隐藏"这类就地切换 */
+    trailing: @Composable (() -> Unit)? = null,
 ) {
     val shape = RoundedCornerShape(PaRadius.s)
 
@@ -96,6 +106,7 @@ fun PaTextField(
             enabled = enabled,
             singleLine = singleLine,
             maxLines = maxLines,
+            visualTransformation = visualTransformation,
             textStyle = TextStyle(
                 fontSize = PaType.body.fontSize,
                 lineHeight = PaType.body.lineHeight,
@@ -115,6 +126,11 @@ fun PaTextField(
                 }
             },
         )
+
+        if (trailing != null) {
+            Spacer(Modifier.width(PaSpace.xs))
+            trailing()
+        }
     }
 }
 
