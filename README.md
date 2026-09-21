@@ -1,5 +1,7 @@
 # PocketAgent
 
+[English](README.en.md) | **简体中文**
+
 > 自带 API Key（BYOK）的 Android 手机 AI 智能体 —— 用你自己的模型，让手机替你办事。
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
@@ -14,7 +16,7 @@
 
 已完成：
 - ✅ 完整项目方案（v1.0 / v2.0 / v3.0）与 M0 技术验证手册（18 个实验）
-- ✅ 工程骨架（26 个 Gradle 模块）
+- ✅ 工程骨架（30 个 Gradle 模块）
 - ✅ Provider 层（OpenAI 兼容协议，覆盖 11 家厂商）
 - ✅ 安全护栏（敏感页面 / 敏感控件 / 危险动作 / 频率限制 + 审计）
 - ✅ **插件体系** —— 契约、三级分级、能力白名单、禁止前缀拦截

@@ -1,5 +1,7 @@
 # 贡献指南
 
+[English](CONTRIBUTING.en.md) | **简体中文**
+
 感谢你有兴趣参与 PocketAgent。
 
 在提交任何内容之前，请先读完本文件。**本项目的三条红线不可协商**，
