@@ -150,6 +150,7 @@ pre code {
 <li><a href="#_3">三、插件市场的运行机制</a><ul>
 <li><a href="#31">3.1 没有服务端</a></li>
 <li><a href="#32">3.2 订阅源与索引结构</a></li>
+<li><a href="#321-community-source">3.2.1 源从哪来：community-source/</a></li>
 <li><a href="#33">3.3 检索</a></li>
 <li><a href="#34">3.4 版本比较：一个必须手写的东西</a></li>
 <li><a href="#35">3.5 安装流水线（五步，顺序即安全）</a></li>
@@ -162,11 +163,12 @@ pre code {
 </ul>
 </li>
 <li><a href="#_5">五、本轮实现与验证</a><ul>
-<li><a href="#51-295">5.1 单测：295 个，全绿</a></li>
-<li><a href="#52-bug">5.2 本轮修掉的三个真 bug</a></li>
+<li><a href="#51-305">5.1 单测：305 个，全绿</a></li>
+<li><a href="#52-bug">5.2 本轮修掉的四个真 bug</a></li>
 <li><a href="#53-apk">5.3 构建状态：APK 已产出</a></li>
-<li><a href="#54">5.4 首次构建踩过的八个坑</a></li>
+<li><a href="#54">5.4 构建踩过的坑</a></li>
 <li><a href="#55">5.5 新增的两个体检工具</a></li>
+<li><a href="#56-examplesourcetest">5.6 示例插件由真实校验器把关（ExampleSourceTest）</a></li>
 </ul>
 </li>
 <li><a href="#_6">附：给插件作者的最小工作流</a></li>
@@ -337,28 +339,89 @@ pre code {
 {
   "name": "社区插件源",
   "author": "pocketagent-community",
+  "updatedAt": "2026-09-21",
   "apiVersion": 1,
   "plugins": [
     {
-      "id": "community.wechat.auto-reply",
-      "name": "微信自动回复",
-      "version": "1.2.0",
+      "id": "community.example.skip-splash-ad",
+      "name": "跳过开屏广告",
+      "version": "1.0.0",
       "level": "L1_RULES",
-      "capabilities": ["screen.read", "action.input"],
-      "targetApps": ["com.tencent.mm"],
-      "downloadUrl": "https://.../wechat-auto-reply.pagent",
-      "sha256": "…64 位十六进制…"
+      "capabilities": ["screen.read", "action.click"],
+      "targetApps": ["com.sina.weibo", "com.zhihu.android"],
+      "downloadUrl": "https://.../skip-splash-ad-1.0.0.pagent",
+      "sha256": "…64 位十六进制，算的是整个 .pagent 文件…",
+
+      // ↓ 三个展示字段。缺了它们，市场里就只剩一串不敢点的名字
+      "description": "自动点掉开屏广告的「跳过」按钮，遇到支付页面不动",
+      "author": "PocketAgent 社区",
+      "updatedAt": "2026-09-21"
     }
   ]
 }
 </code></pre></div>
 
+<blockquote>
+<p>⚠️ <strong><code>description</code> / <code>author</code> / <code>updatedAt</code> 是补上来的。</strong> 原本
+<code>SubscriptionEntry</code> 里根本没有这三个字段，而市场界面一直在渲染它们 ——
+于是 <code>toMarketEntry()</code> 只能传 <code>null</code>，<strong>用户在市场上永远看不到任何插件说明</strong>，
+只有名字和几个能力标签。与此同时校验器还在警告作者
+「没有填写插件描述，用户在市场上无法判断这个插件做什么」。</p>
+<p>一边要求作者写描述，一边市场没地方放描述。这种矛盾不会报错，
+只会让整个市场退化成"一串不敢点的名字"—— 而用户判断一个插件能不能装，
+靠的恰恰是这段描述。修法见 §5.2。</p>
+</blockquote>
 <p>多源合并规则（<code>MarketCatalog.merge()</code>）：</p>
 <ul>
 <li>同一 <code>id</code> <strong>保留版本更高的那个</strong></li>
 <li>版本相同时保留先出现的（= 订阅列表里靠前的源），让用户能通过调整订阅顺序表达偏好</li>
 <li><strong>被拒绝的条目必须展示给用户</strong>，不能悄悄过滤</li>
 </ul>
+<h3 id="321-community-source">3.2.1 源从哪来：<code>community-source/</code></h3>
+<p>"市场没有服务端"这句话的另一半是：<strong>得有人把静态 JSON 生成出来</strong>。
+仓库里的 <a href="../community-source/"><code>community-source/</code></a> 就是这个东西，
+它是一个完整可发布的源脚手架：</p>
+<div class="codehilite"><pre><span></span><code>community-source/
+├── build_source.py      打包 + 生成 index.json（含 --check 模式）
+├── plugins-src/         插件源文件，人写这个
+│   ├── _template/       模板，以 _ 开头 → 不参与打包
+│   ├── focus-guard/
+│   └── skip-splash-ad/
+└── site/plugins/        产物，直接扔到 GitHub Pages
+</code></pre></div>
+
+<p><strong>打包是可复现的</strong> —— zip 的时间戳、权限位、条目顺序、压缩级别全部固定，
+同样的输入一定得到同样的 sha256。这不是洁癖：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>不可复现的后果</th>
+<th>用户看到什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>改了规则、重新打包、忘了提交 <code>index.json</code></td>
+<td>"文件内容与市场声明的哈希不一致，可能是下载途中被替换"</td>
+</tr>
+<tr>
+<td>每次 CI 重建都产生新文件</td>
+<td>CDN 缓存全部失效</td>
+</tr>
+<tr>
+<td>没有稳定基线</td>
+<td><code>--check</code> 模式无从实现</td>
+</tr>
+</tbody>
+</table></div>
+<p>第一种情况最糟：<strong>它会指控自己的源被黑了</strong>，而真实原因只是有人漏提交了一个文件。
+所以 <code>build_source.py --check</code> 该进 CI —— 产物与源不一致就退出码非 0。</p>
+<blockquote>
+<p><code>build_source.py</code> 刻意<strong>不做</strong>完整校验（能力白名单、id 格式、禁止前缀）。
+那些规则归 Kotlin 侧的 <code>PluginValidator</code> 管，已经有单测覆盖。
+在 Python 里再实现一遍 = 同一套规则维护两份，漂移之后最糟的情况是
+脚本放行了校验器会拒绝的插件 —— 用户拿到"打包成功、安装失败"。</p>
+</blockquote>
 <h3 id="33">3.3 检索</h3>
 <p><code>MarketSearch.search()</code> 是<strong>纯函数</strong>，不涉及网络 —— 所以它能在没有 Android SDK 的
 机器上完整测试。四种排序：相关度、名称、风险、更新时间。</p>
@@ -444,7 +507,7 @@ pre code {
 <p><strong>一条贯穿全项目的约束：<code>plugin:api</code> 与 <code>safety</code> 必须零 Android 依赖。</strong>
 这不是洁癖，是让最需要被验证的代码（校验、脱敏、匹配）能在任何机器上跑单测 ——
 它们所在的 Gradle 模块如果声明了 <code>com.android.library</code>，没有 Android SDK 就编译不了，
-于是只能靠肉眼读。现在这条约束换来了 <strong>295 个单测</strong>。</p>
+于是只能靠肉眼读。现在这条约束换来了 <strong>305 个单测</strong>。</p>
 <h3 id="42">4.2 五个界面</h3>
 <p><strong>① 主页</strong> —— 刻意做得<strong>很空</strong>。</p>
 <p>这个应用真正的入口不是"和我聊天"，是<strong>用户配置好能力之后去别的 App 里干活</strong>。
@@ -514,7 +577,7 @@ REJECTED 该换来源（这个作者不老实），MALFORMED 该检查自己是�
 并提供「恢复内置源」按钮 —— 删除必须是<strong>可逆</strong>的，否则它不该叫删除。</p>
 <hr />
 <h2 id="_5">五、本轮实现与验证</h2>
-<h3 id="51-295">5.1 单测：295 个，全绿</h3>
+<h3 id="51-305">5.1 单测：305 个，全绿</h3>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -529,7 +592,7 @@ REJECTED 该换来源（这个作者不老实），MALFORMED 该检查自己是�
 </tr>
 <tr>
 <td><code>PluginMarketTest</code></td>
-<td>语义化版本、更新检测、检索、筛选、排序、多源合并</td>
+<td>语义化版本、更新检测、检索、筛选、排序、多源合并、展示字段透传</td>
 </tr>
 <tr>
 <td><code>PluginImporterTest</code></td>
@@ -538,6 +601,10 @@ REJECTED 该换来源（这个作者不老实），MALFORMED 该检查自己是�
 <tr>
 <td><code>PluginBundleTest</code></td>
 <td>zip slip 21 种变形、zip bomb 预算、常量自洽</td>
+</tr>
+<tr>
+<td><code>ExampleSourceTest</code></td>
+<td><strong>用真实校验器验 <code>community-source/</code> 里的示例插件</strong>（见 §5.6）</td>
 </tr>
 <tr>
 <td><code>SseParserTest</code> / <code>OpenAiCompatProviderTest</code></td>
@@ -553,7 +620,7 @@ REJECTED 该换来源（这个作者不老实），MALFORMED 该检查自己是�
 </tr>
 </tbody>
 </table></div>
-<h3 id="52-bug">5.2 本轮修掉的三个真 bug</h3>
+<h3 id="52-bug">5.2 本轮修掉的四个真 bug</h3>
 <p><strong>① 未知能力被判成 ERROR，导致整个插件从市场消失</strong></p>
 <p><code>inspectRawCapabilities()</code> 原本把"未知能力"判成 <code>ERROR</code>，于是
 <code>MarketCatalog.merge()</code> 把整个条目当成恶意插件丢掉 —— 用户连"市场里有这么个插件"
@@ -593,6 +660,25 @@ REJECTED 该换来源（这个作者不老实），MALFORMED 该检查自己是�
 <p><code>search("微信")</code> 里"微信自动回复"和"微信红包助手"相关度<strong>完全并列</strong>（都以关键词开头），
 测试却断言了平局的兜底顺序。修的是测试，不是实现 ——
 要测的是"名称命中整体高于作者命中"，而不是"并列项谁在前"。</p>
+<p><strong>④ 界面在渲染两个契约里根本不存在的字段</strong></p>
+<p>市场卡片一直在渲染 <code>entry.description</code> 与 <code>entry.author</code>，而
+<code>SubscriptionEntry</code> 里<strong>没有这两个字段</strong> —— 于是 <code>toMarketEntry()</code> 只能传 <code>null</code>。
+结果：用户在市场上永远看不到任何插件说明和作者，只有名字加几个能力标签。</p>
+<p>更刺眼的是同一个代码库里，<code>PluginValidator</code> 还在警告作者
+「没有填写插件描述，用户在市场上无法判断这个插件做什么」。
+<strong>一边要求作者写描述，一边市场没地方放描述。</strong></p>
+<p>这类 bug 的特征是<strong>不会报错</strong>：编译器不管（<code>description</code> 是 <code>String?</code>，传 <code>null</code> 合法）、
+测试不管（没有断言过透传）、运行时也不管（<code>?.let</code> 静默跳过）。它只会让
+一个本来能帮用户判断"敢不敢装"的界面，退化成"一串不敢点的名字"。</p>
+<p>修法：给 <code>SubscriptionEntry</code> 补上 <code>description</code> / <code>author</code> / <code>updatedAt</code>
+（都带默认值，旧源 JSON 照常解析），<code>toMarketEntry()</code> 透传，
+并补三条回归测试锁住它。</p>
+<blockquote>
+<p><strong>教训</strong>：契约字段和界面用法之间没有任何自动检查。界面写 <code>entry.description</code>
+时，如果契约里没有这个字段，编译器会报错 —— 但<strong>契约里少一个可选字段、
+界面读它、转换函数不传它</strong>，这条链上没有任何一环会响。所以每加一个展示字段，
+都要有一条"从源 JSON 一路走到界面能拿到的值"的测试。</p>
+</blockquote>
 <h3 id="53-apk">5.3 构建状态：APK 已产出</h3>
 <div class="tw"><table>
 <thead>
@@ -620,22 +706,43 @@ REJECTED 该换来源（这个作者不老实），MALFORMED 该检查自己是�
 </tr>
 <tr>
 <td>离线单测验证器</td>
-<td>✅ <code>tools/verify/run_logic_tests.py</code>，295 测试全绿</td>
+<td>✅ <code>tools/verify/run_logic_tests.py</code></td>
 </tr>
 <tr>
 <td>版本目录对账</td>
 <td>✅ <code>tools/verify/check_version_catalog.py</code></td>
 </tr>
 <tr>
+<td><strong>模块依赖对账</strong></td>
+<td>✅ <code>tools/verify/check_module_deps.py</code></td>
+</tr>
+<tr>
+<td>中文引号检查</td>
+<td>✅ <code>tools/verify/check_kt_quotes.py</code></td>
+</tr>
+<tr>
 <td>AAR 门槛体检</td>
 <td>✅ <code>tools/verify/check_aar_metadata.py</code></td>
 </tr>
 <tr>
+<td>社区源产物对账</td>
+<td>✅ <code>community-source/build_source.py --check</code></td>
+</tr>
+<tr>
 <td><code>:app:assembleDebug</code></td>
-<td>✅ <strong>BUILD SUCCESSFUL in 44s</strong></td>
+<td>✅ <strong>BUILD SUCCESSFUL</strong></td>
+</tr>
+<tr>
+<td><strong><code>./gradlew test</code>（全模块）</strong></td>
+<td>✅ <strong>BUILD SUCCESSFUL</strong> —— 本轮才第一次真正跑通</td>
 </tr>
 </tbody>
 </table></div>
+<blockquote>
+<p>⚠️ 在补上模块依赖之前，<code>./gradlew test</code> <strong>从来没有成功过</strong> ——
+它会先卡在 <code>:action</code> / <code>:agent</code> / <code>:provider:openai-compat</code> 的编译错误上。
+详见 5.4 的坑 9–11。</p>
+</blockquote>
 <p>产物：<code>android/app/build/outputs/apk/debug/app-debug.apk</code></p>
 <div class="tw"><table>
 <thead>
@@ -667,7 +774,7 @@ REJECTED 该换来源（这个作者不老实），MALFORMED 该检查自己是�
 </tr>
 <tr>
 <td>大小</td>
-<td>64,254,990 字节（约 61.3 MB）</td>
+<td>64,487,763 字节（约 61.5 MB）</td>
 </tr>
 </tbody>
 </table></div>
@@ -676,9 +783,13 @@ REJECTED 该换来源（这个作者不老实），MALFORMED 该检查自己是�
 release 版经 R8 + 资源裁剪会显著缩小，但<strong>需要先决定签名策略</strong> ——
 社区分发要求所有版本用同一个 keystore 签名（否则无法覆盖安装更新），
 而这个 keystore 该由谁保管、要不要进仓库，是需要人来拍板的事。</p>
+<p>⚠️ <strong>别用文件时间戳判断 APK 是不是最新的。</strong> <code>gradle.properties</code> 里开了
+<code>org.gradle.caching=true</code>，而 Gradle 从构建缓存恢复产物时会<strong>保留原始
+修改时间</strong> —— 于是"重新构建过"和"文件是旧的"可以同时成立。
+要确认产物是否反映了最新代码，比 <strong>sha256</strong>，不要比时间。</p>
 </blockquote>
-<h3 id="54">5.4 首次构建踩过的八个坑</h3>
-<p>前四个发生在首次 <code>assembleDebug</code>，后四个是在修完前四个之后<strong>才暴露出来</strong>的。</p>
+<h3 id="54">5.4 构建踩过的坑</h3>
+<p>前八个发生在首次 <code>assembleDebug</code>，第九到十一个是在那之后<strong>才暴露出来</strong>的。</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -737,6 +848,24 @@ release 版经 R8 + 资源裁剪会显著缩小，但<strong>需要先决定签�
 <td><code>Stage</code> 嵌套在 <code>ImportUiState</code> 内，<code>ImportScreen</code> 用了限定名而 <code>ImportViewModel</code> 用了裸名</td>
 <td>统一为 <code>ImportUiState.Stage</code></td>
 </tr>
+<tr>
+<td>9</td>
+<td><code>'bounds' hides member of supertype 'ElementRef' and needs an 'override' modifier</code></td>
+<td>接口声明了 <code>val bounds: Rect?</code>，两个实现类各自带一个非空 <code>bounds</code> 构造参数却没写 <code>override</code></td>
+<td>补 <code>override</code>（<code>val</code> 的类型可以协变收窄，<code>Rect?</code> → <code>Rect</code> 合法）</td>
+</tr>
+<tr>
+<td>10</td>
+<td><code>Unresolved reference 'perception'</code> / <code>'action'</code> ×5</td>
+<td><code>:agent</code> 用了 <code>:action</code> 与 <code>:perception</code> 的类型，但 <code>build.gradle.kts</code> 里没声明这两个项目依赖。<strong>生成器只会硬编码一条 <code>:core:common</code></strong></td>
+<td>补依赖；同时给生成器加了 <code>PROJECT_DEPS</code> 表，新模块不会重蹈覆辙</td>
+</tr>
+<tr>
+<td>11</td>
+<td><strong>每个测试类都报 <code>ClassNotFoundException</code></strong></td>
+<td>见下</td>
+<td></td>
+</tr>
 </tbody>
 </table></div>
 <p><strong>第 5–8 个坑的共同点：它们都不在"构建配置"里，而在"代码与资源本身"。</strong>
@@ -744,6 +873,59 @@ release 版经 R8 + 资源裁剪会显著缩小，但<strong>需要先决定签�
 所以"构建失败"这件事要分两层看：<strong>工具链的问题</strong>和<strong>代码的问题</strong>，
 混在一起排查会得出错误的结论（比如把第 6 个当成 AGP 版本太旧，去升级 AGP，
 那就掉进更大的坑了 —— 该降的是 Compose，不是升 AGP）。</p>
+<p><strong>第 9–10 个坑的共同点更值得记：它们藏在"从来没被编译过的模块"里。</strong></p>
+<p><code>tools/verify/run_logic_tests.py</code> 只编译零 Android 依赖的那几个模块
+（provider / core / safety / plugin:api）。<code>:action</code> 和 <code>:agent</code> <strong>从来不在里面</strong> ——
+所以它们的编译错误可以一直躺着，直到有人真的跑一次 <code>./gradlew test</code>。</p>
+<blockquote>
+<p><strong>教训：离线单测跑绿 ≠ 代码能编译。</strong> 它覆盖的是纯逻辑模块。
+改完跨模块的代码，必须跑一次 Gradle 才能确认。</p>
+</blockquote>
+<h4 id="11_1">坑 11：编码错配导致全部测试"消失"</h4>
+<p>现象极具误导性 —— <strong>每一个</strong>测试类都报</p>
+<div class="codehilite"><pre><span></span><code>java.lang.ClassNotFoundException: com.pocketagent.plugin.api.PluginBundleTest
+</code></pre></div>
+
+<p>而 <code>.class</code> 文件就在磁盘上，<code>javap</code> 读得出来，堆栈里还能看到 JUnit 自己的类。
+这三个事实凑在一起，几乎必然把人引向"测试代码有问题"。</p>
+<p>真实原因是一处<strong>编码错配</strong>：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>环节</th>
+<th>用的编码</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Gradle 把测试 worker 的 classpath 写进 <code>@argfile</code></td>
+<td>守护进程的 <code>file.encoding</code></td>
+</tr>
+<tr>
+<td>JVM 读 <code>@argfile</code></td>
+<td><code>sun.jnu.encoding</code>（<strong>平台编码</strong>，<code>-D</code> 改不动）</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>gradle.properties</code> 原本给守护进程设了 <code>-Dfile.encoding=UTF-8</code>，而本机
+<code>sun.jnu.encoding = GBK</code>。于是一个按 UTF-8 写、一个按 GBK 读：</p>
+<div class="codehilite"><pre><span></span><code>直接传参：    D:/手机agent开发/android/...        → 加载成功
+UTF-8 argfile：D:/鎵嬫満agent寮?鍙?/android/...  → ClassNotFoundException
+</code></pre></div>
+
+<p>（上面这组对照是实测的，不是推断。验证方法：写一个只做
+<code>Class.forName(...)</code> 的探针类，分别用两种方式启动它。）</p>
+<p>JUnit 的 jar 在纯 ASCII 路径（<code>~/.gradle/caches</code>）下，所以它加载正常 ——
+这也解释了为什么"有些类能找到、偏偏测试类找不到"。</p>
+<p><strong>修法：把 <code>-Dfile.encoding=UTF-8</code> 从 <code>org.gradle.jvmargs</code> 里去掉。</strong>
+去掉之后守护进程与 worker 都用平台编码，两边自然一致：
+Linux（UTF-8）写 UTF-8 读 UTF-8，中文 Windows（GBK）写 GBK 读 GBK。
+报告文件不受影响 —— Gradle 写 XML 报告时显式用 UTF-8，实测中文测试名完好。</p>
+<blockquote>
+<p>这个坑只在<strong>项目路径含非 ASCII 字符</strong>时触发。放到 <code>D:\pocketagent</code>
+这类纯 ASCII 路径下就不会出现 —— 但依赖"路径是 ASCII"来规避一个编码 bug，
+不如直接把两边的编码对齐。</p>
+</blockquote>
 <h3 id="55">5.5 新增的两个体检工具</h3>
 <p>构建报错要等四分钟，而下面这两个脚本<strong>在下载依赖之前</strong>就能把问题问出来：</p>
 <div class="codehilite"><pre><span></span><code><span class="c1"># ① 版本目录对账：libs.* 引用是否都有定义</span>
@@ -758,40 +940,110 @@ python<span class="w"> </span>tools/verify/check_aar_metadata.py<span class="w">
 <code>META-INF/com/android/build/gradle/aar-metadata.properties</code>，把 <code>minCompileSdk</code>
 和 <code>minAndroidGradlePluginVersion</code> 打出来。升任何 AndroidX 依赖前先跑一遍，
 就不会再出现"升了个 BOM，构建炸了，然后花二十分钟猜是哪儿不对"。</p>
+<h3 id="56-examplesourcetest">5.6 示例插件由真实校验器把关（<code>ExampleSourceTest</code>）</h3>
+<p><a href="../community-source/"><code>community-source/</code></a> 里的示例插件是给所有人抄的模板。
+如果它只是"看起来合法" —— 字段名对、缩进整齐、读起来像那么回事 ——
+那它就是个假货：用户照着抄，抄出来的插件点安装会报错，
+而报错信息不会告诉他"你抄的那个例子本身是坏的"。</p>
+<p>所以 <code>ExampleSourceTest</code> <strong>不重新实现一套校验规则</strong>，而是直接调用客户端的
+<code>PluginValidator</code> 与真实的反序列化器。规则只有一份，校验器改了测试立刻跟着变。</p>
+<p>它检查七件事：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>检查</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>至少有一个示例插件</td>
+<td>防止目录找错之后，下面所有断言在<strong>空集合</strong>上"全部通过"</td>
+</tr>
+<tr>
+<td>清单能通过校验、且无意外警告</td>
+<td>用严格解析器，与客户端装插件时完全一致</td>
+</tr>
+<tr>
+<td><code>entry</code> 指向的文件真的存在</td>
+<td>装上去会是"加载不了的插件"</td>
+</tr>
+<tr>
+<td><code>entry</code> 通过 <code>isSafeEntryName</code></td>
+<td>一个 entry 合法但文件名不合法的组合，会在解压阶段才炸</td>
+</tr>
+<tr>
+<td><strong>两份 manifest 完全一致</strong></td>
+<td>漂移不会报错，只会让市场显示的版本与实际行为对不上</td>
+</tr>
+<tr>
+<td>能点击的插件每条规则都有 <code>excludeConditions</code></td>
+<td>误点"确认付款"比不能用糟糕一万倍</td>
+</tr>
+<tr>
+<td>id 不占官方保留前缀</td>
+<td>示例是模板，抄的人会连 id 一起抄走</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>唯一豁免的警告是 <code>sha256</code> 缺失</strong>，理由见附录 —— 那个字段对 L1 插件
+结构上就填不了（<code>rules.json</code> 内嵌 manifest，而 manifest 又要哈希 <code>rules.json</code>）。</p>
+<blockquote>
+<p><strong>测试本身也被验证过。</strong> 我故意把 <code>plugin.json</code> 的描述改了一个字、
+让它与 <code>rules.json</code> 内嵌的 manifest 不一致，确认测试会失败并报出
+"focus-guard：plugin.json 与 rules.json 里的 manifest 不一致"。
+一个从不失败的检查等于没有检查 —— 这个教训在
+<code>check_kt_quotes.py</code> 上已经吃过一次（第一版 135 报 1 中）。</p>
+</blockquote>
 <hr />
 <h2 id="_6">附：给插件作者的最小工作流</h2>
-<div class="codehilite"><pre><span></span><code>1. 写一个目录，结构如下：
-     my-plugin/
-       plugin.json          ← 清单
-       rules/main.json      ← L1 规则（或 script/main.js）
+<p><strong>别从零开始。</strong> 直接复制 <a href="../community-source/plugins-src/_template/"><code>community-source/plugins-src/_template/</code></a>，
+它把清单、规则、配置项声明的写法都摆好了，而且<strong>不会</strong>被当成正式插件打包
+（以 <code>_</code> 开头的目录会被 <code>build_source.py</code> 跳过）。</p>
+<div class="codehilite"><pre><span></span><code>1. 复制模板：
+     cp -r community-source/plugins-src/_template community-source/plugins-src/my-plugin
 
-2. 打包（zip 即可）：
-     zip -r my-plugin.pagent plugin.json rules/
+2. 改 plugin.json（清单）与 rules.json（L1 规则）
+     ⚠️ 这两个文件里各有一份 manifest，必须**逐字段相同**。
+        rules.json 是自包含的（运行时读），plugin.json 是安装时读的。
+        漂移了不会报错，只会让市场显示的版本与实际行为对不上。
 
-3. 自测（不需要 Android SDK）：
-     把 plugin.json 的内容喂给 PluginImporter.inspect()，
-     或在 app 里用「导入本地插件」走一遍 —— 校验不过会明确告诉你是哪一项。
+3. 打包 + 生成索引：
+     python community-source/build_source.py
 
-4. 分发：把 .pagent 传到任意 https 地址，再在自己的订阅源 JSON 里加一条。
+4. 确认产物与源一致（改完必跑）：
+     python community-source/build_source.py --check
+     python tools/verify/run_logic_tests.py      # 含 ExampleSourceTest
+
+5. 分发：把 site/plugins/ 推到静态托管，源的地址就是 .../plugins/index.json
 </code></pre></div>
 
 <p>清单最小示例：</p>
 <div class="codehilite"><pre><span></span><code>{
-  "id": "community.example.demo",       // 反向域名，至少三段，小写
+  "id": "community.example.demo",       // 反向域名，至少三段，小写，段内用连字符
   "name": "示例插件",
   "version": "1.0.0",                   // 必须语义化版本
+  "apiVersion": 1,                      // 高于本体支持的值会被拒绝加载
   "level": "L1_RULES",
   "capabilities": ["screen.read", "action.click"],
-  "entry": "rules/main.json",           // L1 必须 .json，L2 必须 .js
+  "entry": "rules.json",                // L1 必须 .json，L2 必须 .js
   "targetApps": ["com.example.app"],    // 会模拟操作却不限定目标 → 警告
-  "description": "这个插件做什么，写清楚。没有描述的市场插件没人敢装。",
-  "sha256": "…"                         // 市场插件应当提供；本地导入不受此限
+  "description": "这个插件做什么，写清楚。没有描述的市场插件没人敢装。"
 }
 </code></pre></div>
 
 <blockquote>
+<p>⚠️ <strong>清单里的 <code>sha256</code> 字段对 L1 插件是填不了的</strong> —— 这不是"应当填而没填"，
+是结构上不可能：<code>rules.json</code> 内嵌了整份 manifest，而 manifest 的 <code>sha256</code>
+又该去哈希 <code>rules.json</code>，循环依赖。</p>
+<p>真正起作用的哈希在<strong>源索引</strong>里（覆盖整个 <code>.pagent</code>，解压前校验），
+由 <code>build_source.py</code> 生成。清单里那个字段目前只有本地导入路径会看到一条
+"没有提供内容哈希"的警告 —— 而本地导入本来就不靠校验兜底，靠用户知情。</p>
 <p>⚠️ 清单里<strong>不要</strong>出现 <code>payment.*</code> / <code>key.*</code> / <code>crypto.*</code> / <code>system.*</code> 能力。
 出现即拒绝安装，并会在市场上被标记为"该源正在分发申请禁止能力的插件"。</p>
+<p>⚠️ <strong>只要插件能模拟操作，每条规则都必须写 <code>excludeConditions</code>。</strong>
+至少排除「支付」「转账」这类文本。<code>ExampleSourceTest</code> 会强制检查这一条 ——
+一个误点「确认付款」的插件，比一个根本不能用的插件糟糕一万倍。</p>
 </blockquote>
   </main>
 </div>

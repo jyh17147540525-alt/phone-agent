@@ -353,7 +353,7 @@ token 估算、费用计算、插件校验、zip 防护）都在**零 Android �
 `project(":...")` 对账。把八分钟一轮的构建反馈压成两秒。
 
 **`check_version_catalog.py`** —— Gradle 版本目录的访问器（`libs.androidx.core.ktx`）
-是**编译期**解析的。26 个模块里任何一个写错别名，配置阶段就失败，而且报错指向
+是**编译期**解析的。30 个模块里任何一个写错别名，配置阶段就失败，而且报错指向
 一个你根本没在用的模块。这个脚本在构建之前把 31 个 `build.gradle.kts` 全对一遍。
 
 **`check_aar_metadata.py`** —— 直接下载 aar、读出里面的
