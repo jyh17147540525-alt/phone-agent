@@ -593,7 +593,7 @@ dsh plugin --profile &lt;name&gt; ...   转发给 pnpm 管理插件
 </tr>
 <tr>
 <td><strong>LLM 接入</strong></td>
-<td><code>dsh-llm</code> + deepseek / openai / anthropic / google / mistral / pi-ai</td>
+<td><code>dsh-llm</code>（运行时抽象）+ <code>dsh-llm-deepseek</code>（专用适配器）+ <code>dsh-llm-pi-ai</code>（<strong>通用适配器</strong>，基于第三方 SDK <code>@earendil-works/pi-ai</code>，支持 <code>openai-completions</code> / <code>openai-responses</code> / <code>anthropic-messages</code> 三协议）。⚠️ <strong>无</strong> openai/anthropic/gemini/mistral 独立包 —— 见 <code>BYOK模型接入与dsh代理设计-v1.0.md</code> 附录 B</td>
 </tr>
 <tr>
 <td><strong>会话</strong></td>
@@ -715,7 +715,7 @@ dsh plugin --profile &lt;name&gt; ...   转发给 pnpm 管理插件
 <tr>
 <td><code>@mistralai</code></td>
 <td>25 MB</td>
-<td>❌ 不用 Mistral 可删</td>
+<td>⚠️ 是 <code>pi-ai</code> 的依赖 —— <strong>只有裁掉整个 pi-ai 才能一起删</strong>（代理方案提供了这个可能，见 <code>BYOK模型接入与dsh代理设计-v1.0.md</code> §0③）</td>
 </tr>
 <tr>
 <td><code>@google</code></td>
@@ -932,8 +932,9 @@ dsh plugin --profile &lt;name&gt; ...   转发给 pnpm 管理插件
 │      agent 循环 / 会话 / 压缩 / token 计量 / 计划模式 / 子代理    │
 │      dsh-llm-* (BYOK) / dsh-skill / dsh-goal / dsh-persona     │
 ├───────────────────────────────────────────────────────────────┤
-│  L3  能力桥        MCP over localhost                          │
-│      Android 侧 MCP Server  ←→  dsh-mcp-client                 │
+│  L3  能力桥        MCP over localhost + LLM 网关（★ 双向）       │
+│      Android MCP Server  ←→  dsh-mcp-client                    │
+│      Android LLM Gateway ←→  dsh（baseURL 指向本地代理）         │
 ├───────────────────────────────────────────────────────────────┤
 │  L4  能力端        Android 原生（复用 PocketAgent 既有资产）      │
 │      感知 ScreenSnapshot  │ 执行 ActionExecutor  │ 安全 SafetyGuard │
@@ -944,7 +945,11 @@ dsh plugin --profile &lt;name&gt; ...   转发给 pnpm 管理插件
 <p><strong>关键设计原则（沿用项目既有约定）：</strong>
 - <strong>L4 的 SafetyGuard 是最后一道闸</strong>，dsh 侧不可绕过
 - <strong>L2 的 dsh 不做任何业务改造</strong>，保证可跟随上游升级
-- <strong>L3 用开放标准 MCP</strong>，保证 dsh 可替换</p>
+- <strong>L3 用开放标准 MCP</strong>，保证 dsh 可替换
+- <strong>L3 是双向的（★ 本设计修正）</strong>：正向是「Android 能力 → dsh」（MCP），
+  反向是「dsh 的模型请求 → Android LLM 网关」。<strong>Key 永不进入 Node 进程</strong> ——
+  这是路线 C 与项目「Key 永不落明文」原则的兼容方式。
+  详见 <code>BYOK模型接入与dsh代理设计-v1.0.md</code></p>
 <h2 id="32">3.2 关键组件</h2>
 <div class="tw"><table>
 <thead>

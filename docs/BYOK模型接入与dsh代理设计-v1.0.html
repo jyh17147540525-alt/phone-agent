@@ -1,0 +1,1155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BYOK 模型接入与 dsh 代理设计</title>
+<style>
+:root {
+  --bg: #14161a;
+  --bg-soft: #1a1d22;
+  --panel: #1e2228;
+  --panel-2: #23272f;
+  --border: #2e343d;
+  --text: #e6e9ee;
+  --text-dim: #9aa4b2;
+  --text-faint: #6b7684;
+  --accent: #6ea8fe;
+  --accent-2: #7ee0c0;
+  --warn: #f0b429;
+  --danger: #f2685c;
+  --ok: #57c98a;
+  --code-bg: #15181d;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+               "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans SC", sans-serif;
+  font-size: 15.5px;
+  line-height: 1.85;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { display: flex; max-width: 1500px; margin: 0 auto; }
+aside {
+  width: 300px; flex: 0 0 300px;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  padding: 28px 18px 60px 28px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-soft);
+  font-size: 13.5px;
+}
+aside .brand {
+  font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--text-faint); margin-bottom: 4px;
+}
+aside .title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 20px; line-height: 1.5; }
+aside ul { list-style: none; padding-left: 0; margin: 0; }
+aside ul ul { padding-left: 14px; margin-top: 4px; }
+aside li { margin: 2px 0; }
+aside a {
+  color: var(--text-dim); text-decoration: none; display: block;
+  padding: 4px 8px; border-radius: 6px; border-left: 2px solid transparent;
+  transition: .15s;
+}
+aside a:hover { color: var(--text); background: var(--panel-2); border-left-color: var(--accent); }
+main { flex: 1; min-width: 0; padding: 44px 56px 120px; max-width: 1080px; }
+
+h1 {
+  font-size: 30px; line-height: 1.35; margin: 0 0 8px; font-weight: 800;
+  letter-spacing: -.01em;
+}
+h2 {
+  font-size: 22px; margin: 56px 0 18px; padding-bottom: 10px;
+  border-bottom: 1px solid var(--border); font-weight: 700; scroll-margin-top: 20px;
+}
+h3 { font-size: 17.5px; margin: 34px 0 12px; font-weight: 700; color: #dfe5ee; scroll-margin-top: 20px; }
+h4 { font-size: 15.5px; margin: 24px 0 10px; font-weight: 700; color: var(--text-dim); }
+p { margin: 12px 0; }
+a { color: var(--accent); }
+strong { color: #fff; font-weight: 700; }
+hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+blockquote {
+  margin: 18px 0; padding: 14px 20px;
+  background: linear-gradient(90deg, rgba(110,168,254,.10), rgba(110,168,254,.02));
+  border-left: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0; color: #cfd6e0;
+}
+blockquote p { margin: 6px 0; }
+
+ul, ol { padding-left: 24px; margin: 12px 0; }
+li { margin: 5px 0; }
+li > ul, li > ol { margin: 5px 0; }
+
+.tw { overflow-x: auto; margin: 18px 0; border: 1px solid var(--border); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--panel); }
+th, td { padding: 9px 14px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { background: var(--panel-2); font-weight: 700; color: #fff; white-space: nowrap; font-size: 13.5px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: rgba(110,168,254,.045); }
+
+code {
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+  font-size: 13px; background: var(--code-bg); padding: 2px 6px;
+  border-radius: 5px; color: #8fd3ff; border: 1px solid var(--border);
+}
+pre {
+  background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px;
+  padding: 18px 20px; overflow-x: auto; margin: 18px 0;
+  font-size: 12.8px; line-height: 1.65;
+}
+pre code {
+  background: none; border: none; padding: 0; color: #cfd8e3;
+  white-space: pre; font-family: "JetBrains Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+}
+.codehilite { background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; margin: 18px 0; }
+.codehilite pre { border: none; margin: 0; background: none; }
+.codehilite .k, .codehilite .kd, .codehilite .kn { color: #ff7b9c; }
+.codehilite .s, .codehilite .s1, .codehilite .s2 { color: #7ee0c0; }
+.codehilite .c1, .codehilite .cm { color: #5f6b7a; font-style: italic; }
+.codehilite .n, .codehilite .nf, .codehilite .nc { color: #8fd3ff; }
+.codehilite .m, .codehilite .mi { color: #f0b429; }
+
+@media (max-width: 1000px) {
+  aside { display: none; }
+  main { padding: 28px 20px 80px; }
+  body { font-size: 15px; }
+  h1 { font-size: 24px; }
+  h2 { font-size: 19px; }
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: #333a45; border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: #414a58; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <aside>
+    <div class="brand">Project Plan</div>
+    <div class="title">BYOK 模型接入与 dsh 代理设计</div>
+    <div class="toc">
+<ul>
+<li><a href="#0">0. 结论速览</a></li>
+<li><a href="#11">1.1 原则回顾</a></li>
+<li><a href="#12-c">1.2 路线 C 打破了这个前提</a></li>
+<li><a href="#13">1.3 我们需要的性质</a></li>
+<li><a href="#21-dsh-provider">2.1 订正：dsh 只有两个 provider 包</a></li>
+<li><a href="#22-dsh-llm-deepseekbaseurl">2.2 dsh-llm-deepseek：baseURL 可覆盖</a></li>
+<li><a href="#23-dsh-llm-pi-ai">2.3 dsh-llm-pi-ai：通用适配器，三协议 + 任意端点</a></li>
+<li><a href="#24-apikeyenv-key">2.4 凭据机制：apiKeyEnv 是"环境变量名"，不是 Key 本身</a></li>
+<li><a href="#25">2.5 配置语法（实测）</a></li>
+<li><a href="#26-dsh-mcp-client-streamable-http">2.6 附带确认：dsh-mcp-client 支持 streamable-http</a></li>
+<li><a href="#31">3.1 架构</a></li>
+<li><a href="#32">3.2 一次请求的完整时序</a></li>
+<li><a href="#33-hack">3.3 为什么这是"官方支持的用法"而非 hack</a></li>
+<li><a href="#34">3.4 收益清单</a></li>
+<li><a href="#41">4.1 端点契约</a></li>
+<li><a href="#42">4.2 组件清单</a></li>
+<li><a href="#43">4.3 流式转发实现要点</a></li>
+<li><a href="#44">4.4 安全加固（六条）</a></li>
+<li><a href="#45-v1models">4.5 为什么建议 /v1/models 只返回一个虚拟模型</a></li>
+<li><a href="#51-llmprovider">5.1 LlmProvider 抽象层的角色变化（重要）</a></li>
+<li><a href="#52">5.2 复用清单</a></li>
+<li><a href="#53">5.3 需要新增的模块</a></li>
+<li><a href="#61-46">6.1 首次引导（复用研讨文档 §4.6 的设计）</a></li>
+<li><a href="#62-dsh">6.2 模型选择（对 dsh 完全透明）</a></li>
+<li><a href="#63">6.3 成本控制</a></li>
+</ul>
+</div>
+
+  </aside>
+  <main>
+<h1 id="byok-dsh">BYOK 模型接入与 dsh 代理设计</h1>
+<blockquote>
+<p>版本 v1.0 ｜ 2026-09-21 ｜ 状态：<strong>设计稿（待评审）</strong></p>
+<p>前置文档：<code>docs/豆包手机智能体考察与dsh移植可行性研讨-v1.0.md</code>（以下简称"研讨文档"）</p>
+<p>本文所有"实测"结论均来自本机对 <code>F:\dsh-program</code> 的实际检查，命令与输出见附录 A。
+附录 B 列出本文对研讨文档的<strong>订正</strong>。</p>
+</blockquote>
+<hr />
+<h2 id="0">0. 结论速览</h2>
+<p><strong>三条必须最先知道的结论：</strong></p>
+<p><strong>① 路线 C 引入了一个原方案完全没有覆盖的 Key 暴露面 —— 这是重大漏洞。</strong></p>
+<p>项目原则第 7 条写着"<strong>Key 永不落明文</strong>"。但路线 C 让 dsh 跑在 Node 进程里、
+由 dsh 自己调模型 —— 而 dsh 要调模型就必须拿到 Key。
+<strong>Key 于是必须从 Kotlin 进程跨到 Node 进程</strong>，而环境变量、配置文件、命令行参数、
+stdin 四种传法<strong>全部存在明文暴露点</strong>。研讨文档对此只字未提。</p>
+<p><strong>② 解法：LLM 代理（Local Loopback Gateway）—— 让 Key 永远不离开 Kotlin 进程。</strong></p>
+<p>实测发现 <code>dsh-llm-deepseek</code> 与 <code>dsh-llm-pi-ai</code> <strong>都支持任意 <code>baseURL</code> 覆盖</strong>，
+且请求就是标准的 <code>POST {baseURL}/chat/completions</code>。
+所以：<strong>把 dsh 的 baseURL 指向 <code>http://127.0.0.1:&lt;port&gt;/v1</code></strong>，
+由 Android 侧代理解密真 Key 并转发。<strong>dsh 从头到尾不知道真 Key 长什么样。</strong>
+这不是 hack，是 dsh 官方支持的配置方式。</p>
+<p><strong>③ 意外收获：代理方案让 <code>pi-ai</code> 及其约 57 MB 依赖变成可裁剪项。</strong></p>
+<p>实测 dsh 只有 <strong>2 个</strong> LLM provider 包（<code>dsh-llm-deepseek</code> + <code>dsh-llm-pi-ai</code>），
+其中 <code>dsh-llm-pi-ai</code> 依赖第三方 SDK <code>@earendil-works/pi-ai</code>，
+后者又拖进 <code>@mistralai</code>(25MB) / <code>@google</code>(14MB) / <code>openai</code>(12MB) / <code>@anthropic-ai</code>(5.8MB)。
+<strong>既然协议转换已经由代理层承担，dsh 侧只需要"会说 openai-completions"的通道</strong>，
+pi-ai 及其 57MB 依赖可以整体裁掉。</p>
+<hr />
+<h1 id="c-key">第一部分 · 问题：路线 C 与「Key 永不落明文」的冲突</h1>
+<h2 id="11">1.1 原则回顾</h2>
+<p>项目已确立的架构原则第 7 条：</p>
+<blockquote>
+<p><strong>Key 永不落明文</strong>：Keystore + AES-GCM + SQLCipher；不进日志、不进崩溃上报、
+不进备份、不进 SharedPreferences。</p>
+</blockquote>
+<p>以及第 8 条（插件边界原则）：</p>
+<blockquote>
+<p>所有插件调用必须经 <code>PluginHost</code> 能力代理，插件<strong>永远拿不到 API Key 明文</strong>。</p>
+</blockquote>
+<p><strong>注意这两条原则的共同前提：Key 只在 Kotlin 进程内存在，且只在构造请求头的那一瞬间解密。</strong></p>
+<h2 id="12-c">1.2 路线 C 打破了这个前提</h2>
+<p>路线 C 的架构是：</p>
+<div class="codehilite"><pre><span></span><code>L2  智能体内核    dsh（原样复用，零改动）
+L3  能力桥        MCP over localhost
+L4  能力端        Android 原生（复用 PocketAgent 既有资产）
+</code></pre></div>
+
+<p>问题出在 L2：<strong>dsh 自己要调 LLM</strong>（它的 <code>dsh-llm-*</code> 插件就是干这个的）。
+dsh 要调 LLM，就必须持有 API Key。</p>
+<p>于是 Key 必须跨越 <strong>Kotlin 进程 → Node 进程</strong> 这条边界。四种传法：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>传法</th>
+<th>机制</th>
+<th>暴露面</th>
+<th>判定</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>环境变量</strong></td>
+<td><code>DEEPSEEK_API_KEY=sk-xxx</code> 启动 node</td>
+<td>Linux 上 <code>/proc/&lt;pid&gt;/environ</code> 可读；崩溃转储、子进程继承、<code>ps eww</code> 都可能带出</td>
+<td>❌</td>
+</tr>
+<tr>
+<td><strong>配置文件</strong></td>
+<td>写进 profile 的 <code>cordis.patch.yml</code></td>
+<td><strong>明文落盘</strong>，直接违反"不进 SharedPreferences/文件"红线</td>
+<td>❌ 最严重</td>
+</tr>
+<tr>
+<td><strong>命令行参数</strong></td>
+<td><code>node bin.js --api-key=sk-xxx</code></td>
+<td><code>/proc/&lt;pid&gt;/cmdline</code> <strong>任何进程可读，无需 root</strong></td>
+<td>❌ 最严重</td>
+</tr>
+<tr>
+<td><strong>stdin 一次性传入</strong></td>
+<td>启动时写入，Node 读入内存后不留盘</td>
+<td>相对最好，但 <strong>Key 仍在 Node 进程内存中常驻</strong>，且 Node 的 GC 会让明文在堆上存活不可控时长</td>
+<td>⚠️ 勉强</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>四种都不合格。</strong> 前三种是明确的红线违反，第四种虽然避开了落盘，
+但"Key 在 Node 进程内存里"这件事本身就与"Key 只在 Kotlin 进程内"的前提冲突。</p>
+<p>更要命的是：<strong>Node 进程里跑着 dsh 的插件系统</strong>。研讨文档 §2.1 已确认
+"profile 的本质是一个 pnpm 项目"，用户可以装第三方插件。
+<strong>一旦 Key 进了 Node 进程，插件就有理论上的途径摸到它</strong> —— 而这正是第 8 条原则
+（"插件永远拿不到 API Key 明文"）要防的事。</p>
+<blockquote>
+<p>📌 <strong>结论</strong>：只要 dsh 自己持有 Key，路线 C 就与项目两条核心安全原则同时冲突。
+<strong>这不是可以"注意一下"的小问题，是架构级的缺陷。</strong></p>
+</blockquote>
+<h2 id="13">1.3 我们需要的性质</h2>
+<p>一个合格的方案必须同时满足：</p>
+<ol>
+<li><strong>Key 永不进入 Node 进程</strong>（内存、环境、参数、文件都不行）</li>
+<li><strong>dsh 的 agent 能力不受损</strong>（它得能正常调模型、用 tool call、流式输出）</li>
+<li><strong>dsh 侧零改动</strong>（否则无法跟随上游升级，违反"原样复用"原则）</li>
+<li><strong>预算熔断与用量统计不能被绕过</strong>（研讨文档 D-G / §4.4 的要求）</li>
+<li><strong>安全护栏在 Kotlin 侧</strong>（与"插件绕不过 SafetyGuard"同构）</li>
+</ol>
+<p>第 1 条与第 2 条看起来是矛盾的 —— 不给 Key，dsh 怎么调模型？</p>
+<p><strong>答案：不告诉它真 Key，只告诉它"往哪儿发"。</strong></p>
+<hr />
+<h1 id="dsh">第二部分 · dsh 的模型接入能力（本机实测）</h1>
+<h2 id="21-dsh-provider">2.1 订正：dsh 只有两个 provider 包</h2>
+<p><strong>研讨文档 §2.2 写的"<code>dsh-llm</code> + deepseek / openai / anthropic / google / mistral / pi-ai"是错的。</strong></p>
+<p>实测 <code>ls F:/dsh-program/node_modules/@deepseek-ai/ | grep -i llm</code>：</p>
+<div class="codehilite"><pre><span></span><code>dsh-llm
+dsh-llm-deepseek
+dsh-llm-pi-ai
+dsh-llm-retry
+dsh-session-title-first-prompt-llm
+dsh-session-title-llm
+</code></pre></div>
+
+<p>而 <code>grep -i -E "openai|anthropic|gemini|google|mistral|claude"</code> <strong>零命中</strong>。</p>
+<p><strong>真实构成：</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>包</th>
+<th>角色</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dsh-llm</code></td>
+<td>LLM 运行时抽象（adapter registry + 可拦截的流式调用 API）</td>
+</tr>
+<tr>
+<td><code>dsh-llm-deepseek</code></td>
+<td>DeepSeek 专用适配器</td>
+</tr>
+<tr>
+<td><code>dsh-llm-pi-ai</code></td>
+<td><strong>通用适配器</strong>，基于第三方 SDK <code>@earendil-works/pi-ai</code></td>
+</tr>
+<tr>
+<td><code>dsh-llm-retry</code></td>
+<td>重试策略</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>@mistralai</code> / <code>@google</code> / <code>openai</code> / <code>@anthropic-ai</code> 这些包<strong>确实存在</strong>（研讨文档的体积账没写错），
+但它们是 <strong><code>@earendil-works/pi-ai</code> 的依赖</strong>，不是 dsh 自己的 provider 包。</p>
+<h2 id="22-dsh-llm-deepseekbaseurl">2.2 <code>dsh-llm-deepseek</code>：baseURL 可覆盖</h2>
+<p><code>dsh-llm-deepseek/lib/types/index.d.ts</code>：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">export</span><span class="w"> </span><span class="kd">interface</span><span class="w"> </span><span class="nx">Config</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/** Credential reference (environment-variable name) resolved per request;</span>
+<span class="cm">     *  defaults to `DEEPSEEK_API_KEY`. */</span>
+<span class="w">    </span><span class="nx">apiKeyEnv?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** Endpoint base; falls back to $DEEPSEEK_BASE_URL from a trusted environment</span>
+<span class="cm">     *  layer, then the public API. */</span>
+<span class="w">    </span><span class="nx">baseURL?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">thinking</span><span class="o">?:</span><span class="w"> </span><span class="s1">'enabled'</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">'disabled'</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">reasoningEffort</span><span class="o">?:</span><span class="w"> </span><span class="s1">'off'</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">'low'</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">'high'</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">'max'</span><span class="p">;</span>
+<span class="w">    </span><span class="p">...</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>实现（<code>lib/index.js:589</code>）：</p>
+<div class="codehilite"><pre><span></span><code><span class="nx">response</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">fetch</span><span class="p">(</span><span class="sb">`</span><span class="si">${</span><span class="nx">connection</span><span class="p">.</span><span class="nx">baseURL</span><span class="si">}</span><span class="sb">/chat/completions`</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">method</span><span class="o">:</span><span class="w"> </span><span class="s2">"POST"</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">headers</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">body</span><span class="o">:</span><span class="w"> </span><span class="nx">payload</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">signal</span>
+<span class="p">});</span>
+</code></pre></div>
+
+<p><strong>就是标准 OpenAI Chat Completions 协议，baseURL 是配置项。</strong> ✅</p>
+<h2 id="23-dsh-llm-pi-ai">2.3 <code>dsh-llm-pi-ai</code>：通用适配器，三协议 + 任意端点</h2>
+<p>这是<strong>最关键的发现</strong>。它的模块文档原文：</p>
+<blockquote>
+<p>Generic pi-ai-backed LLM adapter plugin. One plugin instance owns a dict of provider
+routes; a route naming an installed pi-ai provider inherits that provider's endpoint,
+protocol, and model catalog as defaults, and <strong>a route pi-ai does not ship is declared
+outright</strong>.</p>
+</blockquote>
+<p>配置示例（原文摘录）：</p>
+<div class="codehilite"><pre><span></span><code><span class="nt">providers</span><span class="p">:</span>
+<span class="w">  </span><span class="c1"># Catalog route: everything but the credential comes from pi-ai.</span>
+<span class="w">  </span><span class="nt">openai</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">apiKeyEnv</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OPENAI_API_KEY</span>
+<span class="w">    </span><span class="nt">retryPolicy</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> mode</span><span class="p">:</span><span class="w"> </span><span class="nv">normal</span><span class="p p-Indicator">,</span><span class="nt"> maxRetries</span><span class="p">:</span><span class="w"> </span><span class="nv">2</span><span class="w"> </span><span class="p p-Indicator">}</span>
+
+<span class="w">  </span><span class="c1"># Hand-declared route: pi-ai ships nothing under this key.</span>
+<span class="w">  </span><span class="nt">acme-gateway</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">displayName</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Acme Gateway</span>
+<span class="w">    </span><span class="nt">apiKeyEnv</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ACME_GATEWAY_API_KEY</span>
+<span class="w">    </span><span class="nt">api</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">openai-completions</span>
+<span class="w">    </span><span class="nt">baseURL</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://gateway.acme.example/v1</span>
+<span class="w">    </span><span class="nt">compat</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">thinkingFormat</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">deepseek</span>
+<span class="w">    </span><span class="nt">models</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">acme-large</span>
+<span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Acme Large</span>
+<span class="w">        </span><span class="nt">contextWindow</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">65536</span>
+<span class="w">        </span><span class="nt">maxTokens</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4096</span>
+</code></pre></div>
+
+<p><strong>支持的协议（<code>lib/index.js:1223</code>）：</strong></p>
+<div class="codehilite"><pre><span></span><code><span class="kd">const</span><span class="w"> </span><span class="nx">PROTOCOLS</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">"openai-completions"</span><span class="o">:</span><span class="w"> </span><span class="nx">openAICompletionsApi</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">"openai-responses"</span><span class="o">:</span><span class="w">    </span><span class="nx">openAIResponsesApi</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">"anthropic-messages"</span><span class="o">:</span><span class="w">  </span><span class="nx">anthropicMessagesApi</span>
+<span class="p">};</span>
+</code></pre></div>
+
+<p><strong>配置字段（<code>lib/index.js</code> 的 zod schema）：</strong></p>
+<div class="codehilite"><pre><span></span><code><span class="nx">api</span><span class="o">:</span><span class="w">     </span><span class="nx">z</span><span class="p">.</span><span class="nx">union</span><span class="p">(</span><span class="nx">supportedProtocols</span><span class="p">()),</span>
+<span class="nx">baseURL</span><span class="o">:</span><span class="w"> </span><span class="nx">z</span><span class="p">.</span><span class="nx">string</span><span class="p">(),</span>
+<span class="nx">models</span><span class="o">:</span><span class="w">  </span><span class="nx">z</span><span class="p">.</span><span class="nx">array</span><span class="p">(</span><span class="nx">modelProfile</span><span class="p">),</span>
+<span class="nx">headers</span><span class="o">:</span><span class="w"> </span><span class="nx">z</span><span class="p">.</span><span class="nx">dict</span><span class="p">(</span><span class="nx">z</span><span class="p">.</span><span class="nx">string</span><span class="p">()),</span><span class="w">      </span><span class="c1">// ★ 支持自定义请求头</span>
+<span class="nx">compat</span><span class="o">:</span><span class="w">  </span><span class="nx">compatProfile</span><span class="p">,</span>
+<span class="nx">reasoning</span><span class="o">:</span><span class="w"> </span><span class="nx">z</span><span class="p">.</span><span class="nx">union</span><span class="p">(</span><span class="nx">THINKING_LEVELS</span><span class="p">),</span>
+<span class="p">...</span>
+</code></pre></div>
+
+<blockquote>
+<p>📌 <strong><code>baseURL</code> + <code>headers</code> + <code>api: openai-completions</code> 三个字段加起来，
+足以让 dsh 把请求发到任意地址、带上任意头。这就是代理方案的立足点。</strong></p>
+</blockquote>
+<h2 id="24-apikeyenv-key">2.4 凭据机制：<code>apiKeyEnv</code> 是"环境变量名"，不是 Key 本身</h2>
+<div class="codehilite"><pre><span></span><code><span class="cm">/** Credential reference (environment-variable name) resolved per request;</span>
+<span class="cm"> *  defaults to `DEEPSEEK_API_KEY`. */</span>
+<span class="nx">apiKeyEnv?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+</code></pre></div>
+
+<p>注意它是<strong>引用</strong>（变量名），不是 Key 值。dsh 文档里还提到一个
+"optional credential seam"（可选凭据接缝），说明凭据解析是可插拔的。</p>
+<p><code>dsh-llm/lib/types/api-key.d.ts</code> 里另有一句关键说明：</p>
+<blockquote>
+<p>Absence is a configuration state this function never sees — a profile naming
+<strong>no credential</strong> authenticates through the provider's own ambient discovery or OAuth —
+so callers decide whether a value was supplied before asking.</p>
+</blockquote>
+<p><strong>即：profile 可以完全不给凭据。</strong> 但 <code>dsh-llm-pi-ai</code> 的实现注释又补了一句：</p>
+<blockquote>
+<p>pi-ai's OpenAI-compatible implementation, for one, <strong>still insists on a key or an
+<code>Authorization</code> header of its own</strong>.</p>
+</blockquote>
+<p><strong>结论：OpenAI 兼容协议这条路上，dsh 会坚持要一个 Key（或 Authorization 头）。</strong>
+这正好给了我们一个天然的位置 —— <strong>放本地随机 token</strong>，顺便成为防蹭用的鉴权。</p>
+<h2 id="25">2.5 配置语法（实测）</h2>
+<p><code>D:\dsh-home\profiles\web\cordis.patch.yml</code> 里的真实写法：</p>
+<div class="codehilite"><pre><span></span><code><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">llm-deepseek</span>
+<span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">'@deepseek-ai/dsh-llm-deepseek'</span>
+<span class="w">  </span><span class="nt">config</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">maxToken</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">16384</span>
+
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dsh-mcp-blender</span>
+<span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">'@deepseek-ai/dsh-mcp-client'</span>
+<span class="w">  </span><span class="nt">config</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">serverName</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">blender</span>
+<span class="w">    </span><span class="nt">transport</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">stdio</span>
+<span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">F:/Apps/blender-mcp-server/Scripts/blender-mcp.exe</span>
+<span class="w">    </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+<span class="w">    </span><span class="nt">toolCallTimeoutMs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">120000</span>
+<span class="w">    </span><span class="nt">failOnStartupError</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">    </span><span class="nt">reconnect</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">      </span><span class="nt">initialDelayMs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5000</span>
+</code></pre></div>
+
+<p><strong>语法：<code>- id: &lt;loader entry id&gt;</code> + <code>name: &lt;包名&gt;</code> + <code>config: {...}</code>，
+是 profile 的补丁层（<code>cordis.patch.yml</code>），按 id 定位已有条目并覆盖配置。</strong></p>
+<h2 id="26-dsh-mcp-client-streamable-http">2.6 附带确认：<code>dsh-mcp-client</code> 支持 streamable-http</h2>
+<p>这条对 L3 能力桥至关重要。<code>dsh-mcp-client/lib/types/index.d.ts</code>：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">export</span><span class="w"> </span><span class="kd">interface</span><span class="w"> </span><span class="nx">StreamableHttpConfig</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">transport</span><span class="o">:</span><span class="w"> </span><span class="s1">'streamable-http'</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">serverName</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">                        </span><span class="c1">// 工具名 = mcp__&lt;serverName&gt;__&lt;rawName&gt;</span>
+<span class="w">    </span><span class="nx">url</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">                               </span><span class="c1">// ★ MCP 端点</span>
+<span class="w">    </span><span class="nx">headers</span><span class="o">:</span><span class="w"> </span><span class="kt">Record</span><span class="o">&lt;</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="kt">string</span><span class="o">&gt;</span><span class="p">;</span><span class="w">           </span><span class="c1">// ★ 可放本地 token</span>
+<span class="w">    </span><span class="nx">toolCallTimeoutMs</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">failOnStartupError</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">reconnect?</span><span class="o">:</span><span class="w"> </span><span class="kt">ReconnectConfig</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p><strong>Android 侧可以直接起一个 HTTP MCP Server，dsh 通过 <code>streamable-http</code> 连过去。</strong></p>
+<p>这解决了研讨文档没考虑到的一个实现障碍：<code>stdio</code> transport 需要 dsh 启动一个
+<strong>可执行文件</strong>（如上面的 <code>blender-mcp.exe</code>），而 Android 上的 MCP Server 是
+Kotlin 代码，<strong>根本不是一个可执行文件</strong>。没有 <code>streamable-http</code>，L3 就得靠
+"再塞一个 Node 脚本做转发"的丑陋绕路。</p>
+<hr />
+<h1 id="local-loopback-gateway">第三部分 · 方案：Local Loopback Gateway</h1>
+<h2 id="31">3.1 架构</h2>
+<div class="codehilite"><pre><span></span><code>┌─────────────────────────────────────────────────────────────────┐
+│  L2  dsh (Node 进程)                                             │
+│                                                                  │
+│   providers:                                                     │
+│     pocketagent:                                                 │
+│       api: openai-completions                                    │
+│       baseURL: http://127.0.0.1:&lt;gwPort&gt;/v1   ← 指向本地代理      │
+│       apiKeyEnv: POCKETAGENT_LOCAL_TOKEN      ← 假 token，不是真 Key│
+│                                                                  │
+│   ★ dsh 进程内：没有任何真实 API Key                              │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │ HTTP (loopback only)
+                           │ Authorization: Bearer &lt;本地随机 token&gt;
+                           ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  L4  LlmGateway (Kotlin 进程内)                                   │
+│                                                                  │
+│   ① 校验本地 token（不是真 Key，仅防同机其他 App 蹭用）            │
+│   ② 路由决策：选 Provider / 选模型（对 dsh 透明）                  │
+│   ③ 预算熔断：超限直接拒，dsh 绕不过                               │
+│   ④ 从 Keystore 解密真 Key（CryptoManager.withDecryptedKey）      │
+│   ⑤ 转发到真实 Provider（复用 OpenAiCompatProvider）              │
+│   ⑥ 流式回传 + 记录用量                                            │
+│                                                                  │
+│   ★ 真 Key 只在 ⑤ 构造请求头的那一行出现，用完即清零               │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │ HTTPS
+                           ▼
+        真实 Provider（DeepSeek / Anthropic / Gemini / Ollama / ...）
+</code></pre></div>
+
+<h2 id="32">3.2 一次请求的完整时序</h2>
+<div class="codehilite"><pre><span></span><code>dsh 发起 POST http://127.0.0.1:PORT/v1/chat/completions
+  │   Authorization: Bearer &lt;本地随机 token&gt;
+  │   body: {"model":"auto","messages":[...],"stream":true}
+  ▼
+LlmGateway 收到
+  ├─ ① 校验 token → 不符则 401（且不泄露任何信息）
+  ├─ ② 查路由表：model="auto" + 当前任务特征 → (providerId="deepseek", model="deepseek-chat")
+  ├─ ③ 查预算：今日已用 $X，上限 $Y → 超限则 429 + 明确文案
+  ├─ ④ crypto.withDecryptedKey(keyBlob) { plain -&gt;
+  │        ProviderCredential(plain) 构造
+  │        provider.chat(request, credential)  ← 复用现有实现
+  │     }   // 作用域结束，plain 自动 fill(0)
+  ├─ ⑤ 把 Provider 的 Flow&lt;ChatChunk&gt; 转成 SSE 写回响应体
+  └─ ⑥ 累计 token 与费用（本地库）
+  ▼
+dsh 收到标准 OpenAI SSE 流，正常工作
+</code></pre></div>
+
+<h2 id="33-hack">3.3 为什么这是"官方支持的用法"而非 hack</h2>
+<p>三条依据：</p>
+<ol>
+<li><strong><code>baseURL</code> 是 <code>dsh-llm-deepseek</code> 的显式配置项</strong>（<code>baseURL?: string</code>），
+   文档原话是 "Endpoint base"。</li>
+<li><strong><code>dsh-llm-pi-ai</code> 的设计目标就是接任意网关</strong> —— 它的文档里那个
+   <code>acme-gateway</code> 示例，和我们做的事<strong>结构完全一致</strong>（自定义 baseURL + 自定义 api 协议 + 自定义 models）。</li>
+<li><strong>协议是标准 OpenAI Chat Completions</strong> —— dsh 的实现就是 <code>fetch(baseURL + "/chat/completions")</code>。</li>
+</ol>
+<p><strong>换句话说：dsh 本来就设计成可以指向自建网关。我们只是那个网关而已。</strong></p>
+<h2 id="34">3.4 收益清单</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>收益</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><strong>Key 永不进 Node 进程</strong></td>
+<td>内存、环境变量、命令行、文件，四条路径全部封死</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>dsh 零改动</strong></td>
+<td>纯配置，跟随上游升级无障碍</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>插件拿不到 Key</strong></td>
+<td>与项目第 8 条原则同构 —— 插件运行在 Node 里，而 Node 里没有真 Key</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>预算熔断不可绕过</strong></td>
+<td>熔断在 Kotlin 侧，dsh 与插件都碰不到</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>模型路由对 dsh 透明</strong></td>
+<td>用户在 PocketAgent UI 换模型，dsh 只看到"pocketagent"一个 provider，<strong>无需重启</strong></td>
+</tr>
+<tr>
+<td>6</td>
+<td><strong>11 家 Provider profile 全复用</strong></td>
+<td>已有的 <code>OpenAiCompatProvider</code> + <code>ProviderProfiles</code> 就是出口</td>
+</tr>
+<tr>
+<td>7</td>
+<td><strong>可裁掉 pi-ai 及其 ~57MB 依赖</strong></td>
+<td>协议转换由代理层承担后，dsh 侧只需一个 openai-completions 通道</td>
+</tr>
+<tr>
+<td>8</td>
+<td><strong>Key 校验/健康检测/用量统计天然落点</strong></td>
+<td>全部在网关层，是唯一的流量必经之处</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>📌 第 5 条值得单独强调：<strong>如果不用代理，用户换模型就必须改 dsh 配置并重启 Node 进程。</strong>
+用了代理，换模型只是 Kotlin 侧改一个变量。这是<strong>产品体验层面的实质差异</strong>，
+不只是安全考量。</p>
+</blockquote>
+<hr />
+<h1 id="llmgateway">第四部分 · LlmGateway 详细设计</h1>
+<h2 id="41">4.1 端点契约</h2>
+<p>网关需要实现 <strong>OpenAI Chat Completions 兼容的服务端</strong>。最小可用集：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>方法</th>
+<th>路径</th>
+<th>用途</th>
+<th>必须</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>POST</code></td>
+<td><code>/v1/chat/completions</code></td>
+<td>对话（含 <code>stream: true</code> 的 SSE）</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/v1/models</code></td>
+<td>模型列表（dsh 的模型发现）</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/healthz</code></td>
+<td>就绪探测（dsh 启动前自检）</td>
+<td>建议</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>关键约束：</strong></p>
+<ul>
+<li><strong>只监听 <code>127.0.0.1</code></strong>，绝不 <code>0.0.0.0</code>。Android 上监听全网卡等于把用户的 Key 暴露给整个局域网。</li>
+<li><strong><code>/v1/models</code> 返回什么？</strong> 两种策略：</li>
+<li><strong>A. 只返回一个虚拟模型</strong>（如 <code>pocketagent-auto</code>）—— dsh 侧极简，路由完全由 Kotlin 决定</li>
+<li><strong>B. 返回所有已配置 Provider 的真实模型名</strong> —— 用户在 dsh 界面里也能选模型，但路由逻辑分散</li>
+<li><strong>建议 A</strong>，理由见 §4.5</li>
+</ul>
+<h2 id="42">4.2 组件清单</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>组件</th>
+<th>层</th>
+<th>职责</th>
+<th>复用既有资产</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>LlmGatewayServer</strong></td>
+<td>L4</td>
+<td>loopback HTTP 服务端，路由与生命周期</td>
+<td>新增</td>
+</tr>
+<tr>
+<td><strong>GatewayTokenProvider</strong></td>
+<td>L4</td>
+<td>每次启动生成随机 token，只交给 Node 进程</td>
+<td>新增</td>
+</tr>
+<tr>
+<td><strong>ChatCompletionsHandler</strong></td>
+<td>L4</td>
+<td>反序列化请求 → <code>ChatRequest</code></td>
+<td>复用 <code>OpenAiCompatDtos</code></td>
+</tr>
+<tr>
+<td><strong>SseResponseWriter</strong></td>
+<td>L4</td>
+<td><code>Flow&lt;ChatChunk&gt;</code> → SSE 响应体</td>
+<td><strong>反向复用 <code>SseParser</code></strong> 的协议知识</td>
+</tr>
+<tr>
+<td><strong>ModelRouter</strong></td>
+<td>L4</td>
+<td>选 Provider / 选模型（研讨文档 §4.5 的路由表）</td>
+<td>新增（设计已有）</td>
+</tr>
+<tr>
+<td><strong>BudgetGuard</strong></td>
+<td>L4</td>
+<td>预算熔断，超限拒绝</td>
+<td>新增</td>
+</tr>
+<tr>
+<td><strong>UsageRecorder</strong></td>
+<td>L4</td>
+<td>token 与费用累计，落本地库</td>
+<td>复用 <code>core/database</code></td>
+</tr>
+<tr>
+<td><strong>ProviderRegistry</strong></td>
+<td>L4</td>
+<td>Key ↔ Provider 绑定关系，解密与构造凭据</td>
+<td>复用 <code>CryptoManager</code> + <code>LlmProvider</code></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>注意 <code>SseResponseWriter</code> 与 <code>SseParser</code> 的关系</strong>：现有 <code>SseParser</code> 是<strong>客户端</strong>解析
+（读 SSE），网关需要的是<strong>服务端</strong>生成（写 SSE）。两者共享同一套协议知识
+（<code>data:</code> 行、<code>[DONE]</code> 终止符、多行 data 拼接），实现上应放在一起以便对照。</p>
+<h2 id="43">4.3 流式转发实现要点</h2>
+<p>这是最容易出错的部分，列出已知坑：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>坑</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>背压</strong></td>
+<td>OkHttp 的响应体是阻塞读，Kotlin 侧是 Flow。转发时若下游（dsh）读得慢，必须能传导背压，否则内存堆积</td>
+</tr>
+<tr>
+<td><strong>客户端断开</strong></td>
+<td>dsh 或用户中止连接时，必须<strong>取消上游请求</strong>（<code>call.cancel()</code>），否则 Provider 那边还在烧 token 计费</td>
+</tr>
+<tr>
+<td><strong><code>[DONE]</code> 恰好一次</strong></td>
+<td>现有 <code>OpenAiCompatProvider.chat</code> 的注释里记录过一个真实 bug：Done 可能发两次或零次。<strong>网关必须把这条契约翻译成"恰好一个 <code>data: [DONE]</code>"</strong></td>
+</tr>
+<tr>
+<td><strong>错误发生在流中</strong></td>
+<td>首字节发出后才发现上游 401，HTTP 状态码已经发出去了。只能改为在流里发一个 error 事件，<strong>且不能带 Key</strong></td>
+</tr>
+<tr>
+<td><strong>超时分层</strong></td>
+<td>连接超时 / 首 token 超时 / 流空闲超时是三个不同的东西，需要分别设置</td>
+</tr>
+<tr>
+<td><strong>非流式请求</strong></td>
+<td>dsh 可能发 <code>stream: false</code>。网关必须支持，不能只做流式</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="44">4.4 安全加固（六条）</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>措施</th>
+<th>防的是什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><strong>只监听 <code>127.0.0.1</code></strong></td>
+<td>局域网内其他设备直连</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>端口随机</strong>（每次启动）</td>
+<td>端口扫描</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>本地随机 token</strong>（每次启动，仅交给 Node 进程）</td>
+<td><strong>同机其他 App</strong> —— Android 上 localhost 没有进程隔离，任何 App 都能连 <code>127.0.0.1:&lt;port&gt;</code></td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>token 用常量时间比较</strong></td>
+<td>时序侧信道（低风险，但成本几乎为零）</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>响应头不带任何 Provider 信息</strong></td>
+<td>减少信息泄露；也让"dsh 不知道真实 Provider"这条性质更彻底</td>
+</tr>
+<tr>
+<td>6</td>
+<td><strong>错误信息过滤</strong></td>
+<td>上游返回的错误体可能含 Key 片段或内部地址，转发前过一遍 <code>LogSanitizer</code> 同款规则</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>⚠️ <strong>第 3 条是最容易被忽略的。</strong> 开发者常以为"监听 localhost 就是安全的"，
+但在 Android 上，<strong>任何</strong> App 都可以连接 <code>127.0.0.1</code> 上的任意端口。
+没有 token 校验，一个恶意 App 就能把你的网关当免费 API 中转站用。</p>
+</blockquote>
+<h2 id="45-v1models">4.5 为什么建议 <code>/v1/models</code> 只返回一个虚拟模型</h2>
+<p><strong>策略 A（推荐）</strong>：<code>/v1/models</code> 返回单个 <code>pocketagent-auto</code>。</p>
+<p>理由：</p>
+<ol>
+<li><strong>路由逻辑单点化</strong> —— 全在 Kotlin 的 <code>ModelRouter</code> 里，不分散到 dsh 配置</li>
+<li><strong>换模型无需重启 Node</strong> —— 用户改设置，下一个请求就生效</li>
+<li><strong>dsh 侧配置极简</strong> —— <code>models</code> 数组只有一项，profile 可复现</li>
+<li><strong>与"代理层做协议转换"的定位一致</strong> —— dsh 不该知道背后是谁</li>
+</ol>
+<p><strong>代价</strong>：dsh 的界面上看不到真实模型名。但因为主界面是 PocketAgent 自己的 Compose UI，
+模型选择在<strong>我们的界面</strong>里做，所以这个代价不存在。</p>
+<p><strong>策略 B</strong> 适用于另一种产品形态：想让 dsh 的 web UI 也能直接切模型。
+这需要 <code>/v1/models</code> 返回所有 Provider 的所有模型，且 <code>chat/completions</code> 按 model 名反查路由。
+<strong>可作为 V2 的增强，不作为 MVP。</strong></p>
+<hr />
+<h1 id="_1">第五部分 · 与现有资产的关系</h1>
+<h2 id="51-llmprovider">5.1 <code>LlmProvider</code> 抽象层的角色变化（重要）</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th></th>
+<th>原设想</th>
+<th>代理方案下</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>调用方</td>
+<td>PocketAgent 的 agent 循环</td>
+<td><strong>LlmGateway</strong></td>
+</tr>
+<tr>
+<td>作用</td>
+<td>直接调模型</td>
+<td>网关的<strong>出口</strong></td>
+</tr>
+<tr>
+<td>是否保留</td>
+<td>✅</td>
+<td>✅ <strong>且更加核心</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong><code>LlmProvider</code> 接口一个字都不用改。</strong> 现有 <code>OpenAiCompatProvider</code>（11 家 profile、
+SSE 解析、错误映射、token 估算、费用钳制）<strong>整体复用</strong>，只是调用方从"agent 循环"
+变成"网关的转发逻辑"。</p>
+<p>研讨文档里 <code>L1</code>/<code>L2</code> 的分层因此需要微调：</p>
+<div class="codehilite"><pre><span></span><code>L2  dsh（Node）—— 不再持有 Key，LLM 请求指向本地网关
+L3  能力桥 —— MCP（Android 能力 → dsh） + LLM 网关（dsh → Android 模型能力）★ 双向
+L4  能力端 —— 感知 / 执行 / 安全 / 模型接入
+</code></pre></div>
+
+<blockquote>
+<p>📌 <strong>L3 从"单向"变成"双向"</strong>，这是本设计对研讨文档分层架构的修正。
+原方案里 L3 只承担"Android 能力暴露给 dsh"一个方向；
+现在它还要承担"dsh 的模型请求回到 Android"的反方向。</p>
+</blockquote>
+<h2 id="52">5.2 复用清单</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>既有资产</th>
+<th>在代理方案中的用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>LlmProvider</code> 接口</td>
+<td>网关出口的抽象</td>
+</tr>
+<tr>
+<td><code>OpenAiCompatProvider</code> + 11 个 <code>ProviderProfile</code></td>
+<td>实际转发</td>
+</tr>
+<tr>
+<td><code>SseParser</code></td>
+<td>协议知识复用（反向写服务端）</td>
+</tr>
+<tr>
+<td><code>ChatCompletionRequest</code> 等 DTO</td>
+<td>反序列化 dsh 的请求</td>
+</tr>
+<tr>
+<td><code>CryptoManager.withDecryptedKey</code></td>
+<td>解密真 Key 的<strong>唯一</strong>正确姿势</td>
+</tr>
+<tr>
+<td><code>ProviderCredential</code>（ByteArray + clear）</td>
+<td>凭据传递</td>
+</tr>
+<tr>
+<td><code>core/database</code></td>
+<td>用量与费用落库</td>
+</tr>
+<tr>
+<td><code>Cost</code> / <code>TokenUsage</code></td>
+<td>统计口径</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="53">5.3 需要新增的模块</h2>
+<p>建议新增 <code>:gateway</code>（或放在 <code>:provider:gateway</code>）：</p>
+<div class="codehilite"><pre><span></span><code>provider/gateway/
+  ├── LlmGatewayServer.kt         loopback HTTP 服务端
+  ├── GatewayTokenProvider.kt     随机 token 生成与分发
+  ├── ChatCompletionsHandler.kt   请求 → ChatRequest
+  ├── SseResponseWriter.kt        Flow&lt;ChatChunk&gt; → SSE
+  ├── ModelRouter.kt              路由决策
+  ├── BudgetGuard.kt              预算熔断
+  └── UsageRecorder.kt            用量落库
+</code></pre></div>
+
+<p><strong>依赖约束</strong>：<code>:provider:gateway</code> 依赖 <code>:provider:api</code> 与 <code>:core:crypto</code>，
+<strong>不依赖任何具体 Provider 实现</strong>（通过注入 <code>List&lt;LlmProvider&gt;</code>）。</p>
+<hr />
+<h1 id="_2">第六部分 · 用户可见的模型管理</h1>
+<h2 id="61-46">6.1 首次引导（复用研讨文档 §4.6 的设计）</h2>
+<div class="codehilite"><pre><span></span><code>第 1 步  说明定位
+         "本应用不提供 AI 模型。你用自己的 API Key 调用任意模型。"
+         "Key 只存在你的手机上，加密存储，我们看不到。"
+
+第 2 步  选择 Provider
+         推荐 OpenRouter（一个 Key 通吃）或 DeepSeek（国内便宜）
+
+第 3 步  粘贴 Key
+         → 格式预校验 → 网络验证 → 分类反馈（有效/无效/余额不足/不可达）
+         → 加密存储
+</code></pre></div>
+
+<h2 id="62-dsh">6.2 模型选择（对 dsh 完全透明）</h2>
+<p>用户在 PocketAgent 界面里配置：</p>
+<div class="codehilite"><pre><span></span><code>┌──────────────────────────────────────────┐
+│  模型路由                                  │
+│                                          │
+│  默认模型    [ DeepSeek-chat        ▾ ]   │
+│  复杂任务    [ Claude Sonnet 4.5    ▾ ]   │
+│  视觉任务    [ Gemini 2.5 Flash     ▾ ]   │
+│  隐私场景    [ 本地 Ollama          ▾ ]   │
+│                                          │
+│  路由偏好    ( ) 最省钱  (•) 均衡  ( ) 最强│
+└──────────────────────────────────────────┘
+</code></pre></div>
+
+<p><strong>这些改动不触及 dsh 配置，不需要重启 Node 进程。</strong> 下一个请求即生效。</p>
+<h2 id="63">6.3 成本控制</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>功能</th>
+<th>实现位置</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>实时消耗显示</td>
+<td>网关 → UI</td>
+<td>每轮对话结束推送</td>
+</tr>
+<tr>
+<td>预算上限</td>
+<td><strong>网关（强制）</strong></td>
+<td>超限直接 429，dsh 与插件都绕不过</td>
+</tr>
+<tr>
+<td>用量统计</td>
+<td>网关 + 本地库</td>
+<td>按 Provider / 模型 / 日期</td>
+</tr>
+<tr>
+<td>费用估算</td>
+<td>复用 <code>estimateCost</code></td>
+<td>已含负数钳制（见 <code>OpenAiCompatProvider</code> 注释）</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>⚠️ <strong>预算熔断必须在网关层</strong>，不能交给 dsh。
+理由与"SafetyGuard 必须在能力端"完全同构：<strong>放在被约束方自己的进程里，约束就不成立。</strong></p>
+</blockquote>
+<hr />
+<h1 id="d-a-d-j">第七部分 · 待决策问题（接续研讨文档 D-A ~ D-J）</h1>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>ID</th>
+<th>问题</th>
+<th>选项</th>
+<th>建议</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>D-K</strong> ★</td>
+<td><strong>是否采用 LLM 代理方案？</strong></td>
+<td>采用／不采用（接受 Key 进 Node 进程）／先做实验</td>
+<td><strong>采用</strong>。这是唯一同时满足 §1.3 五条性质的方案</td>
+</tr>
+<tr>
+<td><strong>D-L</strong></td>
+<td><strong>是否裁掉 <code>pi-ai</code> 及其 ~57MB 依赖？</strong></td>
+<td>裁掉（省体积）／保留（多协议冗余）</td>
+<td><strong>裁掉</strong>。协议转换已由代理层承担，dsh 侧只需 openai-completions</td>
+</tr>
+<tr>
+<td><strong>D-M</strong></td>
+<td><strong>代理层做不做协议转换？</strong></td>
+<td>做（dsh 只见 OpenAI，背后任意 Provider）／不做（dsh 自己选协议）</td>
+<td><strong>做</strong>。否则 Anthropic/Gemini 得在 dsh 侧配多份，且 Key 管理分散</td>
+</tr>
+<tr>
+<td><strong>D-N</strong></td>
+<td><strong>本地 token 强度？</strong></td>
+<td>32 字节随机／短 token／不校验</td>
+<td><strong>32 字节随机</strong>。成本为零，且防的是同机 App</td>
+</tr>
+<tr>
+<td><strong>D-O</strong></td>
+<td><strong>网关用哪个 HTTP 服务端？</strong></td>
+<td>Ktor Server／NanoHTTPD／自建（OkHttp 无服务端能力）</td>
+<td><strong>Ktor Server</strong>（与协程/Flow 契合最好），需评估体积</td>
+</tr>
+<tr>
+<td><strong>D-P</strong></td>
+<td><strong><code>/v1/models</code> 返回虚拟模型还是真实模型？</strong></td>
+<td>虚拟（策略 A）／真实（策略 B）</td>
+<td><strong>A</strong>（见 §4.5）</td>
+</tr>
+<tr>
+<td><strong>D-Q</strong></td>
+<td><strong>网关与 App 生命周期如何绑定？</strong></td>
+<td>常驻／任务期间启动</td>
+<td><strong>任务期间</strong>（与 D-J 一致），但需处理 dsh 启动时的就绪探测</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h1 id="_3">第八部分 · 风险登记</h1>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>ID</th>
+<th>风险</th>
+<th>概率</th>
+<th>影响</th>
+<th>缓解</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>R9</strong></td>
+<td>dsh 未来版本改了 <code>baseURL</code> 语义或去掉该配置项</td>
+<td>低</td>
+<td>高（代理方案失效）</td>
+<td><code>dsh-llm-pi-ai</code> 的 hand-declared route 是<strong>公开设计目标</strong>，改掉的可能性低；锁版本 + 隔离层（同 R4）</td>
+</tr>
+<tr>
+<td><strong>R10</strong></td>
+<td>网关的 SSE 转发实现有 bug，导致流式中断</td>
+<td><strong>中</strong></td>
+<td>中（体验受损）</td>
+<td>复用现有 <code>SseParser</code> 的协议知识；写协议级单测（用真实 SSE 样本回放）</td>
+</tr>
+<tr>
+<td><strong>R11</strong></td>
+<td>同机恶意 App 蹭用网关</td>
+<td>低</td>
+<td>中（消耗用户额度）</td>
+<td>本地随机 token + 只监听 loopback（§4.4）</td>
+</tr>
+<tr>
+<td><strong>R12</strong></td>
+<td>网关成为性能瓶颈（Kotlin 转发 Node 请求）</td>
+<td>低</td>
+<td>低</td>
+<td>纯流式转发，无缓冲，开销可忽略</td>
+</tr>
+<tr>
+<td><strong>R13</strong></td>
+<td>dsh 的某些能力依赖 pi-ai 特有功能（裁掉后缺失）</td>
+<td>中</td>
+<td>中</td>
+<td>先保留 pi-ai 跑通，<strong>验证通过后再裁</strong>；裁剪列为独立步骤而非前置</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h1 id="a">附录 A · 实测命令与结果</h1>
+<div class="codehilite"><pre><span></span><code><span class="c1"># 1. dsh 的 LLM 相关包（★ 订正研讨文档的关键）</span>
+ls<span class="w"> </span>F:/dsh-program/node_modules/@deepseek-ai/<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-i<span class="w"> </span>llm
+<span class="c1">#   → dsh-llm, dsh-llm-deepseek, dsh-llm-pi-ai, dsh-llm-retry,</span>
+<span class="c1">#     dsh-session-title-first-prompt-llm, dsh-session-title-llm</span>
+
+ls<span class="w"> </span>F:/dsh-program/node_modules/@deepseek-ai/<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-i<span class="w"> </span>-E<span class="w"> </span><span class="s2">"openai|anthropic|gemini|google|mistral|claude"</span>
+<span class="c1">#   → 零命中（确认没有独立的多家 provider 包）</span>
+
+<span class="c1"># 2. dsh-llm-deepseek 支持 baseURL</span>
+grep<span class="w"> </span>-n<span class="w"> </span><span class="s2">"baseURL"</span><span class="w"> </span>dsh-llm-deepseek/lib/types/index.d.ts
+<span class="c1">#   → 36:    baseURL?: string;   // "Endpoint base"</span>
+
+grep<span class="w"> </span>-n<span class="w"> </span><span class="s2">"chat/completions"</span><span class="w"> </span>dsh-llm-deepseek/lib/index.js
+<span class="c1">#   → 589:  response = await fetch(`${connection.baseURL}/chat/completions`, {...})</span>
+
+<span class="c1"># 3. dsh-llm-pi-ai 支持的协议</span>
+grep<span class="w"> </span>-n<span class="w"> </span>-A<span class="w"> </span><span class="m">5</span><span class="w"> </span><span class="s2">"const PROTOCOLS"</span><span class="w"> </span>dsh-llm-pi-ai/lib/index.js
+<span class="c1">#   → openai-completions / openai-responses / anthropic-messages</span>
+
+grep<span class="w"> </span>-n<span class="w"> </span><span class="s2">"headers:"</span><span class="w"> </span>dsh-llm-pi-ai/lib/index.js
+<span class="c1">#   → headers: z.dict(z.string())    ★ 支持自定义请求头</span>
+
+<span class="c1"># 4. pi-ai 是第三方 SDK（解释了 @mistralai 等包的来源）</span>
+grep<span class="w"> </span>-A<span class="w"> </span><span class="m">4</span><span class="w"> </span><span class="s1">'"dependencies"'</span><span class="w"> </span>dsh-llm-pi-ai/package.json
+<span class="c1">#   → "@earendil-works/pi-ai": "^0.82.1"</span>
+
+<span class="c1"># 5. dsh-mcp-client 支持 streamable-http</span>
+grep<span class="w"> </span>-n<span class="w"> </span>-A<span class="w"> </span><span class="m">10</span><span class="w"> </span><span class="s2">"StreamableHttpConfig"</span><span class="w"> </span>dsh-mcp-client/lib/types/index.d.ts
+<span class="c1">#   → transport: 'streamable-http'; url: string; headers: Record&lt;string,string&gt;</span>
+
+<span class="c1"># 6. profile 配置语法（真实样本）</span>
+head<span class="w"> </span>-40<span class="w"> </span>D:/dsh-home/profiles/web/cordis.patch.yml
+<span class="c1">#   → - id: &lt;entry id&gt; / name: &lt;package&gt; / config: {...}</span>
+</code></pre></div>
+
+<hr />
+<h1 id="b">附录 B · 本文对研讨文档的订正</h1>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>研讨文档原文</th>
+<th>订正</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>§2.2 "<strong>LLM 接入</strong>：<code>dsh-llm</code> + deepseek / openai / anthropic / google / mistral / pi-ai"</td>
+<td>dsh <strong>只有 2 个 provider 包</strong>：<code>dsh-llm-deepseek</code>（专用）+ <code>dsh-llm-pi-ai</code>（通用适配器，基于第三方 SDK <code>@earendil-works/pi-ai</code>）。<strong>没有</strong> openai/anthropic/gemini/mistral 独立包；那些包是 pi-ai 的依赖</td>
+</tr>
+<tr>
+<td>2</td>
+<td>§2.3 体积账把 <code>@mistralai</code> 25MB 标为"不用 Mistral 可删"</td>
+<td>订正：它是 <code>pi-ai</code> 的依赖，<strong>只有裁掉整个 pi-ai 才能一起删</strong>。而代理方案恰好提供了这个可能（见 §0 结论③）</td>
+</tr>
+<tr>
+<td>3</td>
+<td>§3.1 分层架构中 L3 只承担"Android 能力 → dsh"单向</td>
+<td>L3 实际是<strong>双向</strong>：还要承担"dsh 的模型请求 → Android 网关"（见 §5.1）</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>全文未提及</strong> Key 如何跨进程传递</td>
+<td>这是<strong>重大遗漏</strong>。路线 C 与"Key 永不落明文"存在架构级冲突，本文 §1 专门处理</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h1 id="c">附录 C · 本文的确定性分级</h1>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>内容</th>
+<th>确定性</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>dsh 的 provider 包清单、<code>baseURL</code>/<code>headers</code>/<code>api</code> 配置项、三协议、MCP transport</td>
+<td><strong>实测</strong>（本机命令，可复现，见附录 A）</td>
+</tr>
+<tr>
+<td><code>pi-ai</code> 是第三方 SDK、其依赖关系</td>
+<td><strong>实测</strong>（<code>package.json</code>）</td>
+</tr>
+<tr>
+<td>配置语法（<code>- id:</code> / <code>name:</code> / <code>config:</code>）</td>
+<td><strong>实测</strong>（<code>D:\dsh-home\profiles\web\cordis.patch.yml</code> 真实样本）</td>
+</tr>
+<tr>
+<td>代理方案的可行性与收益</td>
+<td><strong>本文建议</strong>，待评审与实验验证</td>
+</tr>
+<tr>
+<td>Android 上"任何 App 都能连 localhost"</td>
+<td><strong>已知事实</strong>（Android 无 localhost 进程隔离），但<strong>具体机型行为建议实测</strong></td>
+</tr>
+</tbody>
+</table></div>
+  </main>
+</div>
+</body>
+</html>

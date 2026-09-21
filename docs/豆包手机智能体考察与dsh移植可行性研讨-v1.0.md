@@ -297,7 +297,7 @@ dsh 的 195 个包覆盖了做一个 agent 需要的**几乎全部工程件**：
 | 能力域 | 包 |
 |---|---|
 | **Agent 循环** | `dsh-agent` / `dsh-agent-instructions` / `dsh-goal` / `dsh-goal-round-driver` |
-| **LLM 接入** | `dsh-llm` + deepseek / openai / anthropic / google / mistral / pi-ai |
+| **LLM 接入** | `dsh-llm`（运行时抽象）+ `dsh-llm-deepseek`（专用适配器）+ `dsh-llm-pi-ai`（**通用适配器**，基于第三方 SDK `@earendil-works/pi-ai`，支持 `openai-completions` / `openai-responses` / `anthropic-messages` 三协议）。⚠️ **无** openai/anthropic/gemini/mistral 独立包 —— 见 `BYOK模型接入与dsh代理设计-v1.0.md` 附录 B |
 | **会话** | `dsh-session` / `dsh-session-projection` / `dsh-session-reference` / `dsh-session-query-sqlite` |
 | **上下文压缩** | `dsh-compaction-basic` / `dsh-compaction-tool-result-pruner` |
 | **Token 计量** | `dsh-token-meter` |
@@ -333,7 +333,7 @@ dsh 的 195 个包覆盖了做一个 agent 需要的**几乎全部工程件**：
 | `@opentelemetry` | 31 MB | ⚠️ 可裁剪 |
 | `@img`（sharp 的原生库） | 28 MB | ❌ 图片处理，安卓上可换 |
 | `node-pty` | 27 MB | ❌ **无 android prebuild** |
-| `@mistralai` | 25 MB | ❌ 不用 Mistral 可删 |
+| `@mistralai` | 25 MB | ⚠️ 是 `pi-ai` 的依赖 —— **只有裁掉整个 pi-ai 才能一起删**（代理方案提供了这个可能，见 `BYOK模型接入与dsh代理设计-v1.0.md` §0③） |
 | `@google` | 14 MB | ⚠️ 按需 |
 | `openai` | 12 MB | ⚠️ 按需 |
 | `@aws-sdk` | 5.9 MB | ❌ 可删 |
@@ -440,8 +440,9 @@ Termux 的包按 `/data/data/com.termux/files/usr` 前缀构建，**不能直接
 │      agent 循环 / 会话 / 压缩 / token 计量 / 计划模式 / 子代理    │
 │      dsh-llm-* (BYOK) / dsh-skill / dsh-goal / dsh-persona     │
 ├───────────────────────────────────────────────────────────────┤
-│  L3  能力桥        MCP over localhost                          │
-│      Android 侧 MCP Server  ←→  dsh-mcp-client                 │
+│  L3  能力桥        MCP over localhost + LLM 网关（★ 双向）       │
+│      Android MCP Server  ←→  dsh-mcp-client                    │
+│      Android LLM Gateway ←→  dsh（baseURL 指向本地代理）         │
 ├───────────────────────────────────────────────────────────────┤
 │  L4  能力端        Android 原生（复用 PocketAgent 既有资产）      │
 │      感知 ScreenSnapshot  │ 执行 ActionExecutor  │ 安全 SafetyGuard │
@@ -453,6 +454,10 @@ Termux 的包按 `/data/data/com.termux/files/usr` 前缀构建，**不能直接
 - **L4 的 SafetyGuard 是最后一道闸**，dsh 侧不可绕过
 - **L2 的 dsh 不做任何业务改造**，保证可跟随上游升级
 - **L3 用开放标准 MCP**，保证 dsh 可替换
+- **L3 是双向的（★ 本设计修正）**：正向是「Android 能力 → dsh」（MCP），
+  反向是「dsh 的模型请求 → Android LLM 网关」。**Key 永不进入 Node 进程** ——
+  这是路线 C 与项目「Key 永不落明文」原则的兼容方式。
+  详见 `BYOK模型接入与dsh代理设计-v1.0.md`
 
 ## 3.2 关键组件
 
