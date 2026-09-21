@@ -164,7 +164,9 @@ pre code {
 <li><a href="#_5">五、本轮实现与验证</a><ul>
 <li><a href="#51-295">5.1 单测：295 个，全绿</a></li>
 <li><a href="#52-bug">5.2 本轮修掉的三个真 bug</a></li>
-<li><a href="#53">5.3 构建状态</a></li>
+<li><a href="#53-apk">5.3 构建状态：APK 已产出</a></li>
+<li><a href="#54">5.4 首次构建踩过的八个坑</a></li>
+<li><a href="#55">5.5 新增的两个体检工具</a></li>
 </ul>
 </li>
 <li><a href="#_6">附：给插件作者的最小工作流</a></li>
@@ -554,7 +556,7 @@ REJECTED 该换来源（这个作者不老实），MALFORMED 该检查自己是�
 <p><code>search("微信")</code> 里"微信自动回复"和"微信红包助手"相关度<strong>完全并列</strong>（都以关键词开头），
 测试却断言了平局的兜底顺序。修的是测试，不是实现 ——
 要测的是"名称命中整体高于作者命中"，而不是"并列项谁在前"。</p>
-<h3 id="53">5.3 构建状态</h3>
+<h3 id="53-apk">5.3 构建状态：APK 已产出</h3>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -565,11 +567,11 @@ REJECTED 该换来源（这个作者不老实），MALFORMED 该检查自己是�
 <tbody>
 <tr>
 <td>JDK 17.0.13（Microsoft OpenJDK）</td>
-<td>✅ 已就位 <code>D:\AndroidDev\jdk</code></td>
+<td>✅ <code>D:\AndroidDev\jdk</code></td>
 </tr>
 <tr>
 <td>Gradle 8.13</td>
-<td>✅ 已就位 <code>D:\AndroidDev\gradle</code></td>
+<td>✅ <code>D:\AndroidDev\gradle</code></td>
 </tr>
 <tr>
 <td>Android SDK cmdline-tools 19.0</td>
@@ -584,11 +586,141 @@ REJECTED 该换来源（这个作者不老实），MALFORMED 该检查自己是�
 <td>✅ <code>tools/verify/run_logic_tests.py</code>，295 测试全绿</td>
 </tr>
 <tr>
+<td>版本目录对账</td>
+<td>✅ <code>tools/verify/check_version_catalog.py</code></td>
+</tr>
+<tr>
+<td>AAR 门槛体检</td>
+<td>✅ <code>tools/verify/check_aar_metadata.py</code></td>
+</tr>
+<tr>
 <td><code>:app:assembleDebug</code></td>
-<td>🔄 首次构建进行中</td>
+<td>✅ <strong>BUILD SUCCESSFUL in 44s</strong></td>
 </tr>
 </tbody>
 </table></div>
+<p>产物：<code>android/app/build/outputs/apk/debug/app-debug.apk</code></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>属性</th>
+<th>值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>包名</td>
+<td><code>com.pocketagent.debug</code></td>
+</tr>
+<tr>
+<td>版本</td>
+<td>0.1.0-m0（versionCode 1）</td>
+</tr>
+<tr>
+<td>minSdk / targetSdk / compileSdk</td>
+<td>31 / 36 / 36</td>
+</tr>
+<tr>
+<td>权限</td>
+<td><code>INTERNET</code>、<code>ACCESS_NETWORK_STATE</code> —— <strong>仅此两项</strong></td>
+</tr>
+<tr>
+<td>签名</td>
+<td>Android Debug（可直接侧载安装）</td>
+</tr>
+<tr>
+<td>大小</td>
+<td>64,254,990 字节（约 61.3 MB）</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>61 MB 是 debug 版的正常代价：未混淆、未裁资源、带调试符号。
+release 版经 R8 + 资源裁剪会显著缩小，但<strong>需要先决定签名策略</strong> ——
+社区分发要求所有版本用同一个 keystore 签名（否则无法覆盖安装更新），
+而这个 keystore 该由谁保管、要不要进仓库，是需要人来拍板的事。</p>
+</blockquote>
+<h3 id="54">5.4 首次构建踩过的八个坑</h3>
+<p>前四个发生在首次 <code>assembleDebug</code>，后四个是在修完前四个之后<strong>才暴露出来</strong>的。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>报错</th>
+<th>根因</th>
+<th>处置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>Your project path contains non-ASCII characters</code></td>
+<td>工作区路径 <code>D:\手机agent开发</code> 含中文，AGP 在 Windows 上主动拒绝</td>
+<td>命令行加 <code>-Pandroid.overridePathCheck=true</code>（不写进 <code>gradle.properties</code>，那是本地权宜之计）</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>plugin is already on the classpath with an unknown version</code></td>
+<td>根脚本漏声明 <code>kotlin.jvm</code>，而 kotlin-android/compose/serialization 会把 kotlin-gradle-plugin 顺带塞进 classpath</td>
+<td>补 <code>alias(libs.plugins.kotlin.jvm) apply false</code>。<strong>规则：子模块会用到的每个插件，根脚本都要 <code>apply false</code> 声明一遍</strong></td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>Namespace '...openai-compat' is not a valid Java package name</code></td>
+<td>生成器只把 <code>/</code> 换成 <code>.</code>，没处理连字符</td>
+<td>新增 <code>namespace_for()</code>（<strong>去掉</strong>连字符而非换下划线，必须与源码包名一致）</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>Failed to install platforms;android-36 (revision 2)</code></td>
+<td>目录存在但为空 —— sdkmanager 实际没装完。管道喂许可证会卡住且<strong>零输出</strong></td>
+<td>重跑 sdkmanager。<strong>教训：零输出 ≠ 没干活</strong>，它八分钟后其实装好了。验证要看 <code>source.properties</code> 而非目录是否存在</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>resource string/accessibility_service_description not found</code></td>
+<td><code>res/xml/agent_accessibility_service.xml</code> 是<strong>孤儿资源</strong>（Manifest 里已注释掉），但 AAPT2 会编译 <code>res/</code> 下<strong>每一个</strong> XML</td>
+<td>补上缺失的 string。<strong>教训：注释掉 Manifest 里的引用，不会让那个 XML 文件消失</strong></td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>Dependency 'androidx.compose.ui:ui-android:1.12.0' requires ... version 37 or later</code></td>
+<td>Compose BOM <code>2026.08.00</code> 锁的是 Compose 1.12.x，而 1.12.0 把门槛抬到 <code>minCompileSdk=37</code> / <code>minAGP=9.1.0</code>，超出本项目工具链</td>
+<td>BOM 降到 <code>2026.06.01</code>（Compose 1.11.4，门槛 35/8.6.0）。用 <code>check_aar_metadata.py</code> 确认过全部依赖</td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>Unresolved reference 'bundle'</code></td>
+<td><code>installVerifiedBundle(entry)</code> 里写了 <code>extractSafely(bundle, …)</code>，但这个作用域只有 <code>entry</code></td>
+<td>改为 <code>entry.bytes</code></td>
+</tr>
+<tr>
+<td>8</td>
+<td><code>Unresolved reference 'Stage'</code> ×8</td>
+<td><code>Stage</code> 嵌套在 <code>ImportUiState</code> 内，<code>ImportScreen</code> 用了限定名而 <code>ImportViewModel</code> 用了裸名</td>
+<td>统一为 <code>ImportUiState.Stage</code></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>第 5–8 个坑的共同点：它们都不在"构建配置"里，而在"代码与资源本身"。</strong>
+前四个修完只是让构建<strong>能跑到编译阶段</strong>；真正的问题要等它跑到了才会露出来。
+所以"构建失败"这件事要分两层看：<strong>工具链的问题</strong>和<strong>代码的问题</strong>，
+混在一起排查会得出错误的结论（比如把第 6 个当成 AGP 版本太旧，去升级 AGP，
+那就掉进更大的坑了 —— 该降的是 Compose，不是升 AGP）。</p>
+<h3 id="55">5.5 新增的两个体检工具</h3>
+<p>构建报错要等四分钟，而下面这两个脚本<strong>在下载依赖之前</strong>就能把问题问出来：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># ① 版本目录对账：libs.* 引用是否都有定义</span>
+python<span class="w"> </span>tools/verify/check_version_catalog.py<span class="w"> </span>android
+
+<span class="c1"># ② AAR 门槛体检：这个依赖要求多高的 compileSdk / AGP</span>
+python<span class="w"> </span>tools/verify/check_aar_metadata.py<span class="w"> </span>--bom<span class="w"> </span><span class="m">2026</span>.06.01
+python<span class="w"> </span>tools/verify/check_aar_metadata.py<span class="w"> </span>androidx.compose.ui:ui-android:1.12.0
+</code></pre></div>
+
+<p><strong>② 特别值得留着。</strong> 它直接下载 aar、读出里面的
+<code>META-INF/com/android/build/gradle/aar-metadata.properties</code>，把 <code>minCompileSdk</code>
+和 <code>minAndroidGradlePluginVersion</code> 打出来。升任何 AndroidX 依赖前先跑一遍，
+就不会再出现"升了个 BOM，构建炸了，然后花二十分钟猜是哪儿不对"。</p>
 <hr />
 <h2 id="_6">附：给插件作者的最小工作流</h2>
 <div class="codehilite"><pre><span></span><code>1. 写一个目录，结构如下：

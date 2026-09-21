@@ -8,4 +8,15 @@
     <string name="accessibility_service_label">PocketAgent 屏幕操作</string>
 
     <string name="notification_listener_label">PocketAgent 通知读取</string>
+
+    <!-- ⚠️ 以下两项供 res/xml/agent_accessibility_service.xml 引用。
+
+         该 XML 是 M1 启用无障碍服务时的现成配置，当前 Manifest 里尚未启用，
+         但 AAPT2 会编译 res/ 下的**每一个** XML 文件，不管有没有人引用它 ——
+         引用解析不了就直接构建失败。曾经漏掉这两条，构建当场暴毙。
+
+         文案要求：这是用户点进「系统设置 → 无障碍」后看到的第一段话，
+         必须让人一眼看懂「它会读屏、会代我点」，而不是含糊其辞。 -->
+    <string name="accessibility_service_summary">读取屏幕内容并模拟点击，代你完成跨应用操作</string>
+    <string name="accessibility_service_description">开启后，PocketAgent 可以读取当前屏幕上的内容，并模拟点击、滑动、输入等操作，代替你完成跨应用的任务。它不会在后台偷偷运行，每次执行任务时都会有明确提示，你可以随时在系统设置中关闭本服务。</string>
 </resources>

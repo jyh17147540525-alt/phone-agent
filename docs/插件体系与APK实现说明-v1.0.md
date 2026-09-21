@@ -347,16 +347,73 @@ REJECTED 该换来源（这个作者不老实），MALFORMED 该检查自己是�
 测试却断言了平局的兜底顺序。修的是测试，不是实现 ——
 要测的是"名称命中整体高于作者命中"，而不是"并列项谁在前"。
 
-### 5.3 构建状态
+### 5.3 构建状态：APK 已产出
 
 | 项 | 状态 |
 |---|---|
-| JDK 17.0.13（Microsoft OpenJDK） | ✅ 已就位 `D:\AndroidDev\jdk` |
-| Gradle 8.13 | ✅ 已就位 `D:\AndroidDev\gradle` |
+| JDK 17.0.13（Microsoft OpenJDK） | ✅ `D:\AndroidDev\jdk` |
+| Gradle 8.13 | ✅ `D:\AndroidDev\gradle` |
 | Android SDK cmdline-tools 19.0 | ✅ 已就位 |
 | platforms;android-36 / build-tools;36.0.0 | ✅ 已安装 |
 | 离线单测验证器 | ✅ `tools/verify/run_logic_tests.py`，295 测试全绿 |
-| `:app:assembleDebug` | 🔄 首次构建进行中 |
+| 版本目录对账 | ✅ `tools/verify/check_version_catalog.py` |
+| AAR 门槛体检 | ✅ `tools/verify/check_aar_metadata.py` |
+| `:app:assembleDebug` | ✅ **BUILD SUCCESSFUL in 44s** |
+
+产物：`android/app/build/outputs/apk/debug/app-debug.apk`
+
+| 属性 | 值 |
+|---|---|
+| 包名 | `com.pocketagent.debug` |
+| 版本 | 0.1.0-m0（versionCode 1） |
+| minSdk / targetSdk / compileSdk | 31 / 36 / 36 |
+| 权限 | `INTERNET`、`ACCESS_NETWORK_STATE` —— **仅此两项** |
+| 签名 | Android Debug（可直接侧载安装） |
+| 大小 | 64,254,990 字节（约 61.3 MB） |
+
+> 61 MB 是 debug 版的正常代价：未混淆、未裁资源、带调试符号。
+> release 版经 R8 + 资源裁剪会显著缩小，但**需要先决定签名策略** ——
+> 社区分发要求所有版本用同一个 keystore 签名（否则无法覆盖安装更新），
+> 而这个 keystore 该由谁保管、要不要进仓库，是需要人来拍板的事。
+
+### 5.4 首次构建踩过的八个坑
+
+前四个发生在首次 `assembleDebug`，后四个是在修完前四个之后**才暴露出来**的。
+
+| # | 报错 | 根因 | 处置 |
+|---|---|---|---|
+| 1 | `Your project path contains non-ASCII characters` | 工作区路径 `D:\手机agent开发` 含中文，AGP 在 Windows 上主动拒绝 | 命令行加 `-Pandroid.overridePathCheck=true`（不写进 `gradle.properties`，那是本地权宜之计） |
+| 2 | `plugin is already on the classpath with an unknown version` | 根脚本漏声明 `kotlin.jvm`，而 kotlin-android/compose/serialization 会把 kotlin-gradle-plugin 顺带塞进 classpath | 补 `alias(libs.plugins.kotlin.jvm) apply false`。**规则：子模块会用到的每个插件，根脚本都要 `apply false` 声明一遍** |
+| 3 | `Namespace '...openai-compat' is not a valid Java package name` | 生成器只把 `/` 换成 `.`，没处理连字符 | 新增 `namespace_for()`（**去掉**连字符而非换下划线，必须与源码包名一致） |
+| 4 | `Failed to install platforms;android-36 (revision 2)` | 目录存在但为空 —— sdkmanager 实际没装完。管道喂许可证会卡住且**零输出** | 重跑 sdkmanager。**教训：零输出 ≠ 没干活**，它八分钟后其实装好了。验证要看 `source.properties` 而非目录是否存在 |
+| 5 | `resource string/accessibility_service_description not found` | `res/xml/agent_accessibility_service.xml` 是**孤儿资源**（Manifest 里已注释掉），但 AAPT2 会编译 `res/` 下**每一个** XML | 补上缺失的 string。**教训：注释掉 Manifest 里的引用，不会让那个 XML 文件消失** |
+| 6 | `Dependency 'androidx.compose.ui:ui-android:1.12.0' requires ... version 37 or later` | Compose BOM `2026.08.00` 锁的是 Compose 1.12.x，而 1.12.0 把门槛抬到 `minCompileSdk=37` / `minAGP=9.1.0`，超出本项目工具链 | BOM 降到 `2026.06.01`（Compose 1.11.4，门槛 35/8.6.0）。用 `check_aar_metadata.py` 确认过全部依赖 |
+| 7 | `Unresolved reference 'bundle'` | `installVerifiedBundle(entry)` 里写了 `extractSafely(bundle, …)`，但这个作用域只有 `entry` | 改为 `entry.bytes` |
+| 8 | `Unresolved reference 'Stage'` ×8 | `Stage` 嵌套在 `ImportUiState` 内，`ImportScreen` 用了限定名而 `ImportViewModel` 用了裸名 | 统一为 `ImportUiState.Stage` |
+
+**第 5–8 个坑的共同点：它们都不在"构建配置"里，而在"代码与资源本身"。**
+前四个修完只是让构建**能跑到编译阶段**；真正的问题要等它跑到了才会露出来。
+所以"构建失败"这件事要分两层看：**工具链的问题**和**代码的问题**，
+混在一起排查会得出错误的结论（比如把第 6 个当成 AGP 版本太旧，去升级 AGP，
+那就掉进更大的坑了 —— 该降的是 Compose，不是升 AGP）。
+
+### 5.5 新增的两个体检工具
+
+构建报错要等四分钟，而下面这两个脚本**在下载依赖之前**就能把问题问出来：
+
+```bash
+# ① 版本目录对账：libs.* 引用是否都有定义
+python tools/verify/check_version_catalog.py android
+
+# ② AAR 门槛体检：这个依赖要求多高的 compileSdk / AGP
+python tools/verify/check_aar_metadata.py --bom 2026.06.01
+python tools/verify/check_aar_metadata.py androidx.compose.ui:ui-android:1.12.0
+```
+
+**② 特别值得留着。** 它直接下载 aar、读出里面的
+`META-INF/com/android/build/gradle/aar-metadata.properties`，把 `minCompileSdk`
+和 `minAndroidGradlePluginVersion` 打出来。升任何 AndroidX 依赖前先跑一遍，
+就不会再出现"升了个 BOM，构建炸了，然后花二十分钟猜是哪儿不对"。
 
 ---
 

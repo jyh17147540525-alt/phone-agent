@@ -92,7 +92,7 @@ class PluginInstaller(
             return@withContext Result.Failed("无法创建插件暂存目录，请检查存储空间。")
         }
 
-        val extractError = extractSafely(bundle, staging)
+        val extractError = extractSafely(entry.bytes, staging)
         if (extractError != null) {
             staging.deleteRecursively()
             return@withContext Result.Failed(extractError)

@@ -50,7 +50,7 @@ data class ImportUiState(
      * 是逼用户把"我已知晓风险"这六个字读一遍。点击同意太廉价了。
      */
     val canConfirm: Boolean
-        get() = stage == Stage.READY &&
+        get() = stage == ImportUiState.Stage.READY &&
             !installing &&
             (!requiresTypedConfirmation ||
                 typed.trim() == ImportRiskNotice.CONFIRMATION_PHRASE)
@@ -74,11 +74,11 @@ class ImportViewModel(
      */
     fun inspect(fileName: String, bytes: ByteArray) {
         viewModelScope.launch {
-            _state.value = ImportUiState(stage = Stage.INSPECTING, fileName = fileName)
+            _state.value = ImportUiState(stage = ImportUiState.Stage.INSPECTING, fileName = fileName)
 
             if (!looksLikeZip(bytes)) {
                 _state.value = ImportUiState(
-                    stage = Stage.MALFORMED,
+                    stage = ImportUiState.Stage.MALFORMED,
                     fileName = fileName,
                     malformed = "这个文件不是插件包。\n\n" +
                         "插件包（.pagent）是一个 zip 文件，里面至少要有 " +
@@ -93,7 +93,7 @@ class ImportViewModel(
             val manifestJson = installer.peekManifestJson(bytes)
             if (manifestJson == null) {
                 _state.value = ImportUiState(
-                    stage = Stage.MALFORMED,
+                    stage = ImportUiState.Stage.MALFORMED,
                     fileName = fileName,
                     malformed = "这个包里没有找到可用的 ${PluginBundle.MANIFEST_NAME}，" +
                         "或者包内含有不安全的路径。",
@@ -105,7 +105,7 @@ class ImportViewModel(
                 is PluginImporter.Outcome.Ready -> {
                     pendingBundle = bytes
                     _state.value = ImportUiState(
-                        stage = Stage.READY,
+                        stage = ImportUiState.Stage.READY,
                         fileName = fileName,
                         notice = outcome.notice,
                         manifest = outcome.manifest,
@@ -113,13 +113,13 @@ class ImportViewModel(
                 }
 
                 is PluginImporter.Outcome.Rejected -> _state.value = ImportUiState(
-                    stage = Stage.REJECTED,
+                    stage = ImportUiState.Stage.REJECTED,
                     fileName = fileName,
                     errors = outcome.errors,
                 )
 
                 is PluginImporter.Outcome.Malformed -> _state.value = ImportUiState(
-                    stage = Stage.MALFORMED,
+                    stage = ImportUiState.Stage.MALFORMED,
                     fileName = fileName,
                     malformed = outcome.message,
                 )
@@ -146,7 +146,7 @@ class ImportViewModel(
             _state.update {
                 when (result) {
                     is PluginInstaller.Result.Installed -> it.copy(
-                        stage = Stage.DONE,
+                        stage = ImportUiState.Stage.DONE,
                         installing = false,
                         doneMessage = "已安装「${result.manifest.name}」${result.manifest.version}。\n\n" +
                             "它还没有被启用 —— 你刚才授权的只是「允许安装」。" +
@@ -154,7 +154,7 @@ class ImportViewModel(
                     )
 
                     is PluginInstaller.Result.Failed -> it.copy(
-                        stage = Stage.MALFORMED,
+                        stage = ImportUiState.Stage.MALFORMED,
                         installing = false,
                         malformed = result.reason,
                     )

@@ -136,8 +136,9 @@ class SubscriptionRepository(
  *    此时写 `@Module` 等于给不存在的依赖写绑定 —— 一堆空壳，还得跟着改。
  *
  *    M0 阶段先用手写容器把依赖关系**显式**摆出来（这也是一份可读的架构图），
- *    等各模块的构造器就位后再一次性切 Hilt。构建脚本里的 Hilt 插件保持开启，
- *    切换时不需要动构建配置。
+ *    等各模块的构造器就位后再一次性切 Hilt。届时要把 ksp 与 hilt 两个 Gradle
+ *    插件**一起**加回来（见 app/build.gradle.kts 的 plugins 块）——
+ *    只加插件不加 hilt-compiler 依赖会直接构建失败。
  */
 class AppContainer(context: Context) {
 
