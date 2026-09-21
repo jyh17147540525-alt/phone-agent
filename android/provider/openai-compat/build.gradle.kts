@@ -39,6 +39,16 @@ android {
 
 dependencies {
     implementation(project(":core:common"))
+    // ⚠️ 补上来的。本模块从 com.pocketagent.provider.api 导入了 13 个符号
+    //    （LlmProvider / ChatRequest / KeyValidationResult …），却没声明这个依赖。
+    //
+    //    藏了很久的原因：tools/verify/run_logic_tests.py 把 provider/api 与
+    //    本模块塞进**同一次 kotlinc 调用**，跨模块引用就顺便解析成功了 ——
+    //    漏声明的依赖在那个跑法下根本看不出来。
+    //    只有 Gradle（每个模块独立编译）才会暴露。
+    //
+    //    这类问题的常驻防线是 tools/verify/check_module_deps.py。
+    implementation(project(":provider:api"))
     implementation(libs.okhttp)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)

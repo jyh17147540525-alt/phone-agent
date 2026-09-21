@@ -1,5 +1,6 @@
 package com.pocketagent.plugin.api
 
+import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -13,6 +14,14 @@ import org.junit.Test
  * 全部是纯函数，不发网络请求 —— 所以能在没有 Android SDK 的机器上完整跑。
  */
 class PluginMarketTest {
+
+    /**
+     * 复用同一个 Json 实例。
+     *
+     * 每次 `Json { }` 都要重建一遍模块描述符，编译器会直接点名
+     * （redundant creation of Json format）。见 PluginImporterTest 里同样的处理。
+     */
+    private val lenientJson = Json { ignoreUnknownKeys = true }
 
     // ═══════════════════════════════════════════════════════════
     //  语义化版本
@@ -544,5 +553,86 @@ class PluginMarketTest {
     fun `无签名条目的信任等级不是已验证`() {
         assertNotNull(entry().trustLevel)
         assertEquals(PluginTrustLevel.MARKET_UNSIGNED, entry().trustLevel)
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  展示字段透传（回归）
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * 这一组是回归测试，锁的是一个**不会报错的 bug**。
+     *
+     * 曾经：市场界面渲染 `entry.description` 与 `entry.author`，
+     *      但 `SubscriptionEntry` 根本没有这两个字段，`toMarketEntry` 只能传 null。
+     *      于是市场里所有插件都没有说明和作者，而校验器还在警告作者"没写描述"。
+     *
+     * 界面与契约各说各话，编译器、测试、运行时都不会吭一声。
+     * 只有用户会觉得"这个市场里全是我不敢点的东西"。
+     */
+    @Test
+    fun `订阅源的描述与作者会透传到市场条目`() {
+        val raw = SubscriptionEntry(
+            id = "community.example.demo",
+            name = "示例插件",
+            version = "1.0.0",
+            level = PluginLevel.L1_RULES,
+            capabilities = listOf("screen.read"),
+            downloadUrl = "https://example.com/demo.pagent",
+            sha256 = "a".repeat(64),
+            description = "遇到支付页面会自动停下",
+            author = "某作者",
+            updatedAt = "2026-09-21",
+        )
+
+        val entry = raw.toMarketEntry("社区源")
+
+        assertEquals("遇到支付页面会自动停下", entry.description)
+        assertEquals("某作者", entry.author)
+        assertEquals("2026-09-21", entry.updatedAt)
+    }
+
+    @Test
+    fun `旧格式源 JSON 缺少展示字段时仍能解析`() {
+        // 这三个字段是后加的。加字段时给默认值，旧源才不会一夜之间全部加载失败 ——
+        // 用户订阅的源是他自己填的地址，我们没法替他升级。
+        val legacy = """
+            {
+              "name": "老源",
+              "apiVersion": 1,
+              "plugins": [
+                {
+                  "id": "community.example.legacy",
+                  "name": "老插件",
+                  "version": "1.0.0",
+                  "level": "L1_RULES",
+                  "capabilities": ["screen.read"],
+                  "downloadUrl": "https://example.com/legacy.pagent",
+                  "sha256": "${"a".repeat(64)}"
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val source = lenientJson
+            .decodeFromString(SubscriptionSource.serializer(), legacy)
+
+        val entry = source.plugins.single().toMarketEntry("老源")
+        assertNull(entry.description)
+        assertNull(entry.author)
+        assertEquals("老插件", entry.name)
+    }
+
+    @Test
+    fun `展示字段参与检索`() {
+        val catalog = MarketCatalog.merge(
+            listOf(
+                "源A" to source(
+                    "源A",
+                    subEntry("a.b.one", "记账助手").copy(description = "自动记一笔"),
+                )
+            )
+        )
+
+        assertEquals(1, MarketSearch.search(catalog.entries, MarketQuery(keyword = "记账")).size)
     }
 }

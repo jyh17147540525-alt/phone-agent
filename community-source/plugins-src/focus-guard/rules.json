@@ -1,0 +1,53 @@
+{
+  "manifest": {
+    "id": "community.example.focus-guard",
+    "name": "专注守护",
+    "version": "1.0.0",
+    "apiVersion": 1,
+    "author": "PocketAgent 社区",
+    "license": "GPL-3.0",
+    "level": "L1_RULES",
+    "capabilities": [
+      "notification.post"
+    ],
+    "targetApps": [
+      "com.ss.android.ugc.aweme",
+      "com.smile.gifmaker",
+      "com.xingin.xhs",
+      "com.sina.weibo",
+      "tv.danmaku.bili"
+    ],
+    "description": "在你打开短视频、社交类应用时发一条通知，提醒你回到正事上。这个插件只发通知：不点击、不读屏、不输入、不联网，也不会碰你的任何数据。",
+    "entry": "rules.json"
+  },
+  "rules": [
+    {
+      "id": "focus-nudge",
+      "name": "白天打开娱乐应用时提醒",
+      "enabled": true,
+      "priority": 100,
+      "match": {
+        "conditions": [
+          {
+            "type": "timeBetween",
+            "startHour": 8,
+            "endHour": 22
+          }
+        ]
+      },
+      "actions": [
+        {
+          "type": "notify",
+          "title": "专注守护",
+          "content": "你刚打开的是娱乐应用。说好的学习呢？"
+        }
+      ],
+      "constraints": {
+        "maxTriggersPerMinute": 1,
+        "cooldownMs": 600000,
+        "requireScreenOn": true,
+        "maxActions": 1
+      }
+    }
+  ]
+}

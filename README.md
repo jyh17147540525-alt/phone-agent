@@ -4,7 +4,7 @@
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Android%2012%2B-green.svg)](#系统要求)
-[![Status](https://img.shields.io/badge/Status-设计阶段-orange.svg)](#项目状态)
+[![Status](https://img.shields.io/badge/Status-M0%20进行中-orange.svg)](#项目状态)
 
 ---
 
@@ -22,13 +22,17 @@
 - ✅ **本地导入** —— `.pagent` 包，逐条风险告知，高危插件需手打确认词
 - ✅ **插件管理** —— 查看能力与风险、卸载（二次确认）
 - ✅ **订阅源管理** —— 添加 / 移除 / 恢复内置源
-- ✅ **295 个单元测试全绿**
+- ✅ **社区源脚手架** —— 可复现打包、索引生成、2 个示例插件 + 模板
+- ✅ **305 个单元测试全绿**
 - ✅ **可构建的 debug APK**
 
 未完成：
 - ❌ **感知层 / 执行层 / agent 循环** —— 也就是 AI 真正"替你办事"的部分
 - ❌ API Key 管理界面
 - ❌ release 签名
+- ❌ **内置源尚未上线** —— `pocketagent-community.github.io` 那个仓库还不存在，
+  所以用户首次打开市场会看到「源加载失败」。这是**如实报告**，不是 bug；
+  订阅源管理页就是为此准备的出路（见 [`community-source/`](community-source/)）
 
 ### 当前 APK 能做什么，不能做什么
 
@@ -124,6 +128,37 @@
 
 **主力是 L1** —— 因为社区贡献的门槛决定了生态规模。写一条规则不该需要会编程。
 
+### 插件源：市场没有服务端
+
+"插件市场"不是一台服务器，而是**若干个静态 JSON 地址**。客户端把用户订阅的源
+拉下来、合并、检索、展示。这样做的收益按重要性排序：
+
+1. **没有审核权** —— 任何人架源都不需要经过我们，我们也不承担内容审核义务
+2. **没有单点** —— 官方源挂了，用户自己加的源照常工作
+3. **没有账户体系**，零运维、零成本
+
+代价是**没有中心化的下架能力**。一个源如果开始分发恶意插件，客户端只能把违规
+条目**明确展示**为"被拒绝"（而不是悄悄过滤掉），并靠内置黑名单兜底。
+所以源的声誉完全由源自己负责。
+
+[`community-source/`](community-source/) 是一个**完整可发布的源脚手架**，
+包含两个真实的示例插件、一个模板，以及打包脚本：
+
+```bash
+cd community-source
+python build_source.py          # 打包 + 生成 index.json
+python build_source.py --check  # 确认产物与源一致（适合放 CI）
+```
+
+产出 `site/plugins/` 可以直接扔到 GitHub Pages 上。**任何人都是源** ——
+这句设计承诺只有在"自己搭一个源"的成本足够低时才成立，所以这个目录
+和它的 [README](community-source/README.md) 是基础设施，不是示例代码。
+
+> ⚠️ 打包是**可复现**的：固定了 zip 时间戳、权限位、条目顺序与压缩级别，
+> 同样的输入一定得到同样的 sha256。这不是洁癖 —— 哈希对不上会让客户端
+> 在解压前就拒绝安装，而报错会说"可能是下载途中被替换"，把用户引向
+> 完全错误的方向。
+
 ---
 
 ## 系统要求
@@ -207,6 +242,17 @@ cd android && ./gradlew assembleDebug
 
 ### 完整构建（需要 JDK 17 + Android SDK 36）
 
+**先告诉 Gradle 你的 SDK 在哪**，否则构建会直接死在配置阶段：
+
+```bash
+# 二选一
+export ANDROID_HOME=/path/to/android-sdk        # 环境变量
+echo "sdk.dir=/path/to/android-sdk" > android/local.properties   # 或本地属性文件
+```
+
+`local.properties` 已被 `.gitignore` 排除，是**每台机器各自一份**的东西 ——
+它记录的是本机路径，提交上去只会给别人添乱。
+
 ```bash
 cd android
 ./gradlew test          # 单元测试
@@ -219,6 +265,47 @@ JDK 用 **17**（不要用 21+，AGP 8.x 对高版本 JDK 支持不稳）。
 > 临时绕过：`./gradlew assembleDebug -Pandroid.overridePathCheck=true`。
 > 这是本地环境的权宜之计，**不要写进 `gradle.properties`** —— 不该让所有协作者继承这个绕过。
 
+> ⚠️ 如果 `./gradlew` 要下载 Gradle 发行版却卡住不动，多半是网络问题。
+> 仓库里的 wrapper 默认指向腾讯云镜像（`services.gradle.org` 在中国大陆实测不可达，
+> `curl` 返回 `000`）。换回官方的写法在 `gradle/wrapper/gradle-wrapper.properties` 的注释里。
+
+### ⚠️ 别给守护进程设 `-Dfile.encoding=UTF-8`
+
+这一条曾经踩过，值得单独留档，因为**报错信息完全指不到真实原因**。
+
+现象：`./gradlew test` 下**每一个测试类**都报
+
+```
+java.lang.ClassNotFoundException: com.pocketagent.plugin.api.PluginBundleTest
+```
+
+而 `.class` 文件明明就在磁盘上，`javap` 也能正常读出来。堆栈里还能看到 JUnit
+自己的类 —— 于是很容易判断成"测试代码有问题"。
+
+真实原因是一处**编码错配**：
+
+| 环节 | 用的编码 |
+|---|---|
+| Gradle 把测试 worker 的 classpath 写进 `@argfile` | 守护进程的 `file.encoding` |
+| JVM 读 `@argfile` | `sun.jnu.encoding`（**平台编码**，`-D` 改不动） |
+
+一旦强制守护进程用 UTF-8，而平台编码是 GBK（中文 Windows），路径就乱了：
+
+```
+直接传参：    D:/手机agent开发/android/...        → 加载成功
+UTF-8 argfile：D:/鎵嬫満agent寮?鍙?/android/...  → ClassNotFoundException
+```
+
+classpath 里的目录找不到，测试类自然加载不了。而 JUnit 的 jar 在纯 ASCII 路径
+（`~/.gradle/caches`）下，所以它自己加载正常，进一步误导排查方向。
+
+**所以 `gradle.properties` 里刻意不设这个参数** —— 去掉之后守护进程与 worker
+都用平台编码，两边一致，Linux 与中文 Windows 都正常。详细推导在那个文件里。
+
+> 这个坑只在**项目路径含非 ASCII 字符**时才会触发。把项目放在
+> `D:\pocketagent` 这类纯 ASCII 路径下，设不设都不会出问题 ——
+> 但依赖"路径是 ASCII"来避免一个编码 bug，不如直接把编码对齐。
+
 ### 版本上限（改依赖前必看）
 
 | 依赖 | 当前 | 为什么不能更高 |
@@ -227,14 +314,19 @@ JDK 用 **17**（不要用 21+，AGP 8.x 对高版本 JDK 支持不稳）。
 | `activity-compose` | 1.11.0 | 要求 `minCompileSdk=36` / `minAGP=8.9.1`，**正好卡在线上** |
 | `core-ktx` | 1.17.0 | 同上 |
 
-### 四个验证脚本（`tools/verify/`）
+### 六个验证脚本
 
 ```bash
 python tools/verify/run_logic_tests.py                     # 离线单测，不需要 Android SDK
 python tools/verify/check_version_catalog.py android       # libs.* 访问器对账
+python tools/verify/check_module_deps.py android           # 模块间 project 依赖是否漏声明
 python tools/verify/check_kt_quotes.py android             # 中文文案里的 ASCII 引号误用
 python tools/verify/check_aar_metadata.py --bom 2026.06.01 # 读 aar 里的 compileSdk 门槛
+python community-source/build_source.py --check            # 社区源的产物是否与源一致
 ```
+
+前五个在 `tools/verify/` 下，最后一个跟着社区源走（它校验的是那个目录的产物，
+放在一起才不会被遗忘）。
 
 **`run_logic_tests.py`** —— 本项目绝大多数高风险逻辑（SSE 解析、密钥脱敏、
 token 估算、费用计算、插件校验、zip 防护）都在**零 Android 依赖**的纯 Kotlin 模块里，
@@ -244,6 +336,21 @@ token 估算、费用计算、插件校验、zip 防护）都在**零 Android �
 
 > 这只是**没有 Android SDK 时的过渡手段**。SDK 就位后 `./gradlew test` 才是唯一权威，
 > 两者都要能通过。
+>
+> ⚠️ **但它有一个重要的盲区：它看不出漏声明的模块依赖。**
+> 它把所有模块塞进**同一次 kotlinc 调用**，于是 `:agent` 引用 `:action` 的类型
+> 会"顺便"解析成功，哪怕 `build.gradle.kts` 里根本没声明这个依赖。
+> 而 Gradle 是每个模块独立编译的，会直接报 `Unresolved reference`。
+> 这就是下面那个脚本存在的理由。
+
+**`check_module_deps.py`** —— 各模块的 `build.gradle.kts` 由生成器产出，
+而那个生成器**只会硬编码一条 `project(":core:common")`**，没有表达模块间依赖的机制。
+于是 `:provider:openai-compat` 从 `:provider:api` 导入 13 个符号却没声明依赖，
+`:agent` 用了 `:action` 和 `:perception` 也没声明 —— 这些模块在 Gradle 下编译不过，
+但离线测试跑器完全看不出来。
+
+这个脚本扫源码里的 `import` 与**全限定名引用**，映射回模块，与声明的
+`project(":...")` 对账。把八分钟一轮的构建反馈压成两秒。
 
 **`check_version_catalog.py`** —— Gradle 版本目录的访问器（`libs.androidx.core.ktx`）
 是**编译期**解析的。26 个模块里任何一个写错别名，配置阶段就失败，而且报错指向

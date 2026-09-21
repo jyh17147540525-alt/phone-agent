@@ -30,4 +30,18 @@ subprojects {
             )
         }
     }
+
+    // ⚠️ 显式指定 Java 源码编码。
+    //
+    //    理由：gradle.properties 里刻意**没有**给守护进程设 -Dfile.encoding
+    //    （原因见那个文件里的长注释 —— 设了会让非 ASCII 路径下的测试全挂）。
+    //    而 javac 读源码的编码默认跟着**平台**走：中文 Windows 上是 GBK。
+    //    本项目源码里有大量中文字符串，一旦落到 GBK 上就会乱码，
+    //    而且是**静默乱码** —— 编译能过，界面上显示的是问号。
+    //
+    //    Kotlin 不受影响（kotlinc 恒按 UTF-8 读源码，没有开关）。
+    //    目前仓库里没有 .java 文件，这一条是给将来留的保险。
+    tasks.withType<JavaCompile>().configureEach {
+        options.encoding = "UTF-8"
+    }
 }

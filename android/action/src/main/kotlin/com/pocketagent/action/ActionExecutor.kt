@@ -114,11 +114,16 @@ sealed interface ElementRef {
      * 通过稳定节点 ID 定位。优先使用。
      * nodeId 来自 [com.pocketagent.perception.UiNode.nodeId]，
      * 但注意：**跨快照的 nodeId 不保证稳定**，执行前必须用 [bounds] 二次校验。
+     *
+     * ⚠️ `override` 不能省。接口在下面声明了 `val bounds: Rect?`，
+     *    这两个实现类各自带着一个非空的 `bounds` 构造参数 —— 不写 `override`
+     *    会被判成"遮蔽了父类型成员"，直接编译失败。
+     *    类型从 `Rect?` 收窄成 `Rect` 是允许的（val 的返回类型可以协变）。
      */
-    data class ByNodeId(val nodeId: String, val bounds: Rect) : ElementRef
+    data class ByNodeId(val nodeId: String, override val bounds: Rect) : ElementRef
 
     /** 通过 viewIdResourceName 定位，比 nodeId 更稳定 */
-    data class ByViewId(val viewIdResourceName: String, val bounds: Rect) : ElementRef
+    data class ByViewId(val viewIdResourceName: String, override val bounds: Rect) : ElementRef
 
     /** 通过坐标定位。最不稳定但最通用 */
     data class ByCoord(val x: Int, val y: Int) : ElementRef
@@ -126,6 +131,12 @@ sealed interface ElementRef {
     /** 通过文本定位 */
     data class ByText(val text: String, val exact: Boolean = false) : ElementRef
 
+    /**
+     * 统一的边界访问器。
+     *
+     * 注意 [ByText] 返回 null —— 文本定位的结果**没有**已知位置，
+     * 调用方必须处理这个 null，不能当成"坐标为 0"。
+     */
     val bounds: Rect?
         get() = when (this) {
             is ByNodeId -> bounds

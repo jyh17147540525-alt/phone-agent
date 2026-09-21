@@ -72,5 +72,11 @@ screen-dumps/
 dump/
 data-export/
 
+# ⚠️ 上面那条 `*.pagent` 防的是「用户导出的插件包被误提交」，
+#    但社区源里打包好的示例插件**必须入库** ——
+#    GitHub Pages 是直接从这个目录提供文件的，产物不入库等于源是空的，
+#    而空源的直接后果就是用户装好应用打开市场看到「加载失败」。
+!community-source/site/plugins/*.pagent
+
 # ── 本工具的会话与记忆数据（非项目产物）─────────────────────
 .workbuddy-ai/

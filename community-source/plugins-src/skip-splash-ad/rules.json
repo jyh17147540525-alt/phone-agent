@@ -1,0 +1,99 @@
+{
+  "manifest": {
+    "id": "community.example.skip-splash-ad",
+    "name": "跳过开屏广告",
+    "version": "1.0.0",
+    "apiVersion": 1,
+    "author": "PocketAgent 社区",
+    "license": "GPL-3.0",
+    "level": "L1_RULES",
+    "capabilities": [
+      "screen.read",
+      "action.click"
+    ],
+    "targetApps": [
+      "com.sina.weibo",
+      "com.zhihu.android",
+      "tv.danmaku.bili",
+      "com.xingin.xhs",
+      "com.netease.cloudmusic",
+      "com.autonavi.minimap"
+    ],
+    "description": "在下面这几个应用启动时，自动点掉开屏广告的「跳过」按钮。只点击文本明确写着「跳过」或「关闭广告」的可点击控件；一旦屏幕上出现支付、转账、收银台、验证码、密码等字样，本条规则立刻不匹配，什么都不会做。",
+    "entry": "rules.json"
+  },
+  "rules": [
+    {
+      "id": "skip-splash",
+      "name": "点掉「跳过」按钮",
+      "enabled": true,
+      "priority": 100,
+      "match": {
+        "conditions": [
+          {
+            "type": "nodeExists",
+            "selector": "[clickable=true] text*:跳过",
+            "timeoutMs": 3000
+          }
+        ],
+        "excludeConditions": [
+          { "type": "textContains", "value": "支付" },
+          { "type": "textContains", "value": "付款" },
+          { "type": "textContains", "value": "转账" },
+          { "type": "textContains", "value": "收银台" },
+          { "type": "textContains", "value": "验证码" },
+          { "type": "textContains", "value": "密码" },
+          { "type": "textContains", "value": "免密" }
+        ]
+      },
+      "actions": [
+        {
+          "type": "click",
+          "selector": "[clickable=true] text*:跳过"
+        }
+      ],
+      "constraints": {
+        "maxTriggersPerMinute": 2,
+        "cooldownMs": 15000,
+        "requireScreenOn": true,
+        "maxActions": 2
+      }
+    },
+    {
+      "id": "close-splash-ad",
+      "name": "点掉「关闭广告」按钮",
+      "enabled": true,
+      "priority": 90,
+      "match": {
+        "conditions": [
+          {
+            "type": "nodeExists",
+            "selector": "[clickable=true] text*:关闭广告",
+            "timeoutMs": 3000
+          }
+        ],
+        "excludeConditions": [
+          { "type": "textContains", "value": "支付" },
+          { "type": "textContains", "value": "付款" },
+          { "type": "textContains", "value": "转账" },
+          { "type": "textContains", "value": "收银台" },
+          { "type": "textContains", "value": "验证码" },
+          { "type": "textContains", "value": "密码" },
+          { "type": "textContains", "value": "免密" }
+        ]
+      },
+      "actions": [
+        {
+          "type": "click",
+          "selector": "[clickable=true] text*:关闭广告"
+        }
+      ],
+      "constraints": {
+        "maxTriggersPerMinute": 2,
+        "cooldownMs": 15000,
+        "requireScreenOn": true,
+        "maxActions": 2
+      }
+    }
+  ]
+}

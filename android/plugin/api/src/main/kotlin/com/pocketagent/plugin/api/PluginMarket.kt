@@ -256,7 +256,14 @@ data class MarketSourceStatus(
     val message: String,
 )
 
-/** 把订阅源条目转成市场条目。未知能力字符串会被丢弃并记录在 rawCapabilityIds 里 */
+/**
+ * 把订阅源条目转成市场条目。未知能力字符串会被丢弃并记录在 rawCapabilityIds 里。
+ *
+ * ⚠️ [description] / [author] / [updatedAt] 必须透传。这三个字段曾经在
+ *    [SubscriptionEntry] 里**根本不存在**，于是这里只能传 null —— 而市场界面
+ *    一直在渲染它们。结果是用户面对一列只有名字和能力标签的插件，
+ *    没有任何说明可读。界面与契约各说各话，谁都不会报错。
+ */
 fun SubscriptionEntry.toMarketEntry(sourceName: String): MarketEntry = MarketEntry(
     id = id,
     name = name,
@@ -264,9 +271,12 @@ fun SubscriptionEntry.toMarketEntry(sourceName: String): MarketEntry = MarketEnt
     level = level,
     capabilities = capabilities.mapNotNull { PluginCapability.fromId(it.trim().lowercase()) },
     targetApps = targetApps,
+    description = description,
+    author = author,
     downloadUrl = downloadUrl,
     sha256 = sha256,
     signature = signature,
+    updatedAt = updatedAt,
     sourceName = sourceName,
     rawCapabilityIds = capabilities,
 )

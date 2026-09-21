@@ -1,0 +1,88 @@
+{
+  "manifest": {
+    "id": "community.yourname.your-plugin",
+    "name": "你的插件名",
+    "version": "1.0.0",
+    "apiVersion": 1,
+    "author": "你的名字",
+    "license": "GPL-3.0",
+    "level": "L1_RULES",
+    "capabilities": [
+      "screen.read"
+    ],
+    "targetApps": [
+      "com.example.someapp"
+    ],
+    "description": "用一两句话写清这个插件做什么、在什么情况下会动你的屏幕。这段话会显示在插件市场上，用户靠它决定装不装 —— 空着或者写成「这是一个插件」等于劝人别装。",
+    "entry": "rules.json",
+    "settingsSchema": [
+      {
+        "type": "text",
+        "key": "targetText",
+        "label": "要点击的按钮文字",
+        "description": "屏幕上出现这段文字时才会点击",
+        "default": "跳过",
+        "multiline": false,
+        "placeholder": "例如：跳过"
+      },
+      {
+        "type": "switch",
+        "key": "enabledInNight",
+        "label": "夜间也生效",
+        "description": "关掉之后，晚上 23 点到早上 7 点不会触发",
+        "default": false
+      },
+      {
+        "type": "number",
+        "key": "cooldownSeconds",
+        "label": "两次触发的最小间隔（秒）",
+        "default": 15,
+        "min": 5,
+        "max": 600
+      },
+      {
+        "type": "select",
+        "key": "mode",
+        "label": "查找方式",
+        "options": [
+          { "value": "text", "label": "按文字找（推荐）" },
+          { "value": "position", "label": "按坐标点（应用一改版就失效）" }
+        ],
+        "defaultIndex": 0
+      }
+    ]
+  },
+  "rules": [
+    {
+      "id": "your-rule-id",
+      "name": "这条规则做什么",
+      "enabled": true,
+      "priority": 100,
+      "match": {
+        "packageName": "com.example.someapp",
+        "conditions": [
+          {
+            "type": "textContains",
+            "value": "出现这段文字才触发"
+          }
+        ],
+        "excludeConditions": [
+          { "type": "textContains", "value": "支付" },
+          { "type": "textContains", "value": "转账" }
+        ]
+      },
+      "actions": [
+        {
+          "type": "click",
+          "selector": "text:确定"
+        }
+      ],
+      "constraints": {
+        "maxTriggersPerMinute": 2,
+        "cooldownMs": 15000,
+        "requireScreenOn": true,
+        "maxActions": 2
+      }
+    }
+  ]
+}

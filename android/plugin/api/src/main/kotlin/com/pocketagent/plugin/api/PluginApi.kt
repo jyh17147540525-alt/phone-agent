@@ -611,4 +611,24 @@ data class SubscriptionEntry(
     val sha256: String,
     /** 作者签名 */
     val signature: String? = null,
+    /**
+     * 插件是干什么的。**必须能传到界面上。**
+     *
+     * ⚠️ 这三个展示字段是补上来的，原因值得记一笔：
+     *
+     *    市场界面一直在渲染 `description` 与 `author`，但本类**根本没有这两个字段**，
+     *    于是 [toMarketEntry] 只能传 null —— 用户在市场上永远看不到任何插件说明，
+     *    只能看到一个名字和几个能力标签。而与此同时 [PluginValidator] 还在警告
+     *    作者「没有填写插件描述，用户在市场上无法判断这个插件做什么」。
+     *
+     *    一边要求作者写描述，一边市场没地方放描述。这种矛盾不会报错，
+     *    只会让整个市场退化成"一串不敢点的名字"—— 而用户判断一个插件
+     *    能不能装，靠的恰恰是这段描述。
+     *
+     *    这三项都给了默认值，所以旧格式的源 JSON 依然能解析（只是描述为空）。
+     */
+    val description: String? = null,
+    val author: String? = null,
+    /** 插件最后更新时间。市场按此排序，也让用户看出哪些是"上个月就没再动过"的 */
+    val updatedAt: String? = null,
 )

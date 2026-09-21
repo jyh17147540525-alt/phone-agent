@@ -1,0 +1,50 @@
+{
+  "name": "PocketAgent 社区源",
+  "author": "PocketAgent 社区",
+  "updatedAt": "2026-09-21",
+  "apiVersion": 1,
+  "plugins": [
+    {
+      "id": "community.example.focus-guard",
+      "name": "专注守护",
+      "version": "1.0.0",
+      "level": "L1_RULES",
+      "capabilities": [
+        "notification.post"
+      ],
+      "downloadUrl": "https://pocketagent-community.github.io/plugins/focus-guard-1.0.0.pagent",
+      "sha256": "a745b1926bfec020ecdd656b1bb633e7305f2201f7589bce7221f4c442cc2cdb",
+      "targetApps": [
+        "com.ss.android.ugc.aweme",
+        "com.smile.gifmaker",
+        "com.xingin.xhs",
+        "com.sina.weibo",
+        "tv.danmaku.bili"
+      ],
+      "description": "在你打开短视频、社交类应用时发一条通知，提醒你回到正事上。这个插件只发通知：不点击、不读屏、不输入、不联网，也不会碰你的任何数据。",
+      "author": "PocketAgent 社区"
+    },
+    {
+      "id": "community.example.skip-splash-ad",
+      "name": "跳过开屏广告",
+      "version": "1.0.0",
+      "level": "L1_RULES",
+      "capabilities": [
+        "screen.read",
+        "action.click"
+      ],
+      "downloadUrl": "https://pocketagent-community.github.io/plugins/skip-splash-ad-1.0.0.pagent",
+      "sha256": "9fdeba6432ac258172375bb1dc54fe624dcdab087f90e7c9d74b5b053cf0ad45",
+      "targetApps": [
+        "com.sina.weibo",
+        "com.zhihu.android",
+        "tv.danmaku.bili",
+        "com.xingin.xhs",
+        "com.netease.cloudmusic",
+        "com.autonavi.minimap"
+      ],
+      "description": "在下面这几个应用启动时，自动点掉开屏广告的「跳过」按钮。只点击文本明确写着「跳过」或「关闭广告」的可点击控件；一旦屏幕上出现支付、转账、收银台、验证码、密码等字样，本条规则立刻不匹配，什么都不会做。",
+      "author": "PocketAgent 社区"
+    }
+  ]
+}

@@ -3,7 +3,20 @@
 为 PocketAgent 各模块生成 build.gradle.kts 样板。
 
 用法：python gen_module_build_files.py
-幂等：已存在的文件不会被覆盖。
+
+═══════════════════════════════════════════════════════════════
+  ⚠️ 这是「脚手架」，不是「生成器」
+═══════════════════════════════════════════════════════════════
+
+已存在的文件**一律跳过**，不会被覆盖。
+
+后果必须说清楚：**改这个脚本不会更新任何已有的 build.gradle.kts。**
+它只影响将来新增的模块。所以当你在这里修了一个配置缺陷
+（比如补上 `PROJECT_DEPS`），必须**同时手动改对应的那个文件** ——
+否则脚本显示"已是最新"，而实际的构建文件依然是错的。
+
+同理，反过来说也成立：既然它不覆盖，那么各个 build.gradle.kts
+上已经做过的定制是安全的，不会被这个脚本冲掉。
 """
 import pathlib
 
@@ -136,6 +149,24 @@ NEEDS_SERIALIZATION = {
     "github", "contribute",
 }
 
+# 模块之间的项目依赖。
+#
+# ⚠️ 这张表是补上来的，因为生成器原本**只会硬编码一条 `:core:common`**，
+#    没有任何表达"模块 A 要用模块 B 的类型"的机制。
+#
+#    后果不是"少个依赖"这么简单：`:agent` 引用了 `:action` 的 `ElementRef`
+#    与 `:perception` 的类型，但两者都没声明，于是 `:agent` 编译不过。
+#    而这个错误**藏了很久** —— 因为 `tools/verify/run_logic_tests.py`
+#    只编译零 Android 依赖的那几个模块（provider / core / safety / plugin:api），
+#    `:agent` 和 `:action` 从来不在里面。
+#
+#    教训：**改完代码光跑离线单测是不够的**。它覆盖的是纯逻辑模块，
+#    而 Android 模块的编译错误只有 `./gradlew test` 才会暴露。
+PROJECT_DEPS = {
+    "provider/openai-compat": [":provider:api"],
+    "agent": [":perception", ":action"],
+}
+
 HEADER = """// ⚠️ 自动生成（gen_module_build_files.py）。如需长期定制，请移出生成列表。
 """
 
@@ -191,6 +222,13 @@ def android_lib(module: str, deps: list[str]) -> str:
     ns = namespace_for(module)
     dep_lines = "\n".join(f"    implementation(libs.{d})" for d in deps
                           if d not in ("androidx.room.compiler",))
+    # 跨模块依赖。`:core:common` 是全体共用的，单独一条写在模板里；
+    # 这里排掉它，免得重复。
+    project_lines = "\n".join(
+        f'    implementation(project("{p}"))'
+        for p in PROJECT_DEPS.get(module, [])
+        if p != ":core:common"
+    )
     ksp_lines = ""
     if "androidx.room.compiler" in deps:
         ksp_lines = "    ksp(libs.androidx.room.compiler)\n"
@@ -245,6 +283,7 @@ android {{
 
 dependencies {{
     implementation(project(":core:common"))
+{project_lines}
 {dep_lines}
 {hilt_impl}{hilt_ksp}
     testImplementation(libs.junit)
