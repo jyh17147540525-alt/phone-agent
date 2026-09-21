@@ -5,6 +5,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -17,7 +19,11 @@ import com.pocketagent.ui.importer.ImportScreen
 import com.pocketagent.ui.importer.ImportViewModel
 import com.pocketagent.ui.market.MarketScreen
 import com.pocketagent.ui.market.MarketViewModel
+import com.pocketagent.ui.plugins.InstalledPluginsScreen
+import com.pocketagent.ui.plugins.InstalledPluginsViewModel
 import com.pocketagent.ui.theme.PocketAgentTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import timber.log.Timber
 
 /**
@@ -63,6 +69,7 @@ private object Routes {
     const val HOME = "home"
     const val MARKET = "market"
     const val IMPORT = "import"
+    const val PLUGINS = "plugins"
 }
 
 @Composable
@@ -72,9 +79,17 @@ private fun AppNavHost(container: AppContainer) {
     NavHost(navController = navController, startDestination = Routes.HOME) {
 
         composable(Routes.HOME) {
+            // 已安装数量在进主页时读一次。放 IO 线程 —— 主线程读目录会让
+            // 首页白屏一下，而那个卡顿会被理解成「这应用很慢」，不是「它在读磁盘」
+            val installedCount by produceState<Int?>(initialValue = null) {
+                value = withContext(Dispatchers.IO) { container.installer.installedIds().size }
+            }
+
             HomeScreen(
                 onOpenMarket = { navController.navigate(Routes.MARKET) },
                 onOpenImport = { navController.navigate(Routes.IMPORT) },
+                onOpenPlugins = { navController.navigate(Routes.PLUGINS) },
+                installedCount = installedCount,
             )
         }
 
@@ -102,6 +117,22 @@ private fun AppNavHost(container: AppContainer) {
             ImportScreen(
                 viewModel = vm,
                 onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(Routes.PLUGINS) {
+            // ⚠️ 这个 ViewModel 每次进页面都重新建（随路由作用域销毁），
+            //    所以它会在 init 里重新扫一遍磁盘 —— 正是我们想要的：
+            //    用户刚从市场装完插件退回来，列表必须已经是新的。
+            val vm: InstalledPluginsViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer { InstalledPluginsViewModel(container.installer) }
+                }
+            )
+            InstalledPluginsScreen(
+                viewModel = vm,
+                onBack = { navController.popBackStack() },
+                onOpenMarket = { navController.navigate(Routes.MARKET) },
             )
         }
     }

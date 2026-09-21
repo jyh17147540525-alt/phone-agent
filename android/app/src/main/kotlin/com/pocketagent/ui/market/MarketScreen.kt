@@ -42,7 +42,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -50,7 +49,9 @@ import com.pocketagent.plugin.api.MarketEntry
 import com.pocketagent.plugin.api.MarketSearch
 import com.pocketagent.plugin.api.PluginCapability
 import com.pocketagent.plugin.api.PluginLevel
-import com.pocketagent.plugin.api.label
+import com.pocketagent.ui.components.CapabilityChip
+import com.pocketagent.ui.components.CenterHint
+import com.pocketagent.ui.components.RiskBadge
 import com.pocketagent.ui.theme.RiskColors
 
 /**
@@ -341,50 +342,9 @@ private fun PluginCard(
     }
 }
 
-@Composable
-private fun RiskBadge(level: PluginCapability.RiskLevel?) {
-    val color = riskColor(level)
-    Surface(color = color.copy(alpha = 0.16f), shape = RoundedCornerShape(6.dp)) {
-        Text(
-            "风险：${level?.label ?: "未知"}",
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-            style = MaterialTheme.typography.labelSmall,
-            color = color,
-            fontWeight = FontWeight.SemiBold,
-        )
-    }
-}
-
-@Composable
-private fun CapabilityChip(cap: PluginCapability) {
-    val color = riskColor(cap.risk)
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = RoundedCornerShape(6.dp),
-    ) {
-        Text(
-            cap.userFacingDescription,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-            style = MaterialTheme.typography.labelSmall,
-            color = color,
-        )
-    }
-}
-
-@Composable
-private fun CenterHint(content: @Composable () -> Unit) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) { content() }
-}
-
-/** 风险语义色，不随浅色/深色主题漂移 —— 用户靠它形成条件反射 */
-private fun riskColor(level: PluginCapability.RiskLevel?): Color = when (level) {
-    PluginCapability.RiskLevel.LOW -> RiskColors.low
-    PluginCapability.RiskLevel.MEDIUM -> RiskColors.medium
-    PluginCapability.RiskLevel.HIGH -> RiskColors.high
-    PluginCapability.RiskLevel.CRITICAL -> RiskColors.critical
-    null -> Color(0xFF8A8A8A)
-}
+// RiskBadge / CapabilityChip / CenterHint / riskColor 已提取到
+// com.pocketagent.ui.components（见 RiskUi.kt）。
+//
+// 提取的理由不是"少写几行"，而是：**同一个风险等级在不同页面必须长得一模一样**。
+// 用户是靠在市场页形成的颜色条件反射去判断管理页里那个插件的 ——
+// 两处配色一旦漂移，这道人工防线就废了。

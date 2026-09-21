@@ -38,13 +38,16 @@ import androidx.compose.material3.ExperimentalMaterial3Api
  * 把它做成一个对话框首页，等于暗示用户"这是个聊天软件"，
  * 而那恰恰是它和豆包手机助手最大的区别。
  *
- * 所以首页只放两件事：装插件（拓展能力），和看状态（当前能不能干活）。
+ * 所以首页只放三件事：装插件（市场 / 本地导入），和管理已经装上的插件。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     onOpenMarket: () -> Unit,
     onOpenImport: () -> Unit,
+    onOpenPlugins: () -> Unit,
+    /** 已安装插件数量。null 表示还在读磁盘 */
+    installedCount: Int? = null,
 ) {
     Scaffold(
         topBar = { TopAppBar(title = { Text("PocketAgent") }) },
@@ -89,9 +92,12 @@ fun HomeScreen(
             EntryCard(
                 icon = Icons.Default.Settings,
                 title = "已安装的插件",
-                subtitle = "授权、停用或卸载。授权是插件真正能干活的前提。",
-                onClick = { /* M1：插件管理页 */ },
-                enabled = false,
+                subtitle = when {
+                    installedCount == null -> "正在读取……"
+                    installedCount == 0 -> "还没有安装任何插件。"
+                    else -> "已安装 $installedCount 个。查看它们申请了哪些能力，或卸载。"
+                },
+                onClick = onOpenPlugins,
             )
         }
     }

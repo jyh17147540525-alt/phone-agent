@@ -155,6 +155,54 @@ class PluginInstaller(
         pluginRoot().listFiles()?.filter { it.isDirectory }?.map { it.name }.orEmpty()
 
     /**
+     * 扫描已安装的插件，供管理页展示。
+     *
+     * ⚠️ 这里**只解析，不校验**。校验是安装那一刻的关卡；一个已经躺在磁盘上的
+     *    插件不需要再被判一次刑。如果拿本体当前的规则去"重新审判"旧插件，
+     *    那么本体某次升级收紧了规则，就会把用户早就装好的东西标成非法 ——
+     *    那是升级造成的破坏，不是安全。真要收紧，应该走"提示用户重新确认"，
+     *    而不是让插件凭空消失。
+     *
+     * 解析失败照样返回（标成 isBroken），理由见 [InstalledPlugin]。
+     */
+    fun installedPlugins(): List<InstalledPlugin> =
+        pluginRoot().listFiles()
+            ?.filter { it.isDirectory }
+            ?.map { readInstalled(it) }
+            ?.sortedBy { it.displayName }
+            .orEmpty()
+
+    private fun readInstalled(dir: File): InstalledPlugin {
+        val manifestFile = File(dir, PluginBundle.MANIFEST_NAME)
+        val stamp = dir.lastModified()
+
+        if (!manifestFile.isFile) {
+            return InstalledPlugin(
+                dirName = dir.name,
+                manifest = null,
+                brokenReason = "目录里没有 ${PluginBundle.MANIFEST_NAME}",
+                installedAtMillis = stamp,
+            )
+        }
+
+        return try {
+            InstalledPlugin(
+                dirName = dir.name,
+                manifest = json.decodeFromString(PluginManifest.serializer(), manifestFile.readText()),
+                brokenReason = null,
+                installedAtMillis = stamp,
+            )
+        } catch (e: Exception) {
+            InstalledPlugin(
+                dirName = dir.name,
+                manifest = null,
+                brokenReason = e.message.orEmpty().take(120).ifBlank { "清单无法解析" },
+                installedAtMillis = stamp,
+            )
+        }
+    }
+
+    /**
      * 从插件包里取出清单**原文**，不解压、不落盘。
      *
      * 存在的理由：安装确认页需要先展示"这个插件申请了哪些能力"，而清单在 zip 里。
