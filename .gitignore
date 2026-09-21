@@ -6,6 +6,9 @@
 .gradle/
 build/
 */build/
+# Kotlin 编译器的会话与错误日志（`.kotlin/sessions`、`.kotlin/errors`）。
+# 纯本机状态，含时间戳文件名与绝对路径，换台机器毫无意义。
+.kotlin/
 out/
 *.apk
 *.aab
