@@ -1,0 +1,1435 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>豆包手机智能体考察 · dsh 安卓移植可行性 · 框架设计研讨</title>
+<style>
+:root {
+  --bg: #14161a;
+  --bg-soft: #1a1d22;
+  --panel: #1e2228;
+  --panel-2: #23272f;
+  --border: #2e343d;
+  --text: #e6e9ee;
+  --text-dim: #9aa4b2;
+  --text-faint: #6b7684;
+  --accent: #6ea8fe;
+  --accent-2: #7ee0c0;
+  --warn: #f0b429;
+  --danger: #f2685c;
+  --ok: #57c98a;
+  --code-bg: #15181d;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+               "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans SC", sans-serif;
+  font-size: 15.5px;
+  line-height: 1.85;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { display: flex; max-width: 1500px; margin: 0 auto; }
+aside {
+  width: 300px; flex: 0 0 300px;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  padding: 28px 18px 60px 28px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-soft);
+  font-size: 13.5px;
+}
+aside .brand {
+  font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--text-faint); margin-bottom: 4px;
+}
+aside .title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 20px; line-height: 1.5; }
+aside ul { list-style: none; padding-left: 0; margin: 0; }
+aside ul ul { padding-left: 14px; margin-top: 4px; }
+aside li { margin: 2px 0; }
+aside a {
+  color: var(--text-dim); text-decoration: none; display: block;
+  padding: 4px 8px; border-radius: 6px; border-left: 2px solid transparent;
+  transition: .15s;
+}
+aside a:hover { color: var(--text); background: var(--panel-2); border-left-color: var(--accent); }
+main { flex: 1; min-width: 0; padding: 44px 56px 120px; max-width: 1080px; }
+
+h1 {
+  font-size: 30px; line-height: 1.35; margin: 0 0 8px; font-weight: 800;
+  letter-spacing: -.01em;
+}
+h2 {
+  font-size: 22px; margin: 56px 0 18px; padding-bottom: 10px;
+  border-bottom: 1px solid var(--border); font-weight: 700; scroll-margin-top: 20px;
+}
+h3 { font-size: 17.5px; margin: 34px 0 12px; font-weight: 700; color: #dfe5ee; scroll-margin-top: 20px; }
+h4 { font-size: 15.5px; margin: 24px 0 10px; font-weight: 700; color: var(--text-dim); }
+p { margin: 12px 0; }
+a { color: var(--accent); }
+strong { color: #fff; font-weight: 700; }
+hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+blockquote {
+  margin: 18px 0; padding: 14px 20px;
+  background: linear-gradient(90deg, rgba(110,168,254,.10), rgba(110,168,254,.02));
+  border-left: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0; color: #cfd6e0;
+}
+blockquote p { margin: 6px 0; }
+
+ul, ol { padding-left: 24px; margin: 12px 0; }
+li { margin: 5px 0; }
+li > ul, li > ol { margin: 5px 0; }
+
+.tw { overflow-x: auto; margin: 18px 0; border: 1px solid var(--border); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--panel); }
+th, td { padding: 9px 14px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { background: var(--panel-2); font-weight: 700; color: #fff; white-space: nowrap; font-size: 13.5px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: rgba(110,168,254,.045); }
+
+code {
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+  font-size: 13px; background: var(--code-bg); padding: 2px 6px;
+  border-radius: 5px; color: #8fd3ff; border: 1px solid var(--border);
+}
+pre {
+  background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px;
+  padding: 18px 20px; overflow-x: auto; margin: 18px 0;
+  font-size: 12.8px; line-height: 1.65;
+}
+pre code {
+  background: none; border: none; padding: 0; color: #cfd8e3;
+  white-space: pre; font-family: "JetBrains Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+}
+.codehilite { background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; margin: 18px 0; }
+.codehilite pre { border: none; margin: 0; background: none; }
+.codehilite .k, .codehilite .kd, .codehilite .kn { color: #ff7b9c; }
+.codehilite .s, .codehilite .s1, .codehilite .s2 { color: #7ee0c0; }
+.codehilite .c1, .codehilite .cm { color: #5f6b7a; font-style: italic; }
+.codehilite .n, .codehilite .nf, .codehilite .nc { color: #8fd3ff; }
+.codehilite .m, .codehilite .mi { color: #f0b429; }
+
+@media (max-width: 1000px) {
+  aside { display: none; }
+  main { padding: 28px 20px 80px; }
+  body { font-size: 15px; }
+  h1 { font-size: 24px; }
+  h2 { font-size: 19px; }
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: #333a45; border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: #414a58; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <aside>
+    <div class="brand">Project Plan</div>
+    <div class="title">豆包手机智能体考察 · dsh 安卓移植可行性 · 框架设计研讨</div>
+    <div class="toc">
+<ul>
+<li><a href="#0">0. 结论速览</a></li>
+<li><a href="#11">1.1 产品事实</a></li>
+<li><a href="#12">1.2 核心能力（六类）</a></li>
+<li><a href="#13">1.3 交互方式</a></li>
+<li><a href="#14">1.4 场景适配</a></li>
+<li><a href="#15-saep">1.5 SAEP 协议（本次发布最有价值的部分）</a></li>
+<li><a href="#16">1.6 技术架构（第三方分析）</a></li>
+<li><a href="#17">1.7 合规与法理（对本项目是重大利好）</a></li>
+<li><a href="#18-pocketagent">1.8 ★ 对 PocketAgent 的硬约束（本部分最重要的结论）</a></li>
+<li><a href="#21-dsh">2.1 dsh 是什么（本机实测）</a></li>
+<li><a href="#22">2.2 可复用的能力资产</a></li>
+<li><a href="#23">2.3 体积账（实测）</a></li>
+<li><a href="#24">2.4 ★ 四条硬约束（全部实测）</a><ul>
+<li><a href="#1node-20nodejs-mobile">约束 1：Node 版本下限是 20，nodejs-mobile 不可用</a></li>
+<li><a href="#2termux-node">约束 2：Termux 的 Node 二进制有路径硬编码问题</a></li>
+<li><a href="#3">约束 3：桌面工具在安卓上大多无用</a></li>
+<li><a href="#4dsh-rc">约束 4：dsh 是 RC 版本</a></li>
+</ul>
+</li>
+<li><a href="#25">2.5 四种移植路线</a></li>
+<li><a href="#26-c">2.6 推荐路线 C 及其理由</a></li>
+<li><a href="#31">3.1 分层架构</a></li>
+<li><a href="#32">3.2 关键组件</a></li>
+<li><a href="#33-dsh-android">3.3 能力映射表（dsh 工具 ↔ Android 能力）</a></li>
+<li><a href="#34">3.4 实现路径（分阶段）</a></li>
+<li><a href="#41">4.1 必须达成的共识（按重要性）</a></li>
+<li><a href="#42">4.2 需要立刻验证的技术假设</a></li>
+<li><a href="#43-t1">4.3 可以并行推进的事（不依赖 T1）</a></li>
+</ul>
+</div>
+
+  </aside>
+  <main>
+<h1 id="dsh">豆包手机智能体考察 · dsh 安卓移植可行性 · 框架设计研讨</h1>
+<blockquote>
+<p>版本 v1.0 ｜ 2026-09-21 ｜ 状态：<strong>研讨稿（待决策）</strong></p>
+<p>本文所有"实测"结论均来自本机对 <code>F:\dsh-program</code> / <code>D:\dsh-home</code> 的实际检查，
+命令与输出见附录 A。"公开报道"结论来自 2026-09 的新闻与厂商口径，已标注来源。</p>
+</blockquote>
+<hr />
+<h2 id="0">0. 结论速览</h2>
+<p><strong>三条必须最先知道的结论：</strong></p>
+<p><strong>① 豆包的能力天花板来自「系统签名预装」，不是技术巧妙。</strong>
+它读屏走 <code>READ_FRAME_BUFFER</code> 直读 GPU 帧缓冲，操作走 <code>INJECT_EVENTS</code> 内核注入，
+后台隔离靠 WindowManagerService 创建的 headless 虚拟屏。
+<strong>这三样第三方侧载应用一样都拿不到。</strong> 所以"照着豆包做"这条路在权限层面是死的 ——
+不是难度问题，是物理上做不到。</p>
+<p><strong>② dsh 可以移植，但不是用 nodejs-mobile。</strong>
+实测 dsh 的 Node 下限是 <strong>20</strong>（核心包用了 <code>toReversed()</code>、<code>import.meta.resolve</code>），
+而 nodejs-mobile 封顶在 <strong>Node 18.20.4（2024-10，已 EOL）</strong>。
+唯一的现实来源是 <strong>Termux 的 Node 26.4.0 for Android</strong> —— 需自行交叉编译或借用其二进制。</p>
+<p><strong>③ 本项目的"不影响用户正常使用"这条需求，与"第三方侧载应用"这个身份存在结构性冲突。</strong>
+豆包能做到是因为它跑在 headless 虚拟屏上；AOSP 从 Android 10 起就禁止普通应用把
+别人的 App 启到虚拟屏上。<strong>唯一出路是 Shizuku，而 EX-16 至今未验证。</strong>
+这条需求要么重新协商，要么把 Shizuku 从"可选"提升为"硬依赖"。</p>
+<hr />
+<h1 id="_1">第一部分 · 豆包手机智能体全方位考察</h1>
+<h2 id="11">1.1 产品事实</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>发布时间</td>
+<td><strong>2026-09-14</strong> 消费者版（此前 2025 年底有技术预览版）</td>
+</tr>
+<tr>
+<td>首款机型</td>
+<td><strong>努比亚 NaviX Ultra</strong>（中兴通讯 + 字节跳动联合研发），9/16 开售</td>
+</tr>
+<tr>
+<td>产品定位</td>
+<td>官方口径「全球首款 AI 智能体手机」</td>
+</tr>
+<tr>
+<td>硬件</td>
+<td>骁龙 8 Elite Gen5 / 512GB 起 / 2 亿像素 / 7100mAh / 7.62mm / 长鑫 10667Mbps LPDDR5X</td>
+</tr>
+<tr>
+<td>实体入口</td>
+<td>侧边<strong>带指纹识别的独立橙色 AI 实体按键</strong></td>
+</tr>
+<tr>
+<td>合规</td>
+<td>已完成大模型备案 + 工信部终端入网许可</td>
+</tr>
+<tr>
+<td>热度</td>
+<td>截至 9/15 京东预约量 36 万+</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>⚠️ 冷静看待："全球首款 AI 智能体手机"是<strong>厂商宣传口径</strong>。
+从公开信息看，NaviX Ultra 的差异化在<strong>系统级集成深度</strong>（AI 键、本地数据授权、服务直连），
+而非底层模型能力 —— 它用的是豆包大模型，模型本身并非独家。</p>
+</blockquote>
+<h2 id="12">1.2 核心能力（六类）</h2>
+<p><strong>① 交互唤醒</strong>
+- 语音：针对<strong>远场、内噪、嘈杂环境</strong>做了优化
+- <strong>AI 实体键</strong>：带指纹鉴权，本人验证后<strong>无需二次解锁</strong>即可调用助手执行任务</p>
+<p><strong>② 屏幕问答</strong>
+- 用户<strong>无需截图、无需切换应用</strong>，可直接围绕当前屏幕内容提问，或把它当作任务输入
+- 官方演示：相机对准室内 → 语音"根据这个装修风格，帮我选一个一米二以内、价格不超过一千元的柜子"
+  → 助手结合画面在电商平台完成筛选推荐</p>
+<p><strong>③ 本地记忆与检索</strong>（用户主动授权前提下）
+- 覆盖<strong>电话录音、相册、短信、便签</strong>
+- 提供搜索工具<strong>按需检索</strong>
+- 支持<strong>手动保存当前屏幕内容</strong>供后续查找
+- 引入<strong>任务排队与插队机制</strong></p>
+<p><strong>④ 录音转写</strong>
+- 接入<strong>飞书妙记</strong>：转录、实时翻译、区分说话人、自动总结
+- 可检索<strong>过往录音的具体内容</strong></p>
+<p><strong>⑤ 任务执行</strong>（豆包智能服务 Beta）
+- 已接入<strong>曹操出行、地图</strong>等服务
+- 曹操出行首批支持<strong>北京、杭州</strong>
+- 用户提出打车需求后，助手可确认常用地址、选择车型、<strong>发起下单</strong></p>
+<p><strong>⑥ 操作手机</strong>（GUI Agent，Beta）
+- 即"看着屏幕替你操作"，受 <strong>SAEP 协议</strong>约束，见 §1.5</p>
+<h2 id="13">1.3 交互方式</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>通道</th>
+<th>特征</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>语音</strong></td>
+<td>主通道，远场/嘈杂优化</td>
+<td>最自然的入口</td>
+</tr>
+<tr>
+<td><strong>AI 实体键</strong></td>
+<td>指纹鉴权后免二次解锁</td>
+<td>硬件级入口，第三方 App 无法复制</td>
+</tr>
+<tr>
+<td><strong>屏幕上下文</strong></td>
+<td>隐式输入，无需用户显式提供</td>
+<td>这是"理解场景"的关键</td>
+</tr>
+<tr>
+<td><strong>顶部横条</strong></td>
+<td>监工 + 中断</td>
+<td>可把虚拟屏画面投射到物理屏查看</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>交互设计的关键洞察</strong>：豆包把"屏幕内容"当成了<strong>隐式输入</strong>，而不是要求用户描述。
+"相机对准 → 语音提问 → 跨平台完成"这个组合，本质是<strong>多模态输入 + 跨应用执行</strong>。
+这标志着手机 AI 助手正从「回答问题」转向「理解你所在的场景并替你完成任务」。</p>
+<h2 id="14">1.4 场景适配</h2>
+<p><strong>已落地场景</strong>：打车下单、比价筛选、录音转写与检索、本地数据检索、屏幕内容问答</p>
+<p><strong>场景选择的规律</strong>：
+- <strong>服务直连优先于 GUI 操作</strong>（曹操出行是接口接入，不是模拟点击）
+- GUI 操作只用于<strong>没有接口的场景</strong>
+- 官方对 GUI 操作持保守态度（Beta + 30 天公示期）</p>
+<blockquote>
+<p>📌 这条规律对本项目直接适用：<strong>有 API 就走 API，GUI 只当兜底。</strong>
+这也是公开分析给开发者的核心建议。</p>
+</blockquote>
+<h2 id="15-saep">1.5 SAEP 协议（本次发布最有价值的部分）</h2>
+<p><strong>SAEP = Screen Automation Execution Protocol（屏幕自动化操作声明协议）</strong></p>
+<p><strong>机制：</strong>
+- 第三方应用可<strong>分类分级</strong>声明操作边界
+- 可以声明<strong>禁止任何操作</strong>，也可以只限制特定操作：
+  <strong>内容修改、最终发布、删除、签到、抽奖等权益领取行为</strong>
+- 接入方式二选一：<strong>接入 SAEP 协议</strong> 或 <strong>回复官方邮件</strong>，<strong>两者效力相同</strong>
+- <strong>拒绝声明随时生效</strong>，相关应用<strong>立即</strong>列入不可操作清单</p>
+<p><strong>公示期规则（关键）：</strong>
+- 公示期：<strong>2026-09-14 起 30 天</strong>（至 <strong>2026-10-15</strong>）
+- 公示期内，豆包<strong>仅对以下应用</strong>执行自动化操作：
+  1. 系统自带应用
+  2. 中兴应用
+  3. 字节跳动旗下应用
+  4. 已通过 SAEP 或邮件<strong>明确同意接入</strong>的第三方应用
+- <strong>其余应用默认不操作</strong>
+- 公示期满后：未回复且未接入的应用按<strong>风险层级逐步开放</strong>；<strong>明确表示拒绝的应用始终不会被操作</strong></p>
+<p><strong>行业类比</strong>："AI 时代的 Robots 协议"（robots.txt 式的单方声明、自愿约定）</p>
+<p><strong>但要清醒</strong>：
+- 这是<strong>自律协议，不是技术标准，更不是强制约束</strong>
+- 30 天公示只是公示
+- 真正决定成败的是两件事：<strong>主流 App 的参与率</strong>、<strong>拒绝后是否真的完全不碰</strong></p>
+<h2 id="16">1.6 技术架构（第三方分析）</h2>
+<blockquote>
+<p>来源：知乎《豆包后台操作手机原理分析》（2026-08-05），属<strong>第三方逆向分析</strong>，
+非官方披露。关键结论与官方公开口径（端云协同、L5 机密计算）一致，可信度较高，
+但具体权限名与进程细节<strong>应以真机验证为准</strong>。</p>
+</blockquote>
+<p><strong>感知层 —— 不走无障碍</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>权限</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CAPTURE_VIDEO_OUTPUT</code></td>
+<td>捕获屏幕视频输出流</td>
+</tr>
+<tr>
+<td><code>CAPTURE_SECURE_VIDEO_OUTPUT</code></td>
+<td>捕获标记为 Secure 的页面（豆包声称遵循 Secure 标记，不截银行类页面）</td>
+</tr>
+<tr>
+<td><code>READ_FRAME_BUFFER</code></td>
+<td><strong>直接从 GPU 图形缓冲区读原始图像</strong>，而非调用上层截图 API</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>关键优势</strong>：绕过应用层的反截图/反录屏限制（数据来自内核层 GPU 缓冲区，而非应用层 API）。</p>
+<p><strong>隔离层 —— headless 虚拟屏</strong></p>
+<div class="codehilite"><pre><span></span><code>┌─────────────────────────────────────────┐
+│           物理屏幕 (Display 0)           │
+│  ┌─────────────────────────────────┐    │
+│  │     用户前台：刷抖音、聊微信      │ ← 用户正常使用
+│  └─────────────────────────────────┘    │
+│  ┌─────────────────────────────────┐    │
+│  │  虚拟屏 (Virtual Display)        │ ← 豆包在后台操作
+│  │  同分辨率 / 独立焦点 / GPU 合成   │
+│  └─────────────────────────────────┘    │
+└─────────────────────────────────────────┘
+</code></pre></div>
+
+<p>通过 <code>WindowManagerService</code> 创建<strong>与物理屏分辨率相同的 headless 虚拟屏</strong>，
+<strong>独立输入焦点</strong>，与物理屏互不干扰。点击顶部横条可投射到物理屏"监工"。</p>
+<p><strong>规划层 —— 重云轻端</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>环节</th>
+<th>实测/推测参数</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>本地进程</td>
+<td><code>aikernel</code>，内存占用约 <strong>160MB</strong></td>
+</tr>
+<tr>
+<td>上传频率</td>
+<td>每 <strong>3–5 秒</strong>上传虚拟屏画面</td>
+</tr>
+<tr>
+<td>单帧大小</td>
+<td>约 <strong>250KB/帧</strong></td>
+</tr>
+<tr>
+<td>上传目标</td>
+<td>字节服务器（<code>obriccloud.com</code>）</td>
+</tr>
+<tr>
+<td>云端模型</td>
+<td>多模态大模型（推测为 UI-TARS 系列）</td>
+</tr>
+<tr>
+<td>返回内容</td>
+<td>约 <strong>1KB</strong> 精简指令（<code>click @e2</code> / <code>swipe_up</code> / <code>input_text</code>）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>执行层 —— 幽灵触控</strong></p>
+<ul>
+<li>持有 <strong><code>INJECT_EVENTS</code></strong> 系统权限（<strong>需系统签名</strong>，随厂商预装）</li>
+<li>直接向 <strong>Linux 内核 Input Subsystem</strong> 注入原始输入事件</li>
+<li>通过指定 <strong><code>displayId</code></strong> 让事件精准落在虚拟屏，而非物理屏</li>
+<li><strong>不受前台限制</strong>，可发送到任意窗口</li>
+</ul>
+<p><strong>反风控 —— 仿生触控算法</strong>
+- 点击坐标加入微小随机偏移（非像素级完美）
+- 按压时间模拟人类分布（非固定 50ms）
+- 滑动轨迹加入贝塞尔曲线拟合（非直线）
+- 目的：骗过微信、淘宝等 App 识别机械点击的风控引擎</p>
+<p><strong>安全阀</strong>
+1. 尊重 Secure 标记（不截银行类页面）
+2. 支付/转账强制用户手动确认 + 真人检测
+3. 权限逐项主动授权，屏幕有明确提示
+4. 用户随时可点顶部横条中断</p>
+<h2 id="17">1.7 合规与法理（对本项目是重大利好）</h2>
+<p><strong>争议焦点：AI 智能体是独立行为主体，还是用户手中的工具？</strong>
+—— 即"<strong>双重授权</strong>"问题：智能体跨应用操作，除了用户授权，是否还需要第三方 App 授权？</p>
+<p><strong>当前学理倾向：</strong>
+- 多数学者认为智能体本质是<strong>用户意志和行为的技术延伸</strong>；用户授权智能体跨应用访问自己的
+  数据、完成指定任务，是<strong>用户意志的外化</strong>
+- 结合《个人信息保护法》确立的<strong>个人信息可携带权</strong>、《民法典》数据保护原则性规定，
+  这种操作<strong>具备法理正当性</strong>
+- 人大、复旦等多所高校学者形成基本共识：<strong>GUI 操作路径下，智能体经用户充分授权后，
+  无需另行取得第三方 App 的"双重授权"</strong></p>
+<p><strong>域外参照：</strong>
+- 美国第九巡回上诉法院在<strong>亚马逊诉 Perplexity</strong> 案中<strong>撤销初步禁令</strong>，
+  认为真正访问服务器的主体是<strong>用户</strong>，AI 智能体只是用户手中的工具
+- 欧盟《数字市场法案》通过"守门人"制度，要求大平台对第三方 AI 工具提供<strong>非歧视的互操作权限</strong></p>
+<p><strong>专家共识</strong>：应坚持「<strong>开放为原则、限制为例外</strong>」，既不能简单"凡绕开即违法"，
+也不能"凡用户想要即正当"。</p>
+<p><strong>政策背景</strong>：国务院《关于深入实施"人工智能+"行动的意见》——
+到 <strong>2027 年</strong>，新一代智能终端、智能体等应用普及率需<strong>超 70%</strong>。</p>
+<p><strong>端云协同机密计算 L5 认证</strong>：豆包手机助手通过中国信通院泰尔实验室首批
+"端云协同机密计算能力评测"，架构含硬件信任根、可信执行环境、访问隔离、密钥管理、
+端云可信校验。</p>
+<blockquote>
+<p>📌 <strong>对本项目的意义</strong>：法理上"用户授权即可，无需第三方双重授权"的共识正在形成，
+这对 PocketAgent 的合规姿态是<strong>实质性利好</strong> —— 之前担心的"擅自操作他人 App"的法律风险
+有明确的抗辩基础。但<strong>技术上的权限壁垒依然存在</strong>（见 §1.8）。</p>
+</blockquote>
+<h2 id="18-pocketagent">1.8 ★ 对 PocketAgent 的硬约束（本部分最重要的结论）</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>豆包手机助手</th>
+<th>PocketAgent（第三方侧载）</th>
+<th>差距性质</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>读屏</td>
+<td><code>READ_FRAME_BUFFER</code> 直读 GPU 帧缓冲</td>
+<td>无障碍节点树 + MediaProjection 截图</td>
+<td><strong>权限不可得</strong></td>
+</tr>
+<tr>
+<td>操作注入</td>
+<td><code>INJECT_EVENTS</code> 内核级注入</td>
+<td>无障碍手势 / Shizuku <code>input</code></td>
+<td><strong>权限不可得</strong></td>
+</tr>
+<tr>
+<td>后台隔离</td>
+<td>headless 虚拟屏（WMS 级）</td>
+<td>Shizuku + <code>overlay_display_devices</code>（且第三方 App 无法启到副屏）</td>
+<td><strong>架构受限</strong></td>
+</tr>
+<tr>
+<td>反风控</td>
+<td>仿生触控算法</td>
+<td>无（且本项目明确禁止刷单/薅羊毛）</td>
+<td>可自行实现但伦理存疑</td>
+</tr>
+<tr>
+<td>权限来源</td>
+<td><strong>系统签名预装</strong></td>
+<td>用户手动授权</td>
+<td><strong>根本差异</strong></td>
+</tr>
+<tr>
+<td>适用设备</td>
+<td>仅合作厂商机型</td>
+<td>任意 Android 12+</td>
+<td>本项目优势</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>结论：</strong>
+1. <strong>豆包的技术路线无法复制</strong>，因为它建立在手机厂商的系统签名之上。这不是"努力就能追上"的差距。
+2. <strong>本项目只能走"无障碍 + Shizuku"路线</strong>，即公开分析中被称为"普通无障碍方案（如 AutoGLM）"的那条。
+3. <strong>"不影响用户正常使用"这条需求，在第三方身份下只能靠 Shizuku 实现</strong>，且受 AOSP
+   Android 10+ 限制（普通应用只能在自己创建的虚拟屏上启动自己的 Activity）。
+4. 因此 <strong>EX-16（Shizuku 能否把第三方 App 启到副屏）从"重要实验"升级为"决定产品形态的
+   生死实验"</strong>。若不成立，"不影响用户使用"必须重新协商（降级为小窗 / 全屏接管 / 手动引导）。</p>
+<hr />
+<h1 id="dsh_1">第二部分 · dsh 安卓移植可行性</h1>
+<h2 id="21-dsh">2.1 dsh 是什么（本机实测）</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>实测值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>包名</td>
+<td><code>@deepseek-ai/dsh</code></td>
+</tr>
+<tr>
+<td>版本</td>
+<td><strong>0.1.0-rc.7</strong>（注意：<strong>RC 版本</strong>）</td>
+</tr>
+<tr>
+<td>许可证</td>
+<td><strong>MIT</strong></td>
+</tr>
+<tr>
+<td>形态</td>
+<td>Node.js CLI，基于 <strong>cordis</strong> 插件框架</td>
+</tr>
+<tr>
+<td>直接依赖</td>
+<td><strong>71 个</strong> <code>@deepseek-ai/*</code> 包</td>
+</tr>
+<tr>
+<td>依赖树</td>
+<td><strong>195 个</strong> <code>@deepseek-ai/*</code> 包，<strong>256 个</strong>顶层包</td>
+</tr>
+<tr>
+<td>全量体积</td>
+<td><strong>329 MB</strong></td>
+</tr>
+<tr>
+<td>入口</td>
+<td><code>lib/bin.js</code></td>
+</tr>
+<tr>
+<td>数据目录</td>
+<td><code>$DSH_HOME</code>（本机 <code>D:\dsh-home</code>）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>启动模型：</strong></p>
+<div class="codehilite"><pre><span></span><code>dsh --profile &lt;name&gt;              启动指定 profile
+dsh --profile headless "job"      跑单次会话，打印结果后退出 ★
+dsh web                           --profile web 的别名（浏览器 UI）
+dsh plugin --profile &lt;name&gt; ...   转发给 pnpm 管理插件
+</code></pre></div>
+
+<p><strong>profile 的本质（关键认知）：</strong>
+一个 profile <strong>不是一个配置文件，而是一个 pnpm 项目</strong>：
+- <code>package.json</code> → <code>dsh.profile.bundles</code> 声明有序的插件 bundle 列表
+- <code>cordis.patch.yml</code> → 用户自己的补丁层（按 id 定位的配置覆盖、禁用、插入）
+- <code>pnpm-lock.yaml</code> + <code>node_modules/</code> → 插件实体
+- 插件来源：npm 包 / GitHub 仓库 / 本地 <code>file:</code> 路径
+- 还有 <code>.dsh-market</code> 插件市场目录</p>
+<p><strong>插件树的组装顺序：</strong></p>
+<div class="codehilite"><pre><span></span><code>空根
+ → 各 bundle 的 patch（按 dsh.profile.bundles 顺序）
+ → profile 的 cordis.patch.yml
+ → $DSH_HOME/cordis.patch.yml
+ → --patch 覆盖层
+</code></pre></div>
+
+<blockquote>
+<p>📌 <strong>这个设计对移植极其有利</strong>：要裁剪出一个"安卓可用"的最小 profile，
+只需要改 <code>dsh.profile.bundles</code> 列表，<strong>不需要改 dsh 源码</strong>。</p>
+</blockquote>
+<h2 id="22">2.2 可复用的能力资产</h2>
+<p>dsh 的 195 个包覆盖了做一个 agent 需要的<strong>几乎全部工程件</strong>：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>能力域</th>
+<th>包</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Agent 循环</strong></td>
+<td><code>dsh-agent</code> / <code>dsh-agent-instructions</code> / <code>dsh-goal</code> / <code>dsh-goal-round-driver</code></td>
+</tr>
+<tr>
+<td><strong>LLM 接入</strong></td>
+<td><code>dsh-llm</code> + deepseek / openai / anthropic / google / mistral / pi-ai</td>
+</tr>
+<tr>
+<td><strong>会话</strong></td>
+<td><code>dsh-session</code> / <code>dsh-session-projection</code> / <code>dsh-session-reference</code> / <code>dsh-session-query-sqlite</code></td>
+</tr>
+<tr>
+<td><strong>上下文压缩</strong></td>
+<td><code>dsh-compaction-basic</code> / <code>dsh-compaction-tool-result-pruner</code></td>
+</tr>
+<tr>
+<td><strong>Token 计量</strong></td>
+<td><code>dsh-token-meter</code></td>
+</tr>
+<tr>
+<td><strong>工具集</strong></td>
+<td>fs / fs-search / bash / bash-persistent / pwsh / web / subagent / workflow / todo / skill / ralph / ask-user / str-replace-editor / goal / jobs / cordis</td>
+</tr>
+<tr>
+<td><strong>★ MCP</strong></td>
+<td><strong><code>dsh-mcp-client</code></strong></td>
+</tr>
+<tr>
+<td><strong>沙箱</strong></td>
+<td><code>dsh-sandbox-local</code> / <code>dsh-sandbox-windows-acl</code></td>
+</tr>
+<tr>
+<td><strong>Web 宿主</strong></td>
+<td><code>dsh-host-webserver</code> / <code>dsh-host-frontend-static</code> / <code>dsh-host-apiproxy</code> / <code>dsh-web-frontend</code></td>
+</tr>
+<tr>
+<td><strong>技能系统</strong></td>
+<td><code>dsh-skill</code> / <code>dsh-skill-filesystem</code></td>
+</tr>
+<tr>
+<td><strong>计划模式</strong></td>
+<td><code>dsh-plan-mode</code></td>
+</tr>
+<tr>
+<td><strong>子代理</strong></td>
+<td><code>dsh-subagent</code> / <code>dsh-tool-subagent</code> / <code>dsh-tool-subagent-control</code></td>
+</tr>
+<tr>
+<td><strong>工作流</strong></td>
+<td><code>dsh-workflow-worker-thread</code></td>
+</tr>
+<tr>
+<td><strong>调度</strong></td>
+<td><code>dsh-schedule</code> / <code>dsh-jobs-local</code></td>
+</tr>
+<tr>
+<td><strong>人设/上下文</strong></td>
+<td><code>dsh-persona</code> / <code>dsh-time-context</code> / <code>dsh-tmux-context</code> / <code>dsh-system-prompt</code></td>
+</tr>
+<tr>
+<td><strong>终端</strong></td>
+<td><code>dsh-terminal</code> / <code>dsh-terminal-bash</code></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>这是一笔巨大的工程资产。</strong> 会话管理、上下文压缩、token 计量、计划模式、子代理编排、
+工作流、MCP —— 每一项从零写都是数周到数月的工作量。</p>
+<h2 id="23">2.3 体积账（实测）</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>体积</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>全量 <code>node_modules</code></td>
+<td><strong>329 MB</strong></td>
+</tr>
+<tr>
+<td><code>@deepseek-ai/*</code> 全部</td>
+<td><strong>28 MB</strong></td>
+</tr>
+<tr>
+<td>└ 最大的 <code>dsh-web-frontend</code></td>
+<td>4.7 MB</td>
+</tr>
+<tr>
+<td>└ 多数包</td>
+<td>200–900 KB</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>329MB 的大头（都不是 dsh 本身）：</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>包</th>
+<th>体积</th>
+<th>安卓上是否必需</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pnpm</code></td>
+<td>39 MB</td>
+<td>❌ 运行时不需要（构建期裁剪即可去掉）</td>
+</tr>
+<tr>
+<td><code>@opentelemetry</code></td>
+<td>31 MB</td>
+<td>⚠️ 可裁剪</td>
+</tr>
+<tr>
+<td><code>@img</code>（sharp 的原生库）</td>
+<td>28 MB</td>
+<td>❌ 图片处理，安卓上可换</td>
+</tr>
+<tr>
+<td><code>node-pty</code></td>
+<td>27 MB</td>
+<td>❌ <strong>无 android prebuild</strong></td>
+</tr>
+<tr>
+<td><code>@mistralai</code></td>
+<td>25 MB</td>
+<td>❌ 不用 Mistral 可删</td>
+</tr>
+<tr>
+<td><code>@google</code></td>
+<td>14 MB</td>
+<td>⚠️ 按需</td>
+</tr>
+<tr>
+<td><code>openai</code></td>
+<td>12 MB</td>
+<td>⚠️ 按需</td>
+</tr>
+<tr>
+<td><code>@aws-sdk</code></td>
+<td>5.9 MB</td>
+<td>❌ 可删</td>
+</tr>
+<tr>
+<td><code>@anthropic-ai</code></td>
+<td>5.8 MB</td>
+<td>⚠️ 按需</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p><strong>结论</strong>：裁剪后一个"安卓最小 profile"（headless + 1 个 LLM provider + MCP）
+的 JS 部分<strong>保守估计 40–70 MB</strong>，加上 Node 运行时（单 ABI 约 30–40 MB），
+<strong>APK 预计 80–130 MB</strong>（arm64 单架构）。</p>
+</blockquote>
+<h2 id="24">2.4 ★ 四条硬约束（全部实测）</h2>
+<h3 id="1node-20nodejs-mobile">约束 1：Node 版本下限是 20，nodejs-mobile 不可用</h3>
+<p><strong>dsh 实际使用的现代 API（实测扫描）：</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>API</th>
+<th>最低 Node</th>
+<th>出现在</th>
+<th>可否绕过</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Array.prototype.toReversed()</code></td>
+<td><strong>20</strong></td>
+<td><code>dsh-agent-instructions</code>、<code>dsh-goal-round-driver</code></td>
+<td>❌ <strong>核心包，绕不开</strong></td>
+</tr>
+<tr>
+<td><code>import.meta.resolve</code></td>
+<td><strong>20.6</strong></td>
+<td><code>dsh-sandbox-local</code>、<code>dsh-workflow-worker-thread</code>、<code>dsh-host-directory-picker-native</code></td>
+<td>⚠️ 可禁用对应功能</td>
+</tr>
+<tr>
+<td><code>node:sqlite</code></td>
+<td><strong>22.5</strong></td>
+<td>仅 <code>dsh-session-query-sqlite</code></td>
+<td>✅ <strong>惰性动态导入</strong>，禁用会话搜索即可</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p><code>dsh-session-query-sqlite</code> 的注释原文：
+<em>"a disabled deployment never imports node:sqlite, opens the index, or observes sources."</em>
+即<strong>该包是设计成可禁用的</strong>。</p>
+</blockquote>
+<p><strong>所以真实下限 = Node 20</strong>（因为 <code>toReversed()</code> 在两个核心包里）。</p>
+<p><strong>而运行时来源实测：</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>方案</th>
+<th>Node 版本</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>nodejs-mobile</strong></td>
+<td><strong>18.20.4</strong>（2024-10-07）</td>
+<td>❌ <strong>封顶 Node 18，且已 EOL。不可用</strong></td>
+</tr>
+<tr>
+<td><strong>Termux packages</strong></td>
+<td><strong>26.4.0</strong></td>
+<td>✅ 唯一现实的 Android 来源</td>
+</tr>
+</tbody>
+</table></div>
+<p>nodejs-mobile 现状（GitHub API 实测）：871 star、未归档、最后推送 2026-04-30、
+46 个 open issue、最新 release 停在 2024-10。<strong>维护缓慢，且停在 EOL 的 Node 18。</strong></p>
+<h3 id="2termux-node">约束 2：Termux 的 Node 二进制有路径硬编码问题</h3>
+<p>Termux 的包按 <code>/data/data/com.termux/files/usr</code> 前缀构建，<strong>不能直接塞进别的 App</strong>。
+两条出路：
+- <strong>照 Termux 的 <code>packages/nodejs/build.sh</code> 自行交叉编译</strong>（推荐，可控且可长期维护）
+- 借用其二进制并做路径重定向（快，但脆弱，且升级链路依赖 Termux）</p>
+<h3 id="3">约束 3：桌面工具在安卓上大多无用</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>dsh 工具</th>
+<th>安卓上的情况</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dsh-tool-bash</code> / <code>dsh-terminal-bash</code></td>
+<td>❌ Android <strong>没有 bash</strong>，需换 <code>sh</code> 或自实现</td>
+</tr>
+<tr>
+<td><code>dsh-tool-pwsh</code> / <code>dsh-pwsh-sandbox</code></td>
+<td>❌ <strong>Windows 专用</strong>，完全无用</td>
+</tr>
+<tr>
+<td><code>dsh-sandbox-windows-acl</code></td>
+<td>❌ <strong>Windows 专用</strong></td>
+</tr>
+<tr>
+<td><code>dsh-tool-fs</code> / <code>dsh-tool-fs-search</code></td>
+<td>⚠️ 面向桌面文件系统；安卓 Scoped Storage 模型完全不同</td>
+</tr>
+<tr>
+<td><code>node-pty</code></td>
+<td>❌ <strong>prebuilds 只有 darwin/linux/win32，无 android</strong></td>
+</tr>
+<tr>
+<td><code>dsh-tool-web</code></td>
+<td>✅ 可用</td>
+</tr>
+<tr>
+<td><code>dsh-tool-todo</code> / <code>dsh-tool-skill</code> / <code>dsh-tool-ask-user</code></td>
+<td>✅ 可用</td>
+</tr>
+<tr>
+<td><code>dsh-mcp-client</code></td>
+<td>✅ <strong>可用，且是关键</strong></td>
+</tr>
+<tr>
+<td><code>dsh-host-webserver</code> + <code>dsh-web-frontend</code></td>
+<td>✅ <strong>可用（localhost + WebView）</strong></td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="4dsh-rc">约束 4：dsh 是 RC 版本</h3>
+<p><code>0.1.0-rc.7</code> —— API 可能大改。把产品核心押在一个 RC 版本上，需要<strong>锁定版本 + 隔离层</strong>。</p>
+<h2 id="25">2.5 四种移植路线</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>路线</th>
+<th>做法</th>
+<th>优点</th>
+<th>缺点</th>
+<th>可行性</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>A. Node 全量移植</strong></td>
+<td>交叉编译 Node 20+，打包裁剪 profile</td>
+<td>dsh 原样运行，195 包全复用</td>
+<td>APK 80–130MB；Node on Android 非官方支持；bash/pwsh/pty 需替换；启动慢</td>
+<td>⚠️ 中</td>
+</tr>
+<tr>
+<td><strong>B. Kotlin 重写内核</strong></td>
+<td>用 Kotlin 实现 agent 循环/会话/压缩/工具</td>
+<td>原生、小、快、完全可控</td>
+<td><strong>等于重造 195 个包</strong>；生态归零</td>
+<td>⚠️ 低（工作量）</td>
+</tr>
+<tr>
+<td><strong>C. 混合：dsh 为脑 + Android 为 MCP 能力端</strong> ★</td>
+<td>dsh 跑在 Android（Node），Android 能力以 <strong>MCP server</strong> 暴露，dsh 用 <code>dsh-mcp-client</code> 调用</td>
+<td>复用 dsh 全部 agent 工程；Android 侧只写"能力端"；MCP 是开放标准，保留换掉 dsh 的退路</td>
+<td>仍需 Node on Android；进程间通信与生命周期管理复杂</td>
+<td>✅ <strong>推荐</strong></td>
+</tr>
+<tr>
+<td><strong>D. 远程脑 + 瘦客户端</strong></td>
+<td>dsh 跑在 PC/服务器，手机只做 UI + 能力端</td>
+<td>手机端极轻；dsh 零改动</td>
+<td><strong>违背"数据不出设备"与 BYOK 定位</strong>；需常在线网络</td>
+<td>❌ 与项目原则冲突</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="26-c">2.6 推荐路线 C 及其理由</h2>
+<p><strong>为什么是 C：</strong></p>
+<ol>
+<li><strong><code>dsh-mcp-client</code> 是 dsh 自带的</strong> —— Android 能力天然可以作为 MCP 工具接入，
+   <strong>dsh 侧零改动</strong>。这不是权宜之计，是 dsh 本身就设计好的扩展点。</li>
+<li><strong>Android 侧只需要实现"能力端"</strong> —— 而 PocketAgent <strong>已经在做这件事</strong>
+   （<code>ScreenSnapshot</code> / <code>ActionExecutor</code> / <code>SafetyGuard</code> 已有可编译代码）。</li>
+<li><strong>MCP 是开放标准</strong> —— 保留"将来 dsh 挂了/改了，换一个 MCP 客户端"的退路，
+   不会把项目锁死在 DeepSeek 的实现上。</li>
+<li><strong>安全护栏必须留在 Android 侧</strong> —— <code>SafetyGuard</code> 在能力端拦截，
+   意味着<strong>即使 dsh 被插件投毒或模型被诱导，也绕不过本地护栏</strong>。
+   这与项目既有的"插件永远拿不到 Key、绕不过 SafetyGuard"原则完全一致。</li>
+</ol>
+<p><strong>但必须诚实说</strong>：路线 C 的前提是 <strong>Node 20+ 能在红米 K60 上跑起来</strong>，
+这是当前<strong>最大的技术未知数</strong>，必须先做验证实验（见 §4.4 P0）。</p>
+<hr />
+<h1 id="_2">第三部分 · 框架设计</h1>
+<h2 id="31">3.1 分层架构</h2>
+<div class="codehilite"><pre><span></span><code>┌───────────────────────────────────────────────────────────────┐
+│  L0  宿主层        Android App (Kotlin + Compose)              │
+│      Activity / WebView / 前台服务 / 权限引导 / 悬浮窗 / 更新    │
+├───────────────────────────────────────────────────────────────┤
+│  L1  运行时层      Node.js on Android                          │
+│      node 二进制 / 启动守护 / 日志 / 崩溃恢复 / 单 ABI 打包      │
+├───────────────────────────────────────────────────────────────┤
+│  L2  智能体内核    dsh（原样复用，零改动）                       │
+│      agent 循环 / 会话 / 压缩 / token 计量 / 计划模式 / 子代理    │
+│      dsh-llm-* (BYOK) / dsh-skill / dsh-goal / dsh-persona     │
+├───────────────────────────────────────────────────────────────┤
+│  L3  能力桥        MCP over localhost                          │
+│      Android 侧 MCP Server  ←→  dsh-mcp-client                 │
+├───────────────────────────────────────────────────────────────┤
+│  L4  能力端        Android 原生（复用 PocketAgent 既有资产）      │
+│      感知 ScreenSnapshot  │ 执行 ActionExecutor  │ 安全 SafetyGuard │
+│      无障碍树 + 截图兜底   │ 无障碍/Shizuku/IME/悬浮窗引导         │
+└───────────────────────────────────────────────────────────────┘
+</code></pre></div>
+
+<p><strong>关键设计原则（沿用项目既有约定）：</strong>
+- <strong>L4 的 SafetyGuard 是最后一道闸</strong>，dsh 侧不可绕过
+- <strong>L2 的 dsh 不做任何业务改造</strong>，保证可跟随上游升级
+- <strong>L3 用开放标准 MCP</strong>，保证 dsh 可替换</p>
+<h2 id="32">3.2 关键组件</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>组件</th>
+<th>层</th>
+<th>职责</th>
+<th>难点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>NodeRuntimeManager</strong></td>
+<td>L1</td>
+<td>打包/启动/停止 node 进程，崩溃重启，日志采集，退出清理</td>
+<td>Android 生命周期与 node 进程的绑定</td>
+</tr>
+<tr>
+<td><strong>ProfileBundler</strong></td>
+<td>构建期</td>
+<td>裁剪 <code>dsh.profile.bundles</code>，剔除 Windows/桌面专用包，产出最小 profile</td>
+<td>依赖闭包分析；缺包时的启动失败排查</td>
+</tr>
+<tr>
+<td><strong>AndroidMcpServer</strong></td>
+<td>L3</td>
+<td>把 L4 能力暴露为 MCP 工具（stdio 或 localhost HTTP）</td>
+<td>协议实现；并发与超时；进程间错误传播</td>
+</tr>
+<tr>
+<td><strong>CapabilityMapper</strong></td>
+<td>L3</td>
+<td>dsh 工具名 ↔ Android 能力的映射表</td>
+<td>语义对齐（如 <code>click</code> 的坐标空间）</td>
+</tr>
+<tr>
+<td><strong>DshBridgePlugin</strong></td>
+<td>L2/L3</td>
+<td>一个 dsh 插件，负责与 Android 宿主通信（生命周期、UI 事件、中断）</td>
+<td>需跟随 dsh 插件 API 变化</td>
+</tr>
+<tr>
+<td><strong>WebViewHost</strong></td>
+<td>L0</td>
+<td>承载 dsh 的 web UI（<code>dsh-host-webserver</code> 输出）</td>
+<td>localhost 端口管理；与原生界面的边界</td>
+</tr>
+<tr>
+<td><strong>PermissionWizard</strong></td>
+<td>L0</td>
+<td>分机型权限引导（红米 K60 / HyperOS 的 11 项配置）</td>
+<td>各家 ROM 路径不同</td>
+</tr>
+<tr>
+<td><strong>SafetyGuard</strong></td>
+<td>L4</td>
+<td>敏感页面/控件/动作/频率拦截 + 审计</td>
+<td><strong>必须前置于所有能力调用</strong></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="33-dsh-android">3.3 能力映射表（dsh 工具 ↔ Android 能力）</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>dsh 侧</th>
+<th>Android 侧实现</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>bash</code> / <code>terminal</code></td>
+<td>❌ 不可用（无 bash）→ 新增 <code>android_shell</code>（<code>sh</code>）或直接禁用</td>
+<td>待定</td>
+</tr>
+<tr>
+<td><code>pwsh</code></td>
+<td>❌ 不可用（Windows 专用）→ 直接剔除</td>
+<td>剔除</td>
+</tr>
+<tr>
+<td><code>fs</code> / <code>fs-search</code></td>
+<td>⚠️ 需重定向到 App 沙箱目录，或禁用</td>
+<td>待定</td>
+</tr>
+<tr>
+<td><code>web</code></td>
+<td>✅ 保留（OkHttp / 系统 WebView）</td>
+<td>保留</td>
+</tr>
+<tr>
+<td><code>todo</code> / <code>skill</code> / <code>ask-user</code></td>
+<td>✅ 保留</td>
+<td>保留</td>
+</tr>
+<tr>
+<td><strong>（新增）</strong> <code>screen_read</code></td>
+<td>无障碍树 → <code>ScreenSnapshot</code></td>
+<td><strong>核心</strong></td>
+</tr>
+<tr>
+<td><strong>（新增）</strong> <code>screen_capture</code></td>
+<td>MediaProjection（兜底）</td>
+<td>核心</td>
+</tr>
+<tr>
+<td><strong>（新增）</strong> <code>android_tap</code> / <code>swipe</code> / <code>input_text</code></td>
+<td><code>ActionExecutor</code>（无障碍/Shizuku）</td>
+<td><strong>核心</strong></td>
+</tr>
+<tr>
+<td><strong>（新增）</strong> <code>android_launch_app</code></td>
+<td>Shizuku <code>am start</code> / 无障碍</td>
+<td>核心</td>
+</tr>
+<tr>
+<td><strong>（新增）</strong> <code>android_notify</code></td>
+<td>通知</td>
+<td>次要</td>
+</tr>
+<tr>
+<td><strong>（新增）</strong> <code>android_safety_check</code></td>
+<td><code>SafetyGuard</code> 前置检查</td>
+<td><strong>必须</strong></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="34">3.4 实现路径（分阶段）</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>目标</th>
+<th>验收标准</th>
+<th>预估</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>P0</strong></td>
+<td><strong>运行时可行性验证</strong> ★</td>
+<td>红米 K60 上跑起 Node 20+，<code>dsh --profile headless "1+1"</code> 返回结果</td>
+<td>1–2 周</td>
+</tr>
+<tr>
+<td><strong>P1</strong></td>
+<td>最小 profile 跑通</td>
+<td>裁剪后的 profile 在设备上启动，能完成一次真实 LLM 调用</td>
+<td>1–2 周</td>
+</tr>
+<tr>
+<td><strong>P2</strong></td>
+<td>MCP 桥打通</td>
+<td>Android 侧一个 <code>screen_read</code> 工具能被 dsh 成功调用并返回节点树</td>
+<td>2 周</td>
+</tr>
+<tr>
+<td><strong>P3</strong></td>
+<td>执行端接入</td>
+<td><code>android_tap</code> 打通（先无障碍，再 Shizuku），能完成一次"打开设置→点击某项"</td>
+<td>2–3 周</td>
+</tr>
+<tr>
+<td><strong>P4</strong></td>
+<td>安全护栏前置</td>
+<td>命中支付页面时 <code>SafetyGuard</code> 拦截生效，且 dsh 无法绕过</td>
+<td>1 周</td>
+</tr>
+<tr>
+<td><strong>P5</strong></td>
+<td>界面与交付</td>
+<td>WebView 承载 dsh UI + 原生权限引导 + 可安装 APK</td>
+<td>2 周</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p><strong>P0 是唯一的前置关卡。</strong> P0 不过，路线 C 直接作废，需回退到路线 B（Kotlin 重写）
+或重新协商产品形态。</p>
+</blockquote>
+<hr />
+<h1 id="_3">第四部分 · 研讨要点</h1>
+<h2 id="41">4.1 必须达成的共识（按重要性）</h2>
+<p><strong>① 承认"豆包路线不可复制"。</strong>
+我们的权限天花板与豆包差一个"系统签名"。这不是努力问题。所有方案设计都必须
+<strong>从"第三方侧载应用"这个身份出发</strong>，而不是从"豆包能做到所以我们也行"出发。</p>
+<p><strong>② 重新审视"不影响用户正常使用"这条需求。</strong>
+它最初可能是参照豆包的体验提出的。但豆包能做到是因为 headless 虚拟屏 +
+<code>INJECT_EVENTS</code>。<strong>在第三方身份下，这条需求的实现路径只有 Shizuku，且未验证。</strong>
+建议明确一个<strong>降级预案</strong>：虚拟屏 → 小窗 → 全屏接管 → 手动引导。</p>
+<p><strong>③ 接受"GUI 只是兜底"的定位。</strong>
+公开分析给开发者的核心建议是"有 API 就走 API，GUI 只用于没有接口的场景"。
+PocketAgent 的差异化不该是"模拟点击更稳"，而应该是<strong>"任何 App 都不需要适配"</strong> ——
+这是 GUI 路线唯一的、也是真实的优势。</p>
+<p><strong>④ dsh 的价值是"工程资产"，不是"产品"。</strong>
+我们借的是会话管理、上下文压缩、token 计量、子代理编排、MCP 这些<strong>工程件</strong>，
+不是豆包那种系统级能力。要避免"移植了 dsh 就等于有了豆包"的错觉。</p>
+<p><strong>⑤ 法律姿态已经变好，要主动用。</strong>
+"用户授权即可，无需第三方双重授权"的学理共识正在形成，且有域外判例支撑。
+这对本项目是<strong>实质性利好</strong>，应在 README / 用户协议里明确援引。</p>
+<h2 id="42">4.2 需要立刻验证的技术假设</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>假设</th>
+<th>验证方式</th>
+<th>不成立的后果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>T1</strong></td>
+<td>Node 20+ 能在红米 K60 上运行</td>
+<td>交叉编译或借 Termux 二进制，跑 <code>node -e</code></td>
+<td><strong>路线 C 作废</strong></td>
+</tr>
+<tr>
+<td><strong>T2</strong></td>
+<td>裁剪后的 profile 能启动</td>
+<td>逐步剔除 bundle，看启动失败点</td>
+<td>需扩大体积预算</td>
+</tr>
+<tr>
+<td><strong>T3</strong></td>
+<td>MCP over localhost 在 Android 上可用</td>
+<td>dsh 调 Android 侧一个 echo 工具</td>
+<td>需改为 stdio 或自定义协议</td>
+</tr>
+<tr>
+<td><strong>T4</strong></td>
+<td>Shizuku 能把第三方 App 启到副屏（<strong>EX-16</strong>）</td>
+<td>真机 <code>am start --display</code></td>
+<td><strong>"不影响用户使用"不成立</strong></td>
+</tr>
+<tr>
+<td><strong>T5</strong></td>
+<td>侧载后能拿到无障碍权限（<strong>EX-13</strong>）</td>
+<td>真机安装 + 受限设置解除</td>
+<td><strong>整个产品形态不成立</strong></td>
+</tr>
+<tr>
+<td><strong>T6</strong></td>
+<td>node 进程能被前台服务稳定保活</td>
+<td>后台 30 分钟不被打死</td>
+<td>需换保活策略</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="43-t1">4.3 可以并行推进的事（不依赖 T1）</h2>
+<ul>
+<li>L4 能力端继续完善（<code>ScreenSnapshot</code> / <code>ActionExecutor</code> / <code>SafetyGuard</code>）——
+  <strong>这些资产在路线 A/B/C 下都需要，且已经开工</strong></li>
+<li>能力映射表（§3.3）细化</li>
+<li>Android 侧 MCP Server 的协议实现（可以先用一个假 dsh 客户端测）</li>
+</ul>
+<hr />
+<h1 id="_4">第五部分 · 待决策问题</h1>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>ID</th>
+<th>问题</th>
+<th>选项</th>
+<th>建议</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>D-A</strong> ★</td>
+<td><strong>架构路线选哪个？</strong></td>
+<td>A 全量 / B Kotlin 重写 / <strong>C 混合</strong> / D 远程</td>
+<td><strong>C</strong>，但以 P0 通过为前提</td>
+</tr>
+<tr>
+<td><strong>D-B</strong> ★</td>
+<td><strong>"不影响用户正常使用"是否坚持？</strong></td>
+<td>坚持（则 Shizuku 成为硬依赖）／降级为四级链／放弃</td>
+<td>坚持 + 明确降级预案</td>
+</tr>
+<tr>
+<td><strong>D-C</strong></td>
+<td><strong>APK 体积上限？</strong></td>
+<td>80–130MB 可接受／必须压到 50MB 以下</td>
+<td>需用户定。社区侧载场景下这是下载门槛</td>
+</tr>
+<tr>
+<td><strong>D-D</strong></td>
+<td><strong>Node 运行时来源？</strong></td>
+<td>照 Termux 配方自行交叉编译／借用 Termux 二进制／等官方</td>
+<td><strong>自行交叉编译</strong>（可控、可长期维护）</td>
+</tr>
+<tr>
+<td><strong>D-E</strong></td>
+<td><strong>dsh 的 RC 版本风险怎么控？</strong></td>
+<td>锁版本 + 隔离层／跟随升级／等正式版</td>
+<td>锁版本 + 隔离层，等 1.0</td>
+</tr>
+<tr>
+<td><strong>D-F</strong></td>
+<td><strong>是否兼容 SAEP？</strong></td>
+<td>兼容／不兼容／观望</td>
+<td>观望。兼容需要中心化索引，与"不建后端"冲突</td>
+</tr>
+<tr>
+<td><strong>D-G</strong></td>
+<td><strong>会话数据存哪？</strong></td>
+<td>启用 <code>node:sqlite</code>（需 Node 22.5+）／禁用（丢检索）／改 Android SQLCipher（要改 dsh 代码）</td>
+<td>先禁用，P5 后再评估</td>
+</tr>
+<tr>
+<td><strong>D-H</strong></td>
+<td><strong>主界面用 dsh 的 web UI 还是原生 Compose？</strong></td>
+<td>web UI（省事，但体验受限于 WebView）／原生（好体验，但两套 UI）</td>
+<td>先 web UI 验证，后逐步原生</td>
+</tr>
+<tr>
+<td><strong>D-I</strong></td>
+<td><strong>是否做"拟人化触控"？</strong></td>
+<td>做／不做</td>
+<td><strong>不做</strong>。本项目明确禁止刷单/薅羊毛，拟人化的唯一目的是规避风控，伦理上站不住</td>
+</tr>
+<tr>
+<td><strong>D-J</strong></td>
+<td><strong>Node 进程与 App 生命周期如何绑定？</strong></td>
+<td>常驻前台服务／按需启动／任务期间才启动</td>
+<td>任务期间才启动（省电、降低被杀概率）</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h1 id="_5">第六部分 · 风险登记</h1>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>ID</th>
+<th>风险</th>
+<th>概率</th>
+<th>影响</th>
+<th>缓解</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>R1</strong></td>
+<td>Node 20+ 无法在 Android 稳定运行</td>
+<td>中</td>
+<td><strong>致命</strong>（路线 C 作废）</td>
+<td>P0 优先验证；备选路线 B</td>
+</tr>
+<tr>
+<td><strong>R2</strong></td>
+<td>EX-16 失败，"不影响用户"不成立</td>
+<td><strong>中高</strong></td>
+<td><strong>致命</strong>（产品形态重写）</td>
+<td>明确降级链；提前与用户协商</td>
+</tr>
+<tr>
+<td><strong>R3</strong></td>
+<td>EX-13 失败，侧载拿不到无障碍</td>
+<td>中</td>
+<td><strong>致命</strong></td>
+<td>社区分发路线的头号风险，需真机验证</td>
+</tr>
+<tr>
+<td><strong>R4</strong></td>
+<td>dsh RC 版本 API 大改</td>
+<td>中高</td>
+<td>高（维护成本）</td>
+<td>锁版本 + 隔离层</td>
+</tr>
+<tr>
+<td><strong>R5</strong></td>
+<td>APK 体积过大影响传播</td>
+<td>中</td>
+<td>中</td>
+<td>单 ABI 打包；裁剪依赖；按需下载资源</td>
+</tr>
+<tr>
+<td><strong>R6</strong></td>
+<td>Play Protect 误报（读屏+模拟点击）</td>
+<td>中</td>
+<td>中</td>
+<td>提供 VirusTotal 报告；主动申诉</td>
+</tr>
+<tr>
+<td><strong>R7</strong></td>
+<td>第三方 App 风控封号</td>
+<td>中</td>
+<td>中</td>
+<td>明确免责声明；不做拟人化规避</td>
+</tr>
+<tr>
+<td><strong>R8</strong></td>
+<td>dsh 上游与 DeepSeek 商业策略绑定</td>
+<td>低</td>
+<td>中</td>
+<td>MCP 开放标准保证可替换</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h1 id="a">附录 A · 实测数据与方法</h1>
+<p><strong>检查对象：</strong>
+- <code>F:\dsh-program</code>（程序体）
+- <code>D:\dsh-home</code>（数据目录）</p>
+<p><strong>关键命令与结果：</strong></p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># 1. 包元数据</span>
+cat<span class="w"> </span>F:/dsh-program/node_modules/@deepseek-ai/dsh/package.json
+<span class="c1">#   → version 0.1.0-rc.7, license MIT, 无 engines 声明</span>
+
+<span class="c1"># 2. 依赖规模</span>
+grep<span class="w"> </span>-oE<span class="w"> </span><span class="s1">'"@deepseek-ai/[a-z0-9-]+"'</span><span class="w"> </span>package.json<span class="w"> </span><span class="p">|</span><span class="w"> </span>sort<span class="w"> </span>-u<span class="w"> </span><span class="p">|</span><span class="w"> </span>wc<span class="w"> </span>-l
+<span class="c1">#   → 71（直接依赖）</span>
+ls<span class="w"> </span>node_modules/@deepseek-ai/<span class="w"> </span><span class="p">|</span><span class="w"> </span>wc<span class="w"> </span>-l
+<span class="c1">#   → 195</span>
+ls<span class="w"> </span>node_modules<span class="w"> </span><span class="p">|</span><span class="w"> </span>wc<span class="w"> </span>-l
+<span class="c1">#   → 256（顶层包）</span>
+
+<span class="c1"># 3. 体积</span>
+du<span class="w"> </span>-sh<span class="w"> </span>F:/dsh-program/node_modules
+<span class="c1">#   → 329M</span>
+du<span class="w"> </span>-sh<span class="w"> </span>F:/dsh-program/node_modules/@deepseek-ai
+<span class="c1">#   → 28M</span>
+
+<span class="c1"># 4. Node 版本下限（关键）</span>
+grep<span class="w"> </span>-rl<span class="w"> </span><span class="s2">"toReversed"</span><span class="w"> </span>--include<span class="o">=</span><span class="s2">"*.js"</span><span class="w"> </span>.
+<span class="c1">#   → dsh-agent-instructions, dsh-goal-round-driver   ← Node 20+</span>
+grep<span class="w"> </span>-rl<span class="w"> </span><span class="s2">"import.meta.resolve"</span><span class="w"> </span>--include<span class="o">=</span><span class="s2">"*.js"</span><span class="w"> </span>.
+<span class="c1">#   → dsh-sandbox-local, dsh-workflow-worker-thread, ...  ← Node 20.6+</span>
+grep<span class="w"> </span>-rl<span class="w"> </span><span class="s2">"node:sqlite"</span><span class="w"> </span>--include<span class="o">=</span><span class="s2">"*.js"</span><span class="w"> </span>.
+<span class="c1">#   → dsh-session-query-sqlite（惰性导入，可禁用）      ← Node 22.5+</span>
+
+<span class="c1"># 5. node-pty 的 prebuilds</span>
+find<span class="w"> </span>node_modules/node-pty<span class="w"> </span>-name<span class="w"> </span><span class="s2">"*.node"</span>
+<span class="c1">#   → darwin-arm64, darwin-x64, linux-arm64, linux-x64, win32-arm64</span>
+<span class="c1">#   → ★ 无 android</span>
+
+<span class="c1"># 6. 运行时来源</span>
+<span class="c1"># nodejs-mobile（GitHub API）</span>
+<span class="c1">#   → 最新 release v18.20.4 (2024-10-07)，最后推送 2026-04-30，871 star</span>
+<span class="c1"># termux-packages/packages/nodejs/build.sh</span>
+<span class="c1">#   → TERMUX_PKG_VERSION=26.4.0</span>
+</code></pre></div>
+
+<p><strong>结论</strong>：dsh 需要 <strong>Node ≥ 20</strong>；nodejs-mobile 封顶 <strong>18</strong>；
+<strong>Termux 提供 Node 26.4.0 for Android</strong> —— 这是唯一现实的运行时来源。</p>
+<hr />
+<h1 id="b">附录 B · 本文的确定性分级</h1>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>内容</th>
+<th>确定性</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>dsh 的包结构、依赖数、体积、Node 下限</td>
+<td><strong>实测</strong>（本机命令，可复现）</td>
+</tr>
+<tr>
+<td>nodejs-mobile / Termux 的 Node 版本</td>
+<td><strong>实测</strong>（GitHub API / 源码）</td>
+</tr>
+<tr>
+<td>豆包的产品能力、SAEP 机制、公示期规则</td>
+<td><strong>公开报道</strong>（多方一致，可信）</td>
+</tr>
+<tr>
+<td>豆包的权限名（<code>READ_FRAME_BUFFER</code> 等）与 <code>aikernel</code> 细节</td>
+<td><strong>第三方逆向分析</strong>（知乎），非官方，需真机验证</td>
+</tr>
+<tr>
+<td>云端模型为 UI-TARS</td>
+<td><strong>推测</strong>（原文标注"推测"）</td>
+</tr>
+<tr>
+<td>四条移植路线与框架设计</td>
+<td><strong>本文建议</strong>，待评审</td>
+</tr>
+</tbody>
+</table></div>
+  </main>
+</div>
+</body>
+</html>
