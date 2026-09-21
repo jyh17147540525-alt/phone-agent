@@ -171,8 +171,24 @@ dependencies {{
 """
 
 
+def namespace_for(module: str) -> str:
+    """
+    从模块路径推导 Android namespace。
+
+    ⚠️ 目录名里的连字符必须去掉。`provider/openai-compat` 如果只把斜杠换成点，
+       得到的是 `com.pocketagent.provider.openai-compat` —— 而 `openai-compat`
+       不是合法的 Java 标识符。AGP 会在**配置阶段**就报错，
+       连编译都进不去，而且报错指向的是模块构建文件而不是这里的生成逻辑。
+
+    注意是「去掉」而不是「换成下划线」：源码里的包名就是 `openaicompat`
+    （见 provider/openai-compat/src/main/kotlin/...），namespace 必须与之一致，
+    否则 R 类与 BuildConfig 会生成到另一个包下，引用起来全是找不到符号。
+    """
+    return "com.pocketagent." + module.replace("/", ".").replace("-", "")
+
+
 def android_lib(module: str, deps: list[str]) -> str:
-    ns = "com.pocketagent." + module.replace("/", ".")
+    ns = namespace_for(module)
     dep_lines = "\n".join(f"    implementation(libs.{d})" for d in deps
                           if d not in ("androidx.room.compiler",))
     ksp_lines = ""
@@ -206,7 +222,9 @@ android {{
     defaultConfig {{
         minSdk = libs.versions.minSdk.get().toInt()
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        consumerProguardFiles("consumer-rules.pro")
+        // 此处原本声明 consumerProguardFiles("consumer-rules.pro")，
+        // 但那个文件从未创建，AGP 找不到会直接构建失败。
+        // consumer 规则只在模块真的对外发布混淆契约时才需要，届时连同文件一起加。
     }}
 
     compileOptions {{

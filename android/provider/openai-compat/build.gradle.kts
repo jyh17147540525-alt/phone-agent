@@ -8,7 +8,11 @@ plugins {
 }
 
 android {
-    namespace = "com.pocketagent.provider.openai-compat"
+    // ⚠️ 目录名是 openai-compat，但连字符不是合法的 Java 标识符，
+    //    所以 namespace 里的这一段是 openaicompat（去掉连字符，不是换成下划线）——
+    //    必须与源码包名 com.pocketagent.provider.openaicompat 一致。
+    //    生成器已同步修正，见 gen_module_build_files.py 的 namespace_for()。
+    namespace = "com.pocketagent.provider.openaicompat"
     compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {
