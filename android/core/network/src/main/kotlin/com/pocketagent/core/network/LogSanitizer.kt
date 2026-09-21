@@ -14,22 +14,36 @@ package com.pocketagent.core.network
  */
 object LogSanitizer {
 
-    /** 各厂商 API Key 的特征模式 */
+    /**
+     * 各厂商 API Key 的特征模式。
+     *
+     * ⚠️ 顺序有讲究：**列表前面的模式会先替换掉文本**，被替换后的内容
+     *    不会再被后面的模式匹配到。所以「更具体」的模式要排在「更宽泛」的前面。
+     *
+     *    当前 `sk-` 那条其实已经覆盖了 `sk-ant-`（`-` 在字符类里），
+     *    所以第二条是冗余的 —— 留着是为了表明"Anthropic 也被考虑到了"，
+     *    将来若把 `sk-` 收紧成 `sk-[A-Za-z0-9]{32,}`，它才会真正生效。
+     */
     private val KEY_PATTERNS: List<Regex> = listOf(
-        // OpenAI / DeepSeek / Moonshot / 硅基流动 等：sk- 前缀
-        Regex("""sk-[A-Za-z0-9_\-]{16,}"""),
-        // Anthropic: sk-ant-api03-...
+        // Anthropic: sk-ant-api03-...（须排在通用 sk- 之前）
         Regex("""sk-ant-[A-Za-z0-9_\-]{16,}"""),
+        // OpenAI / DeepSeek / Moonshot / 硅基流动 / 通义 / 智谱 等：sk- 前缀
+        Regex("""sk-[A-Za-z0-9_\-]{16,}"""),
         // Google: AIza...
         Regex("""AIza[A-Za-z0-9_\-]{30,}"""),
         // 火山方舟 / 通用 UUID 风格
-        Regex("""[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"""),
+        Regex("""[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}""", RegexOption.IGNORE_CASE),
         // 通用 Bearer token
-        Regex("""(?i)bearer\s+[A-Za-z0-9_\-\.]{20,}"""),
+        Regex("""bearer\s+[A-Za-z0-9_\-\.]{20,}""", RegexOption.IGNORE_CASE),
         // 通用 x-api-key
-        Regex("""(?i)x-api-key["'\s:]+[A-Za-z0-9_\-\.]{20,}"""),
+        Regex("""x-api-key["'\s:]+[A-Za-z0-9_\-\.]{20,}""", RegexOption.IGNORE_CASE),
         // 长 hex 串（部分国内厂商）
-        Regex("""\b[0-9a-f]{32,64}\b"""),
+        //
+        // ⚠️ IGNORE_CASE 不是可选项。早先这里没加，导致**全大写的密钥直接放行** ——
+        //    `\b[0-9a-f]{32,64}\b` 匹配不到 `ABCDEF...`，密钥原样进了日志。
+        //    代价是会误伤大写的请求 ID / commit SHA，但"误伤"只是日志难看，
+        //    "放行"是密钥泄漏，两者不可同日而语。
+        Regex("""\b[0-9a-f]{32,64}\b""", RegexOption.IGNORE_CASE),
     )
 
     /** PII 模式 */
@@ -61,9 +75,13 @@ object LogSanitizer {
      * 或直接使用 [SanitizingTree]，把脱敏变成日志框架的内建行为。
      */
     fun sanitize(input: String?): String {
-        if (input.isNullOrEmpty()) return input ?: ""
+        if (input.isNullOrEmpty()) return ""
 
-        var result = input
+        // ⚠️ 这里用 orEmpty() 而不是依赖 `isNullOrEmpty()` 的契约做智能转换。
+        //    实测（Kotlin 2.2.20 + JDK 25）该契约在 `var x = input` 处**不会**
+        //    把 `String?` 收窄成 `String`，导致下面 `pattern.replace(result)` 编译失败。
+        //    靠契约推断不值得赌，写成显式的更稳。
+        var result = input.orEmpty()
 
         // 1. 先干掉 base64 图片（最长、最危险）
         result = BASE64_IMAGE.replace(result, "[IMAGE_DATA_REDACTED]")

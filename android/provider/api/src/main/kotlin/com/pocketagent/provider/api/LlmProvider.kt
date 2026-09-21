@@ -112,8 +112,26 @@ class ProviderCredential(
         apiKey.fill(0)
     }
 
-    /** 仅在构造请求头的瞬间调用，不要缓存返回值 */
-    internal fun revealForRequest(): String = apiKey.decodeToString()
+    /**
+     * 取出明文用于构造请求头。
+     *
+     * ⚠️ **只在构造鉴权头的那一行调用，不要赋值给变量、不要缓存、不要传参。**
+     *    返回的 String 会进入 JVM 字符串池，无法擦除 —— 这是本设计唯一
+     *    无法避免的明文暴露点，因此必须把暴露窗口压到最小。
+     *
+     * 正确：
+     * ```kotlin
+     * .header("Authorization", "Bearer ${credential.apiKeyForRequest()}")
+     * ```
+     * 错误：
+     * ```kotlin
+     * val key = credential.apiKeyForRequest()   // ❌ 明文驻留内存
+     * ```
+     */
+    fun apiKeyForRequest(): String = apiKey.decodeToString()
+
+    /** 明文长度，用于校验与脱敏显示，不暴露内容 */
+    val keyLength: Int get() = apiKey.size
 
     override fun toString(): String = "ProviderCredential(***, baseUrl=$baseUrlOverride)"
 }
@@ -216,7 +234,13 @@ data class TokenUsage(
 
 /** 费用 */
 data class Cost(val usd: Double) {
-    override fun toString(): String = "$${String.format("%.6f", usd)}"
+    /**
+     * ⚠️ 必须显式指定 [java.util.Locale.US]。
+     *    默认 locale 下 `%.6f` 在德语/土耳其语等环境会输出 `0,001234`（逗号作小数点），
+     *    一旦这个字符串被写进日志或界面，用户会看成"两个数字"，也无法再被解析回来。
+     */
+    override fun toString(): String =
+        "$" + String.format(java.util.Locale.US, "%.6f", usd)
 }
 
 /** 工具定义（供 function calling 使用） */

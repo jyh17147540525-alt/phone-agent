@@ -159,6 +159,38 @@
 
 ---
 
+## 开发与验证
+
+### 完整构建（需要 Android SDK）
+
+```bash
+cd android
+./gradlew test          # 单元测试
+./gradlew assembleDebug # 打 APK
+```
+
+需要 JDK 17（**不要用 JDK 21+，AGP 8.x 对高版本 JDK 支持不稳**）与 Android SDK 36。
+
+### 不装 Android SDK 也能跑的逻辑测试
+
+本项目绝大多数高风险逻辑（SSE 解析、密钥脱敏、token 估算、费用计算）
+都在**零 Android 依赖**的纯 Kotlin 模块里，但它们所在的 Gradle 模块
+声明了 `com.android.library` 插件 —— 没有 SDK 就连编译都过不去。
+
+`tools/verify/run_logic_tests.py` 绕开 Gradle 与 AGP，直接用 Kotlin 命令行
+编译器把这些模块抓出来编译并跑 JUnit：
+
+```bash
+python tools/verify/run_logic_tests.py
+```
+
+依赖（约 70MB）自动下载到用户级缓存目录，不进仓库。
+
+> ⚠️ 这只是**没有 Android SDK 时的过渡手段**。SDK 就位后，
+> `./gradlew test` 才是唯一权威。两者都要能通过。
+
+---
+
 ## 参与贡献
 
 欢迎贡献，尤其是：
