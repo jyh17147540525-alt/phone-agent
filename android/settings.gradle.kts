@@ -72,6 +72,17 @@ include(":overlaylogic")
 include(":perception")
 include(":action")
 include(":agent")
+
+// Agent 循环的纯逻辑部分：预算熔断 / 任务状态机 / 感知档位 / 检查点 / 消歧。
+// ⚠️ 与 :agent 分开的理由和 :overlaylogic 与 :overlay 一样 ——
+//    :agent 是接口与编排（要 Android），本模块零 Android 依赖，可离线完整测试。
+//
+// ★ 为什么要拆：这里每条逻辑错的后果**都是静默的** ——
+//   预算算错只是多跑几轮（用户看不到）、卡死检测漏排除 WAIT
+//   只是"任务莫名中止"、感知第 0 档被"顺手修掉"只是每步多花一次截图。
+//   没有一条抛异常，没有一条在真机上"一眼看出来"。
+include(":agentlogic")
+
 include(":safety")
 include(":keymgmt")
 include(":memory")

@@ -18,7 +18,7 @@ but the agent loop — the part where the AI actually "does things for you" — 
 Done:
 
 - ✅ Full project designs (v1.0 / v2.0 / v3.0) and an M0 technical validation handbook (18 experiments)
-- ✅ Project skeleton (35 Gradle modules, 128 Kotlin source files, ~37k lines)
+- ✅ Project skeleton (36 Gradle modules, 138 Kotlin source files, ~40k lines)
 - ✅ Provider layer (OpenAI-compatible protocol, 11 vendors covered) + text-to-speech (TTS)
 - ✅ Safety guardrails (sensitive screens / sensitive widgets / dangerous actions / rate limiting + audit)
 - ✅ **Plugin system** — contract, three-tier classification, capability allowlist, forbidden-prefix blocking
@@ -30,7 +30,10 @@ Done:
 - ✅ **`GatewayCore`** (1.4.1–1.4.5) — routing / budget circuit-breaking / decryption / forwarding / metering
 - ✅ **`HttpGatewayServer`** (1.4.6) — loopback HTTP + SSE, for dsh to consume
 - ✅ **`GatewayTokenProvider`** (1.4.7) — local token issuance + constant-time comparison + six hardening rules
-- ✅ **667 offline unit tests passing** (including 44 real-socket integration tests)
+- ✅ **Agent loop pure-logic layer** (S2/S3, `agentlogic`) — four-dimension budget circuit breaker
+  (turns/duration/energy/upload), task state machine + freeze detection, five-tier perception
+  ladder, checkpoints with resume, ambiguity resolution
+- ✅ **835 offline unit tests passing** (including 44 real-socket integration tests)
 - ✅ **All five P0 on-device experiments reached conclusions** (see "M0 on-device results" below)
 - ✅ **A debug APK that builds**
 
@@ -38,7 +41,9 @@ Not done (honest list):
 
 - ❌ **Perception / action / agent loop** — the part where the AI actually "does things for you".
   `:perception` / `:action` / `:agent` currently hold interface contracts only, with no implementations
-- ❌ **The three cross-cutting components the loop needs** — `AgentBudget` / `TaskCheckpoint` / `PerceptionLadder`
+- ❌ **`PrivacyFilter` / `PowerGovernor`** — the other two of the five cross-cutting components
+  (the first three are now implemented). `PrivacyFilter` must be the **single exit point for every
+  upload path**; adding it afterwards is guaranteed to leak
 - ❌ **Wiring the gateway into dsh's config** (1.4.6c) and **wiring the gateway into the agent loop** (1.4.8)
 - ❌ **Plugin runtime** — the execution engine for the three plugin tiers (`:plugin:runtime` / `:script` etc. are empty modules)
 - ❌ **Memory, self-update, onboarding, contribution, channel distribution** — those modules have not been started
@@ -55,7 +60,7 @@ Plugin bundles are fully validated — hash checking, zip slip / zip bomb protec
 forbidden-capability blocking. None of it is skipped.
 
 **Cannot**: it **does not read the screen, does not tap**. Installed plugins do not run either, because
-the execution engine is not implemented. The gateway itself already works (667 tests cover it), but no UI
+the execution engine is not implemented. The gateway itself already works (835 tests cover it), but no UI
 hands it to a user yet — until the agent loop is connected, it is **a verified foundation**, nothing more.
 
 > The plugin system and the gateway were built out first because they are **the only parts that can be
@@ -154,7 +159,7 @@ These are written up in the [design docs](docs/) and they constrain every line o
 └──────────────────────────────────────────────────────────┘
 ```
 
-35 modules in total — see [`android/README.en.md`](android/README.en.md) and the [design docs](docs/) (currently Chinese only).
+36 modules in total — see [`android/README.en.md`](android/README.en.md) and the [design docs](docs/) (currently Chinese only).
 
 ### Three-tier plugin system
 
@@ -455,7 +460,7 @@ modules, and reconciles that against the declared `project(":...")` entries. It 
 build-feedback loop into two seconds.
 
 **`check_version_catalog.py`** — Gradle version-catalog accessors (`libs.androidx.core.ktx`) are
-resolved at **configuration time**. A typo in any of the 35 modules fails configuration, and the error
+resolved at **configuration time**. A typo in any of the 36 modules fails configuration, and the error
 points at a module you are not even using. This script reconciles all 31 `build.gradle.kts` files
 before the build runs.
 

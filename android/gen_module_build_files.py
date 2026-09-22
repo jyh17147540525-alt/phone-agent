@@ -43,6 +43,16 @@ PURE_KOTLIN = {
     # core:database，它就再也进不了离线验证器，而"预算熔断算错成本"
     # 恰好是那种不报错、只是静默烧钱的问题，必须有测试钉住。
     "provider/gateway",
+    # Agent 循环的纯逻辑部分：预算 / 状态机 / 感知档位 / 检查点 / 消歧。
+    # 与 :agent 分开的理由和 overlaylogic 一样：后者是接口与编排，
+    # 需要 Android；而这里的东西零 Android 依赖，能被离线验证器完整覆盖。
+    #
+    # ★ 为什么这些必须离线可测：它们错的**后果都是"静默"的** ——
+    #   预算算错只是多跑几轮（用户看不到）、卡死检测漏排 WAIT
+    #   只是"任务莫名中止"、感知档位选错只是"多花一份截图成本"。
+    #   没有一条会抛异常，没有一条会在真机上"一眼看出来"。
+    #   这类问题唯一可靠的抓手就是能离线跑的确定性测试。
+    "agentlogic",
 }
 
 # Android Library 模块 → 该模块需要额外依赖的库别名
@@ -281,6 +291,7 @@ EXTRA_TEST_DEPS = {
             "modelrouter",
             "overlaylogic",
             "provider/gateway",
+            "agentlogic",
             # ── 手工补过这一行、且确实需要的模块 ──
             "core/common",
             "core/network",
