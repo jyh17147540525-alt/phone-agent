@@ -62,6 +62,13 @@ ANDROID_LIB = {
     "provider/local": [
         "okhttp", "kotlinx.serialization.json", "kotlinx.coroutines.android", "timber",
     ],
+    # 语音合成。与 provider/openai-compat 分开成独立模块，而不是塞进那个 ——
+    # 后者是"对话协议"的实现，多塞一个 TTS 会让它的类注释（"一份代码覆盖
+    # OpenAI Chat Completions 协议"）变成谎话，也让只想用对话的人
+    # 被迫编译语音代码。
+    "provider/tts-openai": [
+        "okhttp", "kotlinx.serialization.json", "kotlinx.coroutines.android", "timber",
+    ],
     "perception": [
         "androidx.core.ktx", "kotlinx.coroutines.android",
         "mlkit.text.recognition.zh", "mlkit.text.recognition.en", "timber",
@@ -142,7 +149,7 @@ ANDROID_LIB = {
 # 哪些模块需要 Hilt（注入依赖的模块）
 NEEDS_HILT = {
     "core/database", "core/network", "provider/openai-compat", "provider/anthropic",
-    "provider/gemini", "provider/local", "perception", "action", "agent",
+    "provider/gemini", "provider/local", "provider/tts-openai", "perception", "action", "agent",
     "safety", "keymgmt", "memory", "overlay",
     "plugin/runtime", "plugin/rules", "plugin/script", "plugin/store",
     "plugin/devtools", "update", "onboarding",
@@ -152,7 +159,7 @@ NEEDS_HILT = {
 # 哪些模块需要序列化插件
 NEEDS_SERIALIZATION = {
     "core/network", "provider/openai-compat", "provider/anthropic", "provider/gemini",
-    "provider/local", "agent", "keymgmt", "memory",
+    "provider/local", "provider/tts-openai", "agent", "keymgmt", "memory",
     "plugin/api", "plugin/runtime", "plugin/rules", "plugin/script",
     "plugin/store", "plugin/devtools", "update",
     "github", "contribute",
@@ -175,6 +182,9 @@ PROJECT_DEPS = {
     # 数据库需要 Keystore 提供 SQLCipher 口令（口令本身也用主密钥加密后落盘）
     "core/database": [":core:crypto"],
     "provider/openai-compat": [":provider:api"],
+    # TTS 只依赖接口，不依赖任何对话侧实现 —— 语音和对话是两条独立的线，
+    # 让它们互相依赖会让"只想用语音"的场景被迫拖进 11 家对话厂商的代码。
+    "provider/tts-openai": [":provider:api"],
     "agent": [":perception", ":action"],
     # keymgmt 是"加密存储 + 校验"的粘合层：
     #   :core:crypto    —— 主密钥与加解密

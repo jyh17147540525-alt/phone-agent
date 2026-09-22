@@ -40,6 +40,10 @@ include(":provider:openai-compat")
 include(":provider:anthropic")
 include(":provider:gemini")
 include(":provider:local")
+// 语音合成。与对话侧分开成独立模块 —— 协议不同（裸音频字节 vs SSE 文本流）、
+// 厂商覆盖面也不同（OpenRouter 只有对话、没有语音），合在一起会得到
+// 一堆"这一行对语音无效"的字段。
+include(":provider:tts-openai")
 
 // 多模型调度：按任务难度在已配置模型间派发。
 // 纯 Kotlin、零 Android 依赖 —— 决策错误表现为"静默走贵了"或"任务办砸"，

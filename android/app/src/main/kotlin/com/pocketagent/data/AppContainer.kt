@@ -20,8 +20,11 @@ import com.pocketagent.keymgmt.modelDeclarationsOf
 import com.pocketagent.plugin.api.MarketCatalog
 import com.pocketagent.plugin.api.SubscriptionSource
 import com.pocketagent.provider.api.LlmProvider
+import com.pocketagent.provider.api.TtsProvider
 import com.pocketagent.provider.openaicompat.OpenAiCompatProvider
 import com.pocketagent.provider.openaicompat.ProviderProfiles
+import com.pocketagent.provider.ttsopenai.OpenAiCompatTtsProvider
+import com.pocketagent.provider.ttsopenai.TtsProfiles
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -256,6 +259,29 @@ class AppContainer(context: Context) {
         ProviderProfiles.all.map { OpenAiCompatProvider(it, http) }
 
     /**
+     * 内置语音合成服务商。
+     *
+     * ⚠️ 与 [providers] 是**两张独立的表**，见 `CredentialRepository` 的
+     *    构造参数注释。这里同样复用容器里那一个 [http] ——
+     *    没有理由为语音单开一个连接池。
+     *
+     * ⚠️ 与对话侧不同，TTS **不能只用一个实现类覆盖全部**：
+     *    虽然当前两家（硅基流动 / OpenAI）恰好都走 `/audio/speech`，
+     *    但厂商覆盖面小得多 —— OpenRouter 没有语音端点，各家的本地
+     *    TTS 走的是完全不同的协议。所以这里用 `map` 而不是
+     *    复制对话侧那句"全都走同一个协议"的乐观判断。
+     *
+     * ⚠️ **没有把 Android 原生 `TextToSpeech` 放进来。** 它是离线的、
+     *    免费的、也是"尽可能减少联网"这一取向的天然选择，但它是
+     *    **系统 API 而不是 HTTP 服务商**：不涉及 Key、不涉及网络、
+     *    不涉及鉴权。硬塞进 [TtsProvider] 会让那个接口多出一堆
+     *    "对本地引擎无意义"的字段（authScheme / baseUrl / validateKey）。
+     *    它将来应当作为一个**独立的执行通道**接进语音层。
+     */
+    private val ttsProviders: List<TtsProvider> =
+        TtsProfiles.all.map { OpenAiCompatTtsProvider(it, http) }
+
+    /**
      * 静态模型清单：`modelId` → 「展示名 + 价格」。
      *
      * ═══════════════════════════════════════════════════════════════
@@ -402,6 +428,7 @@ class AppContainer(context: Context) {
                 db = db,
                 crypto = crypto,
                 providers = providers,
+                ttsProviders = ttsProviders,
             )
             credentialStore = repository
 

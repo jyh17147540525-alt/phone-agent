@@ -4,6 +4,22 @@ import com.google.common.truth.Truth.assertThat
 import com.pocketagent.core.database.entity.CredentialCheckStatus
 import com.pocketagent.core.database.entity.CredentialPurpose
 import com.pocketagent.keymgmt.StoredCredential
+import com.pocketagent.provider.api.AudioChunk
+import com.pocketagent.provider.api.AuthScheme
+import com.pocketagent.provider.api.Capability
+import com.pocketagent.provider.api.ChatChunk
+import com.pocketagent.provider.api.ChatMessage
+import com.pocketagent.provider.api.ChatRequest
+import com.pocketagent.provider.api.Cost
+import com.pocketagent.provider.api.KeyValidationResult
+import com.pocketagent.provider.api.LlmProvider
+import com.pocketagent.provider.api.ModelInfo
+import com.pocketagent.provider.api.ProviderCredential
+import com.pocketagent.provider.api.SpeechRequest
+import com.pocketagent.provider.api.TokenUsage
+import com.pocketagent.provider.api.TtsCapability
+import com.pocketagent.provider.api.TtsProvider
+import com.pocketagent.provider.api.VoiceInfo
 import org.junit.Test
 
 /**
@@ -189,8 +205,113 @@ class KeysViewModelTest {
     }
 
     // ═══════════════════════════════════════════════════════════
+    //  候选服务商按用途区分
+    // ═══════════════════════════════════════════════════════════
+
+    @Test
+    fun `模型用途只列出模型服务商`() {
+        // ★ 这条防的是"两个列表混了"。
+        //
+        //   混了之后用户会在语音栏看到 11 家模型厂商，选中、填 Key、保存 ——
+        //   然后被仓储拒绝（"不认识的服务商"）。而他会以为是自己填错了，
+        //   反复重试。**拦截必须前移到选择阶段。**
+        val state = KeysUiState(
+            providers = listOf(fakeLlmProvider("openai"), fakeLlmProvider("deepseek")),
+            ttsProviders = listOf(fakeTtsProvider("siliconflow-tts")),
+        )
+
+        val choices = state.providerChoicesFor(CredentialPurpose.LLM)
+
+        assertThat(choices.map { it.first }).containsExactly("openai", "deepseek").inOrder()
+        assertThat(choices.map { it.first }).doesNotContain("siliconflow-tts")
+    }
+
+    @Test
+    fun `语音用途只列出语音服务商`() {
+        val state = KeysUiState(
+            providers = listOf(fakeLlmProvider("openai"), fakeLlmProvider("deepseek")),
+            ttsProviders = listOf(fakeTtsProvider("siliconflow-tts")),
+        )
+
+        val choices = state.providerChoicesFor(CredentialPurpose.TTS)
+
+        assertThat(choices.map { it.first }).containsExactly("siliconflow-tts")
+        assertThat(choices.map { it.first }).doesNotContain("openai")
+    }
+
+    @Test
+    fun `同一家厂商在两条线上是两个不同的 id`() {
+        // ★ OpenAI 既有对话也有语音，但 id 是 `openai` 和 `openai-tts`。
+        //
+        //   这不是重复，是刻意的：两条线的协议、端点、计费口径都不一样。
+        //   共用一个 id 会让"这条 Key 该走哪条校验路径"变成猜谜 ——
+        //   而猜错的表现是"Key 明明好着却校验失败"。
+        val state = KeysUiState(
+            providers = listOf(fakeLlmProvider("openai")),
+            ttsProviders = listOf(fakeTtsProvider("openai-tts")),
+        )
+
+        assertThat(state.providerChoicesFor(CredentialPurpose.LLM).single().first)
+            .isEqualTo("openai")
+        assertThat(state.providerChoicesFor(CredentialPurpose.TTS).single().first)
+            .isEqualTo("openai-tts")
+    }
+
+    @Test
+    fun `候选携带展示名而不只是 id`() {
+        // 界面直接拿它渲染 chip。只给 id 会让用户看到 `siliconflow-tts`
+        // 这种内部标识符 —— 那是这一页唯一一处不该出现的东西。
+        val state = KeysUiState(ttsProviders = listOf(fakeTtsProvider("siliconflow-tts")))
+
+        assertThat(state.providerChoicesFor(CredentialPurpose.TTS).single())
+            .isEqualTo("siliconflow-tts" to "语音服务商 siliconflow-tts")
+    }
+
+    @Test
+    fun `没有语音服务商时返回空列表`() {
+        // ⚠️ 这个状态必须能被表达 —— 界面靠它显示"还没接进来"。
+        //    返回非空（比如回落到模型服务商）会让语音栏列出 11 家模型厂商。
+        val state = KeysUiState(providers = listOf(fakeLlmProvider("openai")))
+
+        assertThat(state.providerChoicesFor(CredentialPurpose.TTS)).isEmpty()
+    }
+
+    // ═══════════════════════════════════════════════════════════
     //  辅助
     // ═══════════════════════════════════════════════════════════
+
+    private fun fakeLlmProvider(id: String): LlmProvider = object : LlmProvider {
+        override val id: String = id
+        override val displayName: String = "模型服务商 $id"
+        override val authScheme: AuthScheme = AuthScheme.Bearer
+        override val defaultBaseUrl: String = "https://example.com/v1"
+        override fun capabilities(): Set<Capability> = emptySet()
+        override suspend fun validateKey(credential: ProviderCredential) =
+            KeyValidationResult.Invalid
+
+        override suspend fun listModels(credential: ProviderCredential): List<ModelInfo>? = null
+        override fun chat(request: ChatRequest, credential: ProviderCredential) =
+            kotlinx.coroutines.flow.emptyFlow<ChatChunk>()
+
+        override fun countTokens(messages: List<ChatMessage>, model: String): Int = 0
+        override fun estimateCost(usage: TokenUsage, model: String) = Cost(0.0)
+    }
+
+    private fun fakeTtsProvider(id: String): TtsProvider = object : TtsProvider {
+        override val id: String = id
+        override val displayName: String = "语音服务商 $id"
+        override val authScheme: AuthScheme = AuthScheme.Bearer
+        override val defaultBaseUrl: String = "https://example.com/v1"
+        override fun capabilities(): Set<TtsCapability> = emptySet()
+        override suspend fun validateKey(credential: ProviderCredential) =
+            KeyValidationResult.Invalid
+
+        override suspend fun listVoices(credential: ProviderCredential): List<VoiceInfo>? = null
+        override fun synthesize(request: SpeechRequest, credential: ProviderCredential) =
+            kotlinx.coroutines.flow.emptyFlow<AudioChunk>()
+
+        override fun estimateCost(request: SpeechRequest) = Cost(0.0)
+    }
 
     private fun credential(
         id: String,

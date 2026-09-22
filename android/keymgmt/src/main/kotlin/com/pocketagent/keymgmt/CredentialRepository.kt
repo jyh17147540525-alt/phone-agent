@@ -10,6 +10,7 @@ import com.pocketagent.core.database.entity.CredentialPurpose
 import com.pocketagent.provider.api.LlmProvider
 import com.pocketagent.provider.api.ProviderCredential
 import com.pocketagent.provider.api.ProviderException
+import com.pocketagent.provider.api.TtsProvider
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.util.UUID
@@ -45,6 +46,21 @@ class CredentialRepository(
     private val db: PocketAgentDatabase,
     private val crypto: CryptoManager,
     private val providers: List<LlmProvider>,
+    /**
+     * 语音合成服务商。
+     *
+     * ⚠️ 与 [providers] 是**两张独立的表**，不是同一个列表的两种视图。
+     *    同一个厂商可能在两边都出现（OpenAI 既有对话也有语音），
+     *    但**它们的 id 不同**（`openai` vs `openai-tts`）——
+     *    因为这两条线的协议、端点、计费口径完全不一样，
+     *    合并成一个 id 会让"这条 Key 到底该走哪条校验路径"变成猜谜。
+     *
+     * ⚠️ 默认空列表。这样既有的测试与调用点不用改 ——
+     *    而"没有 TTS 服务商"是一个**必须能被表达**的状态：
+     *    语音那栏在没有它时应当明确说"还没接进来"，
+     *    而不是显示一个空下拉框让用户对着发呆。
+     */
+    private val ttsProviders: List<TtsProvider> = emptyList(),
     /** 时间源。抽出来是为了单测能固定时间，不必依赖真实时钟 */
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
@@ -68,8 +84,17 @@ class CredentialRepository(
             rows.map { it.toDomain(displayNameFor(it.providerId)) }
         }
 
-    /** 可选的服务商。界面用来渲染选择列表 */
+    /** 可选的模型服务商。界面用来渲染选择列表 */
     val availableProviders: List<LlmProvider> get() = providers
+
+    /**
+     * 可选的语音服务商。
+     *
+     * ⚠️ 与 [availableProviders] 分开暴露，**不做成"统一的服务商列表"**。
+     *    界面要按用途分别渲染两栏的候选，合并之后它还得再拆一次 ——
+     *    而"拆错了"的表现是语音那栏列出了 11 家模型厂商。
+     */
+    val availableTtsProviders: List<TtsProvider> get() = ttsProviders
 
     // ─────────────────────────────────────────────────────────────
     //  增删改
@@ -93,8 +118,19 @@ class CredentialRepository(
         baseUrlOverride: String? = null,
         purpose: CredentialPurpose = CredentialPurpose.LLM,
     ): AddCredentialResult {
-        val provider = providers.firstOrNull { it.id == providerId }
-            ?: return AddCredentialResult.Rejected("不认识的服务商「$providerId」。")
+        // ⚠️ 服务商要在**对应用途的那张表**里找。
+        //
+        //    只查 [providers] 会让语音 Key 一律被拒（"不认识的服务商"），
+        //    而用户刚刚在语音那一栏的服务商列表里亲手选中了它 ——
+        //    他会以为是自己填错了，反复重试。
+        //
+        //    反过来，若两张表混着查、不按 purpose 分派，就会允许"给模型用途
+        //    存一条 TTS 服务商的 Key"。那条 Key 永远发不出请求，而
+        //    保存时不报任何错 —— 这正是上一轮在界面上特意拦掉的状态。
+        val providerIdResolved = when (purpose) {
+            CredentialPurpose.LLM -> providers.firstOrNull { it.id == providerId }?.id
+            CredentialPurpose.TTS -> ttsProviders.firstOrNull { it.id == providerId }?.id
+        } ?: return AddCredentialResult.Rejected("不认识的服务商「$providerId」。")
 
         CredentialInput.validateKey(rawKey)?.let { return AddCredentialResult.Rejected(it) }
         CredentialInput.validateBaseUrl(baseUrlOverride)?.let {
@@ -117,7 +153,7 @@ class CredentialRepository(
 
         val base = CredentialEntity(
             id = UUID.randomUUID().toString(),
-            providerId = provider.id,
+            providerId = providerIdResolved,
             purpose = purpose,
             label = label.trim(),
             ciphertext = blob.ciphertext,
@@ -152,7 +188,7 @@ class CredentialRepository(
             )
         }
 
-        return AddCredentialResult.Added(saved.toDomain(provider.displayName))
+        return AddCredentialResult.Added(saved.toDomain(displayNameFor(saved.providerId)))
     }
 
     /**
@@ -225,6 +261,24 @@ class CredentialRepository(
      * 结论会写进数据库，所以**下次打开应用还能看到上次的结果** ——
      * 否则用户每次进来都要重新点一遍"校验"，而"上次到底怎么了"
      * 这个信息就永远丢失了。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★ 校验路径按 purpose 分派
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 这是本方法唯一复杂的地方，而它必须复杂：
+     *
+     * 一条凭据的 [CredentialPurpose] 决定了它该用哪套协议去探活 ——
+     * 模型 Key 走 `/models`（或最小 chat），语音 Key 走最小合成。
+     * **两者的端点、计费、失败模式都不同。**
+     *
+     * 若不做这个分派、一律用 [LlmProvider] 去校验，语音 Key 会得到
+     * "本版本不认识服务商" —— 而那个 Key 明明好着，用户完全无法自救。
+     *
+     * ⚠️ 分派依据是**数据库里的 purpose 字段**，不是"在哪张表里查到了
+     *    这个 providerId"。后者看起来更省事（在两个列表里各找一次，
+     *    找到谁就用谁），但它会让同一个 providerId 同时出现在两张表里时
+     *    行为不确定 —— 而"不确定"意味着这个 bug 只在某些机型上复现。
      */
     suspend fun validate(id: String): ValidationOutcome {
         val entity = dao.byId(id)
@@ -233,31 +287,26 @@ class CredentialRepository(
                 detail = "这条凭据已经不在了，可能刚被删除。",
             )
 
-        val provider = providers.firstOrNull { it.id == entity.providerId }
-            ?: return ValidationOutcome(
-                status = CredentialCheckStatus.UNCHECKED,
-                detail = "本版本不认识服务商「${entity.providerId}」，无法校验。",
-            )
+        val outcome = when (entity.purpose) {
+            // ── 模型接口 ────────────────────────────────────────
+            CredentialPurpose.LLM -> {
+                val provider = providers.firstOrNull { it.id == entity.providerId }
+                    ?: return ValidationOutcome(
+                        status = CredentialCheckStatus.UNCHECKED,
+                        detail = "本版本不认识服务商「${entity.providerId}」，无法校验。",
+                    )
+                checkWith(entity) { credential -> provider.validateKey(credential).toOutcome() }
+            }
 
-        val outcome = crypto.withDecryptedKey(
-            EncryptedBlob(ciphertext = entity.ciphertext, iv = entity.iv)
-        ) { plain ->
-            val credential = ProviderCredential(plain, entity.baseUrlOverride)
-            try {
-                provider.validateKey(credential).toOutcome()
-            } catch (e: ProviderException) {
-                // Provider 的契约允许抛异常（NetworkError / Timeout 等）。
-                // 必须在这里兜住 —— 让一个 Provider 实现的疏漏冒到界面上，
-                // 用户会看到一句他看不懂的堆栈，而不是"网络不通"。
-                e.toOutcome()
-            } catch (e: Exception) {
-                ValidationOutcome(
-                    status = CredentialCheckStatus.UNREACHABLE,
-                    detail = "校验过程中出错了：${e.message ?: e::class.simpleName}。" +
-                        "这不代表 Key 有问题，稍后重试。",
-                )
-            } finally {
-                credential.clear()
+            // ── 语音合成 ────────────────────────────────────────
+            CredentialPurpose.TTS -> {
+                val provider = ttsProviders.firstOrNull { it.id == entity.providerId }
+                    ?: return ValidationOutcome(
+                        status = CredentialCheckStatus.UNCHECKED,
+                        detail = "本版本还没有这家语音服务商「${entity.providerId}」的接口，" +
+                            "无法校验。Key 已经存下来了，等语音模块上线后可以直接用。",
+                    )
+                checkWith(entity) { credential -> provider.validateKey(credential).toOutcome() }
             }
         }
 
@@ -332,12 +381,55 @@ class CredentialRepository(
     }
 
     // ─────────────────────────────────────────────────────────────
+    //  内部工具
+    // ─────────────────────────────────────────────────────────────
+
+    /**
+     * 解密一条凭据、跑校验、无论成败都清零。
+     *
+     * ⚠️ 抽出来的理由不是"少写几行"，而是**保证两条路径（模型 / 语音）
+     *    的明文字节处理完全一致**。复制一份的话，将来有人只给其中一条
+     *    加了 `finally { clear() }`，另一条就会静默泄漏明文 ——
+     *    而泄漏是看不见的，测不出来。
+     *
+     * ⚠️ 三层 catch 的分工必须保持：[ProviderException] 是 Provider 的
+     *    **契约内**异常（网络 / 超时 / 限流），走统一映射；
+     *    其余 [Exception] 是实现方的疏漏，也不能冒到界面上 ——
+     *    用户会看到一句他看不懂的堆栈，而不是"网络不通"。
+     */
+    private suspend fun checkWith(
+        entity: CredentialEntity,
+        probe: suspend (ProviderCredential) -> ValidationOutcome,
+    ): ValidationOutcome = crypto.withDecryptedKey(
+        EncryptedBlob(ciphertext = entity.ciphertext, iv = entity.iv)
+    ) { plain ->
+        val credential = ProviderCredential(plain, entity.baseUrlOverride)
+        try {
+            probe(credential)
+        } catch (e: ProviderException) {
+            e.toOutcome()
+        } catch (e: Exception) {
+            ValidationOutcome(
+                status = CredentialCheckStatus.UNREACHABLE,
+                detail = "校验过程中出错了：${e.message ?: e::class.simpleName}。" +
+                    "这不代表 Key 有问题，稍后重试。",
+            )
+        } finally {
+            credential.clear()
+        }
+    }
 
     /**
      * Provider 展示名。查不到时**退回 id 本身**而不是空白或"未知" ——
      * 用户看到 `my-custom-endpoint` 能立刻认出是自己配的，
      * 看到"未知服务商"只会困惑。
+     *
+     * ⚠️ 两张表都要查。只查 [providers] 会让语音 Key 的卡片上
+     *    显示成裸 id（如 `siliconflow-tts`）—— 虽然不算错，
+     *    但它是这一页唯一一处"看起来像内部标识符"的地方。
      */
     private fun displayNameFor(providerId: String): String =
-        providers.firstOrNull { it.id == providerId }?.displayName ?: providerId
+        providers.firstOrNull { it.id == providerId }?.displayName
+            ?: ttsProviders.firstOrNull { it.id == providerId }?.displayName
+            ?: providerId
 }

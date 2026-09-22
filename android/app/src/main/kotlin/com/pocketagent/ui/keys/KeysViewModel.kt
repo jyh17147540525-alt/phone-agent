@@ -8,6 +8,7 @@ import com.pocketagent.keymgmt.AddCredentialResult
 import com.pocketagent.keymgmt.CredentialRepository
 import com.pocketagent.keymgmt.StoredCredential
 import com.pocketagent.provider.api.LlmProvider
+import com.pocketagent.provider.api.TtsProvider
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -72,6 +73,15 @@ data class KeysUiState(
     val store: StoreState = StoreState.Opening,
     val credentials: List<StoredCredential> = emptyList(),
     val providers: List<LlmProvider> = emptyList(),
+    /**
+     * 可选的语音服务商。
+     *
+     * ⚠️ 与 [providers] 分开，不做成"统一列表 + 按用途过滤"。
+     *    两者的**候选来源不同**（两张独立的 profile 表），
+     *    合并之后还得再拆一次 —— 而"拆错了"的表现是
+     *    语音那栏列出了 11 家模型厂商，用户选中后保存被拒。
+     */
+    val ttsProviders: List<TtsProvider> = emptyList(),
     /** 正在校验的凭据 id。用来让那一行的按钮变成"校验中" */
     val validatingIds: Set<String> = emptySet(),
     /** null 表示表单关闭 */
@@ -101,6 +111,20 @@ data class KeysUiState(
      */
     fun credentialsOf(purpose: CredentialPurpose): List<StoredCredential> =
         credentials.filter { it.purpose == purpose }
+
+    /**
+     * 某个用途下的候选服务商展示项。
+     *
+     * 返回 `id to 展示名` 的二元组而不是 [LlmProvider] / [TtsProvider] 本身 ——
+     * 表单只需要这两个字段，而**两个接口除了这两个字段之外毫无共同之处**。
+     * 为了统一类型去引入一个 `ServiceProvider` 父接口，会把两个本来
+     * 独立的契约强行绑在一起（见 `TtsProvider` 的类注释：
+     * 它们的差异不止方法名，而是整个契约不同）。
+     */
+    fun providerChoicesFor(purpose: CredentialPurpose): List<Pair<String, String>> = when (purpose) {
+        CredentialPurpose.LLM -> providers.map { it.id to it.displayName }
+        CredentialPurpose.TTS -> ttsProviders.map { it.id to it.displayName }
+    }
 }
 
 /**
@@ -141,6 +165,7 @@ class KeysViewModel(
                         it.copy(
                             store = StoreState.Ready,
                             providers = result.repository.availableProviders,
+                            ttsProviders = result.repository.availableTtsProviders,
                         )
                     }
                     observe(result.repository)
@@ -264,18 +289,20 @@ class KeysViewModel(
      *    用户要到语音功能不工作时才发现，且完全看不出是哪一步错了。
      *    不给默认值，编译器就会逼着每个调用点说清楚。
      *
-     * ⚠️ 候选服务商按用途区分。见 [KeysUiState.editorProviders]：
-     *    现在的 provider 清单里**一个 TTS 服务商都没有**，
-     *    所以语音那组会拿到空列表，表单会转成"暂不可用"的说明。
+     * ⚠️ 候选服务商按用途区分 —— 见 [KeysUiState.providerChoicesFor]。
+     *    传错用途不会编译报错，只会让用户在错误的列表里选。
      */
     fun openEditor(purpose: CredentialPurpose) {
         _state.update {
             it.copy(
                 // 默认选中第一个服务商。让用户少做一次选择 ——
-                // 而"忘了选服务商"是个会被校验拦下的无谓错误
+                // 而"忘了选服务商"是个会被校验拦下的无谓错误。
+                //
+                // ⚠️ 用当前 state 算候选，而不是复用 `it.providers`：
+                //    后者对 TTS 用途会返回模型服务商，用户选中后保存被拒。
                 editor = EditorState(
                     purpose = purpose,
-                    providerId = it.providers.firstOrNull()?.id,
+                    providerId = it.providerChoicesFor(purpose).firstOrNull()?.first,
                 ),
                 problem = null,
             )

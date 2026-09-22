@@ -48,7 +48,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pocketagent.core.database.entity.CredentialCheckStatus
 import com.pocketagent.core.database.entity.CredentialPurpose
 import com.pocketagent.keymgmt.StoredCredential
-import com.pocketagent.provider.api.LlmProvider
 import com.pocketagent.ui.design.GlassSurface
 import com.pocketagent.ui.design.PaBadge
 import com.pocketagent.ui.design.PaBadgeTone
@@ -308,7 +307,10 @@ private fun ReadyContent(state: KeysUiState, viewModel: KeysViewModel) {
             item(key = "editor") {
                 EditorCard(
                     editor = editor,
-                    providers = state.providers,
+                    // ⚠️ 候选按**表单自己的用途**取，不是取当前栏的。
+                    //    用户在语音栏点"添加"，表单可能还开着上一次的
+                    //    模型用途 —— 那样候选列表会和标题说的不是一回事。
+                    providerChoices = state.providerChoicesFor(editor.purpose),
                     onProvider = viewModel::editProvider,
                     onKey = viewModel::editKey,
                     onLabel = viewModel::editLabel,
@@ -354,9 +356,27 @@ private fun ReadyContent(state: KeysUiState, viewModel: KeysViewModel) {
                     onDelete = { pendingDelete = credential },
                 )
             }
+
+            if (editor == null) {
+                item(key = "addButton.LLM") {
+                    PaButton(
+                        text = "添加模型 Key",
+                        onClick = { viewModel.openEditor(CredentialPurpose.LLM) },
+                        style = PaButtonStyle.Text,
+                        icon = Icons.Default.Add,
+                    )
+                }
+            }
         }
 
-        if (ttsCredentials.isNotEmpty()) {
+        // ⚠️ 语音这栏**即使为空也要画**（只要该用途有候选服务商）。
+        //
+        //    "配了 3 个模型 Key、语音一条没有"是最常见的状态 ——
+        //    而它恰恰是唯一需要解释的状态。总判空会把它整个跳过，
+        //    用户于是永远不知道这一栏存在、也不知道自己该做什么。
+        val ttsAvailable = state.providerChoicesFor(CredentialPurpose.TTS).isNotEmpty()
+
+        if (ttsCredentials.isNotEmpty() || (ttsAvailable && editor == null && state.credentials.isNotEmpty())) {
             item(key = "listTitle.TTS") {
                 PaSectionTitle(
                     text = if (editor != null) {
@@ -376,6 +396,28 @@ private fun ReadyContent(state: KeysUiState, viewModel: KeysViewModel) {
                     onDelete = { pendingDelete = credential },
                 )
             }
+
+            if (ttsCredentials.isEmpty() && editor == null) {
+                item(key = "ttsHint") {
+                    Text(
+                        text = "语音合成是可选的。配一条之后，agent 说话才会用你自己的" +
+                            "语音额度 —— 不配也能用，只是没有声音。",
+                        style = PaType.caption,
+                        color = PaColor.TextTertiary,
+                    )
+                }
+            }
+
+            if (editor == null) {
+                item(key = "addButton.TTS") {
+                    PaButton(
+                        text = "添加语音 Key",
+                        onClick = { viewModel.openEditor(CredentialPurpose.TTS) },
+                        style = PaButtonStyle.Text,
+                        icon = Icons.Default.Add,
+                    )
+                }
+            }
         }
 
         if (state.credentials.isEmpty() && editor == null) {
@@ -386,19 +428,6 @@ private fun ReadyContent(state: KeysUiState, viewModel: KeysViewModel) {
                         "直接发往服务商 —— 中间没有我们的服务器，也没有任何中转。",
                     actionText = "添加 Key",
                     onAction = { viewModel.openEditor(CredentialPurpose.LLM) },
-                )
-            }
-        }
-
-        if (editor == null && state.credentials.isNotEmpty()) {
-            item(key = "addButton") {
-                Spacer(Modifier.height(PaSpace.xxs))
-                PaButton(
-                    text = "添加 Key",
-                    onClick = { viewModel.openEditor(CredentialPurpose.LLM) },
-                    style = PaButtonStyle.Glass,
-                    icon = Icons.Default.Add,
-                    fillWidth = true,
                 )
             }
         }
@@ -439,7 +468,8 @@ private fun ProblemBanner(problem: String, onDismiss: () -> Unit) {
 @Composable
 private fun EditorCard(
     editor: EditorState,
-    providers: List<LlmProvider>,
+    /** `id to 展示名`。见 `KeysUiState.providerChoicesFor` 为何不是 Provider 对象 */
+    providerChoices: List<Pair<String, String>>,
     onProvider: (String) -> Unit,
     onKey: (String) -> Unit,
     onLabel: (String) -> Unit,
@@ -461,21 +491,23 @@ private fun EditorCard(
         Text(text = "添加$purposeText Key", style = PaType.headline, color = PaColor.TextPrimary)
         Spacer(Modifier.height(PaSpace.s))
 
-        if (providers.isEmpty()) {
+        if (providerChoices.isEmpty()) {
             // ⚠️ 这里**不放输入框**。
             //
-            //    当前 `LlmProvider` 清单里全是模型服务商，一个 TTS 服务商都没有
-            //    （见 `provider/api/LlmProvider.kt` —— 那个包里没有语音抽象）。
-            //    让用户填一个必然校验失败、且存了也没人读的 Key，比拦住他更糟：
+            //    没有候选服务商意味着"本版本没有任何能收这种 Key 的地方"。
+            //    让用户填一个存下来也没人读、校验也过不了的 Key，比拦住他更糟：
             //    他会以为自己填错了，然后一遍遍重试。
             //
             //    说清楚"还没接"、并给出出路，才是此刻唯一诚实的做法。
+            //
+            //    ⚠️ 这个分支在**两种用途下都可达**：TTS 是"还没接进来"，
+            //       LLM 则会在"所有模型服务商都被裁掉"时落到这里。
+            //       所以文案不能写死成"语音还没接" —— 它会变成谎话。
             PaBanner(
-                title = "$purposeText 还没接进来",
+                title = "$purposeText 暂时没有可选的服务商",
                 tone = PaBannerTone.Info,
-                description = "本版本只带了模型服务商，语音服务商的接口还在做。" +
-                    "现在存进去的 Key 没有任何模块会去用它，也校验不了 —— " +
-                    "所以这里先不让你填。等语音模块上线后，这一栏会开放。",
+                description = "本版本没有可用的$purposeText 服务商，" +
+                    "所以这里先不让你填。等对应模块上线后，这一栏会开放。",
             )
             Spacer(Modifier.height(PaSpace.s))
             PaButton(
@@ -493,11 +525,11 @@ private fun EditorCard(
             horizontalArrangement = Arrangement.spacedBy(PaSpace.xs),
             verticalArrangement = Arrangement.spacedBy(PaSpace.xs),
         ) {
-            providers.forEach { provider ->
+            providerChoices.forEach { (id, displayName) ->
                 PaFilterChip(
-                    text = provider.displayName,
-                    selected = provider.id == editor.providerId,
-                    onClick = { onProvider(provider.id) },
+                    text = displayName,
+                    selected = id == editor.providerId,
+                    onClick = { onProvider(id) },
                 )
             }
         }
