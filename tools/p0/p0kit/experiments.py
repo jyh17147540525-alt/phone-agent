@@ -691,7 +691,34 @@ def run_p0_3(adb: Adb, ctx: Context) -> ExperimentResult:
 def _vd_checks(adb: Adb, ctx: Context) -> list[Check]:
     checks: list[Check] = []
 
-    before_ids = parse.parse_display_ids(adb.shell("dumpsys", "display").stdout)
+    before_dump = adb.shell("dumpsys", "display").stdout
+    before_ids = parse.parse_display_ids(before_dump)
+
+    # ── ⚠️ 起点卫生检查 ──────────────────────────────────
+    #
+    # 真机踩过的坑（2026-09-22）：上一轮实验遗留了一个 overlay 设备，
+    # 本轮写入新设置时系统**复用了它**（displayId 没变），
+    # 于是 `new_overlay` 为空 → 判 FAIL「机制不生效」。
+    # 而设备上副屏其实是有的。
+    #
+    # 这个错误的危险之处在于它**指向相反的方向**：把"可用"报成"不可用"，
+    # 而人看到 FAIL 会直接去做产品降级决策。
+    before_overlay = parse.parse_overlay_ids(before_dump)
+    setting_now = parse.parse_overlay_display_setting(
+        adb.shell("settings", "get", "global", "overlay_display_devices").stdout
+    )
+    if before_overlay and setting_now == "":
+        checks.append(_blocked(
+            id_="P0-3.a", title="创建虚拟屏",
+            why=f"测试起点不干净：设置里没有 overlay 设备，但 `dumpsys display` 里"
+                f"已经存在 overlay displayId {sorted(before_overlay)}。"
+                "多半是上一次实验没恢复干净。这个状态下写入新设置，"
+                "系统可能复用旧设备而不新建，导致本轮结论不可信。",
+            next_step="先清理残留再重跑：\n"
+                      "  `adb shell \"settings put global overlay_display_devices ''\"`\n"
+                      "  然后等几秒，确认 `dumpsys display | grep overlay` 无输出。",
+        ))
+        return checks
 
     # ── 创建副屏 ────────────────────────────────────────
     put = adb.shell("settings", "put", "global", "overlay_display_devices", VD_SPEC)
@@ -710,25 +737,44 @@ def _vd_checks(adb: Adb, ctx: Context) -> list[Check]:
     after_dump = adb.shell("dumpsys", "display").stdout
     after_ids = parse.parse_display_ids(after_dump)
     overlay_ids = parse.parse_overlay_ids(after_dump)
+    before_overlay = parse.parse_overlay_ids(before_dump)
     new_ids = after_ids - before_ids
+    new_overlay = overlay_ids - before_overlay
 
-    # ⚠️ 判据用 overlay 类型，而不是"有没有多出 id"。
-    #    `dumpsys display` 里还有 `virtual:` 设备（投屏、录屏），
-    #    只看"多了个 id"的话，一次投屏就能让这个实验假通过。
-    if not (overlay_ids & new_ids):
+    # ⚠️⚠️ 判据是 **overlay 集合里有没有新增**，不是 `overlay_ids & new_ids`。
+    #
+    #    真机踩过的坑（2026-09-22，K60 / Android 15）：
+    #    overlay 设备的 displayId **会漂移** —— 同一台机器上，
+    #    同一个 `overlay:1` 实测出现过 displayId=1、也出现过 displayId=9。
+    #    而 `before_ids` / `after_ids` 是**全量快照**，里面混着
+    #    `dumpsys display` 打印的历史残留记录（已销毁的投屏/录屏设备）。
+    #    这些残留每次打印的内容还不一样，于是：
+    #
+    #        新建的 overlay 在 id 9  →  9 ∉ new_ids   →  被判"没创建"
+    #        残留的 virtual 在 id 6  →  6 ∈  new_ids   →  成了"新设备"
+    #
+    #    结果就是设备上副屏明明建出来了（`type OVERLAY`、
+    #    `FLAG_PRESENTATION` 都齐），报告却说"机制不生效"。
+    #
+    #    正确做法：只比较 overlay 集合。overlay 是 Android 专门给
+    #    `overlay_display_devices` 分配的前缀，与别的虚拟屏不混淆；
+    #    而它的 displayId 是否"看起来新"与机制是否生效无关。
+    if not new_overlay:
         checks.append(Check(
             id="P0-3.a", title="创建虚拟屏",
             verdict=Verdict.FAIL,
             evidence=[
                 _ev("设置写入", VD_SPEC, put.combined),
-                _ev("创建前的 displayId", sorted(before_ids), ""),
-                _ev("创建后的 displayId", sorted(after_ids), ""),
-                _ev("其中 overlay 类型的", sorted(overlay_ids) or "（无）", ""),
+                _ev("创建前的 overlay displayId", sorted(before_overlay) or "（无）", ""),
+                _ev("创建后的 overlay displayId", sorted(overlay_ids) or "（无）", ""),
+                _ev("创建前后的全部 displayId", 
+                    f"前 {sorted(before_ids)} → 后 {sorted(after_ids)}", ""),
             ],
             consequence=(
-                "设置写进去了，但没有出现 **overlay 类型**的新显示设备。"
-                "（如果只是多了别的 id，那多半是投屏/录屏建的 virtual display，"
-                "不算数。）**「模拟辅助显示设备」这个机制在本机型/本版本上不生效。**"
+                "设置写进去了，但没有出现**新的 overlay 类型**显示设备。"
+                "（全量 displayId 里多出来的东西不算数 —— dumpsys 会打印"
+                "已销毁设备的残留记录，投屏/录屏建的 virtual display 也在里面。）"
+                "**「模拟辅助显示设备」这个机制在本机型/本版本上不生效。**"
             ),
             next_step=(
                 "手动验证：开发者选项 → 模拟辅助显示设备 → 选一个分辨率，"
@@ -738,14 +784,14 @@ def _vd_checks(adb: Adb, ctx: Context) -> list[Check]:
         ))
         return checks
 
-    vd_id = min(overlay_ids & new_ids)
+    vd_id = min(new_overlay)
     checks.append(Check(
         id="P0-3.a", title="创建虚拟屏",
         verdict=Verdict.PASS,
         evidence=[
-            _ev("新 displayId", vd_id, ""),
-            _ev("创建前", sorted(before_ids), ""),
-            _ev("创建后", sorted(after_ids), ""),
+            _ev("新 overlay displayId", vd_id, ""),
+            _ev("创建前 overlay", sorted(before_overlay) or "（无）", ""),
+            _ev("创建后 overlay", sorted(overlay_ids), ""),
         ],
     ))
 

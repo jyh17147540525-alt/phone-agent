@@ -54,10 +54,25 @@ def _now() -> str:
     return _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def derive_a11y_service(package: str) -> str:
+    """按包名派生无障碍服务名。
+
+    debug 变体的 `applicationId` 带 `.debug` 后缀（`com.pocketagent.debug`），
+    但服务类本身的包路径**不带**这个后缀 —— 它取决于源码里的 `package` 声明。
+    所以派生规则是：`应用 ID / 去掉 .debug 的包路径 + .assistant.AgentAccessibilityService`。
+
+    这条规则存在的理由：默认值写死成 `com.pocketagent/...` 时，
+    用 debug 变体跑会得到「工具说没开、系统说开了」的假失败 ——
+    因为 `enabled_accessibility_services` 里存的是应用 ID 开头的完整组件名。
+    """
+    base = package[: -len(".debug")] if package.endswith(".debug") else package
+    return f"{package}/{base}.assistant.AgentAccessibilityService"
+
+
 def build_context(args: argparse.Namespace) -> Context:
     return Context(
         package=args.package,
-        a11y_service=args.a11y_service,
+        a11y_service=args.a11y_service or derive_a11y_service(args.package),
         node_report=Path(args.node_report) if args.node_report else None,
         reinstall_apk=Path(args.reinstall_apk) if args.reinstall_apk else None,
         allow_display_changes=args.allow_display_changes,
@@ -265,8 +280,12 @@ def build_parser() -> argparse.ArgumentParser:
                         help="应用包名（debug 变体是 com.pocketagent.debug）")
     parser.add_argument(
         "--a11y-service",
-        default="com.pocketagent/com.pocketagent.assistant.AgentAccessibilityService",
-        help="无障碍服务名，必须与 AndroidManifest.xml 里声明的一致",
+        default=None,
+        help=(
+            "无障碍服务名，必须与 AndroidManifest.xml 里声明的一致。"
+            "不指定时按 --package 自动派生："
+            "<package>/<package 去掉 .debug 后缀>.assistant.AgentAccessibilityService"
+        ),
     )
 
     sub = parser.add_subparsers(dest="command", required=True)

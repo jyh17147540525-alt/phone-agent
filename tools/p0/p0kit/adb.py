@@ -236,8 +236,25 @@ class Adb:
            对字符串再做一次分词，于是 `settings put global x "a b"`
            里的引号会被吃掉一层，写进去的值变成 `a`。
            逐个传时 adb 会自己做转义。
+
+        ⚠️⚠️ **空字符串参数必须显式加引号**（真机踩过的坑）。
+
+           `adb shell settings put global overlay_display_devices ""`
+           是「把这个设置清空」。但空串作为独立 argv 传给 adb 时，
+           经 Android shell 分词后**整个参数消失**，命令退化成
+           只有 3 个参数的 `settings put global overlay_display_devices`，
+           系统回一句 `Bad arguments` 并**不做任何修改**。
+
+           症状极具迷惑性：写入方（`settings put ... 1920x1080/240`）成功，
+           恢复方（写回空串）静默失败 → 用户手机上永久留下一个副屏，
+           而工具在 `finally` 里"试过了"，退出码还是 0。
+
+           所以这里对空串补一层 `''`：`''` 经分词后是**一个真正的空参数**。
+           只处理空串，不动其他参数 —— 给非空参数乱加引号会改变其内容。
         """
-        return self._run(["shell", *args], timeout=timeout)
+        return self._run(
+            ["shell", *(_quote_if_empty(a) for a in args)], timeout=timeout
+        )
 
     def raw(self, *args: str, timeout: float = DEFAULT_TIMEOUT) -> ShellResult:
         """执行不带 `shell` 前缀的 adb 命令（如 `adb devices`、`adb pull`）。"""
@@ -280,6 +297,20 @@ class Adb:
             if line.strip() == f"package:{package}":
                 return True
         return False
+
+
+def _quote_if_empty(arg: str) -> str:
+    """
+    空字符串补一对单引号，其余原样返回。
+
+    ⚠️ **只对空串生效。** 给非空参数一律加引号会把参数里的
+       引号、空格、`$` 全都变成字面量，写进设置的值就错了。
+       这里要的只是"让一个空的 argv 穿过 Android shell 的分词"。
+
+    非空但含特殊字符的情况由 adb 自己转义（见 `shell()` 的说明），
+    不在本函数的职责范围内。
+    """
+    return "''" if arg == "" else arg
 
 
 def _decode(data) -> str:

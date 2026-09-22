@@ -1,0 +1,110 @@
+{
+  "device": {
+    "型号": "23013RK75C",
+    "市场名": "Redmi K60",
+    "Android 版本": "15",
+    "API 级别": "35",
+    "ABI": "arm64-v8a",
+    "SoC": "SM8475",
+    "MIUI/HyperOS": "V816"
+  },
+  "started_at": "2026-09-22 09:57:50",
+  "finished_at": "2026-09-22 09:57:54",
+  "experiments": [
+    {
+      "id": "P0-3",
+      "title": "EX-16 虚拟屏可行性",
+      "why": "决定「不影响用户使用」这个核心卖点是否成立。若失败，产品必须降级为小窗/全屏接管。",
+      "verdict": "FAIL",
+      "checks": [
+        {
+          "id": "P0-3.a",
+          "title": "创建虚拟屏",
+          "verdict": "PASS",
+          "evidence": [
+            {
+              "label": "新 overlay displayId",
+              "value": 1,
+              "raw": ""
+            },
+            {
+              "label": "创建前 overlay",
+              "value": "（无）",
+              "raw": ""
+            },
+            {
+              "label": "创建后 overlay",
+              "value": [
+                1
+              ],
+              "raw": ""
+            }
+          ],
+          "consequence": "",
+          "next_step": "",
+          "caveat": ""
+        },
+        {
+          "id": "P0-3.b",
+          "title": "把第三方 App 启到副屏",
+          "verdict": "FAIL",
+          "evidence": [
+            {
+              "label": "成功",
+              "value": "（无）",
+              "raw": ""
+            },
+            {
+              "label": "失败",
+              "value": [
+                "com.android.settings/.Settings: Starting: Intent { cmp=com.android.settings/.Settings }\n\n--- stderr ---\n\nException occurred while executing 'start':\njava.lang.SecurityException: Permission Denial: starting Intent { flg=0x10000000 cm",
+                "com.tencent.mm/.ui.LauncherUI: Starting: Intent { cmp=com.tencent.mm/.ui.LauncherUI }\n\n--- stderr ---\n\nException occurred while executing 'start':\njava.lang.SecurityException: Permission Denial: starting Intent { flg=0x10000000 cmp",
+                "com.eg.android.AlipayGphone/.AlipayLogin: Starting: Intent { cmp=com.eg.android.AlipayGphone/.AlipayLogin }\n\n--- stderr ---\n\nException occurred while executing 'start':\njava.lang.SecurityException: Permission Denial: starting Intent { flg=0x1",
+                "com.xingin.xhs/.index.v2.IndexActivityV2: Starting: Intent { cmp=com.xingin.xhs/.index.v2.IndexActivityV2 }\n\n--- stderr ---\n\nException occurred while executing 'start':\njava.lang.SecurityException: Permission Denial: starting Intent { flg=0x1",
+                "com.taobao.taobao/.TaobaoActivity: Starting: Intent { cmp=com.taobao.taobao/.TaobaoActivity }\n\n--- stderr ---\nError type 3\nError: Activity class {com.taobao.taobao/com.taobao.taobao.TaobaoActivity} does not exist."
+              ],
+              "raw": "com.android.settings/.Settings: Starting: Intent { cmp=com.android.settings/.Settings }\n\n--- stderr ---\n\nException occurred while executing 'start':\njava.lang.SecurityException: Permission Denial: starting Intent { flg=0x10000000 cm\ncom.tencent.mm/.ui.LauncherUI: Starting: Intent { cmp=com.tencent.mm/.ui.LauncherUI }\n\n--- stderr ---\n\nException occurred while executing 'start':\njava.lang.SecurityException: Permission Denial: starting Intent { flg=0x10000000 cmp\ncom.eg.android.AlipayGphone/.AlipayLogin: Starting: Intent { cmp=com.eg.android.AlipayGphone/.AlipayLogin }\n\n--- stderr ---\n\nException occurred while executing 'start':\njava.lang.SecurityException: Permission Denial: starting Intent { flg=0x1\ncom.xingin.xhs/.index.v2.IndexActivityV2: Starting: Intent { cmp=com.xingin.xhs/.index.v2.IndexActivityV2 }\n\n--- stderr ---\n\nException occurred while executing 'start':\njava.lang.SecurityException: Permission Denial: starting Intent { flg=0x1\ncom.taobao.taobao/.TaobaoActivity: Starting: Intent { cmp=com.taobao.taobao/.TaobaoActivity }\n\n--- stderr ---\nError type 3\nError: Activity class {com.taobao.taobao/com.taobao.taobao.TaobaoActivity} does not exist."
+            }
+          ],
+          "consequence": "**`am start --display` 起不来 App。** 这可能是目标 Activity 的`resizeableActivity` 声明问题，也可能是本 ROM 禁止跨显示启动。若换几个不同来源的 App 都是同样结果，EX-16 判否。",
+          "next_step": "换 `--vd-target` 再试几个：一个现代 App、一个老 App、一个金融类。设计文档要求至少 3 个主流 App 能启动才算通过。",
+          "caveat": ""
+        },
+        {
+          "id": "P0-3.c",
+          "title": "副屏截图",
+          "verdict": "FAIL",
+          "evidence": [
+            {
+              "label": "screencap 输出",
+              "value": "（无输出即成功）",
+              "raw": "\n--- stderr ---\nFailed to take screenshot. Status: -2\nCapturing failed.\n"
+            }
+          ],
+          "consequence": "副屏截不了图。感知层在虚拟屏模式下就拿不到画面 —— 要么改用无障碍树（可能同样受限），要么虚拟屏方案不完整。",
+          "next_step": "看原始输出里的报错。常见是权限或该 display 不支持 GPU 合成。",
+          "caveat": ""
+        },
+        {
+          "id": "P0-3.d",
+          "title": "副屏输入注入",
+          "verdict": "PASS",
+          "evidence": [
+            {
+              "label": "input tap 输出",
+              "value": "（无输出即成功）",
+              "raw": ""
+            }
+          ],
+          "consequence": "",
+          "next_step": "",
+          "caveat": ""
+        }
+      ],
+      "errors": []
+    }
+  ],
+  "skipped": [
+    "P0-3：未选其前置实验 P0-2。结果可能因前置未满足而失真，请自行判断。"
+  ]
+}

@@ -325,6 +325,71 @@ class TestP0_4(unittest.TestCase):
 
 
 # ═══════════════════════════════════════════════════════════════
+#  无障碍服务名的派生
+# ═══════════════════════════════════════════════════════════════
+
+class TestDeriveA11yService(unittest.TestCase):
+    """
+    ⚠️ **真机踩过的坑。**
+
+    `--a11y-service` 的默认值原本写死成 `com.pocketagent/...`，
+    而 debug 变体的应用 ID 是 `com.pocketagent.debug`。
+
+    后果：`enabled_accessibility_services` 里存的是**以应用 ID 开头**的
+    完整组件名（`com.pocketagent.debug/com.pocketagent.assistant.AgentAccessibilityService`），
+    与写死的默认值对不上 → P0-2.c 报 FAIL「服务没启用」，
+    但用户其实已经在设置里打开了开关。
+
+    症状是"工具说没开、系统说开了" —— 报告给出一个方向完全错误的结论，
+    而人会先怀疑自己操作错了。所以默认值必须由 `--package` 派生。
+    """
+
+    def setUp(self):
+        from run_p0 import derive_a11y_service
+        self.derive = derive_a11y_service
+
+    def test_release_variant(self):
+        self.assertEqual(
+            self.derive("com.pocketagent"),
+            "com.pocketagent/com.pocketagent.assistant.AgentAccessibilityService",
+        )
+
+    def test_debug_variant_keeps_application_id_prefix(self):
+        """应用 ID 带 `.debug`，但服务类的包路径**不带**。"""
+        self.assertEqual(
+            self.derive("com.pocketagent.debug"),
+            "com.pocketagent.debug/com.pocketagent.assistant.AgentAccessibilityService",
+        )
+
+    def test_debug_variant_matches_real_device_output(self):
+        """
+        与真机 `settings get secure enabled_accessibility_services` 的实际取值逐字符比对。
+        K60 / Android 15 实测值（2026-09-22）。
+        """
+        real = "com.pocketagent.debug/com.pocketagent.assistant.AgentAccessibilityService"
+        self.assertEqual(self.derive("com.pocketagent.debug"), real)
+
+    def test_custom_package_passthrough(self):
+        """自定义包名不该被瞎改 —— 只有 `.debug` 后缀有特殊含义。"""
+        self.assertEqual(
+            self.derive("io.example.app"),
+            "io.example.app/io.example.app.assistant.AgentAccessibilityService",
+        )
+
+    def test_suffix_like_debug_is_not_stripped(self):
+        """
+        只认结尾的 `.debug`，不认中间出现的。
+
+        宽松匹配（比如 `if ".debug" in package`）会把
+        `com.debug.tools` 这类包名误伤成 `com.tools`。
+        """
+        self.assertEqual(
+            self.derive("com.debug.tools"),
+            "com.debug.tools/com.debug.tools.assistant.AgentAccessibilityService",
+        )
+
+
+# ═══════════════════════════════════════════════════════════════
 #  汇总判定的优先级
 # ═══════════════════════════════════════════════════════════════
 
@@ -364,6 +429,65 @@ class TestVerdictAggregation(unittest.TestCase):
 # ═══════════════════════════════════════════════════════════════
 #  adb 错误分类
 # ═══════════════════════════════════════════════════════════════
+
+class TestEmptyArgQuoting(unittest.TestCase):
+    """
+    ⚠️ **真机踩过的坑（2026-09-22，Redmi K60 / Android 15）。**
+
+    P0-3 跑完后工具报告「⚠️ 未能恢复 overlay_display_devices！」，
+    同时退出码仍是 0 —— 用户手机上永久留下了那个副屏。
+
+    根因不在恢复逻辑，在 `Adb.shell()`：空字符串作为独立 argv 传给
+    adb 时，经 Android shell 分词后**整个参数消失**：
+
+        adb shell settings put global overlay_display_devices ""
+                                    ↓ 分词后
+        settings put global overlay_display_devices        ← 少了一个参数
+                                    ↓ 系统回应
+        Bad arguments                                      ← 且不做任何修改
+
+    写入方（`1920x1080/240`）成功、恢复方（写回空串）失败，
+    于是"已恢复"是个假象。所以空串必须补一层引号。
+    """
+
+    def test_empty_becomes_quoted_pair(self):
+        from p0kit.adb import _quote_if_empty
+        self.assertEqual(_quote_if_empty(""), "''")
+
+    def test_non_empty_is_untouched(self):
+        """
+        非空参数**一个字符都不能动**。
+
+        乱加引号会把参数里的引号、空格、`$` 变成字面量，
+        写进设置的值就错了 —— 那比空串问题更难查，因为不报错。
+        """
+        from p0kit.adb import _quote_if_empty
+        for arg in ("x", "1920x1080/240", "a b", "a'b", 'a"b', "$HOME", "*"):
+            with self.subTest(arg=arg):
+                self.assertEqual(_quote_if_empty(arg), arg)
+
+    def test_shell_quotes_only_empty_args(self):
+        """
+        端到端：`shell()` 拼出来的 argv 里只对空串加了引号。
+
+        直接检查传给 subprocess 的 argv，不需要真机。
+        """
+        from p0kit.adb import Adb
+        captured: list[list[str]] = []
+
+        class Recorder(Adb):
+            def _run(self, args, timeout):
+                captured.append(list(args))
+                from p0kit.adb import ShellResult
+                return ShellResult(" ".join(args), 0, "", "")
+
+        adb = Recorder("adb")
+        adb.shell("settings", "put", "global", "overlay_display_devices", "")
+        self.assertEqual(
+            captured[0],
+            ["shell", "settings", "put", "global", "overlay_display_devices", "''"],
+        )
+
 
 class TestAdbErrors(unittest.TestCase):
 

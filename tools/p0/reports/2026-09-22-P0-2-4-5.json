@@ -1,0 +1,193 @@
+{
+  "device": {
+    "型号": "23013RK75C",
+    "市场名": "Redmi K60",
+    "Android 版本": "15",
+    "API 级别": "35",
+    "ABI": "arm64-v8a",
+    "SoC": "SM8475",
+    "MIUI/HyperOS": "V816"
+  },
+  "started_at": "2026-09-22 09:58:15",
+  "finished_at": "2026-09-22 09:58:28",
+  "experiments": [
+    {
+      "id": "P0-2",
+      "title": "EX-13 侧载应用的受限设置解除流程",
+      "why": "决定产品形态是否成立。若侧载场景下拿不到无障碍，整个「社区分发 + 无障碍读屏」的方案在 Android 13+ 上不成立。",
+      "verdict": "PASS",
+      "checks": [
+        {
+          "id": "P0-2.a",
+          "title": "应用已安装",
+          "verdict": "PASS",
+          "evidence": [
+            {
+              "label": "包名",
+              "value": "com.pocketagent.debug",
+              "raw": ""
+            }
+          ],
+          "consequence": "",
+          "next_step": "",
+          "caveat": ""
+        },
+        {
+          "id": "P0-2.b",
+          "title": "受限设置模式",
+          "verdict": "PASS",
+          "evidence": [
+            {
+              "label": "ACCESS_RESTRICTED_SETTINGS",
+              "value": "default",
+              "raw": "ACCESS_RESTRICTED_SETTINGS: default; rejectTime=+3m3s371ms ago"
+            }
+          ],
+          "consequence": "当前是 `default`，无障碍开关**可以被用户打开**。注意：这只说明权限层面放行了，不代表服务已经启用（见下一项）。",
+          "next_step": "",
+          "caveat": ""
+        },
+        {
+          "id": "P0-2.c",
+          "title": "无障碍服务已启用",
+          "verdict": "PASS",
+          "evidence": [
+            {
+              "label": "已启用服务",
+              "value": [
+                "com.pocketagent.debug/com.pocketagent.assistant.AgentAccessibilityService"
+              ],
+              "raw": "com.pocketagent.debug/com.pocketagent.assistant.AgentAccessibilityService\n"
+            },
+            {
+              "label": "我们在找的服务",
+              "value": "com.pocketagent.debug/com.pocketagent.assistant.AgentAccessibilityService",
+              "raw": ""
+            }
+          ],
+          "consequence": "",
+          "next_step": "",
+          "caveat": ""
+        },
+        {
+          "id": "P0-2.d",
+          "title": "APK 清单里声明了无障碍服务",
+          "verdict": "PASS",
+          "evidence": [
+            {
+              "label": "清单中声明无障碍服务",
+              "value": true,
+              "raw": "android.accessibilityservice.AccessibilityService:\nc3a53e7 com.pocketagent.debug/com.pocketagent.assistant.AgentAccessibilityService filter 6104b94 permission android.permission.BIND_ACCESSIBILITY_SERVICE\nAction: \"android.accessibilityservice.AccessibilityService\""
+            }
+          ],
+          "consequence": "",
+          "next_step": "",
+          "caveat": ""
+        }
+      ],
+      "errors": []
+    },
+    {
+      "id": "P0-4",
+      "title": "内存预算实测",
+      "why": "设计文档估算常驻 150–230MB，而豆包的 aikernel 是 160MB。超了就是明确的劣势。",
+      "verdict": "PASS",
+      "checks": [
+        {
+          "id": "P0-4.a",
+          "title": "设备总内存与可用量",
+          "verdict": "PASS",
+          "evidence": [
+            {
+              "label": "MemTotal (MB)",
+              "value": 15152,
+              "raw": ""
+            },
+            {
+              "label": "MemAvailable (MB)",
+              "value": 4436,
+              "raw": ""
+            }
+          ],
+          "consequence": "",
+          "next_step": "",
+          "caveat": "这是**空闲状态**的可用量。真正的风险不是「够不够」，而是「系统在压力下会不会杀我们」—— 那要看 HyperOS 的后台策略（EX-15），不是看这个数字。"
+        },
+        {
+          "id": "P0-4.b",
+          "title": "应用常驻内存",
+          "verdict": "PASS",
+          "evidence": [
+            {
+              "label": "峰值 PSS (MB)，6 次采样",
+              "value": 119,
+              "raw": ""
+            },
+            {
+              "label": "平均 PSS (MB)",
+              "value": 119,
+              "raw": ""
+            },
+            {
+              "label": "预算上限 (MB)",
+              "value": 230,
+              "raw": ""
+            }
+          ],
+          "consequence": "",
+          "next_step": "",
+          "caveat": "⚠️ 这测的是**空闲**的 App。真正要测的是「一次完整 agent 任务期间」的峰值 —— 那时才有截图缓冲、无障碍节点树、模型请求体同时在内存里。任务跑起来之前，这个数字只能当**下界**。"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "id": "P0-5",
+      "title": "能耗基线实测",
+      "why": "设计文档 §2.4 的能耗全是**估算**（8 轮约 0.07% 电量）。这一项必须实测，否则「轮次优化」这个核心论点没有数据支撑。",
+      "verdict": "PASS",
+      "checks": [
+        {
+          "id": "P0-5.a",
+          "title": "电池读数可用性",
+          "verdict": "PASS",
+          "evidence": [
+            {
+              "label": "电量 (%)",
+              "value": 82,
+              "raw": ""
+            },
+            {
+              "label": "Charge counter (µAh)",
+              "value": 2628,
+              "raw": ""
+            }
+          ],
+          "consequence": "",
+          "next_step": "",
+          "caveat": "即便有读数，它的量化误差约 ±1%。5000mAh 电池上是 ±50mAh，而单次 8 轮任务预计只耗几十 mAh —— **所以它测不了单次任务，只能测长任务（比如连续跑 30 分钟）**。"
+        },
+        {
+          "id": "P0-5.b",
+          "title": "应用累计估算功耗",
+          "verdict": "PASS",
+          "evidence": [
+            {
+              "label": "估算功耗 (mAh)",
+              "value": 983.34,
+              "raw": "  Estimated power use (mAh):\n    Capacity: 3316, Computed drain: 580, actual drain: 564-597\n    Global\n      screen: 121 apps: 121 duration: 32m 41s 533ms \n      cpu: 255 apps: 255\n      bluetooth: 5.56 apps: 0 duration: 21m 7s 964ms \n      camera: 34.2 apps: 34.2 duration: 2m 19s 574ms \n      mobile_radio: 192 apps: 141 duration: 1h 25m 54s 630ms \n      sensors: 0.872 apps: 0.872\n      gnss: 2.32 apps: 2.32\n      wifi: 0.141 apps: 0.0962 duration: 1m 57s 505ms \n      wakelock: 4.13 apps: 3.64 duration: 42m 16s 434ms "
+            }
+          ],
+          "consequence": "这是**累计值**，不是单次任务的值。要得到单次任务能耗，需要在任务前后各读一次做差 —— 而差值会被 ±1% 的量化误差淹没。所以正确做法是：跑 10 次同样的任务，取平均。",
+          "next_step": "① 记录当前值 → ② 连续跑 10 次同样的 8 轮任务 → ③ 再读一次 → ④ 除以 10。用 `--reset-batterystats` 可以先清零，让读数更干净。",
+          "caveat": ""
+        }
+      ],
+      "errors": []
+    }
+  ],
+  "skipped": [
+    "P0-4：未选其前置实验 P0-1。结果可能因前置未满足而失真，请自行判断。",
+    "P0-5：未选其前置实验 P0-1。结果可能因前置未满足而失真，请自行判断。"
+  ]
+}
