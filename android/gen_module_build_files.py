@@ -269,6 +269,24 @@ def kotlin_jvm(module: str, path: str) -> str:
         f'    implementation(project("{dep}"))\n'
         for dep in PROJECT_DEPS.get(module, [])
     )
+    # ★ 有项目依赖时，`dependencies {` 之后是"依赖行 + 一个空行"，再跟库依赖。
+    #
+    # ⚠️ 这块**连着踩了三次**，三次表象都一样 —— 检查器说格式不对，
+    #    而磁盘上人写的那份才是对的。`--check` 是逐行比对，
+    #    差一个空行报出来的也是两行看起来都无害的内容，
+    #    很容易被读成"这个模块被人改坏了" —— 而实际信息是反的。
+    #
+    #    逐个排除，留档免得再猜：
+    #      ① `f"{project_lines}"`    → 项目依赖与库依赖之间没有空行
+    #      ② `f"{project_lines}\n"`  → `dependencies {` 与第一条依赖被挤到同一行
+    #      ③ `f"\n{project_lines}"`  → 正确
+    #
+    #    关键细节：上面 `project_lines` 的每一行**自带尾 \n**，
+    #    所以它末尾已有一个换行，不该也不能再补；而模板里
+    #    `dependencies {` 后面**没有**换行，必须靠这里的前导 \n 补上。
+    #
+    #    **改完必须回跑 `--check` 确认归零** —— 目测这个差看不出来，
+    #    我第三次才靠 `diff` 的 repr 输出定住。
     project_block = f"\n{project_lines}" if project_lines else ""
 
     return f"""{HEADER}plugins {{
@@ -297,9 +315,6 @@ dependencies {{{project_block}
     testImplementation(libs.turbine)
     testImplementation(libs.truth)
     testImplementation(libs.kotlinx.coroutines.core)
-    // ★ runTest / TestScope。测 `suspend` 函数与 Flow 必需 ——
-    //   用 runBlocking 会让超时的用例**永远挂着**而不是失败，
-    //   在 CI 上表现为"卡住"，最难排查。
     testImplementation(libs.kotlinx.coroutines.test)
 }}
 """
