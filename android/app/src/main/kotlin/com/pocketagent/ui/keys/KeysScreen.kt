@@ -46,6 +46,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pocketagent.core.database.entity.CredentialCheckStatus
+import com.pocketagent.core.database.entity.CredentialPurpose
 import com.pocketagent.keymgmt.StoredCredential
 import com.pocketagent.provider.api.LlmProvider
 import com.pocketagent.ui.design.GlassSurface
@@ -318,15 +319,33 @@ private fun ReadyContent(state: KeysUiState, viewModel: KeysViewModel) {
             }
         }
 
-        if (state.credentials.isNotEmpty()) {
-            item(key = "listTitle") {
+        // ═══════════════════════════════════════════════════════════
+        //  两组凭据
+        // ═══════════════════════════════════════════════════════════
+        //
+        // 按用途分栏，而不是拉一个平铺列表。理由见 CredentialPurpose 的注释：
+        // 一个混合了十来个 Key 的列表里，用户看不出"哪个给模型用、哪个给语音用"，
+        // 而这两者**不能混用** —— 混用的后果是发出去 401，且用户无法自救。
+        //
+        // ⚠️ 每一栏**各自判断自己的空**。总的判空会漏掉
+        //    "配了 3 个模型 Key、语音那条一个都没有"这个最常见的状态 ——
+        //    而语音那一栏恰恰最需要一句"这里为什么是空的"。
+
+        val llmCredentials = state.credentialsOf(CredentialPurpose.LLM)
+        val ttsCredentials = state.credentialsOf(CredentialPurpose.TTS)
+
+        if (llmCredentials.isNotEmpty()) {
+            item(key = "listTitle.LLM") {
                 PaSectionTitle(
-                    if (state.editor != null) "已配置"
-                    else "已配置 ${state.credentials.size} 个"
+                    text = if (editor != null) {
+                        CredentialPurpose.LLM.displayName
+                    } else {
+                        "${CredentialPurpose.LLM.displayName} ${llmCredentials.size} 个"
+                    }
                 )
             }
 
-            items(items = state.credentials, key = { it.id }) { credential ->
+            items(items = llmCredentials, key = { it.id }) { credential ->
                 CredentialCard(
                     credential = credential,
                     validating = credential.id in state.validatingIds,
@@ -335,14 +354,38 @@ private fun ReadyContent(state: KeysUiState, viewModel: KeysViewModel) {
                     onDelete = { pendingDelete = credential },
                 )
             }
-        } else if (editor == null) {
+        }
+
+        if (ttsCredentials.isNotEmpty()) {
+            item(key = "listTitle.TTS") {
+                PaSectionTitle(
+                    text = if (editor != null) {
+                        CredentialPurpose.TTS.displayName
+                    } else {
+                        "${CredentialPurpose.TTS.displayName} ${ttsCredentials.size} 个"
+                    }
+                )
+            }
+
+            items(items = ttsCredentials, key = { it.id }) { credential ->
+                CredentialCard(
+                    credential = credential,
+                    validating = credential.id in state.validatingIds,
+                    onSetDefault = { viewModel.setDefault(credential.id) },
+                    onValidate = { viewModel.validate(credential.id) },
+                    onDelete = { pendingDelete = credential },
+                )
+            }
+        }
+
+        if (state.credentials.isEmpty() && editor == null) {
             item(key = "empty") {
                 PaEmptyState(
                     title = "还没有配置 API Key",
                     description = "本应用不提供模型。填入你自己的 Key，请求就从这台手机" +
                         "直接发往服务商 —— 中间没有我们的服务器，也没有任何中转。",
                     actionText = "添加 Key",
-                    onAction = viewModel::openEditor,
+                    onAction = { viewModel.openEditor(CredentialPurpose.LLM) },
                 )
             }
         }
@@ -352,7 +395,7 @@ private fun ReadyContent(state: KeysUiState, viewModel: KeysViewModel) {
                 Spacer(Modifier.height(PaSpace.xxs))
                 PaButton(
                     text = "添加 Key",
-                    onClick = viewModel::openEditor,
+                    onClick = { viewModel.openEditor(CredentialPurpose.LLM) },
                     style = PaButtonStyle.Glass,
                     icon = Icons.Default.Add,
                     fillWidth = true,
@@ -409,9 +452,40 @@ private fun EditorCard(
     //    会落盘 —— 那等于把明文 Key 写进磁盘。见 EditorState 的注释。
     var revealed by remember { mutableStateOf(false) }
 
+    // ⚠️ 用途写进标题，而不是只留在状态里。
+    //    用户是从两个不同的"添加"按钮进来的，如果表单长得一模一样，
+    //    他没有任何办法确认自己点对了哪一个 —— 而存错用途不会报错。
+    val purposeText = editor.purpose.displayName
+
     GlassSurface(contentPadding = PaSpace.m) {
-        Text(text = "添加 API Key", style = PaType.headline, color = PaColor.TextPrimary)
+        Text(text = "添加$purposeText Key", style = PaType.headline, color = PaColor.TextPrimary)
         Spacer(Modifier.height(PaSpace.s))
+
+        if (providers.isEmpty()) {
+            // ⚠️ 这里**不放输入框**。
+            //
+            //    当前 `LlmProvider` 清单里全是模型服务商，一个 TTS 服务商都没有
+            //    （见 `provider/api/LlmProvider.kt` —— 那个包里没有语音抽象）。
+            //    让用户填一个必然校验失败、且存了也没人读的 Key，比拦住他更糟：
+            //    他会以为自己填错了，然后一遍遍重试。
+            //
+            //    说清楚"还没接"、并给出出路，才是此刻唯一诚实的做法。
+            PaBanner(
+                title = "$purposeText 还没接进来",
+                tone = PaBannerTone.Info,
+                description = "本版本只带了模型服务商，语音服务商的接口还在做。" +
+                    "现在存进去的 Key 没有任何模块会去用它，也校验不了 —— " +
+                    "所以这里先不让你填。等语音模块上线后，这一栏会开放。",
+            )
+            Spacer(Modifier.height(PaSpace.s))
+            PaButton(
+                text = "知道了",
+                onClick = onCancel,
+                style = PaButtonStyle.Glass,
+                fillWidth = true,
+            )
+            return@GlassSurface
+        }
 
         Text(text = "服务商", style = PaType.caption, color = PaColor.TextTertiary)
         Spacer(Modifier.height(PaSpace.xs))

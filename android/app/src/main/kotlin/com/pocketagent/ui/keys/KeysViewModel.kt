@@ -2,6 +2,7 @@ package com.pocketagent.ui.keys
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.pocketagent.core.database.entity.CredentialPurpose
 import com.pocketagent.data.CredentialStoreResult
 import com.pocketagent.keymgmt.AddCredentialResult
 import com.pocketagent.keymgmt.CredentialRepository
@@ -51,6 +52,14 @@ sealed interface StoreState {
  *    **"多填一次"远比"明文落盘"便宜。**
  */
 data class EditorState(
+    /**
+     * 这条 Key 是给谁用的。
+     *
+     * ⚠️ 必须由界面明确传入，**不能靠推断**。见 [KeysViewModel.openEditor]：
+     *    用途决定了候选服务商、"默认凭据"的竞争范围、以及校验走哪条通道，
+     *    推断错一个就会让用户存出一条永远用不上的 Key。
+     */
+    val purpose: CredentialPurpose,
     val providerId: String? = null,
     val keyInput: String = "",
     val label: String = "",
@@ -76,7 +85,23 @@ data class KeysUiState(
      *    反过来，失败必须说出来 —— 而且要说到底为什么。
      */
     val problem: String? = null,
-)
+) {
+    /**
+     * 按用途取一组凭据。
+     *
+     * ⚠️ 这里**派生而不是各存一份**。存两份就要维护两个 Flow、
+     *    两处 `catch`、两处更新 —— 而"某一处忘了更新"的表现是
+     *    **删除后列表里还留着那一行**，且不会报任何错。
+     *    单一数据源 + 派生视图没有这个失败模式。
+     *
+     *    代价是每次重组都要 filter 一遍，而这里的 N 是个位数。
+     *
+     * ⚠️ 顺序由 [credentials] 决定。仓储两个 Flow 各自按 `createdAtMillis`
+     *    升序，而这里按 purpose 筛，等于什么都没打乱。
+     */
+    fun credentialsOf(purpose: CredentialPurpose): List<StoredCredential> =
+        credentials.filter { it.purpose == purpose }
+}
 
 /**
  * API Key 管理页的状态持有者。
@@ -171,27 +196,59 @@ class KeysViewModel(
     /**
      * 订阅凭据列表。
      *
-     * ⚠️ 必须 `catch`。查询失败会**终止**这个 Flow，而 Flow 的终止是静默的：
-     *    界面会永远停在最后一个列表上，用户完全不知道发生了什么。
+     * ⚠️ **两个用途各订阅一次，最后 merge 成一条流。**
+     *
+     *    单订阅 `repository.credentials` 也能拿到全量数据，但那是"把所有
+     *    Key 混在一个列表里"的读法 —— 而这一页现在要**分组展示**，分组依据
+     *    是 `purpose`。用两条按用途收窄的查询，等于让数据库来保证
+     *    "这一组里只可能有这一种用途的 Key"。
+     *
+     *    `merge` 而不是 `combine`：任一列表变化都应该立刻反映到界面。
+     *    `combine` 会等两边都至少发过一次值 —— 用户只配了 LLM Key 时，
+     *    TTS 那条查询若一声不响，`combine` 就永远不发射，界面停在空列表上。
+     *    而 `merge` 配合 `_state.update { it.copy(credentials = list) }` 是错的
+     *    —— 见下。
+     *
+     * ⚠️ 先按用途拆开收集，再在收集里各自**替换自己那一段**。
+     *    直接 `merge(...).collect { credentials = it }` 会让两条流互相覆盖：
+     *    先到的那组被后到的那组整个顶掉，表现是**某一组凭据随机消失**。
+     *
+     * ⚠️ 两个 `catch` 都必须有。查询失败会**终止** Flow，而 Flow 的终止是
+     *    静默的：界面会永远停在最后一个列表上，用户完全不知道发生了什么。
      *    开库时已经探过一次，但那只能覆盖"开库"这一刻 ——
      *    磁盘中途写满、文件被外部改坏，都只会在查询时才炸。
+     *
+     * ⚠️ `catch` 里**不换成另一个 Flow**（不用 `emitAll` 兜一个空列表）：
+     *    那等于把"读失败了"伪装成"一个都没有"，而这两件事的用户动作
+     *    差得很远 —— 前者该重试，后者该去添加。
      */
     private fun observe(repository: CredentialRepository) {
         credentialsJob?.cancel()
         credentialsJob = viewModelScope.launch {
-            repository.credentials
-                .catch { e ->
-                    _state.update {
-                        it.copy(
-                            store = StoreState.Retryable(
-                                "读取凭据列表失败：${e.message ?: e::class.simpleName}"
-                            )
-                        )
-                    }
+            val collected = mutableMapOf<CredentialPurpose, List<StoredCredential>>()
+
+            fun publish() {
+                _state.update { it.copy(credentials = collected.values.flatten()) }
+            }
+
+            CredentialPurpose.entries.forEach { purpose ->
+                launch {
+                    repository.credentialsByPurpose(purpose)
+                        .catch { e ->
+                            _state.update {
+                                it.copy(
+                                    store = StoreState.Retryable(
+                                        "读取凭据列表失败：${describe(e)}"
+                                    )
+                                )
+                            }
+                        }
+                        .collect { list ->
+                            collected[purpose] = list
+                            publish()
+                        }
                 }
-                .collect { list ->
-                    _state.update { it.copy(credentials = list) }
-                }
+            }
         }
     }
 
@@ -199,12 +256,27 @@ class KeysViewModel(
     //  表单
     // ─────────────────────────────────────────────────────────────
 
-    fun openEditor() {
+    /**
+     * 打开表单。
+     *
+     * ⚠️ [purpose] 是**必填参数，不给默认值**。默认值会让"给语音页加 Key"
+     *    这条路径悄悄退化成"又加了一条模型 Key"，而**存的时候不会报错** ——
+     *    用户要到语音功能不工作时才发现，且完全看不出是哪一步错了。
+     *    不给默认值，编译器就会逼着每个调用点说清楚。
+     *
+     * ⚠️ 候选服务商按用途区分。见 [KeysUiState.editorProviders]：
+     *    现在的 provider 清单里**一个 TTS 服务商都没有**，
+     *    所以语音那组会拿到空列表，表单会转成"暂不可用"的说明。
+     */
+    fun openEditor(purpose: CredentialPurpose) {
         _state.update {
             it.copy(
                 // 默认选中第一个服务商。让用户少做一次选择 ——
                 // 而"忘了选服务商"是个会被校验拦下的无谓错误
-                editor = EditorState(providerId = it.providers.firstOrNull()?.id),
+                editor = EditorState(
+                    purpose = purpose,
+                    providerId = it.providers.firstOrNull()?.id,
+                ),
                 problem = null,
             )
         }
@@ -253,6 +325,10 @@ class KeysViewModel(
                 rawKey = editor.keyInput,
                 label = editor.label,
                 baseUrlOverride = editor.baseUrl.ifBlank { null },
+                // ★ 用途必须透传。仓储的 `add()` 靠它决定"默认凭据"的
+                //   竞争范围（`countByPurpose`），漏传就会让一条语音 Key
+                //   把模型那组的默认标记顶掉。
+                purpose = editor.purpose,
             )
 
             when (result) {
