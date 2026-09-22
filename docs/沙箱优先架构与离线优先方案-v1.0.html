@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>沙箱优先架构与离线优先交付方案 v1.0</title>
+<style>
+:root {
+  --bg: #14161a;
+  --bg-soft: #1a1d22;
+  --panel: #1e2228;
+  --panel-2: #23272f;
+  --border: #2e343d;
+  --text: #e6e9ee;
+  --text-dim: #9aa4b2;
+  --text-faint: #6b7684;
+  --accent: #6ea8fe;
+  --accent-2: #7ee0c0;
+  --warn: #f0b429;
+  --danger: #f2685c;
+  --ok: #57c98a;
+  --code-bg: #15181d;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+               "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans SC", sans-serif;
+  font-size: 15.5px;
+  line-height: 1.85;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { display: flex; max-width: 1500px; margin: 0 auto; }
+aside {
+  width: 300px; flex: 0 0 300px;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  padding: 28px 18px 60px 28px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-soft);
+  font-size: 13.5px;
+}
+aside .brand {
+  font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--text-faint); margin-bottom: 4px;
+}
+aside .title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 20px; line-height: 1.5; }
+aside ul { list-style: none; padding-left: 0; margin: 0; }
+aside ul ul { padding-left: 14px; margin-top: 4px; }
+aside li { margin: 2px 0; }
+aside a {
+  color: var(--text-dim); text-decoration: none; display: block;
+  padding: 4px 8px; border-radius: 6px; border-left: 2px solid transparent;
+  transition: .15s;
+}
+aside a:hover { color: var(--text); background: var(--panel-2); border-left-color: var(--accent); }
+main { flex: 1; min-width: 0; padding: 44px 56px 120px; max-width: 1080px; }
+
+h1 {
+  font-size: 30px; line-height: 1.35; margin: 0 0 8px; font-weight: 800;
+  letter-spacing: -.01em;
+}
+h2 {
+  font-size: 22px; margin: 56px 0 18px; padding-bottom: 10px;
+  border-bottom: 1px solid var(--border); font-weight: 700; scroll-margin-top: 20px;
+}
+h3 { font-size: 17.5px; margin: 34px 0 12px; font-weight: 700; color: #dfe5ee; scroll-margin-top: 20px; }
+h4 { font-size: 15.5px; margin: 24px 0 10px; font-weight: 700; color: var(--text-dim); }
+p { margin: 12px 0; }
+a { color: var(--accent); }
+strong { color: #fff; font-weight: 700; }
+hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+blockquote {
+  margin: 18px 0; padding: 14px 20px;
+  background: linear-gradient(90deg, rgba(110,168,254,.10), rgba(110,168,254,.02));
+  border-left: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0; color: #cfd6e0;
+}
+blockquote p { margin: 6px 0; }
+
+ul, ol { padding-left: 24px; margin: 12px 0; }
+li { margin: 5px 0; }
+li > ul, li > ol { margin: 5px 0; }
+
+.tw { overflow-x: auto; margin: 18px 0; border: 1px solid var(--border); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--panel); }
+th, td { padding: 9px 14px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { background: var(--panel-2); font-weight: 700; color: #fff; white-space: nowrap; font-size: 13.5px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: rgba(110,168,254,.045); }
+
+code {
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+  font-size: 13px; background: var(--code-bg); padding: 2px 6px;
+  border-radius: 5px; color: #8fd3ff; border: 1px solid var(--border);
+}
+pre {
+  background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px;
+  padding: 18px 20px; overflow-x: auto; margin: 18px 0;
+  font-size: 12.8px; line-height: 1.65;
+}
+pre code {
+  background: none; border: none; padding: 0; color: #cfd8e3;
+  white-space: pre; font-family: "JetBrains Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+}
+.codehilite { background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; margin: 18px 0; }
+.codehilite pre { border: none; margin: 0; background: none; }
+.codehilite .k, .codehilite .kd, .codehilite .kn { color: #ff7b9c; }
+.codehilite .s, .codehilite .s1, .codehilite .s2 { color: #7ee0c0; }
+.codehilite .c1, .codehilite .cm { color: #5f6b7a; font-style: italic; }
+.codehilite .n, .codehilite .nf, .codehilite .nc { color: #8fd3ff; }
+.codehilite .m, .codehilite .mi { color: #f0b429; }
+
+@media (max-width: 1000px) {
+  aside { display: none; }
+  main { padding: 28px 20px 80px; }
+  body { font-size: 15px; }
+  h1 { font-size: 24px; }
+  h2 { font-size: 19px; }
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: #333a45; border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: #414a58; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <aside>
+    <div class="brand">Project Plan</div>
+    <div class="title">沙箱优先架构与离线优先交付方案 v1.0</div>
+    <div class="toc">
+<ul>
+<li><a href="#0">0. 架构转向：从"我们检测"到"我们隔离"</a></li>
+<li><a href="#1">1. 沙箱的四层模型</a><ul>
+<li><a href="#11">1.1 分层总览</a></li>
+<li><a href="#12">1.2 三级插件各自的沙箱强度</a></li>
+<li><a href="#13-l1">1.3 L1 规则包：为什么它天然安全</a></li>
+<li><a href="#14-l2">1.4 L2 脚本：沙箱的三条逃逸路径（必须逐条堵）</a></li>
+<li><a href="#15-l3">1.5 L3 原生插件：唯一真正的沙箱，也是最大的责任</a></li>
+</ul>
+</li>
+<li><a href="#2">2. 沙箱的默认策略与放行机制</a><ul>
+<li><a href="#21">2.1 默认拒绝清单</a></li>
+<li><a href="#22">2.2 放行流程（免责声明的落地）</a></li>
+<li><a href="#23">2.3 放行的三条设计纪律</a></li>
+<li><a href="#24-vs">2.4 沙箱内 vs 沙箱外：功能差异必须诚实呈现</a></li>
+</ul>
+</li>
+<li><a href="#3">3. 离线优先：没有服务器意味着什么</a><ul>
+<li><a href="#31">3.1 三条不可协商的推论</a></li>
+<li><a href="#32">3.2 威胁情报方案的本地化改造</a></li>
+<li><a href="#33">3.3 哈希库的签名与校验</a></li>
+<li><a href="#34-key">3.4 所有 Key 的存储（重申并强化）</a></li>
+</ul>
+</li>
+<li><a href="#4">4. 语音：只提供填入入口，不接入引擎</a><ul>
+<li><a href="#41">4.1 我们提供的（仅此而已）</a></li>
+<li><a href="#42-ui">4.2 UI 设计（"尽可能简化配置"的落地）</a></li>
+<li><a href="#43">4.3 独立弹窗的强要求（你特别强调的）</a></li>
+</ul>
+</li>
+<li><a href="#5">5. 免责声明的效力（必须先说清楚）</a><ul>
+<li><a href="#51">5.1 声明能覆盖什么、不能覆盖什么</a></li>
+<li><a href="#52">5.2 所以免责声明必须有"我们做了什么"的对价</a></li>
+<li><a href="#53">5.3 一条必须写进声明的现实</a></li>
+</ul>
+</li>
+<li><a href="#6">6. 落地方案：模块与改动</a><ul>
+<li><a href="#61">6.1 涉及模块</a></li>
+<li><a href="#62-pluginscan">6.2 plugin:scan 的隔离硬规则（你明确要求）</a></li>
+<li><a href="#63">6.3 静态检查该查什么（本地、无网络）</a></li>
+</ul>
+</li>
+<li><a href="#7">7. 与既有文档的关系</a></li>
+<li><a href="#8">8. 待决策</a></li>
+<li><a href="#9">9. 一句话总结</a></li>
+</ul>
+</div>
+
+  </aside>
+  <main>
+<h1 id="v10">沙箱优先架构与离线优先交付方案 v1.0</h1>
+<p><a href="沙箱优先架构与离线优先方案-v1.0.en.md">English</a> | <strong>简体中文</strong></p>
+<blockquote>
+<p><strong>发布主体</strong>：「代码乌托邦」（GitHub <code>jyh17147540525-alt</code>）
+<strong>立场</strong>：该账号下发布的一切内容<strong>永久免费，不设任何捐款渠道</strong>。
+我们只负责开发，其余环节由用户自行配置 —— 目标是把配置流程<strong>尽可能简化</strong>。
+<strong>约束</strong>：我们没有服务器，也不打算有。所有数据与功能只能跑在用户自己的机器上。</p>
+<p>本文取代 <code>后台常驻与语音交互方案-v1.0.md</code> §7（插件病毒检测）的联网检测部分。</p>
+</blockquote>
+<hr />
+<h2 id="0">0. 架构转向：从"我们检测"到"我们隔离"</h2>
+<p>前一份方案试图给插件市场接入病毒检测，核实后发现 VirusTotal 这类服务
+<strong>禁止商用 + 上传即分享样本</strong>，与"数据不出设备"根本冲突。那个方向已经放弃。</p>
+<p>转向后的原则只有一条：</p>
+<blockquote>
+<p><strong>默认不信任任何插件与 agent，全部关在沙箱里。</strong>
+<strong>想出来，用户必须读过免责声明并逐个签字放行。</strong></p>
+</blockquote>
+<p>这个转向带来三个好处：</p>
+<ol>
+<li><strong>不需要服务器</strong> —— 检测能力不再依赖云端情报库</li>
+<li><strong>不需要为插件行为负责</strong> —— 责任通过"知情同意"转移给用户（免责声明效力分析见 §5）</li>
+<li><strong>默认安全姿态是"拒绝"</strong> —— 不依赖"我们判断得够不够准"</li>
+</ol>
+<hr />
+<h2 id="1">1. 沙箱的四层模型</h2>
+<h3 id="11">1.1 分层总览</h3>
+<div class="codehilite"><pre><span></span><code>┌────────────────────────────────────────────────────────────────┐
+│  第 0 层：进程隔离（内核级，最硬）                                │
+│    L3 原生插件 → 独立 APK 独立 UID，Android 内核强制隔离          │
+│    L2 脚本     → 独立进程 + 解释器级沙箱                         │
+│    L1 规则包   → 无代码执行，纯数据                             │
+├────────────────────────────────────────────────────────────────┤
+│  第 1 层：能力代理（PluginHost，架构级）                          │
+│    所有插件调用必须经此处；不提供"原始对象"出口                    │
+├────────────────────────────────────────────────────────────────┤
+│  第 2 层：资源配额（运行时级）                                    │
+│    CPU 时间 / 内存 / 调用次数 / 网络字节 / 存储                   │
+├────────────────────────────────────────────────────────────────┤
+│  第 3 层：数据边界（隐私级，唯一出口）                             │
+│    PrivacyFilter 是所有上传路径的唯一出口                        │
+└────────────────────────────────────────────────────────────────┘
+</code></pre></div>
+
+<p><strong>关键认识：第 0 层是唯一"硬"的。</strong> 其余三层都是我们自己代码里的约定 ——
+约定被绕过的代价是零。所以设计重心必须放在<strong>把能交给内核管的都交给内核</strong>。</p>
+<h3 id="12">1.2 三级插件各自的沙箱强度</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>级别</th>
+<th>形态</th>
+<th>沙箱机制</th>
+<th>强度</th>
+<th>能否绕过</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>L1 规则包</strong></td>
+<td>JSON 数据</td>
+<td>无代码执行</td>
+<td>⭐⭐⭐⭐⭐</td>
+<td><strong>结构上不可能</strong>（没有代码）</td>
+</tr>
+<tr>
+<td><strong>L2 JS 脚本</strong></td>
+<td>脚本</td>
+<td>解释器沙箱 + 独立进程</td>
+<td>⭐⭐⭐⭐</td>
+<td>需解释器漏洞</td>
+</tr>
+<tr>
+<td><strong>L3 原生 APK</strong></td>
+<td>独立 APK</td>
+<td><strong>内核 UID 隔离</strong></td>
+<td>⭐⭐⭐⭐⭐</td>
+<td>需攻破 Linux 内核</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p><strong>L1 的强度最高，因为它没有可执行的东西。</strong>
+这提示了一个产品策略：<strong>能把插件做成规则包的，就不要做成脚本。</strong></p>
+</blockquote>
+<h3 id="13-l1">1.3 L1 规则包：为什么它天然安全</h3>
+<p>L1 是纯 JSON —— 选择器 + 动作声明。<strong>没有表达式求值、没有脚本、没有变量</strong>。
+沙箱在这里不是"限制"，而是<strong>语言设计本身就不提供出口</strong>。</p>
+<p>⚠️ <strong>唯一要防的是解析器</strong>：JSON 解析必须用流式 + 深度限制，防止
+"深度嵌套 JSON 导致栈溢出"。这是解析器的事，不是插件的事。</p>
+<h3 id="14-l2">1.4 L2 脚本：沙箱的三条逃逸路径（必须逐条堵）</h3>
+<p>JS 沙箱逃逸在历史上几乎都来自这三个方向：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>逃逸路径</th>
+<th>堵法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>原型链污染</strong> → 拿到宿主对象</td>
+<td>用 QuickJS 这类<strong>无宿主原型共享</strong>的引擎；每个插件一个独立 <code>JSRuntime</code></td>
+</tr>
+<tr>
+<td><strong><code>eval</code> / <code>Function</code> 构造器</strong></td>
+<td>直接<strong>禁用</strong>，不是"限制"</td>
+</tr>
+<tr>
+<td><strong>宿主函数泄漏</strong>（回调里带出宿主引用）</td>
+<td>所有跨边界传参<strong>只走 JSON 序列化</strong>，不传对象引用</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>引擎选择</strong>：<code>plugin:script</code> 模块原定 QuickJS（见 D13）。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>引擎</th>
+<th>沙箱强度</th>
+<th>体积</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>QuickJS</strong></td>
+<td>高 —— 独立 runtime、可设内存/时间上限、无宿主原型</td>
+<td>小</td>
+<td><strong>推荐</strong></td>
+</tr>
+<tr>
+<td>Rhino（GKD 生态）</td>
+<td>中 —— JVM 上跑，原型链逃逸面大</td>
+<td>中</td>
+<td>兼容性好但更危险</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>建议维持 QuickJS。</strong> 若为复用 GKD 生态选 Rhino，则必须接受沙箱强度下降 ——
+<strong>这是一次明确的安全-生态权衡，不能含糊过去。</strong></p>
+<p><strong>配额实现</strong>（QuickJS 原生支持）：</p>
+<div class="codehilite"><pre><span></span><code><span class="kd">val</span><span class="w"> </span><span class="nv">runtime</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">QuickJS</span><span class="p">.</span><span class="na">createRuntimeWithFlags</span><span class="p">(...)</span>
+<span class="n">runtime</span><span class="p">.</span><span class="na">setMemoryLimit</span><span class="p">(</span><span class="m">16</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="m">1024</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="m">1024</span><span class="p">)</span><span class="w">        </span><span class="c1">// 16 MB</span>
+<span class="n">runtime</span><span class="p">.</span><span class="na">setMaxStackSize</span><span class="p">(</span><span class="m">512</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="m">1024</span><span class="p">)</span><span class="w">              </span><span class="c1">// 512 KB</span>
+<span class="n">runtime</span><span class="p">.</span><span class="na">setInterruptHandler</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">deadlineExceeded</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="c1">// 超时中断</span>
+</code></pre></div>
+
+<p>⚠️ <strong><code>setInterruptHandler</code> 是唯一的超时手段</strong> —— QuickJS 没有"强制杀线程"能力。
+如果中断回调不被调用（死循环在 C 层），<strong>整个宿主进程会卡住</strong>。
+→ <strong>必须把脚本执行放在独立进程</strong>，这样卡死了能杀进程。这是"独立进程"存在的真正理由，
+不是"为了隔离"这么笼统。</p>
+<h3 id="15-l3">1.5 L3 原生插件：唯一真正的沙箱，也是最大的责任</h3>
+<p>L3 是独立 APK → <strong>Android 内核给它独立 UID，默认情况下什么都读不到</strong>。
+这是四层里唯一"不靠我们自觉"的保护。</p>
+<p><strong>但危险也在这里</strong>：独立 APK 意味着它<strong>有完整 Android 能力</strong>。它能：
+- 自己声明权限（用户装它时看到的是一份新的权限清单）
+- 自己联网
+- 自己申请无障碍</p>
+<p><strong>所以 L3 的沙箱不是"我们要不要放它出来"，而是"它自己本来就在外面"。</strong></p>
+<blockquote>
+<p>⚠️ <strong>这是 L3 与 L1/L2 的根本区别：L1/L2 的沙箱由我们实施，
+L3 的沙箱由 Android 实施 —— 而 Android 的沙箱只保护它不伤害别的应用，
+不阻止它做自己的事。</strong></p>
+</blockquote>
+<p><strong>结论：L3 必须默认不提供。</strong> 在 <code>plugin:runtime</code> 层，L3 应处于
+"<strong>用户必须显式开启"高级模式"才能安装</strong>"的状态。见 D12（原定 M1-M3 暂不做）。</p>
+<hr />
+<h2 id="2">2. 沙箱的默认策略与放行机制</h2>
+<h3 id="21">2.1 默认拒绝清单</h3>
+<p>插件<strong>默认全部被拒绝</strong>，逐项申请。这不是"允许清单"，而是<strong>默认关闭的能力矩阵</strong>：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>能力域</th>
+<th>默认</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>screen.read</code>（读屏）</td>
+<td>❌ 拒绝</td>
+<td>最高敏感度</td>
+</tr>
+<tr>
+<td><code>action.tap</code>（点击）</td>
+<td>❌ 拒绝</td>
+<td>最高敏感度</td>
+</tr>
+<tr>
+<td><code>storage.read/write</code></td>
+<td>❌ 拒绝</td>
+<td>沙箱内私有目录除外</td>
+</tr>
+<tr>
+<td><code>network.*</code></td>
+<td>❌ 拒绝</td>
+<td><strong>且必须由用户提供 Key 才能用</strong></td>
+</tr>
+<tr>
+<td><code>payment.*</code> / <code>key.*</code> / <code>crypto.*</code> / <code>system.*</code></td>
+<td>⛔ <strong>永不开放</strong></td>
+<td>原则 8，无讨论空间</td>
+</tr>
+<tr>
+<td><code>clipboard.read</code></td>
+<td>❌ 拒绝</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>notification.read</code></td>
+<td>❌ 拒绝</td>
+<td>—</td>
+</tr>
+</tbody>
+</table></div>
+<p>⚠️ <strong><code>network.*</code> 有一条特殊规则</strong>（见 §4）：即使放行，也需要用户自己填 Key。
+<strong>我们没有服务器，所以插件也不该有"我们的服务器"可用。</strong></p>
+<h3 id="22">2.2 放行流程（免责声明的落地）</h3>
+<div class="codehilite"><pre><span></span><code>用户在插件页看到某插件申请的能力
+  ↓
+点击「在沙箱外运行此插件」
+  ↓
+┌──────────────────────────────────────────────┐
+│  ⚠️ 免责声明（必须完整滚到底部才能点同意）        │
+│                                                │
+│  插件作者：&lt;url/署名&gt;                            │
+│  来源源：&lt;订阅源地址&gt;                            │
+│  【本插件将获得以下能力】                         │
+│    □ 读取你的屏幕内容                            │
+│    □ 模拟点击                                    │
+│    □ 访问网络（使用你配置的 Key）                 │
+│                                                │
+│  【重要】                                       │
+│  1. 本插件由第三方提供，「代码乌托邦」不对其行为负责 │
+│  2. 我们已做静态检查，但检查结果不代表绝对安全       │
+│  3. 沙箱运行和放行运行的风险不同：                 │
+│     - 沙箱内：功能受限，但风险低                   │
+│     - 沙箱外：功能完整，风险由你承担               │
+│  4. 你可以随时在本页撤销，插件会立即回到沙箱         │
+│                                                │
+│  [ 我已阅读并理解上述风险 ]  ← 必须勾选            │
+│  [ 取消 ]              [ 我确认，放行 ]           │
+└──────────────────────────────────────────────┘
+</code></pre></div>
+
+<h3 id="23">2.3 放行的三条设计纪律</h3>
+<p><strong>① 放行必须可撤销，且撤销立即生效。</strong>
+用户会犯错，出口必须比入口容易走。</p>
+<p><strong>② 放行记录必须可见、可审计。</strong>
+新增「已放行插件」页，列出每个放行项：什么时候放的、放了哪些能力。
+这是用户在几个月后回想"我为什么会信任这个插件"的唯一凭据。</p>
+<p><strong>③ 永不出现"全部放行"。</strong>
+没有"信任该作者"这类批量按钮 —— 每个插件、每个能力单独确认。
+批量按钮会让免责声明彻底失效（用户不再阅读）。</p>
+<h3 id="24-vs">2.4 沙箱内 vs 沙箱外：功能差异必须诚实呈现</h3>
+<p>⚠️ <strong>最忌讳的做法：让沙箱内插件"看起来能跑但实际不工作"。</strong></p>
+<p>正确做法：<strong>能力被拒绝时，插件调用该能力立即抛明确异常</strong>，
+UI 上显示"此功能需要放行"。<strong>绝不做静默降级</strong> ——
+静默降级会让用户以为插件坏了，去投诉作者，而真正原因是没放行。</p>
+<p>这条与 UI 设计系统的第 6 条立场一致：<strong>不要把"未生效"伪装成"可用"。</strong></p>
+<hr />
+<h2 id="3">3. 离线优先：没有服务器意味着什么</h2>
+<h3 id="31">3.1 三条不可协商的推论</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>推论</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>无云端检测</strong></td>
+<td>没有"我们的威胁情报库"，也没有实时更新的黑名单</td>
+</tr>
+<tr>
+<td><strong>无云端配置同步</strong></td>
+<td>用户的配置只在用户设备上，换机要自己导出导入</td>
+</tr>
+<tr>
+<td><strong>无云端 Key 托管</strong></td>
+<td>Key 只在设备本地加密存储；我们<strong>永远不接触</strong>任何 Key</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>这不是妥协，是架构优势</strong>：因为没有服务器，也<strong>没有可被攻击、可被传票、
+可被泄露的集中式数据</strong>。用户数据泄露的风险面是零 —— 因为根本不存在那个面。</p>
+<h3 id="32">3.2 威胁情报方案的本地化改造</h3>
+<p>原来设想"自建哈希库放 GitHub Pages"。但按新约束，需要更彻底：</p>
+<p><strong>改造后：哈希库随应用打包 + 社区源可选订阅</strong></p>
+<div class="codehilite"><pre><span></span><code>威胁情报的三层（全部在本地）
+├── L0 内置特征库（随 APK 打包）
+│     └── 已知恶意插件的 SHA256 + 已知恶意代码特征
+│     └── 更新方式：随应用版本更新（走 GitHub Releases）
+├── L1 本地积累库（用户设备上）
+│     └── 用户自己遇到的、标记为可疑的插件
+│     └── 完全本地，不上传
+└── L2 可选社区源（用户主动订阅）
+      └── 用户自己添加的静态 JSON 地址
+      └── ⚠️ 我们只是"列举"这些源，不为内容背书
+</code></pre></div>
+
+<p>⚠️ <strong>关键区别</strong>：<code>GitHub Pages</code> 上放哈希库，<strong>任何人（包括我们）都能改</strong>。
+所以<strong>不能把"内置库"理解成"可信库"</strong> —— 它只是一个起点，不是权威。</p>
+<p><strong>并且要写清楚</strong>：如果「代码乌托邦」的账号被盗，攻击者可以推一个
+"所有插件都安全"的假哈希库。<strong>所以客户端必须校验哈希库本身的签名</strong>（见 §3.3）。</p>
+<h3 id="33">3.3 哈希库的签名与校验</h3>
+<div class="codehilite"><pre><span></span><code>发布侧（我们）
+  hashes.json  →  用离线私钥签名  →  hashes.json.sig
+  ⚠️ 私钥离线保管，不进 CI，不进仓库
+
+客户端
+  下载 hashes.json + hashes.json.sig
+    ↓
+  用内置公钥验签
+    ↓
+  失败 → 拒绝使用该库（不是"警告后继续"）
+</code></pre></div>
+
+<p>⚠️ <strong>公钥内置在 APK 里</strong>，即使账号被盗也无法伪造签名 —— 攻击者只能
+"不更新"，不能"推假库"。这是没有服务器时唯一可信的更新通道。</p>
+<h3 id="34-key">3.4 所有 Key 的存储（重申并强化）</h3>
+<p>用户的 <strong>TTS Key</strong> 与<strong>模型 Key</strong> 都遵循同一套链路（<code>keymgmt</code> 模块，已有 30 个测试）：</p>
+<div class="codehilite"><pre><span></span><code>用户输入 Key
+  ↓
+Keystore（TEE/StrongBox，密钥不出硬件）
+  ↓  AES-GCM
+SQLCipher 加密库
+  ↓
+仅在构造 HTTP 请求头的那一行解密（withDecryptedKey 作用域）
+  ↓  作用域结束立即 fill(0) 清零
+发出请求 —— 直连用户指定的服务商
+</code></pre></div>
+
+<p><strong>新增待办</strong>：Key 相关页面加 <code>FLAG_SECURE</code>（防截屏）。</p>
+<hr />
+<h2 id="4">4. 语音：只提供填入入口，不接入引擎</h2>
+<p>按你的要求，<strong>我们不自研、不内置语音引擎</strong>，只做两件事：</p>
+<h3 id="41">4.1 我们提供的（仅此而已）</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>提供</th>
+<th>不提供</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>TTS 服务商 Key 的<strong>填入入口</strong>（独立弹窗）</td>
+<td>❌ 任何 TTS 引擎</td>
+</tr>
+<tr>
+<td>几个常见服务商的<strong>填法说明</strong>（极简，可跳过）</td>
+<td>❌ 任何语音识别</td>
+</tr>
+<tr>
+<td>请求转发（用用户的 Key 直连服务商）</td>
+<td>❌ 任何语音唤醒</td>
+</tr>
+<tr>
+<td>音色/语速等参数的<strong>可选</strong>配置</td>
+<td>❌ 任何音频处理</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="42-ui">4.2 UI 设计（"尽可能简化配置"的落地）</h3>
+<div class="codehilite"><pre><span></span><code>设置 → 语音
+┌────────────────────────────────────────────┐
+│  语音合成（可选）                            │
+│  ────────────────────────────────────────  │
+│  想让 agent 用语音回答？填入你的语音服务 Key。 │
+│  不填也能用，只是回答只有文字。               │
+│                                            │
+│  [ 服务商 ▼ ]  OpenAI / Azure / 火山 / 讯飞… │
+│                                            │
+│  [ API Key                    ] [👁]        │
+│  [ 区域/Endpoint（部分服务商需要）]           │
+│                                            │
+│  [ 测试一下 ]  ← 填完点这里，会合成一句话     │
+│                                            │
+│  ⓘ Key 加密存储在本机，不会上传到任何服务器    │
+│  ⓘ 我们只负责转发请求，语音由服务商生成        │
+└────────────────────────────────────────────┘
+</code></pre></div>
+
+<p><strong>三个简化设计</strong>：</p>
+<ol>
+<li><strong>默认折叠</strong> —— 不用语音的用户永远看不到这一节</li>
+<li><strong>「测试一下」按钮</strong> —— 填完立即验证，不用等真正用的时候才发现填错</li>
+<li><strong>不填也能用</strong> —— 明确告知"只有文字也能用"，降低心理负担</li>
+</ol>
+<h3 id="43">4.3 独立弹窗的强要求（你特别强调的）</h3>
+<p><strong>TTS Key 绝不能和模型 Key 放在同一个表单里。</strong> 实现上：</p>
+<ul>
+<li>两个<strong>独立的设置页</strong>（<code>SettingsKeyModelScreen</code> / <code>SettingsKeyTtsScreen</code>）</li>
+<li>顶部<strong>互相标注</strong>："这是给<strong>语音合成</strong>用的，不是对话模型"</li>
+<li>各自的<strong>独立存储键</strong>（数据库里是两个不同的记录，不是同一表的不同字段）</li>
+</ul>
+<p>⚠️ 混在一起的风险很实在：用户看到"API Key"就填了 DeepSeek 的 Key，
+然后语音一直报错，他以为是软件坏了。</p>
+<hr />
+<h2 id="5">5. 免责声明的效力（必须先说清楚）</h2>
+<p><strong>免责声明不是万能的。</strong> 我不能让方案建立在一个虚假的法律安全感上。</p>
+<h3 id="51">5.1 声明能覆盖什么、不能覆盖什么</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>能覆盖</th>
+<th>不能覆盖</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>✅ 插件<strong>行为</strong>造成的损失（用户已知情并放行）</td>
+<td>❌ 我们<strong>自己的过错</strong>（如沙箱漏洞、我们分发的本体内含恶意代码）</td>
+</tr>
+<tr>
+<td>✅ 用户配置错误导致的问题</td>
+<td>❌ <strong>故意或重大过失</strong></td>
+</tr>
+<tr>
+<td>✅ 第三方服务商的问题（Key 被服务商封禁等）</td>
+<td>❌ 违反强制性法规的部分</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="52">5.2 所以免责声明必须有"我们做了什么"的对价</h3>
+<p>法律上，免责声明的效力与"提供方是否尽到合理注意义务"强相关。
+如果我们的沙箱形同虚设，声明就是空文。</p>
+<p><strong>因此声明里必须包含"我们做了什么"</strong>：</p>
+<div class="codehilite"><pre><span></span><code>我们做了什么：
+  1. 插件默认在沙箱内运行，不获得任何敏感能力
+  2. 放行需要你逐个能力确认
+  3. 我们提供本地静态检查（但不能覆盖所有情况）
+  4. 插件的 Key 访问、支付能力在架构上被彻底禁止
+
+我们不能保证什么：
+  1. 静态检查无法发现所有恶意行为
+  2. 放行后的插件行为由作者负责
+  3. 我们无法审查所有订阅源的内容
+</code></pre></div>
+
+<p><strong>这段话比"我们不承担任何责任"更有用</strong> —— 它证明了我们尽到了注意义务。</p>
+<h3 id="53">5.3 一条必须写进声明的现实</h3>
+<blockquote>
+<p><strong>我们没有服务器，所以也无法远程帮你下架一个恶意插件。</strong>
+如果你放行了一个恶意插件，卸载它 + 撤销放行是你唯一的手段。
+请只放行你愿意承担后果的插件。</p>
+</blockquote>
+<p>诚实比漂亮有用。</p>
+<hr />
+<h2 id="6">6. 落地方案：模块与改动</h2>
+<h3 id="61">6.1 涉及模块</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>模块</th>
+<th>状态</th>
+<th>本次改动</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>plugin:api</code></td>
+<td>✅ 已有（70 测试）</td>
+<td>能力矩阵新增"默认拒绝"语义</td>
+</tr>
+<tr>
+<td><code>plugin:runtime</code></td>
+<td>❌ 空壳</td>
+<td><strong>沙箱实施层</strong> —— 独立进程、配额、能力代理</td>
+</tr>
+<tr>
+<td><code>plugin:script</code></td>
+<td>❌ 空壳</td>
+<td>QuickJS + 三项逃逸防护</td>
+</tr>
+<tr>
+<td><code>plugin:store</code></td>
+<td>❌ 空壳</td>
+<td>放行 UI、免责声明、已放行记录页</td>
+</tr>
+<tr>
+<td><strong><code>plugin:scan</code></strong></td>
+<td>🆕 <strong>新增模块</strong></td>
+<td>本地静态分析（<strong>不依赖 keymgmt</strong>）</td>
+</tr>
+<tr>
+<td><code>keymgmt</code></td>
+<td>✅ 已有</td>
+<td>扩展支持多类 Key（模型/TTS）</td>
+</tr>
+<tr>
+<td><code>onboarding</code></td>
+<td>❌ 空壳</td>
+<td>新增"沙箱说明"一步</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="62-pluginscan">6.2 <code>plugin:scan</code> 的隔离硬规则（你明确要求）</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>规则</th>
+<th>实施</th>
+<th>守卫</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>不接触 Key</strong></td>
+<td>不依赖 <code>keymgmt</code> 模块</td>
+<td><code>check_module_deps.py</code> 加规则，CI 拦截</td>
+</tr>
+<tr>
+<td><strong>不接触用户数据</strong></td>
+<td>只接受 <code>File</code> | <code>ByteArray</code> 入参</td>
+<td>接口设计强约束</td>
+</tr>
+<tr>
+<td><strong>无网络</strong></td>
+<td>它就是纯静态分析，<strong>完全没有网络权限</strong></td>
+<td>manifest 不声明 <code>INTERNET</code></td>
+</tr>
+<tr>
+<td><strong>无 Android 依赖</strong></td>
+<td>纯 Kotlin，可离线单测</td>
+<td>加进 <code>run_logic_tests.py</code> 的 <code>MODULES</code></td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>⚠️ <strong>最后一条特别重要</strong>：<code>plugin:scan</code> 做成<strong>零 Android 依赖的纯逻辑模块</strong>，
+就能被离线验证器覆盖。这符合项目"优先做源码零 Android 依赖的模块"的原则 ——
+"跑得过测试的代码"比"看起来对的代码"值钱得多。</p>
+</blockquote>
+<h3 id="63">6.3 静态检查该查什么（本地、无网络）</h3>
+<div class="codehilite"><pre><span></span><code>L0 本地静态分析（plugin:scan，零网络）
+├── 清单审计
+│   ├── 申请了禁止前缀（payment./key./crypto./system.）→ ERROR
+│   ├── 申请能力与实际调用不匹配 → WARNING（最有价值的一条）
+│   └── 未知能力 id → WARNING
+├── 代码特征（L2 脚本）
+│   ├── eval / Function 构造器 → ERROR（我们本来就禁）
+│   ├── 超长字符串（混淆特征） → WARNING
+│   └── 硬编码 URL / IP → WARNING
+├── 完整性
+│   ├── 包签名校验（PluginIntegrity 已有）
+│   └── SHA256 与内置特征库比对 → 命中即 ERROR
+└── 输出
+    └── 风险等级（复用 Risk.kt 的四档）
+</code></pre></div>
+
+<p><strong>最有价值的一条是"能力与调用不匹配"</strong>：一个只声明 <code>screen.read</code> 的插件
+却在拼接 HTTP 请求 —— 静态就能看出来。这是没有云端情报时最有效的信号。</p>
+<hr />
+<h2 id="7">7. 与既有文档的关系</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>文档</th>
+<th>关系</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>后台常驻与语音交互方案-v1.0.md</code></td>
+<td>§7 联网检测部分<strong>被本方案取代</strong>；§5 语音部分<strong>被本方案 §4 取代</strong>（不再自研引擎）</td>
+</tr>
+<tr>
+<td><code>社区分发版方案-v2.0.md</code></td>
+<td>§6.2 权限清单继续有效</td>
+</tr>
+<tr>
+<td><code>移动端Agent约束分析与迭代优化方案-v1.0.md</code></td>
+<td>§2.3 后台约束继续有效</td>
+</tr>
+<tr>
+<td><code>BYOK模型接入与dsh代理设计-v1.0.md</code></td>
+<td>LLM 代理机制继续有效；本方案只是把它扩展到 TTS</td>
+</tr>
+<tr>
+<td><code>豆包手机智能体考察与dsh移植可行性研讨-v1.0.md</code></td>
+<td>L0-L4 分层不变；本方案加固 L4 的能力代理</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="8">8. 待决策</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>决策点</th>
+<th>选项</th>
+<th>建议</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>D-AD</strong></td>
+<td>沙箱默认策略</td>
+<td>全拒绝 / 分级 / 信任作者</td>
+<td><strong>全拒绝</strong>，逐能力放行</td>
+</tr>
+<tr>
+<td><strong>D-AE</strong></td>
+<td>L2 引擎</td>
+<td>QuickJS / Rhino</td>
+<td><strong>QuickJS</strong>（Rhino 沙箱强度下降，是明确权衡）</td>
+</tr>
+<tr>
+<td><strong>D-AF</strong></td>
+<td>L3 是否提供</td>
+<td>默认隐藏 / 高级模式 / 不做</td>
+<td><strong>默认隐藏</strong>，需开高级模式</td>
+</tr>
+<tr>
+<td><strong>D-AG</strong></td>
+<td>哈希库分发</td>
+<td>仅内置 / 内置+社区源</td>
+<td><strong>内置 + 可选社区源</strong>，且<strong>必须验签</strong></td>
+</tr>
+<tr>
+<td><strong>D-AH</strong></td>
+<td>放行粒度</td>
+<td>按插件 / 按能力</td>
+<td><strong>按能力</strong>（按插件会让声明失效）</td>
+</tr>
+<tr>
+<td><strong>D-AI</strong></td>
+<td>免责声明呈现</td>
+<td>弹窗 / 独立页 / 两者</td>
+<td><strong>弹窗必读 + 独立页可随时复查</strong></td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="9">9. 一句话总结</h2>
+<p>无服务器不是缺陷，它让架构变得<strong>更简单也更诚实</strong>：</p>
+<ul>
+<li><strong>没有云端检测</strong> → 检测能力做成纯本地静态分析，反而跑得过离线测试</li>
+<li><strong>没有云端存储</strong> → 数据泄露风险面为零，因为不存在那个面</li>
+<li><strong>没有云端托管</strong> → Key 永远只在用户设备，我们<strong>从不接触</strong></li>
+<li><strong>没有云端下架能力</strong> → 所以<strong>默认全部关进沙箱</strong>，出路是用户签字</li>
+</ul>
+<p><strong>「代码乌托邦」只做两件事：写代码，和把配置流程做到最简。</strong>
+剩下的，交给用户和沙箱。</p>
+  </main>
+</div>
+</body>
+</html>
