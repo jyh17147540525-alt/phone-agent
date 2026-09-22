@@ -33,7 +33,12 @@ Done:
 - ✅ **Agent loop pure-logic layer** (S2/S3, `agentlogic`) — four-dimension budget circuit breaker
   (turns/duration/energy/upload), task state machine + freeze detection, five-tier perception
   ladder, checkpoints with resume, ambiguity resolution
-- ✅ **835 offline unit tests passing** (including 44 real-socket integration tests)
+- ✅ **`PrivacyFilter`** (S3, 4th of 5 cross-cutting components) — the **single exit point for every
+  upload path**: hard veto on sensitive pages, unconditional rejection of plugin screenshots,
+  conservative drop when system-UI regions are unknown, redaction plans for input fields and
+  message lists, and forged-marker detection
+- ✅ **859 offline unit tests passing** (including 44 real-socket integration tests)
+- ✅ **Release-readiness checker** (`check_release_readiness.py`, 10 rule groups R1–R10 + 20 self-tests)
 - ✅ **All five P0 on-device experiments reached conclusions** (see "M0 on-device results" below)
 - ✅ **A debug APK that builds**
 
@@ -41,9 +46,8 @@ Not done (honest list):
 
 - ❌ **Perception / action / agent loop** — the part where the AI actually "does things for you".
   `:perception` / `:action` / `:agent` currently hold interface contracts only, with no implementations
-- ❌ **`PrivacyFilter` / `PowerGovernor`** — the other two of the five cross-cutting components
-  (the first three are now implemented). `PrivacyFilter` must be the **single exit point for every
-  upload path**; adding it afterwards is guaranteed to leak
+- ❌ **`PowerGovernor`** — the last of the five cross-cutting components (the first four are
+  implemented). It needs a global view (app + Node + network) that no single layer can provide
 - ❌ **Wiring the gateway into dsh's config** (1.4.6c) and **wiring the gateway into the agent loop** (1.4.8)
 - ❌ **Plugin runtime** — the execution engine for the three plugin tiers (`:plugin:runtime` / `:script` etc. are empty modules)
 - ❌ **Memory, self-update, onboarding, contribution, channel distribution** — those modules have not been started
@@ -60,7 +64,7 @@ Plugin bundles are fully validated — hash checking, zip slip / zip bomb protec
 forbidden-capability blocking. None of it is skipped.
 
 **Cannot**: it **does not read the screen, does not tap**. Installed plugins do not run either, because
-the execution engine is not implemented. The gateway itself already works (835 tests cover it), but no UI
+the execution engine is not implemented. The gateway itself already works (859 tests cover it), but no UI
 hands it to a user yet — until the agent loop is connected, it is **a verified foundation**, nothing more.
 
 > The plugin system and the gateway were built out first because they are **the only parts that can be
