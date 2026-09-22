@@ -104,6 +104,7 @@ dependencies {
     implementation(project(":provider:api"))          // LlmProvider 契约与 ProviderCredential
     implementation(project(":provider:openai-compat"))// 11 家内置服务商（都走 OpenAI 兼容协议）
     implementation(project(":keymgmt"))               // API Key 的存储 / 校验 / 取用
+    implementation(project(":modelrouter"))           // 模型配置仓储契约 + 难度路由 + 配置体检
 
     // 以下随对应模块落地启用：
     // implementation(project(":core:common"))

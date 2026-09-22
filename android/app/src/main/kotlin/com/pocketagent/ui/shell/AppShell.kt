@@ -42,6 +42,8 @@ import com.pocketagent.ui.keys.KeysScreen
 import com.pocketagent.ui.keys.KeysViewModel
 import com.pocketagent.ui.market.MarketScreen
 import com.pocketagent.ui.market.MarketViewModel
+import com.pocketagent.ui.models.ModelsScreen
+import com.pocketagent.ui.models.ModelsViewModel
 import com.pocketagent.ui.plugins.InstalledPluginsViewModel
 import com.pocketagent.ui.plugins.PluginsScreen
 import com.pocketagent.ui.settings.SettingsScreen
@@ -81,6 +83,7 @@ object Routes {
     const val IMPORT = "import"
     const val SOURCES = "sources"
     const val KEYS = "keys"
+    const val MODELS = "models"
 }
 
 /**
@@ -117,7 +120,7 @@ private val TABS = listOf(
         route = Routes.SETTINGS,
         label = "设置",
         icon = Icons.Default.Tune,
-        owns = setOf(Routes.SETTINGS, Routes.SOURCES, Routes.KEYS),
+        owns = setOf(Routes.SETTINGS, Routes.SOURCES, Routes.KEYS, Routes.MODELS),
     ),
 )
 
@@ -241,6 +244,7 @@ fun AppShell(container: AppContainer) {
                         //    传 null 的效果是那一行右侧不画箭头 —— 用户一眼就知道进不去。
                         //    绝不能传 `{}`：箭头照画、点了没反应，用户会认为应用坏了。
                         onOpenKeys = { navController.navigate(Routes.KEYS) },
+                        onOpenModels = { navController.navigate(Routes.MODELS) },
                         onOpenSources = { navController.navigate(Routes.SOURCES) },
                         onOpenImport = { navController.navigate(Routes.IMPORT) },
                         onOpenPermissions = null,
@@ -314,6 +318,33 @@ fun AppShell(container: AppContainer) {
                     KeysScreen(
                         viewModel = vm,
                         onBack = { navController.popBackStack() },
+                    )
+                }
+
+                // 模型配置。
+                //
+                // ⚠️ 与 Key 页共用同一把存储钥匙，所以这一页自己也走一遍
+                //    openCredentialStore —— 它带缓存，从 Key 页过来时是零开销的。
+                //    不把 Key 页打开的结果传过来，是因为两个页面在导航栈里
+                //    **互不依赖**：用户可能从设置直接进模型页，此时存储还没开。
+                //
+                // modelRepository() 返回 null = 存储还没打开。那**不是**"没有模型"，
+                // 见 AppContainer 的注释 —— 两者在界面上的说法完全不同。
+                composable(Routes.MODELS) {
+                    val vm: ModelsViewModel = viewModel(
+                        factory = viewModelFactory {
+                            initializer {
+                                ModelsViewModel(
+                                    openStore = container::openCredentialStore,
+                                    modelRepository = container::modelRepository,
+                                )
+                            }
+                        }
+                    )
+                    ModelsScreen(
+                        viewModel = vm,
+                        onBack = { navController.popBackStack() },
+                        onOpenKeys = { navController.navigate(Routes.KEYS) },
                     )
                 }
             }

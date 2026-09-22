@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -40,7 +41,7 @@ import com.pocketagent.ui.design.PaSpace
  * 这个组合的风险，只有在同一屏上才看得出来。
  */
 /**
- * ⚠️ 四个 `onOpen*` 都是**可空**的，这是有意的。
+ * ⚠️ 五个 `onOpen*` 都是**可空**的，这是有意的。
  *
  * 传 `null` 时 [PaListRow] 不会画右侧箭头 —— 于是"这一项暂时进不去"
  * 就通过**视觉本身**表达出来了。
@@ -54,6 +55,7 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
     keyStatus: SettingsViewModel.KeyStatus = SettingsViewModel.KeyStatus.Loading,
     onOpenKeys: (() -> Unit)? = null,
+    onOpenModels: (() -> Unit)? = null,
     onOpenSources: (() -> Unit)? = null,
     onOpenImport: (() -> Unit)? = null,
     onOpenPermissions: (() -> Unit)? = null,
@@ -77,11 +79,22 @@ fun SettingsScreen(
                 PaListGroup {
                     PaListRow(
                         icon = Icons.Default.Key,
-                        title = "API Key 与模型",
-                        subtitle = "用自己的 Key 调用任意大模型",
+                        title = "API Key",
+                        subtitle = "填入自己的 Key，加密存在本机",
                         badge = keyBadge,
                         badgeTone = keyTone,
                         onClick = onOpenKeys,
+                    )
+                    PaListDivider()
+                    // ⚠️ 这一行与上一行是**两步**，不是同一件事的两半：
+                    //    上面是"通行证"（填 Key），下面是"派活规则"（挑模型、定档位）。
+                    //    合成一项的后果是用户填完 Key 就以为完事了 ——
+                    //    而实际上一个模型都没配，任务跑不起来。
+                    PaListRow(
+                        icon = Icons.Default.Memory,
+                        title = "模型配置",
+                        subtitle = "挑模型、定档位、指定谁来做调度",
+                        onClick = onOpenModels,
                     )
                 }
             }

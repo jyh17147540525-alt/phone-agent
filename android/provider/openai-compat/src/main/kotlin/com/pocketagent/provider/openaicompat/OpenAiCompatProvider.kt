@@ -600,6 +600,41 @@ object ProviderProfiles {
             Capability.JSON_MODE, Capability.LONG_CTX,
         ),
         defaultContextWindow = 128_000,
+        defaultModels = listOf(
+            ModelInfo(
+                id = "gpt-4o-mini",
+                displayName = "GPT-4o mini",
+                capabilities = setOf(Capability.STREAM, Capability.VISION, Capability.TOOL_CALL, Capability.JSON_MODE, Capability.LONG_CTX),
+                contextWindow = 128_000,
+                inputPricePerMillion = 0.15,
+                outputPricePerMillion = 0.60,
+            ),
+            ModelInfo(
+                id = "gpt-4o",
+                displayName = "GPT-4o",
+                capabilities = setOf(Capability.STREAM, Capability.VISION, Capability.TOOL_CALL, Capability.JSON_MODE, Capability.LONG_CTX),
+                contextWindow = 128_000,
+                inputPricePerMillion = 2.50,
+                outputPricePerMillion = 10.00,
+                recommended = true,
+            ),
+            ModelInfo(
+                id = "gpt-4.1-mini",
+                displayName = "GPT-4.1 mini",
+                capabilities = setOf(Capability.STREAM, Capability.VISION, Capability.TOOL_CALL, Capability.JSON_MODE, Capability.LONG_CTX),
+                contextWindow = 1_000_000,
+                inputPricePerMillion = 0.40,
+                outputPricePerMillion = 1.60,
+            ),
+            ModelInfo(
+                id = "o4-mini",
+                displayName = "o4-mini（推理）",
+                capabilities = setOf(Capability.STREAM, Capability.VISION, Capability.TOOL_CALL, Capability.LONG_CTX),
+                contextWindow = 200_000,
+                inputPricePerMillion = 1.10,
+                outputPricePerMillion = 4.40,
+            ),
+        ),
     )
 
     val DeepSeek = ProviderProfile(
@@ -612,6 +647,25 @@ object ProviderProfiles {
             Capability.JSON_MODE, Capability.LONG_CTX, Capability.CACHE,
         ),
         defaultContextWindow = 64_000,
+        defaultModels = listOf(
+            ModelInfo(
+                id = "deepseek-chat",
+                displayName = "DeepSeek V3",
+                capabilities = setOf(Capability.STREAM, Capability.TOOL_CALL, Capability.JSON_MODE, Capability.LONG_CTX, Capability.CACHE),
+                contextWindow = 64_000,
+                inputPricePerMillion = 0.27,
+                outputPricePerMillion = 1.10,
+                recommended = true,
+            ),
+            ModelInfo(
+                id = "deepseek-reasoner",
+                displayName = "DeepSeek R1（推理）",
+                capabilities = setOf(Capability.STREAM, Capability.TOOL_CALL, Capability.CACHE),
+                contextWindow = 64_000,
+                inputPricePerMillion = 0.55,
+                outputPricePerMillion = 2.19,
+            ),
+        ),
     )
 
     /** 阿里通义 DashScope 的 OpenAI 兼容模式 */
@@ -625,6 +679,41 @@ object ProviderProfiles {
             Capability.JSON_MODE, Capability.LONG_CTX,
         ),
         defaultContextWindow = 128_000,
+        defaultModels = listOf(
+            ModelInfo(
+                id = "qwen-turbo",
+                displayName = "通义千问 Turbo",
+                capabilities = setOf(Capability.STREAM, Capability.TOOL_CALL, Capability.JSON_MODE, Capability.LONG_CTX),
+                contextWindow = 128_000,
+                inputPricePerMillion = 0.05,
+                outputPricePerMillion = 0.20,
+                recommended = true,
+            ),
+            ModelInfo(
+                id = "qwen-plus",
+                displayName = "通义千问 Plus",
+                capabilities = setOf(Capability.STREAM, Capability.TOOL_CALL, Capability.JSON_MODE, Capability.LONG_CTX),
+                contextWindow = 128_000,
+                inputPricePerMillion = 0.40,
+                outputPricePerMillion = 1.20,
+            ),
+            ModelInfo(
+                id = "qwen-max",
+                displayName = "通义千问 Max",
+                capabilities = setOf(Capability.STREAM, Capability.TOOL_CALL, Capability.JSON_MODE, Capability.LONG_CTX),
+                contextWindow = 32_000,
+                inputPricePerMillion = 2.40,
+                outputPricePerMillion = 9.60,
+            ),
+            ModelInfo(
+                id = "qwen-vl-max",
+                displayName = "通义千问 VL（视觉）",
+                capabilities = setOf(Capability.STREAM, Capability.VISION, Capability.TOOL_CALL, Capability.LONG_CTX),
+                contextWindow = 32_000,
+                inputPricePerMillion = 3.00,
+                outputPricePerMillion = 9.00,
+            ),
+        ),
     )
 
     /** 火山方舟（豆包模型） */
@@ -638,6 +727,33 @@ object ProviderProfiles {
             Capability.JSON_MODE, Capability.LONG_CTX,
         ),
         defaultContextWindow = 128_000,
+        defaultModels = listOf(
+            ModelInfo(
+                id = "doubao-1.5-lite-32k",
+                displayName = "豆包 1.5 Lite",
+                capabilities = setOf(Capability.STREAM, Capability.TOOL_CALL, Capability.JSON_MODE),
+                contextWindow = 32_000,
+                inputPricePerMillion = 0.02,
+                outputPricePerMillion = 0.04,
+            ),
+            ModelInfo(
+                id = "doubao-1.5-pro-32k",
+                displayName = "豆包 1.5 Pro",
+                capabilities = setOf(Capability.STREAM, Capability.VISION, Capability.TOOL_CALL, Capability.JSON_MODE),
+                contextWindow = 32_000,
+                inputPricePerMillion = 0.11,
+                outputPricePerMillion = 0.28,
+                recommended = true,
+            ),
+            ModelInfo(
+                id = "doubao-1.5-pro-256k",
+                displayName = "豆包 1.5 Pro（256K）",
+                capabilities = setOf(Capability.STREAM, Capability.VISION, Capability.TOOL_CALL, Capability.JSON_MODE, Capability.LONG_CTX),
+                contextWindow = 256_000,
+                inputPricePerMillion = 0.11,
+                outputPricePerMillion = 0.28,
+            ),
+        ),
     )
 
     /** OpenRouter —— 一个 Key 通吃几十家模型，新用户的最佳起点 */
@@ -656,6 +772,36 @@ object ProviderProfiles {
             "HTTP-Referer" to "https://github.com/pocketagent",
             "X-Title" to "PocketAgent",
         ),
+        // ⚠️ OpenRouter 是**聚合商**，它的模型清单由上游厂商决定，变动频繁。
+        //    这里只放几个跨厂商的代表性模型，用来给新用户一个能跑通的默认值；
+        //    它真正的价值是"一个 Key 通吃"，模型名用户可自由填。
+        defaultModels = listOf(
+            ModelInfo(
+                id = "google/gemini-2.0-flash-001",
+                displayName = "Gemini 2.0 Flash（经 OpenRouter）",
+                capabilities = setOf(Capability.STREAM, Capability.VISION, Capability.TOOL_CALL, Capability.JSON_MODE, Capability.LONG_CTX),
+                contextWindow = 1_000_000,
+                inputPricePerMillion = 0.10,
+                outputPricePerMillion = 0.40,
+                recommended = true,
+            ),
+            ModelInfo(
+                id = "deepseek/deepseek-chat",
+                displayName = "DeepSeek V3（经 OpenRouter）",
+                capabilities = setOf(Capability.STREAM, Capability.TOOL_CALL, Capability.JSON_MODE, Capability.LONG_CTX),
+                contextWindow = 64_000,
+                inputPricePerMillion = 0.14,
+                outputPricePerMillion = 0.28,
+            ),
+            ModelInfo(
+                id = "anthropic/claude-3.5-sonnet",
+                displayName = "Claude 3.5 Sonnet（经 OpenRouter）",
+                capabilities = setOf(Capability.STREAM, Capability.VISION, Capability.TOOL_CALL, Capability.LONG_CTX),
+                contextWindow = 200_000,
+                inputPricePerMillion = 3.00,
+                outputPricePerMillion = 15.00,
+            ),
+        ),
     )
 
     val Moonshot = ProviderProfile(
@@ -668,6 +814,33 @@ object ProviderProfiles {
             Capability.JSON_MODE, Capability.LONG_CTX,
         ),
         defaultContextWindow = 128_000,
+        defaultModels = listOf(
+            ModelInfo(
+                id = "moonshot-v1-8k",
+                displayName = "Kimi 8K",
+                capabilities = setOf(Capability.STREAM, Capability.TOOL_CALL),
+                contextWindow = 8_000,
+                inputPricePerMillion = 1.68,
+                outputPricePerMillion = 1.68,
+            ),
+            ModelInfo(
+                id = "moonshot-v1-32k",
+                displayName = "Kimi 32K",
+                capabilities = setOf(Capability.STREAM, Capability.TOOL_CALL),
+                contextWindow = 32_000,
+                inputPricePerMillion = 3.36,
+                outputPricePerMillion = 3.36,
+                recommended = true,
+            ),
+            ModelInfo(
+                id = "moonshot-v1-128k",
+                displayName = "Kimi 128K",
+                capabilities = setOf(Capability.STREAM, Capability.TOOL_CALL, Capability.LONG_CTX),
+                contextWindow = 128_000,
+                inputPricePerMillion = 8.40,
+                outputPricePerMillion = 8.40,
+            ),
+        ),
     )
 
     val Zhipu = ProviderProfile(
@@ -679,6 +852,27 @@ object ProviderProfiles {
             Capability.STREAM, Capability.VISION, Capability.TOOL_CALL,
             Capability.JSON_MODE,
         ),
+        defaultModels = listOf(
+            ModelInfo(
+                id = "glm-4-flash",
+                displayName = "GLM-4 Flash（免费档）",
+                capabilities = setOf(Capability.STREAM, Capability.TOOL_CALL, Capability.JSON_MODE),
+                contextWindow = 128_000,
+                // 免费模型价格填 0.0 而不是 null —— 这是"确知免费"，
+                // 与"价格未知"是两回事。见 ModelTier.estimatedCost 的注释。
+                inputPricePerMillion = 0.0,
+                outputPricePerMillion = 0.0,
+            ),
+            ModelInfo(
+                id = "glm-4-plus",
+                displayName = "GLM-4 Plus",
+                capabilities = setOf(Capability.STREAM, Capability.VISION, Capability.TOOL_CALL, Capability.JSON_MODE),
+                contextWindow = 128_000,
+                inputPricePerMillion = 0.70,
+                outputPricePerMillion = 0.70,
+                recommended = true,
+            ),
+        ),
     )
 
     val SiliconFlow = ProviderProfile(
@@ -687,6 +881,25 @@ object ProviderProfiles {
         defaultBaseUrl = "https://api.siliconflow.cn/v1",
         authScheme = AuthScheme.Bearer,
         capabilities = setOf(Capability.STREAM, Capability.VISION, Capability.TOOL_CALL),
+        defaultModels = listOf(
+            ModelInfo(
+                id = "Qwen/Qwen2.5-7B-Instruct",
+                displayName = "Qwen2.5 7B",
+                capabilities = setOf(Capability.STREAM, Capability.TOOL_CALL),
+                contextWindow = 32_000,
+                inputPricePerMillion = 0.05,
+                outputPricePerMillion = 0.05,
+                recommended = true,
+            ),
+            ModelInfo(
+                id = "deepseek-ai/DeepSeek-V3",
+                displayName = "DeepSeek V3（经硅基流动）",
+                capabilities = setOf(Capability.STREAM, Capability.TOOL_CALL, Capability.JSON_MODE),
+                contextWindow = 64_000,
+                inputPricePerMillion = 0.27,
+                outputPricePerMillion = 1.10,
+            ),
+        ),
     )
 
     /** 本地 Ollama —— 零成本联调，也是"纯本地模式"的隐私选项 */
@@ -699,6 +912,10 @@ object ProviderProfiles {
         defaultContextWindow = 32_768,
         // Ollama 的 /v1/models 可用，但不返回价格与上下文长度
         supportsStreamUsage = false,
+        // 本地模型**没有 API 成本**，但这里刻意不填价格：
+        // 填 0.0 会让 `cheapestFor` 把本地模型推成"最省钱的选择"，
+        // 而它的实际代价是电费和内存占用 —— 那些不在模型价格的量纲里。
+        // 留空 = "价格未知"，比较时被跳过，这是诚实的做法。
     )
 
     val LmStudio = ProviderProfile(
@@ -709,6 +926,7 @@ object ProviderProfiles {
         capabilities = setOf(Capability.STREAM, Capability.LOCAL),
         defaultContextWindow = 32_768,
         supportsStreamUsage = false,
+        // 同 Ollama：不填价格，见上
     )
 
     /** Azure OpenAI —— 注意：BaseUrl 由用户提供，且鉴权用 api-key 头 */
@@ -719,6 +937,28 @@ object ProviderProfiles {
         authScheme = AuthScheme.ApiKeyHeader,
         apiKeyHeaderName = "api-key",
         modelsPath = null,     // Azure 没有统一的 /models
+        // ⚠️ Azure 的模型 id 是**用户自己起的部署名**，不是厂商的模型名。
+        //    这里列的 id 只是价格参考锚点 —— 用户实际填的是他的部署名，
+        //    查不到时会回落成裸 id + 未知价格，那是正确的行为。
+        defaultModels = listOf(
+            ModelInfo(
+                id = "gpt-4o-mini",
+                displayName = "GPT-4o mini（部署名需自填）",
+                capabilities = setOf(Capability.STREAM, Capability.VISION, Capability.TOOL_CALL, Capability.JSON_MODE, Capability.LONG_CTX),
+                contextWindow = 128_000,
+                inputPricePerMillion = 0.15,
+                outputPricePerMillion = 0.60,
+                recommended = true,
+            ),
+            ModelInfo(
+                id = "gpt-4o",
+                displayName = "GPT-4o（部署名需自填）",
+                capabilities = setOf(Capability.STREAM, Capability.VISION, Capability.TOOL_CALL, Capability.JSON_MODE, Capability.LONG_CTX),
+                contextWindow = 128_000,
+                inputPricePerMillion = 2.50,
+                outputPricePerMillion = 10.00,
+            ),
+        ),
     )
 
     /** 全部内置配置，用于 UI 展示与"自定义 Provider"的起点 */
