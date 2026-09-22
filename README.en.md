@@ -10,55 +10,71 @@
 
 ---
 
-## ⚠️ Project status: M0 in progress
+## ⚠️ Project status: M0 essentially complete; the P1 gateway core has landed
 
-**It builds into an installable APK, but it does not yet "do" anything.**
+**It builds into an installable APK. The gateway (model access layer) is implemented and fully green,
+but the agent loop — the part where the AI actually "does things for you" — is not wired up yet.**
 
 Done:
 
 - ✅ Full project designs (v1.0 / v2.0 / v3.0) and an M0 technical validation handbook (18 experiments)
-- ✅ Project skeleton (30 Gradle modules)
-- ✅ Provider layer (OpenAI-compatible protocol, 11 vendors covered)
+- ✅ Project skeleton (35 Gradle modules, 128 Kotlin source files, ~37k lines)
+- ✅ Provider layer (OpenAI-compatible protocol, 11 vendors covered) + text-to-speech (TTS)
 - ✅ Safety guardrails (sensitive screens / sensitive widgets / dangerous actions / rate limiting + audit)
 - ✅ **Plugin system** — contract, three-tier classification, capability allowlist, forbidden-prefix blocking
 - ✅ **Plugin market** — browse / search / download / install. No server; subscription-based static sources
 - ✅ **Local import** — `.pagent` bundles, itemized risk disclosure, high-risk plugins require typing a confirmation phrase
-- ✅ **Plugin management** — inspect capabilities and risk, uninstall (double confirmation)
-- ✅ **Subscription source management** — add / remove / restore the built-in source
+- ✅ **Plugin management + subscription source management** — inspect capabilities and risk, uninstall, add/remove/restore sources
 - ✅ **Community source scaffold** — reproducible packaging, index generation, 2 sample plugins + a template
-- ✅ **305 unit tests passing**
+- ✅ **API key management UI** + multi-key / multi-model routing layer (`modelrouter`)
+- ✅ **`GatewayCore`** (1.4.1–1.4.5) — routing / budget circuit-breaking / decryption / forwarding / metering
+- ✅ **`HttpGatewayServer`** (1.4.6) — loopback HTTP + SSE, for dsh to consume
+- ✅ **`GatewayTokenProvider`** (1.4.7) — local token issuance + constant-time comparison + six hardening rules
+- ✅ **667 offline unit tests passing** (including 44 real-socket integration tests)
+- ✅ **All five P0 on-device experiments reached conclusions** (see "M0 on-device results" below)
 - ✅ **A debug APK that builds**
 
-Not done:
+Not done (honest list):
 
-- ❌ **Perception / action / agent loop** — i.e. the part where the AI actually "does things for you"
-- ❌ API key management UI
+- ❌ **Perception / action / agent loop** — the part where the AI actually "does things for you".
+  `:perception` / `:action` / `:agent` currently hold interface contracts only, with no implementations
+- ❌ **The three cross-cutting components the loop needs** — `AgentBudget` / `TaskCheckpoint` / `PerceptionLadder`
+- ❌ **Wiring the gateway into dsh's config** (1.4.6c) and **wiring the gateway into the agent loop** (1.4.8)
+- ❌ **Plugin runtime** — the execution engine for the three plugin tiers (`:plugin:runtime` / `:script` etc. are empty modules)
+- ❌ **Memory, self-update, onboarding, contribution, channel distribution** — those modules have not been started
 - ❌ Release signing
 - ❌ **Built-in source is not live yet** — the `pocketagent-community.github.io` repo does not exist,
   so on first launch the market shows "source failed to load". This is an **honest report**, not a bug;
   the subscription source screen exists precisely as the way out (see [`community-source/`](community-source/))
+- ❌ **Virtual-display execution** — **rejected** by on-device measurement (see below)
 
 ### What the current APK can and cannot do
 
-**Can**: install plugins, view plugins, uninstall plugins, manage subscription sources.
+**Can**: install / view / uninstall plugins, manage subscription sources, manage API keys and model config.
 Plugin bundles are fully validated — hash checking, zip slip / zip bomb protection, manifest rules,
 forbidden-capability blocking. None of it is skipped.
 
-**Cannot**: it **does not read the screen, does not tap, does not call a model**. Installed plugins
-do not run either, because the execution engine is not implemented. The UI says so explicitly —
-it does not ship a fake toggle that does nothing when you tap it.
+**Cannot**: it **does not read the screen, does not tap**. Installed plugins do not run either, because
+the execution engine is not implemented. The gateway itself already works (667 tests cover it), but no UI
+hands it to a user yet — until the agent loop is connected, it is **a verified foundation**, nothing more.
 
-> The plugin system was built out first because it is **the only part that can be fully verified
-> without accessibility permissions, without Shizuku, and without a real device**. And it happens
-> to be the most safety-critical part: validation, extraction, capability allowlisting — code like
-> that does not fail loudly when it is wrong. It quietly lets a malicious plugin through.
+> The plugin system and the gateway were built out first because they are **the only parts that can be
+> fully verified without accessibility permissions, without Shizuku, and without a real device**. And they
+> happen to be the most safety-critical parts: validation, extraction, capability allowlisting, key
+> encryption and forwarding — code like that does not fail loudly when it is wrong. It quietly lets a
+> malicious plugin through, or quietly leaks a key.
 
-### Two decisive questions remain unverified
+### M0 on-device results (2026-09-22, Redmi K60 / HyperOS / Android 15)
 
-They determine whether the product shape holds up at all:
+| Experiment | Verdict | One-line conclusion |
+|---|:---:|---|
+| **P0-1** can dsh run | ✅ pass | dsh really runs (`QUOTA: Insufficient Balance` proves the whole startup chain is intact) |
+| **P0-2** sideload restricted settings | ✅ pass | HyperOS **does not** enforce `ACCESS_RESTRICTED_SETTINGS` → the biggest distribution risk is gone |
+| **P0-3** EX-16 virtual display | ❌ **rejected** | The secondary display can be created and injected into, but **cannot launch apps or take screenshots** |
+| **P0-4** memory budget | ✅ pass | Bare app idle PSS **119 MB** (budget floor 150 MB) — but this is a lower bound, excluding Node/dsh |
+| **P0-5** power baseline | ✅ pass | Readings usable; a single task cannot be measured (±1% quantisation error swamps the signal) |
 
-1. **EX-16 virtual display feasibility** — can Shizuku launch third-party apps onto a virtual display
-2. **EX-13 sideload restricted settings** — can a sideloaded app obtain accessibility permission on Android 13+
+Details: [`tools/p0/reports/2026-09-22-结论汇总.md`](tools/p0/reports/2026-09-22-结论汇总.md).
 
 ---
 
@@ -138,7 +154,7 @@ These are written up in the [design docs](docs/) and they constrain every line o
 └──────────────────────────────────────────────────────────┘
 ```
 
-30 modules in total — see [`android/README.en.md`](android/README.en.md) and the [design docs](docs/) (currently Chinese only).
+35 modules in total — see [`android/README.en.md`](android/README.en.md) and the [design docs](docs/) (currently Chinese only).
 
 ### Three-tier plugin system
 
@@ -229,12 +245,19 @@ allow "install unknown apps" in system settings.
 
 | Phase | Content | Status |
 |------|------|:---:|
-| M0 | Technical validation (18 experiments, including 2 decisive ones) | 🔄 Not started |
-| M1 | MVP + plugin framework | ⏳ |
-| M2 | Task engine + script plugins + virtual display integration | ⏳ |
+| M0 | Technical validation (18 experiments, including 2 decisive ones) | ✅ **Essentially complete** (all five P0 experiments concluded; both decisive questions answered, virtual display rejected) |
+| M1 | MVP + plugin framework | ✅ Plugin framework landed; MVP awaits the agent loop |
+| M2 | Task engine + script plugins + ~~virtual display integration~~ | 🔄 Gateway ready, engine not started (virtual display rejected) |
 | M3 | UX polish + dev tools + GitHub channel | ⏳ |
 | M4 | Open-source governance + release | ⏳ |
 | M5 | Plugin ecosystem operations | ⏳ |
+
+> **Execution-mode change (after on-device measurement)**:
+> ~~Virtual display~~ (**rejected**) → **freeform window (primary form)** → full-screen takeover → manual guidance.
+>
+> Cost: we lose the "isolated background execution that does not disturb your phone" selling point.
+> But `input -d <id> tap` injection does work, so **the bottleneck is down to the single "launch" step** —
+> if Android ever opens up cross-display launching, the virtual display can be revived.
 
 See [`docs/M0技术验证与工程落地手册-v1.0.md`](docs/) and [`docs/社区分发版方案-v3.0.md`](docs/) (in Chinese).
 
@@ -432,7 +455,7 @@ modules, and reconciles that against the declared `project(":...")` entries. It 
 build-feedback loop into two seconds.
 
 **`check_version_catalog.py`** — Gradle version-catalog accessors (`libs.androidx.core.ktx`) are
-resolved at **configuration time**. A typo in any of the 30 modules fails configuration, and the error
+resolved at **configuration time**. A typo in any of the 35 modules fails configuration, and the error
 points at a module you are not even using. This script reconciles all 31 `build.gradle.kts` files
 before the build runs.
 
