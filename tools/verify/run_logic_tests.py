@@ -118,6 +118,7 @@ MODULES = [
     "android/core/network",
     "android/safety",
     "android/plugin/api",
+    "android/modelrouter",
 ]
 
 # JDK 17+ 跑 IntelliJ 平台编译器需要的模块开放

@@ -41,6 +41,11 @@ include(":provider:anthropic")
 include(":provider:gemini")
 include(":provider:local")
 
+// 多模型调度：按任务难度在已配置模型间派发。
+// 纯 Kotlin、零 Android 依赖 —— 决策错误表现为"静默走贵了"或"任务办砸"，
+// 都不报错，所以必须靠离线单测覆盖。
+include(":modelrouter")
+
 // ── 能力层 ──────────────────────────────────────────────
 include(":perception")
 include(":action")

@@ -29,6 +29,10 @@ PURE_KOTLIN = {
     "core/common",
     # 插件契约必须零 Android 依赖 —— 插件作者要能在纯 JVM 环境开发与测试
     "plugin/api",
+    # 调度层是纯决策逻辑：不联网、不碰 Key、不读写数据库。
+    # 零 Android 依赖让它能被 run_logic_tests.py 完整覆盖 ——
+    # 而路由选错模型是"不报错、只是静默走贵了"的那类 bug，必须有测试钉住。
+    "modelrouter",
 }
 
 # Android Library 模块 → 该模块需要额外依赖的库别名

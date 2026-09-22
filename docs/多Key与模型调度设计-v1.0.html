@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>多 Key、多模型与调度层设计 v1.0</title>
+<style>
+:root {
+  --bg: #14161a;
+  --bg-soft: #1a1d22;
+  --panel: #1e2228;
+  --panel-2: #23272f;
+  --border: #2e343d;
+  --text: #e6e9ee;
+  --text-dim: #9aa4b2;
+  --text-faint: #6b7684;
+  --accent: #6ea8fe;
+  --accent-2: #7ee0c0;
+  --warn: #f0b429;
+  --danger: #f2685c;
+  --ok: #57c98a;
+  --code-bg: #15181d;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+               "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans SC", sans-serif;
+  font-size: 15.5px;
+  line-height: 1.85;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { display: flex; max-width: 1500px; margin: 0 auto; }
+aside {
+  width: 300px; flex: 0 0 300px;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  padding: 28px 18px 60px 28px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-soft);
+  font-size: 13.5px;
+}
+aside .brand {
+  font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--text-faint); margin-bottom: 4px;
+}
+aside .title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 20px; line-height: 1.5; }
+aside ul { list-style: none; padding-left: 0; margin: 0; }
+aside ul ul { padding-left: 14px; margin-top: 4px; }
+aside li { margin: 2px 0; }
+aside a {
+  color: var(--text-dim); text-decoration: none; display: block;
+  padding: 4px 8px; border-radius: 6px; border-left: 2px solid transparent;
+  transition: .15s;
+}
+aside a:hover { color: var(--text); background: var(--panel-2); border-left-color: var(--accent); }
+main { flex: 1; min-width: 0; padding: 44px 56px 120px; max-width: 1080px; }
+
+h1 {
+  font-size: 30px; line-height: 1.35; margin: 0 0 8px; font-weight: 800;
+  letter-spacing: -.01em;
+}
+h2 {
+  font-size: 22px; margin: 56px 0 18px; padding-bottom: 10px;
+  border-bottom: 1px solid var(--border); font-weight: 700; scroll-margin-top: 20px;
+}
+h3 { font-size: 17.5px; margin: 34px 0 12px; font-weight: 700; color: #dfe5ee; scroll-margin-top: 20px; }
+h4 { font-size: 15.5px; margin: 24px 0 10px; font-weight: 700; color: var(--text-dim); }
+p { margin: 12px 0; }
+a { color: var(--accent); }
+strong { color: #fff; font-weight: 700; }
+hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+blockquote {
+  margin: 18px 0; padding: 14px 20px;
+  background: linear-gradient(90deg, rgba(110,168,254,.10), rgba(110,168,254,.02));
+  border-left: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0; color: #cfd6e0;
+}
+blockquote p { margin: 6px 0; }
+
+ul, ol { padding-left: 24px; margin: 12px 0; }
+li { margin: 5px 0; }
+li > ul, li > ol { margin: 5px 0; }
+
+.tw { overflow-x: auto; margin: 18px 0; border: 1px solid var(--border); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--panel); }
+th, td { padding: 9px 14px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { background: var(--panel-2); font-weight: 700; color: #fff; white-space: nowrap; font-size: 13.5px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: rgba(110,168,254,.045); }
+
+code {
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+  font-size: 13px; background: var(--code-bg); padding: 2px 6px;
+  border-radius: 5px; color: #8fd3ff; border: 1px solid var(--border);
+}
+pre {
+  background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px;
+  padding: 18px 20px; overflow-x: auto; margin: 18px 0;
+  font-size: 12.8px; line-height: 1.65;
+}
+pre code {
+  background: none; border: none; padding: 0; color: #cfd8e3;
+  white-space: pre; font-family: "JetBrains Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+}
+.codehilite { background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; margin: 18px 0; }
+.codehilite pre { border: none; margin: 0; background: none; }
+.codehilite .k, .codehilite .kd, .codehilite .kn { color: #ff7b9c; }
+.codehilite .s, .codehilite .s1, .codehilite .s2 { color: #7ee0c0; }
+.codehilite .c1, .codehilite .cm { color: #5f6b7a; font-style: italic; }
+.codehilite .n, .codehilite .nf, .codehilite .nc { color: #8fd3ff; }
+.codehilite .m, .codehilite .mi { color: #f0b429; }
+
+@media (max-width: 1000px) {
+  aside { display: none; }
+  main { padding: 28px 20px 80px; }
+  body { font-size: 15px; }
+  h1 { font-size: 24px; }
+  h2 { font-size: 19px; }
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: #333a45; border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: #414a58; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <aside>
+    <div class="brand">Project Plan</div>
+    <div class="title">多 Key、多模型与调度层设计 v1.0</div>
+    <div class="toc">
+<ul>
+<li><a href="#0">0. 现状盘点（先看清有什么，避免重复造轮子）</a></li>
+<li><a href="#1-api-key">1. 需求一：多 API Key 管理</a><ul>
+<li><a href="#11">1.1 已有基础上的扩展</a></li>
+<li><a href="#12-tts-key">1.2 用途标签的设计（解决 TTS Key 混淆）</a></li>
+<li><a href="#13">1.3 界面结构</a></li>
+</ul>
+</li>
+<li><a href="#2">2. 需求二：多模型配置</a><ul>
+<li><a href="#21-key">2.1 为什么需要独立于 Key 的"模型配置"</a></li>
+<li><a href="#22">2.2 数据模型</a></li>
+<li><a href="#23">2.3 档位如何自动推导（减少用户配置负担）</a></li>
+<li><a href="#24">2.4 界面（列表 + 编辑）</a></li>
+</ul>
+</li>
+<li><a href="#3">3. 需求三：可选的底层调度模型</a><ul>
+<li><a href="#31">3.1 这是"可选"的 —— 架构必须支持两种模式</a></li>
+<li><a href="#32">3.2 调度的本质是一次分类，不是一次对话</a></li>
+<li><a href="#33">3.3 ⚠️ 调度会失败，必须有兜底</a></li>
+<li><a href="#34">3.4 调度者可以是任何档位</a></li>
+<li><a href="#35">3.5 手动干预的入口（用户不信任自动时的出路）</a></li>
+</ul>
+</li>
+<li><a href="#4">4. 需求四：单模型模式（默认，可选项）</a><ul>
+<li><a href="#41">4.1 实现的极简性</a></li>
+<li><a href="#42">4.2 缺档位的处理</a></li>
+</ul>
+</li>
+<li><a href="#5">5. 需求五：悬浮球交互（减少影响的核心）</a><ul>
+<li><a href="#51">5.1 为什么悬浮球是对的方向</a></li>
+<li><a href="#52">5.2 悬浮球的三种状态（占用递增）</a></li>
+<li><a href="#53">5.3 ⚠️ 一个反直觉的设计决策</a></li>
+<li><a href="#54">5.4 权限与限制</a></li>
+<li><a href="#55">5.5 与"任务执行"的关系</a></li>
+</ul>
+</li>
+<li><a href="#6">6. 量化目标：减少影响的硬指标</a></li>
+<li><a href="#7">7. 数据模型汇总（本次新增）</a></li>
+<li><a href="#8">8. 模块划分</a><ul>
+<li><a href="#81-modelrouter-2026-09-22">8.1 modelrouter 的实现状态（2026-09-22）</a></li>
+<li><a href="#82-routingoutcome-kotlin-resultt">8.2 RoutingOutcome 而不是 Kotlin 的 Result&lt;T&gt;</a></li>
+<li><a href="#83">8.3 离线验证的关键价值</a></li>
+<li><a href="#84-modelrouter-android">8.4 modelrouter 必须零 Android 依赖</a></li>
+<li><a href="#85">8.5 其他模块的职责边界</a></li>
+</ul>
+</li>
+<li><a href="#9">9. 待决策</a></li>
+<li><a href="#10">10. 一句话总结</a></li>
+</ul>
+</div>
+
+  </aside>
+  <main>
+<h1 id="key-v10">多 Key、多模型与调度层设计 v1.0</h1>
+<p><a href="多Key与模型调度设计-v1.0.en.md">English</a> | <strong>简体中文</strong></p>
+<blockquote>
+<p>发布主体「代码乌托邦」。本文回答五个需求：
+① 多 API Key 管理页面 ② 多模型配置（价格有高有低）
+③ 可选的底层调度模型（按任务难度派发） ④ 单模型模式（可选项）
+⑤ 悬浮球替代虚拟屏的交互形态</p>
+<p><strong>最高优先级约束：尽可能减少对用户正常使用手机的影响。</strong>
+本文每个设计决策都以这条为准绳，§6 给出量化目标。</p>
+</blockquote>
+<hr />
+<h2 id="0">0. 现状盘点（先看清有什么，避免重复造轮子）</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>能力</th>
+<th>现状</th>
+<th>结论</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>多 Key 存储</td>
+<td>✅ <code>CredentialEntity</code> 有 <code>id</code>/<code>label</code>/<code>isDefault</code>，<strong>已支持多条</strong></td>
+<td>复用，只需扩 UI</td>
+</tr>
+<tr>
+<td>Key 加密</td>
+<td>✅ Keystore + AES-GCM + SQLCipher，明文只在两个受控作用域出现</td>
+<td><strong>不动</strong></td>
+</tr>
+<tr>
+<td>Key 校验</td>
+<td>✅ 六态状态机（含 <code>UNREACHABLE</code> 与 <code>INVALID</code> 严格分开）</td>
+<td><strong>不动</strong></td>
+</tr>
+<tr>
+<td>Provider 抽象</td>
+<td>✅ <code>ModelInfo</code> 已带 <code>inputPricePerMillion</code> / <code>Capability</code></td>
+<td><strong>正是调度所需</strong></td>
+</tr>
+<tr>
+<td>模型配置</td>
+<td>❌ <strong>无实体、无表</strong> —— 当前只有"Key 能列出哪些模型"</td>
+<td><strong>本次新增</strong></td>
+</tr>
+<tr>
+<td>调度层</td>
+<td>❌ <strong>完全没有</strong></td>
+<td><strong>本次新增</strong></td>
+</tr>
+<tr>
+<td>虚拟屏</td>
+<td>❌ P0-3 已否决</td>
+<td>改悬浮球</td>
+</tr>
+<tr>
+<td>悬浮球</td>
+<td>❌ <strong>无任何代码</strong></td>
+<td><strong>本次新增</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>关键发现：<code>ModelInfo</code> 里已经有价格字段和 <code>Capability</code> 枚举。</strong>
+调度层不需要新造模型元信息体系 —— 直接消费 Provider 返回的这个结构即可。</p>
+<hr />
+<h2 id="1-api-key">1. 需求一：多 API Key 管理</h2>
+<h3 id="11">1.1 已有基础上的扩展</h3>
+<p><code>CredentialsScreen</code>（现 <code>KeysScreen</code>）已支持增删改查、校验、设为默认。
+本次只补三个点：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>补充</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>按 Provider 分组</strong></td>
+<td>用户有 5 个 Key 时，平铺列表看不出哪个是哪个厂商</td>
+</tr>
+<tr>
+<td><strong>用途标签</strong>（对话 / 语音合成 / 调度）</td>
+<td>见需求五的 TTS Key —— 必须能区分</td>
+</tr>
+<tr>
+<td><strong>使用统计</strong>（可选）</td>
+<td>"这个 Key 这个月花了多少" —— 帮用户判断该留哪个</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="12-tts-key">1.2 用途标签的设计（解决 TTS Key 混淆）</h3>
+<p>⚠️ 用户明确要求过：<strong>TTS Key 要单独弹窗，避免与其他配置混淆。</strong></p>
+<p>落到数据层是给 <code>CredentialEntity</code> 加一个字段：</p>
+<div class="codehilite"><pre><span></span><code><span class="cm">/** 这条 Key 的用途。默认 CHAT，语音合成必须显式指定 */</span>
+<span class="kd">val</span><span class="w"> </span><span class="nv">purpose</span><span class="p">:</span><span class="w"> </span><span class="n">CredentialPurpose</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">CredentialPurpose</span><span class="p">.</span><span class="na">CHAT</span>
+
+<span class="kd">enum</span><span class="w"> </span><span class="kd">class</span><span class="w"> </span><span class="nc">CredentialPurpose</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">CHAT</span><span class="p">,</span><span class="w">           </span><span class="c1">// 对话模型</span>
+<span class="w">    </span><span class="n">SPEECH</span><span class="p">,</span><span class="w">         </span><span class="c1">// 语音合成（TTS）</span>
+<span class="w">    </span><span class="n">SCHEDULER</span><span class="p">,</span><span class="w">      </span><span class="c1">// 调度模型（见需求三）</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p><strong>为什么用同一个表 + 字段，而不是开新表？</strong>
+- 加密链路完全复用（<code>CryptoManager</code>、<code>withDecryptedKey</code>），不用重写
+- 校验逻辑复用（<code>validate</code> 一套代码）
+- 只需要<strong>界面层分开展示</strong> —— 用户看到的是两个独立页面，实现上是同一张表</p>
+<blockquote>
+<p><strong>用户看到"分离"，实现保持"统一"。</strong> 这是减少重复代码的关键。</p>
+</blockquote>
+<p>⚠️ <strong>迁移</strong>：数据库 <code>version</code> 1 → 2，加一条 <code>Migration</code>。已有数据默认 <code>CHAT</code>。</p>
+<h3 id="13">1.3 界面结构</h3>
+<div class="codehilite"><pre><span></span><code>设置
+├── 联网 API Key          ← CredentialsScreen(purpose=CHAT)
+├── 语音合成 Key          ← CredentialsScreen(purpose=SPEECH)   ★独立页面
+├── 模型配置              ← ModelsScreen（本次新增）
+└── ...
+</code></pre></div>
+
+<hr />
+<h2 id="2">2. 需求二：多模型配置</h2>
+<h3 id="21-key">2.1 为什么需要独立于 Key 的"模型配置"</h3>
+<p>用户的 Key 和模型是<strong>多对多</strong>关系：</p>
+<div class="codehilite"><pre><span></span><code>Key A (OpenRouter) ──┐
+                     ├── 可用模型：gpt-4o / claude-3.5 / llama-3.1-8b ...
+Key B (DeepSeek) ────┼── 可用模型：deepseek-chat / deepseek-reasoner
+                     │
+Key C (本地 Ollama) ──┴── 可用模型：qwen2.5:7b ...
+</code></pre></div>
+
+<p><strong>同一个模型可能通过不同 Key 访问</strong>（且价格可能不同）。
+所以需要一张"模型配置"表，指向某条 Key + 某个模型 id。</p>
+<h3 id="22">2.2 数据模型</h3>
+<div class="codehilite"><pre><span></span><code><span class="nd">@Entity</span><span class="p">(</span><span class="n">tableName</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">"model_config"</span><span class="p">)</span>
+<span class="kd">data</span><span class="w"> </span><span class="kd">class</span><span class="w"> </span><span class="nc">ModelConfigEntity</span><span class="p">(</span>
+<span class="w">    </span><span class="nd">@PrimaryKey</span><span class="w"> </span><span class="kd">val</span><span class="w"> </span><span class="nv">id</span><span class="p">:</span><span class="w"> </span><span class="kt">String</span><span class="p">,</span><span class="w">               </span><span class="c1">// UUID</span>
+
+<span class="w">    </span><span class="cm">/** 用户起的名字，如"便宜的快速模型"。空则用模型名 */</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">label</span><span class="p">:</span><span class="w"> </span><span class="kt">String</span><span class="p">,</span>
+
+<span class="w">    </span><span class="cm">/** 指向 credential.id —— 决定用哪个 Key */</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">credentialId</span><span class="p">:</span><span class="w"> </span><span class="kt">String</span><span class="p">,</span>
+
+<span class="w">    </span><span class="cm">/** 模型 id，如 "deepseek-chat" / "gpt-4o-mini" */</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">modelId</span><span class="p">:</span><span class="w"> </span><span class="kt">String</span><span class="p">,</span>
+
+<span class="w">    </span><span class="cm">/** 展示名，来自 ModelInfo.displayName */</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">modelDisplayName</span><span class="p">:</span><span class="w"> </span><span class="kt">String</span><span class="p">,</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * 能力档位 —— **这是调度层的核心输入**</span>
+<span class="cm">     * 从 ModelInfo.capabilities + 价格推导，用户可覆盖</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">tier</span><span class="p">:</span><span class="w"> </span><span class="n">ModelTier</span><span class="p">,</span>
+
+<span class="w">    </span><span class="cm">/** 价格（每百万 token，美元）。缓存下来避免每次调度都要查 */</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">inputPricePerMillion</span><span class="p">:</span><span class="w"> </span><span class="kt">Double?</span><span class="p">,</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">outputPricePerMillion</span><span class="p">:</span><span class="w"> </span><span class="kt">Double?</span><span class="p">,</span>
+
+<span class="w">    </span><span class="cm">/** 用户手动指定的角色偏好 —— 见 §3.4 */</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">roles</span><span class="p">:</span><span class="w"> </span><span class="n">Set</span><span class="o">&lt;</span><span class="n">ModelRole</span><span class="o">&gt;</span><span class="p">,</span>
+
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">enabled</span><span class="p">:</span><span class="w"> </span><span class="kt">Boolean</span><span class="p">,</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">createdAtMillis</span><span class="p">:</span><span class="w"> </span><span class="kt">Long</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="cm">/**</span>
+<span class="cm"> * 能力档位。</span>
+<span class="cm"> *</span>
+<span class="cm"> * ⚠️ 刻意用**三档**而不是连续分数：用户能理解"高中低"，</span>
+<span class="cm"> *    理解不了"这个模型能力值 0.73"。档位也让调度决策可解释。</span>
+<span class="cm"> */</span>
+<span class="kd">enum</span><span class="w"> </span><span class="kd">class</span><span class="w"> </span><span class="nc">ModelTier</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/** 便宜/快/能力弱。适合：简单问答、格式转换、提取字段 */</span>
+<span class="w">    </span><span class="n">LIGHT</span><span class="p">,</span>
+<span class="w">    </span><span class="cm">/** 均衡。默认档 */</span>
+<span class="w">    </span><span class="n">STANDARD</span><span class="p">,</span>
+<span class="w">    </span><span class="cm">/** 贵/慢/能力强。适合：复杂推理、多步规划、长上下文 */</span>
+<span class="w">    </span><span class="n">HEAVY</span><span class="p">,</span>
+<span class="p">}</span>
+
+<span class="kd">enum</span><span class="w"> </span><span class="kd">class</span><span class="w"> </span><span class="nc">ModelRole</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/** 可被选为调度者 */</span>
+<span class="w">    </span><span class="n">SCHEDULER</span><span class="p">,</span>
+<span class="w">    </span><span class="cm">/** 可被调度执行任务 */</span>
+<span class="w">    </span><span class="n">WORKER</span><span class="p">,</span>
+<span class="w">    </span><span class="cm">/** 用户手动指定用于简单对话 */</span>
+<span class="w">    </span><span class="n">CHAT_LIGHT</span><span class="p">,</span>
+<span class="w">    </span><span class="cm">/** 用户手动指定用于复杂任务 */</span>
+<span class="w">    </span><span class="n">CHAT_HEAVY</span><span class="p">,</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<h3 id="23">2.3 档位如何自动推导（减少用户配置负担）</h3>
+<p>用户不该手工为每个模型打档位 —— 那是我们的活。推导规则：</p>
+<div class="codehilite"><pre><span></span><code>从 ModelInfo 推导 tier：
+├── 有价格信息？
+│   ├── outputPrice &lt; $1/M   → LIGHT
+│   ├── $1/M ≤ price &lt; $8/M  → STANDARD
+│   └── price ≥ $8/M         → HEAVY
+└── 无价格（本地/自建）？
+    └── 按能力推断：
+        ├── 有 VISION + LONG_CTX  → HEAVY
+        ├── 有 TOOL_CALL          → STANDARD
+        └── 其余                  → LIGHT
+</code></pre></div>
+
+<p>⚠️ <strong>必须允许用户覆盖</strong>。价格是估算，能力是主观判断 ——
+用户可能知道"这个模型便宜但很聪明"。自动推导只是<strong>默认值</strong>，不是定论。</p>
+<h3 id="24">2.4 界面（列表 + 编辑）</h3>
+<div class="codehilite"><pre><span></span><code>模型配置
+┌────────────────────────────────────────┐
+│  ⓘ 配置多个模型后，可以让 agent 按任务难度   │
+│    自动选择。只配一个也能用。               │
+├────────────────────────────────────────┤
+│  便宜快速        deepseek-chat          │
+│  [轻量] $0.14/M  ●可用         [调度者] │
+├────────────────────────────────────────┤
+│  主力            claude-sonnet-4        │
+│  [均衡] $3.00/M  ●可用                  │
+├────────────────────────────────────────┤
+│  复杂任务        o3                     │
+│  [重型] $15.00/M ●可用                  │
+├────────────────────────────────────────┤
+│  + 添加模型                              │
+└────────────────────────────────────────┘
+</code></pre></div>
+
+<p><strong>每行右侧的 <code>[调度者]</code> 标签</strong>直接关联需求三 —— 用户在这里就能看出
+哪个模型会被用来做派发决策。</p>
+<hr />
+<h2 id="3">3. 需求三：可选的底层调度模型</h2>
+<h3 id="31">3.1 这是"可选"的 —— 架构必须支持两种模式</h3>
+<div class="codehilite"><pre><span></span><code>模式 A：单模型（默认，零配置）
+  所有任务 → 同一个模型
+  ✅ 用户零额外配置
+  ✅ 无调度开销（省一次 API 调用）
+  ✅ 行为可预测
+  ⚠️ 要么浪费（简单任务用贵模型）要么吃力（复杂任务用便宜模型）
+
+模式 B：调度模式（可选，用户显式开启）
+  任务 → 调度模型评估难度 → 路由到对应档位模型
+  ✅ 省钱（简单任务不烧贵模型的 token）
+  ✅ 复杂任务有更好的结果
+  ⚠️ 多一次 API 调用（调度本身的成本）
+  ⚠️ 调度可能判断错
+</code></pre></div>
+
+<blockquote>
+<p><strong>默认是模式 A。</strong> 用户不配置任何东西也能用 —— 这符合"尽可能简化配置"。</p>
+</blockquote>
+<h3 id="32">3.2 调度的本质是一次分类，不是一次对话</h3>
+<p>⚠️ <strong>这是本设计最关键的判断：调度模型不应该"思考"，只应该"分类"。</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>做法</th>
+<th>成本</th>
+<th>延迟</th>
+<th>可解释性</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>❌ 让调度模型输出推理过程再决定</td>
+<td>高</td>
+<td>慢</td>
+<td>差</td>
+</tr>
+<tr>
+<td>✅ <strong>让调度模型只输出一个档位标签</strong></td>
+<td>极低</td>
+<td>~200ms</td>
+<td><strong>好（可记录可审计）</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>做法</strong>：要求 JSON 输出 + <code>max_tokens</code> 极小 + 低 temperature。</p>
+<div class="codehilite"><pre><span></span><code>System: 你是任务路由器。只看任务描述，输出难度档位。
+        不要解释，不要多余文字。
+        LIGHT = 简单问答/查询/格式转换/单位换算
+        STANDARD = 需要多步操作/需要判断/涉及2-5个App
+        HEAVY = 复杂规划/长上下文/需要推理/涉及5个以上App
+        只输出 JSON：{"tier":"LIGHT|STANDARD|HEAVY","reason":"不超过10字"}
+
+User: &lt;任务描述&gt;
+
+→ max_tokens: 64, temperature: 0, jsonMode: true
+</code></pre></div>
+
+<p><strong>成本核算</strong>：假设 prompt 200 token + 输出 30 token，
+用最便宜的模型（$0.14/M 输入）→ <strong>单次调度约 $0.00004</strong>。
+相比让贵模型处理整个任务（可能 $0.01+），<strong>省下的远大于调度成本</strong>。</p>
+<h3 id="33">3.3 ⚠️ 调度会失败，必须有兜底</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>失败情形</th>
+<th>兜底策略</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>调度模型不可用（Key 失效/网络）</td>
+<td><strong>静默降级到单模型模式</strong>，用默认模型</td>
+</tr>
+<tr>
+<td>返回的不是合法 JSON</td>
+<td>按关键词启发式判断；再失败则用 STANDARD</td>
+</tr>
+<tr>
+<td>调度模型把任务判成 HEAVY 但用户没配 HEAVY</td>
+<td>用已配置的最高档</td>
+</tr>
+<tr>
+<td>调度花了太长时间（&gt;2s）</td>
+<td>超时 → 直接按 STANDARD 走</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p><strong>核心原则：调度是优化，不是依赖。调度挂了必须还能干活。</strong></p>
+</blockquote>
+<h3 id="34">3.4 调度者可以是任何档位</h3>
+<p>⚠️ 有个反直觉但重要的点：<strong>调度者本身应该用便宜模型。</strong></p>
+<p>调度只需要"分类"能力，不需要"推理"能力。用一个昂贵的推理模型做调度，
+是纯粹的浪费。所以：</p>
+<ul>
+<li><code>roles</code> 里带 <code>SCHEDULER</code> 的模型<strong>通常是 LIGHT 档</strong></li>
+<li>界面上的提示语要说清这点，否则用户会直觉地选最强的模型当调度者</li>
+</ul>
+<div class="codehilite"><pre><span></span><code>选择调度模型
+ⓘ 调度模型只负责"判断任务难易"，不做实际工作。
+  所以便宜、快的模型最合适 —— 不需要给它配最强的。
+</code></pre></div>
+
+<h3 id="35">3.5 手动干预的入口（用户不信任自动时的出路）</h3>
+<p>调度可能判断错。给用户两个手动开关：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>入口</th>
+<th>位置</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>临时指定</strong></td>
+<td>悬浮球长按 → "这次用 XX 模型"</td>
+<td>只影响当前任务</td>
+</tr>
+<tr>
+<td><strong>永久覆盖</strong></td>
+<td>模型配置页 → 设为默认</td>
+<td>影响所有任务</td>
+</tr>
+</tbody>
+</table></div>
+<p>⚠️ 手动指定后<strong>必须显示出来</strong>（悬浮球上换个颜色/角标），
+否则用户会忘记自己覆盖过，然后困惑"为什么它一直用这个模型"。</p>
+<hr />
+<h2 id="4">4. 需求四：单模型模式（默认，可选项）</h2>
+<h3 id="41">4.1 实现的极简性</h3>
+<p>单模型模式<strong>不需要任何额外代码</strong> —— 它就是"调度层不启用"：</p>
+<div class="codehilite"><pre><span></span><code><span class="kd">sealed</span><span class="w"> </span><span class="kd">interface</span><span class="w"> </span><span class="nc">RoutingMode</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/** 单模型：所有任务走 defaultModelId */</span>
+<span class="w">    </span><span class="kd">data</span><span class="w"> </span><span class="kd">class</span><span class="w"> </span><span class="nc">Single</span><span class="p">(</span><span class="kd">val</span><span class="w"> </span><span class="nv">modelConfigId</span><span class="p">:</span><span class="w"> </span><span class="kt">String</span><span class="p">)</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">RoutingMode</span>
+
+<span class="w">    </span><span class="cm">/** 调度：按难度派发 */</span>
+<span class="w">    </span><span class="kd">data</span><span class="w"> </span><span class="kd">class</span><span class="w"> </span><span class="nc">Scheduled</span><span class="p">(</span>
+<span class="w">        </span><span class="kd">val</span><span class="w"> </span><span class="nv">schedulerModelConfigId</span><span class="p">:</span><span class="w"> </span><span class="kt">String</span><span class="p">,</span>
+<span class="w">        </span><span class="kd">val</span><span class="w"> </span><span class="nv">light</span><span class="p">:</span><span class="w"> </span><span class="kt">String</span><span class="p">,</span><span class="w">      </span><span class="c1">// 各档位对应的 modelConfig.id</span>
+<span class="w">        </span><span class="kd">val</span><span class="w"> </span><span class="nv">standard</span><span class="p">:</span><span class="w"> </span><span class="kt">String</span><span class="p">,</span>
+<span class="w">        </span><span class="kd">val</span><span class="w"> </span><span class="nv">heavy</span><span class="p">:</span><span class="w"> </span><span class="kt">String</span><span class="p">,</span>
+<span class="w">    </span><span class="p">)</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">RoutingMode</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p><strong>用户视角的配置流程</strong>：</p>
+<div class="codehilite"><pre><span></span><code>模型配置页
+├── 只配了一个模型 → 界面**完全不显示**调度相关选项
+└── 配了两个以上 → 出现一个开关：
+    [ ] 按任务难度自动选择模型（可选）
+        开启后可指定一个"调度模型"
+</code></pre></div>
+
+<blockquote>
+<p><strong>零配置路径必须真的零配置。</strong> 只配一个模型的用户，
+永远不该看到"调度"这个词 —— 那是给他们增加认知负担。</p>
+</blockquote>
+<h3 id="42">4.2 缺档位的处理</h3>
+<p>用户配了 2 个模型但都不是 LIGHT 档 → 调度时怎么处理？</p>
+<p><strong>不要静默用别的</strong>，而要<strong>在界面上提前说明</strong>：</p>
+<div class="codehilite"><pre><span></span><code>[!] 你没有配置「轻量」档模型。
+    简单任务将使用「均衡」档的 claude-sonnet-4。
+    想省钱的话，去添加一个便宜的模型。
+</code></pre></div>
+
+<hr />
+<h2 id="5">5. 需求五：悬浮球交互（减少影响的核心）</h2>
+<h3 id="51">5.1 为什么悬浮球是对的方向</h3>
+<p>P0-3 已否决虚拟屏 —— <strong>"后台隔离、互不干扰"这条路走不通了</strong>。
+但悬浮球在"减少影响"这个目标上，反而有几个真实优势：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>优势</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>不抢焦点</strong></td>
+<td>用 <code>FLAG_NOT_FOCUSABLE</code>，用户能照常用下面的 App</td>
+</tr>
+<tr>
+<td><strong>占用极小</strong></td>
+<td>一个半透明圆点，几十 px</td>
+</tr>
+<tr>
+<td><strong>可随时收起</strong></td>
+<td>贴边隐藏，完全让出屏幕</td>
+</tr>
+<tr>
+<td><strong>是豁免凭据</strong></td>
+<td>Android 15 收窄豁免后，可见 overlay 是后台启动服务的条件</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="52">5.2 悬浮球的三种状态（占用递增）</h3>
+<div class="codehilite"><pre><span></span><code>状态 0：极简圆点（默认）
+  ▫ 直径 40dp 半透明
+  ▫ 贴边可自动隐藏为一条细线
+  ▫ 占用：几乎为零
+
+状态 1：展开面板（用户点击时）
+  ▫ 圆点上滑出一小块卡片
+  ▫ 显示：当前任务 / 输入框 / 停止按钮
+  ▫ 占用：约 1/4 屏，且**只在用户主动打开时**
+
+状态 2：任务进行中
+  ▫ 圆点变成进度环
+  ▫ 不需要看屏幕的任务：仍只是圆点
+  ▫ ⚠️ 刻意不做"展开显示 agent 在干什么" —— 那是干扰源
+</code></pre></div>
+
+<h3 id="53">5.3 ⚠️ 一个反直觉的设计决策</h3>
+<p><strong>不要默认展示 agent 的执行过程。</strong></p>
+<p>大多数"AI 助手"类产品喜欢把每一步都显示出来（"正在打开微信..."
+"正在点击..."），看起来透明，实际是<strong>持续吸引用户注意力</strong>。</p>
+<p>本项目的选择：</p>
+<div class="codehilite"><pre><span></span><code>任务执行中 → 圆点显示进度环（一个不动的视觉元素）
+           → 不显示具体步骤
+           → 用户可以点开看（主动行为）
+           → 用户不点，就不知道细节，也不需要知道
+</code></pre></div>
+
+<p><strong>理由</strong>：用户交办任务后应该能去干自己的事。
+不断刷新的步骤日志会让用户忍不住盯着看 —— 这本身就是干扰。</p>
+<h3 id="54">5.4 权限与限制</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SYSTEM_ALERT_WINDOW</code></td>
+<td>必需，已在 v2.0 权限清单第 4 项</td>
+</tr>
+<tr>
+<td>Android 15 豁免</td>
+<td><strong>悬浮窗必须可见</strong>才能从后台启动前台服务（见前份方案 §3.1）</td>
+</tr>
+<tr>
+<td>贴边隐藏的风险</td>
+<td>⚠️ 隐藏后是否仍算"可见 overlay" → <strong>需 EX-20 验证</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>结论</strong>：贴边隐藏可以让圆点变成极细的一条线（视觉上近乎消失），
+但<strong>不能完全移出屏幕</strong> —— 那可能丢掉后台启动服务的资格。</p>
+<h3 id="55">5.5 与"任务执行"的关系</h3>
+<p>⚠️ 关键：<strong>悬浮球本身不执行任务。</strong></p>
+<div class="codehilite"><pre><span></span><code>悬浮球（OverlayService）—— 只负责显示与交互
+    ↓ 用户下达任务
+:agent 进程 —— 执行任务（独立进程，崩溃不影响 UI）
+    ↓ 需要模型
+LlmGateway —— 按 RoutingMode 选择模型
+</code></pre></div>
+
+<p>悬浮球<strong>永远不做重活</strong>。它是 UI，不是执行器。
+这样即使 agent 跑飞了，圆点仍然响应"停止" —— 因为它和执行器不在一个进程。</p>
+<blockquote>
+<p><strong>这是"急停开关必须在另一个进程"的具体落地。</strong></p>
+</blockquote>
+<hr />
+<h2 id="6">6. 量化目标：减少影响的硬指标</h2>
+<p>既然"减少影响"是最高优先级，就必须有可测的数字，否则是空话。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>指标</th>
+<th>目标</th>
+<th>怎么测</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>空闲时 CPU</strong></td>
+<td>≤ 0.5%</td>
+<td><code>dumpsys cpuinfo</code></td>
+</tr>
+<tr>
+<td><strong>空闲时内存增量</strong></td>
+<td>≤ 15 MB（悬浮球 + 服务）</td>
+<td>P0-4 的 PSS 差值</td>
+</tr>
+<tr>
+<td><strong>空闲时电量</strong></td>
+<td>≤ 0.3% / 小时</td>
+<td>电池统计</td>
+</tr>
+<tr>
+<td><strong>任务中屏幕占用</strong></td>
+<td>状态 0/1 时 ≈ 0</td>
+<td>人为评估</td>
+</tr>
+<tr>
+<td><strong>急停响应</strong></td>
+<td>≤ 500ms</td>
+<td>人为评估</td>
+</tr>
+<tr>
+<td><strong>调度额外延迟</strong></td>
+<td>≤ 800ms</td>
+<td>计时</td>
+</tr>
+<tr>
+<td><strong>单次调度成本</strong></td>
+<td>≤ $0.0001</td>
+<td>按 token 计算</td>
+</tr>
+</tbody>
+</table></div>
+<p>⚠️ <strong>注意 P0-5 的教训</strong>：能耗读数的 ±1% 量化误差意味着
+<strong>测不了"单次任务"的耗电</strong>，只能测长时间基线。上表的电量指标要按小时测。</p>
+<hr />
+<h2 id="7">7. 数据模型汇总（本次新增）</h2>
+<div class="codehilite"><pre><span></span><code>新增表：model_config
+─────────────────────────────────
+  id                    UUID
+  label                 用户起的名字
+  credentialId          → credential.id
+  modelId               模型 id
+  modelDisplayName      展示名
+  tier                  LIGHT / STANDARD / HEAVY
+  inputPricePerMillion  缓存价格
+  outputPricePerMillion
+  roles                 角色集合（SCHEDULER/WORKER/...）
+  enabled
+  createdAtMillis
+
+修改表：credential（version 1 → 2）
+─────────────────────────────────
+  + purpose             CHAT / SPEECH / SCHEDULER
+</code></pre></div>
+
+<hr />
+<h2 id="8">8. 模块划分</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>模块</th>
+<th>状态</th>
+<th>职责</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>core:database</code></td>
+<td>改</td>
+<td>新增 <code>ModelConfigEntity</code> + <code>purpose</code> 字段 + Migration</td>
+</tr>
+<tr>
+<td><strong><code>modelrouter</code></strong></td>
+<td>✅ <strong>已实现</strong></td>
+<td><strong>调度纯逻辑</strong>（零 Android 依赖，可离线测试）</td>
+</tr>
+<tr>
+<td><code>keymgmt</code></td>
+<td>小改</td>
+<td>扩展支持 <code>purpose</code></td>
+</tr>
+<tr>
+<td><code>overlay</code></td>
+<td>❌→实现</td>
+<td><strong>悬浮球</strong>（原为空壳模块）</td>
+</tr>
+<tr>
+<td><code>app</code></td>
+<td>改</td>
+<td>新增模型配置页；Key 页按 purpose 分开</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="81-modelrouter-2026-09-22">8.1 <code>modelrouter</code> 的实现状态（2026-09-22）</h3>
+<p><strong>已落地并通过 344 个离线测试</strong>（含新增 39 个）：</p>
+<div class="codehilite"><pre><span></span><code>android/modelrouter/
+├── build.gradle.kts            纯 Kotlin JVM，零 Android 依赖
+└── src/
+    ├── main/kotlin/com/pocketagent/modelrouter/
+    │   ├── ModelTier.kt              档位 + ModelConfig + 角色
+    │   ├── TaskDifficultyAssessor.kt  本地难度评估（七类信号）
+    │   └── ModelRouter.kt             路由决策 + 降级链
+    └── test/kotlin/.../
+        ├── ModelTierTest.kt
+        ├── TaskDifficultyAssessorTest.kt
+        └── ModelRouterTest.kt
+</code></pre></div>
+
+<p><strong>实现中发现并修正的两个真实缺陷</strong>（都已由测试钉住）：</p>
+<ol>
+<li><strong>推理词权重过低</strong> —— 初版权重 1，"帮我分析一下这几个数据"只得 1 分被判 LIGHT。
+   而"分析"恰恰最需要强模型。权重提到 2。</li>
+<li><strong>单个连接词不足以升档</strong> —— "先打开微信，然后发消息"这种明确两步任务被judged轻量。
+   连接词权重从 1 提到 2。</li>
+</ol>
+<blockquote>
+<p>两处都是<strong>"判低"</strong>方向的缺陷 —— 正是文档里说要避免的：
+判低导致任务失败重试，比多花钱严重。</p>
+</blockquote>
+<h3 id="82-routingoutcome-kotlin-resultt">8.2 <code>RoutingOutcome</code> 而不是 Kotlin 的 <code>Result&lt;T&gt;</code></h3>
+<p>⚠️ 这是个刻意的设计选择，值得记下：</p>
+<p>Kotlin 的 <code>Result&lt;T&gt;</code> 要求失败侧是 <code>Throwable</code>。而"用户还没配 Key"、
+"模型被禁用了"<strong>不是异常，是正常业务状态</strong>。</p>
+<p>如果硬塞进 <code>Result</code>，就得到处写 <code>RuntimeException("no models")</code>，
+然后调用方被迫用 <code>try/catch</code> 处理本来就该用 <code>when</code> 处理的流程 ——
+<strong>类型系统在诱导写错的代码</strong>。所以自定义了 <code>RoutingOutcome</code>。</p>
+<h3 id="83">8.3 离线验证的关键价值</h3>
+<p><code>modelrouter</code> 加进了 <code>run_logic_tests.py</code> 的 <code>MODULES</code>，
+<strong>在没有手机的机器上 0.4 秒跑完 344 个测试</strong>。</p>
+<p>路由选错模型的表现是：
+- 不会崩
+- 不会抛异常
+- 只会"静默地走了贵的那个"或"任务办砸"</p>
+<p><strong>这类 bug 读代码发现不了。</strong> 已用"故意注入故障"验证过测试效力：
+把降级方向从"优先升档"改成"优先降档"，测试立刻报
+<code>expected:&lt;strong&gt; but was:&lt;cheap&gt;</code> —— 精确指出本该用强模型却用了便宜的。</p>
+<h3 id="84-modelrouter-android">8.4 <code>modelrouter</code> 必须零 Android 依赖</h3>
+<p>这是本项目最贵的一课（<code>:agent</code> 缺依赖藏了很久）：</p>
+<blockquote>
+<p><strong>离线单测跑绿 ≠ 代码能编译。</strong></p>
+</blockquote>
+<p><strong>能放进这个模块的</strong>：难度评估、档位选择、降级链、预算计算、失败兜底
+<strong>不能放的</strong>：任何网络调用、任何 Context 依赖、任何 Key 访问</p>
+<h3 id="85">8.5 其他模块的职责边界</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>模块</th>
+<th>状态</th>
+<th>职责</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>core:database</code></td>
+<td>待改</td>
+<td>新增 <code>ModelConfigEntity</code> + <code>purpose</code> 字段 + Migration</td>
+</tr>
+<tr>
+<td><code>keymgmt</code></td>
+<td>小改</td>
+<td>扩展支持 <code>purpose</code></td>
+</tr>
+<tr>
+<td><code>overlay</code></td>
+<td>待实现</td>
+<td><strong>悬浮球</strong>（原为空壳模块）</td>
+</tr>
+<tr>
+<td><code>app</code></td>
+<td>待改</td>
+<td>新增模型配置页；Key 页按 purpose 分开</td>
+</tr>
+<tr>
+<td><code>agent</code></td>
+<td>待改</td>
+<td>消费 <code>ModelRouter</code>，把选中的模型交给 <code>LlmGateway</code></td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="9">9. 待决策</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>决策点</th>
+<th>选项</th>
+<th>建议</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>D-AJ</strong></td>
+<td>调度默认状态</td>
+<td>默认关闭 / 默认开启</td>
+<td><strong>默认关闭</strong>（零配置优先）</td>
+</tr>
+<tr>
+<td><strong>D-AK</strong></td>
+<td>难度评估方式</td>
+<td>让模型分类 / 本地启发式</td>
+<td><strong>模型分类 + 本地兜底</strong></td>
+</tr>
+<tr>
+<td><strong>D-AL</strong></td>
+<td>悬浮球默认可见性</td>
+<td>常显 / 贴边隐藏</td>
+<td><strong>贴边但保留细线</strong>（保豁免）</td>
+</tr>
+<tr>
+<td><strong>D-AM</strong></td>
+<td>任务过程是否展示</td>
+<td>实时展示 / 按需展开</td>
+<td><strong>按需展开</strong>（减少干扰）</td>
+</tr>
+<tr>
+<td><strong>D-AN</strong></td>
+<td>档位自动推导</td>
+<td>全自动 / 自动+可覆盖</td>
+<td><strong>自动+可覆盖</strong></td>
+</tr>
+<tr>
+<td><strong>D-AO</strong></td>
+<td>模型配置是否必需</td>
+<td>必需 / 可自动从 Key 生成</td>
+<td><strong>可自动生成</strong>（进一步简化）</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p><strong>D-AO 值得单独说</strong>：用户添加 Key 后，我们可以<strong>自动</strong>把他校验时
+探到的模型批量生成配置（默认取 Provider 推荐的 1-2 个）。
+用户想省事就完全不用进模型配置页。这是"简化配置"的又一处落地。</p>
+</blockquote>
+<hr />
+<h2 id="10">10. 一句话总结</h2>
+<p>三件事：</p>
+<ol>
+<li><strong>基础设施已有一半</strong> —— 多 Key 存储、加密、校验都现成，主要工作在新增模型配置与调度层</li>
+<li><strong>调度是可选优化，不是依赖</strong> —— 默认单模型零配置，调度挂了必须还能干活</li>
+<li><strong>减少影响靠"克制"而非"技术"</strong> —— 不展示执行过程、悬浮球不做重活、
+   圆点贴边不抢焦点。<strong>最好的交互是用户不需要看它</strong></li>
+</ol>
+  </main>
+</div>
+</body>
+</html>
