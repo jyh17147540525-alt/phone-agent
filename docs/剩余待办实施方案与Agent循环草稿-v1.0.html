@@ -1,0 +1,1109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>剩余待办实施方案 与 Agent 循环草稿</title>
+<style>
+:root {
+  --bg: #14161a;
+  --bg-soft: #1a1d22;
+  --panel: #1e2228;
+  --panel-2: #23272f;
+  --border: #2e343d;
+  --text: #e6e9ee;
+  --text-dim: #9aa4b2;
+  --text-faint: #6b7684;
+  --accent: #6ea8fe;
+  --accent-2: #7ee0c0;
+  --warn: #f0b429;
+  --danger: #f2685c;
+  --ok: #57c98a;
+  --code-bg: #15181d;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+               "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans SC", sans-serif;
+  font-size: 15.5px;
+  line-height: 1.85;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { display: flex; max-width: 1500px; margin: 0 auto; }
+aside {
+  width: 300px; flex: 0 0 300px;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  padding: 28px 18px 60px 28px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-soft);
+  font-size: 13.5px;
+}
+aside .brand {
+  font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--text-faint); margin-bottom: 4px;
+}
+aside .title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 20px; line-height: 1.5; }
+aside ul { list-style: none; padding-left: 0; margin: 0; }
+aside ul ul { padding-left: 14px; margin-top: 4px; }
+aside li { margin: 2px 0; }
+aside a {
+  color: var(--text-dim); text-decoration: none; display: block;
+  padding: 4px 8px; border-radius: 6px; border-left: 2px solid transparent;
+  transition: .15s;
+}
+aside a:hover { color: var(--text); background: var(--panel-2); border-left-color: var(--accent); }
+main { flex: 1; min-width: 0; padding: 44px 56px 120px; max-width: 1080px; }
+
+h1 {
+  font-size: 30px; line-height: 1.35; margin: 0 0 8px; font-weight: 800;
+  letter-spacing: -.01em;
+}
+h2 {
+  font-size: 22px; margin: 56px 0 18px; padding-bottom: 10px;
+  border-bottom: 1px solid var(--border); font-weight: 700; scroll-margin-top: 20px;
+}
+h3 { font-size: 17.5px; margin: 34px 0 12px; font-weight: 700; color: #dfe5ee; scroll-margin-top: 20px; }
+h4 { font-size: 15.5px; margin: 24px 0 10px; font-weight: 700; color: var(--text-dim); }
+p { margin: 12px 0; }
+a { color: var(--accent); }
+strong { color: #fff; font-weight: 700; }
+hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+blockquote {
+  margin: 18px 0; padding: 14px 20px;
+  background: linear-gradient(90deg, rgba(110,168,254,.10), rgba(110,168,254,.02));
+  border-left: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0; color: #cfd6e0;
+}
+blockquote p { margin: 6px 0; }
+
+ul, ol { padding-left: 24px; margin: 12px 0; }
+li { margin: 5px 0; }
+li > ul, li > ol { margin: 5px 0; }
+
+.tw { overflow-x: auto; margin: 18px 0; border: 1px solid var(--border); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--panel); }
+th, td { padding: 9px 14px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { background: var(--panel-2); font-weight: 700; color: #fff; white-space: nowrap; font-size: 13.5px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: rgba(110,168,254,.045); }
+
+code {
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+  font-size: 13px; background: var(--code-bg); padding: 2px 6px;
+  border-radius: 5px; color: #8fd3ff; border: 1px solid var(--border);
+}
+pre {
+  background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px;
+  padding: 18px 20px; overflow-x: auto; margin: 18px 0;
+  font-size: 12.8px; line-height: 1.65;
+}
+pre code {
+  background: none; border: none; padding: 0; color: #cfd8e3;
+  white-space: pre; font-family: "JetBrains Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+}
+.codehilite { background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; margin: 18px 0; }
+.codehilite pre { border: none; margin: 0; background: none; }
+.codehilite .k, .codehilite .kd, .codehilite .kn { color: #ff7b9c; }
+.codehilite .s, .codehilite .s1, .codehilite .s2 { color: #7ee0c0; }
+.codehilite .c1, .codehilite .cm { color: #5f6b7a; font-style: italic; }
+.codehilite .n, .codehilite .nf, .codehilite .nc { color: #8fd3ff; }
+.codehilite .m, .codehilite .mi { color: #f0b429; }
+
+@media (max-width: 1000px) {
+  aside { display: none; }
+  main { padding: 28px 20px 80px; }
+  body { font-size: 15px; }
+  h1 { font-size: 24px; }
+  h2 { font-size: 19px; }
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: #333a45; border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: #414a58; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <aside>
+    <div class="brand">Project Plan</div>
+    <div class="title">剩余待办实施方案 与 Agent 循环草稿</div>
+    <div class="toc">
+<ul>
+<li><a href="#0">0. 结论速览</a></li>
+<li><a href="#11">1.1 定位：这不是"一个新模块"，是现有资产的一次调用方替换</a></li>
+<li><a href="#12">1.2 一个必须先澄清的边界：网关有两个消费方，不是一个</a></li>
+<li><a href="#13">1.3 模块划分与依赖</a></li>
+<li><a href="#14">1.4 实施步骤（每步都以"可验证"为界）</a></li>
+<li><a href="#15-byok-43">1.5 已知坑（来自 BYOK 文档 §4.3，此处只列"动手时最容易忘的三条"）</a></li>
+<li><a href="#16">1.6 待决策新增</a></li>
+<li><a href="#21">2.1 现有契约的状况：设计得很好，但有四处与移动端约束冲突</a></li>
+<li><a href="#22">2.2 循环的骨架（伪代码，草稿）</a></li>
+<li><a href="#23">2.3 四个阶段各自的关键设计</a><ul>
+<li><a href="#231">2.3.1 规划阶段：只调一次</a></li>
+<li><a href="#232-0">2.3.2 感知阶段：第 0 档是最大的优化空间</a></li>
+<li><a href="#233">2.3.3 定位阶段：优先缓存，输出序号而非坐标</a></li>
+<li><a href="#234-80">2.3.4 校验阶段：规则优先，且必须能覆盖 80%</a></li>
+</ul>
+</li>
+<li><a href="#24">2.4 待决策</a></li>
+<li><a href="#31-p5-p3p4">3.1 P5：五个横切组件（建议先于 P3/P4 做，因为它们约束后者的形状）</a></li>
+<li><a href="#32-p3">3.2 P3：感知通道</a></li>
+<li><a href="#33-p4">3.3 P4：执行通道</a></li>
+<li><a href="#41-p6overlay">4.1 P6：overlay 视觉层 + 急停跨进程投递</a></li>
+<li><a href="#42-p7-build">4.2 P7：发行 build</a></li>
+</ul>
+</div>
+
+  </aside>
+  <main>
+<h1 id="agent">剩余待办实施方案 与 Agent 循环草稿</h1>
+<blockquote>
+<p>版本 v1.0 ｜ 2026-09-22 ｜ 状态：<strong>规划稿（待评审，不执行）</strong></p>
+<p>性质：本文<strong>只做方案规划，不含实现</strong>。所有代码引用均为现有契约，未落地的部分标注为「待建」。</p>
+<p>前置文档：
+- <code>docs/BYOK模型接入与dsh代理设计-v1.0.md</code>（LlmGateway 的架构依据，以下简称"BYOK 文档"）
+- <code>docs/移动端Agent约束分析与迭代优化方案-v1.0.md</code>（五个横切组件，以下简称"移动端文档"）
+- <code>docs/多Key与模型调度设计-v1.0.md</code>（ModelRouter 依据）
+- <code>docs/沙箱优先架构与离线优先方案-v1.0.md</code>（沙箱四层模型）</p>
+<p>对应 commit 基线：<code>a20934e</code>（828 tests / 0 failed）</p>
+</blockquote>
+<hr />
+<h2 id="0">0. 结论速览</h2>
+<p><strong>当前处境一句话：配置闭环已经通了，执行闭环一环都没接。</strong></p>
+<p>用户现在能做到：配 Key（模型 + 语音）→ 配模型与档位 → 选调度策略。
+但从"配好了"到"真的发出去"，中间横着一道门 —— <code>LlmGateway</code>。
+再往后，从"发得出去"到"能读屏点屏幕"，还横着 <code>PerceptionLadder</code> 与 agent 循环两应当。</p>
+<p><strong>剩余 7 项待办的依赖关系（这是本文最重要的产出）：</strong></p>
+<div class="codehilite"><pre><span></span><code>                    ┌───────────────────────────────────────┐
+                    │  P1  LlmGateway        ★ 解锁一切的前置 │
+                    │      配好 Key 也发不出请求，根因在此      │
+                    └──────────────────┬────────────────────┘
+                                       │ 提供「模型调用」这一原语
+                    ┌──────────────────▼────────────────────┐
+                    │  P2  Agent 循环（骨架 + 状态机）        │
+                    │      ★ 本文第二部分是它的草稿           │
+                    └──────────────────┬────────────────────┘
+                                       │ 循环需要「看屏幕」与「点屏幕」
+        ┌──────────────────────────────┼──────────────────────────────┐
+        │                              │                              │
+┌───────▼────────┐          ┌──────────▼──────────┐        ┌──────────▼─────────┐
+│ P3 感知通道     │          │ P4 执行通道           │        │ P5 横切组件          │
+│ PerceptionLadder│          │ ActionDispatcher      │        │ AgentBudget 等 5 个 │
+│ （五档降级）     │          │ （四通道降级）         │        │                     │
+└────────────────┘          └──────────────────────┘        └────────────────────┘
+                                       │
+                    ┌──────────────────▼────────────────────┐
+                    │  P6  overlay 视觉层 + 急停跨进程投递    │
+                    │      （需真机，最后做）                │
+                    └───────────────────────────────────────┘
+
+  P7 发行 build（debuggable=false）—— 与上面全部无依赖，随时可做
+</code></pre></div>
+
+<p><strong>三条关键判断：</strong></p>
+<ol>
+<li><strong>P1 与 P2 必须串行</strong>，且 P1 先做。理由：agent 循环的每一步都要调模型，
+   在网关还是假的的情况下写循环，只能拿 mock 测 —— 而 mock 测不出"流式 token 乱序""Done 发了两次"这类真问题。</li>
+<li><strong>P3/P4/P5 可以并行</strong>，但它们<strong>都依赖真机</strong>（无障碍服务、截图权限、悬浮窗）。
+   所以<strong>在真机就位前，能推进的只有 P1 + P2 的纯逻辑部分 + P7</strong>。</li>
+<li><strong>P5 的五个横切组件不能"最后统一加"</strong> —— 移动端文档已经论证过，
+   <code>AgentBudget</code> 必须是<strong>一等公民</strong>（轮次能耗差三个数量级）。它要从循环的第一版就长在里面。</li>
+</ol>
+<hr />
+<h1 id="p1llmgateway">第一部分 · P1：LlmGateway 实施方案</h1>
+<h2 id="11">1.1 定位：这不是"一个新模块"，是现有资产的一次调用方替换</h2>
+<p>BYOK 文档 §5.1 已经点明：<code>LlmProvider</code> 接口<strong>一个字都不用改</strong>。
+现在 <code>OpenAiCompatProvider</code>（11 家 profile / SSE 解析 / 错误映射 / token 估算 / 费用钳制）
+全都写好了、测过了，只是<strong>没有调用方</strong>。</p>
+<p>网关要做的事，本质是：<strong>给这些资产接一个 HTTP 服务端的入口</strong>。</p>
+<div class="codehilite"><pre><span></span><code>现在：  [无人调用]  →  OpenAiCompatProvider  →  Provider
+
+之后：  dsh/agent 循环  →  LlmGateway(HTTP)  →  OpenAiCompatProvider  →  Provider
+                          └ 鉴权 / 路由 / 熔断 / 解密 / 落库
+</code></pre></div>
+
+<h2 id="12">1.2 一个必须先澄清的边界：网关有<strong>两个</strong>消费方，不是一个</h2>
+<p>BYOK 文档通篇假设网关的消费方是 <strong>dsh（Node 进程）</strong>。但实际有两个：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>消费方</th>
+<th>协议</th>
+<th>是否需要 HTTP 服务端</th>
+<th>何时需要</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>dsh（Node）</strong></td>
+<td>OpenAI HTTP + SSE</td>
+<td>✅ 必须</td>
+<td>路线 C 落地后</td>
+</tr>
+<tr>
+<td><strong>PocketAgent 自己的 agent 循环</strong></td>
+<td>直接函数调用</td>
+<td>❌ 不需要</td>
+<td><strong>P1 阶段就需要</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>这个区分很重要，因为它改变了模块的切法。</strong> 如果一上来就把"网关"等同于"HTTP 服务端"，
+会得到一个尴尬的结果：agent 循环要调模型，得先绕一圈 <code>127.0.0.1</code> 发 HTTP 给自己。</p>
+<p><strong>建议的切法：把"网关"拆成「核心」与「服务端外壳」两层。</strong></p>
+<div class="codehilite"><pre><span></span><code>┌─────────────────────────────────────────────────────────────┐
+│  GatewayCore（纯逻辑，零 Android 依赖）★ 可以进离线验证器      │
+│                                                             │
+│   suspend fun complete(                                      │
+│       req: ChatRequest,                                      │
+│       ctx: GatewayContext,     ← 调用方身份、任务特征          │
+│   ): Flow&lt;ChatChunk&gt;                                        │
+│                                                             │
+│   内部：路由 → 熔断 → 解密 → 转发 → 计量                       │
+│   ★ 这是唯一处理真 Key 的地方                                  │
+└───────────────┬──────────────────────────┬──────────────────┘
+                │                          │
+    ┌───────────▼──────────┐   ┌───────────▼──────────────┐
+    │ AgentLoop 直接调用     │   │ HttpGatewayServer        │
+    │ （P2 用，零 HTTP 开销）│   │ （dsh 用，loopback HTTP）│
+    └──────────────────────┘   └──────────────────────────┘
+</code></pre></div>
+
+<p><strong>收益：</strong>
+- agent 循环不绕 HTTP，省掉一次 <strong>同机 TCP + SSE 编码解码</strong>（每轮都发生，是实打实的开销）
+- <code>GatewayCore</code> 零 Android 依赖 → <strong>能进 <code>run_logic_tests.py</code> 离线验证器</strong>，
+  而路由 / 熔断 / 计量这些逻辑恰好是最值得单测的
+- <code>HttpGatewayServer</code> 变成薄薄一层"协议翻译"，出问题时排查面小
+- 将来 dsh 与 agent 循环<strong>共用同一套路由与熔断</strong></p>
+<p><strong>代价</strong>：多一个接口层。可接受 —— 它换到的是"核心逻辑可离线测试"，这与项目
+「优先做零 Android 依赖模块」的既有原则一致。</p>
+<blockquote>
+<p>📌 <strong>这是本文对 BYOK 文档的一处修正</strong>（该文档 §5.3 只规划了单一 <code>LlmGatewayServer</code>）。</p>
+</blockquote>
+<h2 id="13">1.3 模块划分与依赖</h2>
+<div class="codehilite"><pre><span></span><code>provider/gateway/
+  ├── GatewayCore.kt            ★ 纯逻辑入口，唯一处理真 Key
+  ├── GatewayContext.kt         调用方身份 + 任务特征
+  ├── RoutingBridge.kt          连接 ModelRouter 与 CredentialRepository
+  ├── BudgetGuard.kt            预算熔断（纯逻辑部分）
+  ├── UsageRecorder.kt          用量累计（落库接口，实现在 keymgmt）
+  └── http/
+      ├── HttpGatewayServer.kt  loopback HTTP 服务端
+      ├── ChatCompletionsHandler.kt
+      ├── SseResponseWriter.kt  Flow&lt;ChatChunk&gt; → SSE
+      └── GatewayTokenProvider.kt
+</code></pre></div>
+
+<p><strong>依赖约束（必须守住）：</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>依赖</th>
+<th>允许</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>:provider:api</code></td>
+<td>✅</td>
+<td><code>LlmProvider</code> / <code>ChatRequest</code> / <code>ChatChunk</code></td>
+</tr>
+<tr>
+<td><code>:modelrouter</code></td>
+<td>✅</td>
+<td>纯 Kotlin，路由决策</td>
+</tr>
+<tr>
+<td><code>:core:crypto</code></td>
+<td>✅</td>
+<td><code>withDecryptedKey</code></td>
+</tr>
+<tr>
+<td><code>:core:network</code></td>
+<td>✅</td>
+<td><code>LogSanitizer</code>（错误信息过滤）</td>
+</tr>
+<tr>
+<td>具体 Provider 实现</td>
+<td>❌ <strong>只通过注入 <code>List&lt;LlmProvider&gt;</code></strong></td>
+<td>否则新增一家厂商要改网关</td>
+</tr>
+<tr>
+<td><code>:core:database</code></td>
+<td>❌ <strong>在 <code>GatewayCore</code> 里不行</strong></td>
+<td>会把它踢出离线验证器</td>
+</tr>
+<tr>
+<td>Android SDK</td>
+<td>❌ <strong>在 <code>GatewayCore</code> 里不行</strong></td>
+<td>同上</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>⚠️ <strong><code>GatewayCore</code> 必须零 Android 与零 Room 依赖。</strong>
+这不是洁癖 —— 项目已经吃过一次亏：<code>MigrationTest.kt</code> 因为所在的
+<code>core:database</code> 进不了离线验证器，<strong>从未被执行过</strong>，导致 Room 2.8 的 API 变更全部漏网。
+落库通过<strong>接口注入</strong>（<code>UsageRecorder</code> 是接口，实现在 <code>keymgmt</code>）。</p>
+</blockquote>
+<h2 id="14">1.4 实施步骤（每步都以"可验证"为界）</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>步</th>
+<th>内容</th>
+<th>验证方式</th>
+<th>前置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>1.4.1</strong></td>
+<td><code>GatewayCore</code> 骨架 + <code>GatewayContext</code></td>
+<td>离线单测：路由分派正确</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>1.4.2</strong></td>
+<td><code>RoutingBridge</code>：<code>ModelRouter</code> ← <code>ModelConfigRepository</code> 接线</td>
+<td>离线单测（用 fake 仓储）</td>
+<td>1.4.1</td>
+</tr>
+<tr>
+<td><strong>1.4.3</strong></td>
+<td><code>BudgetGuard</code>：预算熔断（纯逻辑）</td>
+<td>离线单测：超限拒绝、边界值</td>
+<td>1.4.1</td>
+</tr>
+<tr>
+<td><strong>1.4.4</strong></td>
+<td><code>GatewayCore.complete</code> 串起来（解密 → 转发 → 计量）</td>
+<td>离线单测（用 fake <code>LlmProvider</code>）</td>
+<td>1.4.1–3</td>
+</tr>
+<tr>
+<td><strong>1.4.5</strong></td>
+<td><code>UsageRecorder</code> 接口 + <code>keymgmt</code> 实现</td>
+<td>Gradle 单测（碰 Room）</td>
+<td>1.4.4</td>
+</tr>
+<tr>
+<td><strong>1.4.6</strong></td>
+<td><code>HttpGatewayServer</code> + SSE 写出</td>
+<td><strong>真机</strong>（需要真实端口）</td>
+<td>1.4.4</td>
+</tr>
+<tr>
+<td><strong>1.4.7</strong></td>
+<td><code>GatewayTokenProvider</code> + 六条安全加固</td>
+<td>真机 + 离线（token 比较逻辑）</td>
+<td>1.4.6</td>
+</tr>
+<tr>
+<td><strong>1.4.8</strong></td>
+<td>接通 agent 循环（回到 P2）</td>
+<td>端到端</td>
+<td>1.4.4</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>★ 1.4.1–1.4.5 全部可以离线验证</strong> —— 这意味着<strong>在真机就位前就能推进大半</strong>。</p>
+<h2 id="15-byok-43">1.5 已知坑（来自 BYOK 文档 §4.3，此处只列"动手时最容易忘的三条"）</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>坑</th>
+<th>后果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong><code>[DONE]</code> 恰好一次</strong></td>
+<td>现有 <code>OpenAiCompatProvider.chat</code> 的注释记录过一个真实 bug：Done 可能发两次或零次。走 SPI 时它表现为<strong>客户端卡住等不到结束</strong></td>
+</tr>
+<tr>
+<td><strong>客户端断开必须取消上游</strong></td>
+<td>否则 Provider 那边还在烧 token 计费，而用户已经放弃了</td>
+</tr>
+<tr>
+<td><strong>错误发生在流中</strong></td>
+<td>首字节发出后才发现上游 401，HTTP 状态码已经发出去了 → 只能在流里发 error 事件，<strong>且不能带 Key</strong></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="16">1.6 待决策新增</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>ID</th>
+<th>问题</th>
+<th>建议</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>D-AP</strong></td>
+<td><code>GatewayCore</code> 与 <code>HttpGatewayServer</code> 分层（本文 §1.2 修正）</td>
+<td><strong>采纳分层</strong>。理由：核心进离线验证器 + agent 循环不绕 HTTP</td>
+</tr>
+<tr>
+<td><strong>D-AQ</strong></td>
+<td><code>ChatRequest</code> 的 <code>model</code> 字段由谁决定？</td>
+<td><strong><code>GatewayCore</code> 忽略它，只看路由决策</strong>。与 BYOK 文档 §4.5 策略 A 一致（<code>/v1/models</code> 只返回虚拟模型）</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h1 id="p2agent">第二部分 · P2：Agent 循环草稿 ★ 本文重点</h1>
+<blockquote>
+<p>这一部分是<strong>草稿</strong>，不是定稿。目标是把"循环该怎么转"想清楚，
+并暴露出现有 <code>AgentOrchestrator</code> 契约里<strong>需要修正的地方</strong>。</p>
+</blockquote>
+<h2 id="21">2.1 现有契约的状况：设计得很好，但有四处与移动端约束冲突</h2>
+<p>现有 <code>AgentOrchestrator.kt</code>（单文件，含全部契约）定义了：
+<code>AgentOrchestrator</code> / <code>Grounder</code> / <code>Verifier</code> / <code>TaskStateMachine</code>，
+以及 <code>AgentTask</code> / <code>AgentEvent</code> / <code>PlanStep</code> / <code>GroundResult</code> / <code>VerifyResult</code> / <code>TaskState</code>。</p>
+<p><strong>这套契约的核心洞察（保持）</strong>：双脑分离 —— 规划脑（云端强模型）与定位脑（端侧小模型）
+是两种不同能力，混在一起会得到"规划好但点不准"或"点得准但不会规划"。</p>
+<p><strong>但有四处需要修正：</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>现状</th>
+<th>问题</th>
+<th>建议</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>①</strong></td>
+<td>没有 <code>AgentBudget</code></td>
+<td><code>AgentTask.maxSteps = 20</code> 是一个<strong>裸参数</strong>，没有时长上限、没有能耗上限、没有流量预算</td>
+<td>引入 <code>AgentBudget</code>，由循环<strong>强制</strong>检查，而不是靠调用方自觉</td>
+</tr>
+<tr>
+<td><strong>②</strong></td>
+<td>没有 <code>PerceptionLadder</code></td>
+<td><code>StepStarted</code> 事件里直接带 <code>snapshotSummary</code>，隐含"每步都感知"</td>
+<td>循环第 0 步必须允许<strong>完全不感知</strong>（直接 <code>am start</code>）</td>
+</tr>
+<tr>
+<td><strong>③</strong></td>
+<td><code>PlanStep.actionType: String</code></td>
+<td><strong>字符串</strong>而非枚举</td>
+<td>⚠️ 拼错时<strong>编译通过、运行时静默走错分支</strong>。应改成 <code>ActionType</code> 枚举（已有！在 <code>:action</code> 里）</td>
+</tr>
+<tr>
+<td><strong>④</strong></td>
+<td>没有"中断恢复"位置</td>
+<td><code>AgentEvent</code> 无 checkpoint 事件；<code>TaskState.Idle</code> 不带 taskId</td>
+<td>移动端<strong>中断频率极高</strong>（移动端文档 §2.7），必须可恢复</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>第 ③ 条最值得单独说</strong>：<code>:action</code> 模块已经有 <code>enum class ActionType</code>（15 个值），
+而 <code>PlanStep</code> 却用 <code>String</code>。这是<strong>同一份概念的两套表示</strong> —— 模型输出 <code>"CLICK "</code>（带空格）
+或 <code>"Tap"</code> 时，字符串版本不会报错，会在派发时静默走进 <code>else</code> 分支。
+<strong>这正是项目反复踩过的"不报错、只是安静地少做一件事"类 bug。</strong></p>
+<h2 id="22">2.2 循环的骨架（伪代码，草稿）</h2>
+<div class="codehilite"><pre><span></span><code><span class="kd">suspend</span><span class="w"> </span><span class="kd">fun</span><span class="w"> </span><span class="nf">runTask</span><span class="p">(</span><span class="n">task</span><span class="p">:</span><span class="w"> </span><span class="n">AgentTask</span><span class="p">,</span><span class="w"> </span><span class="n">budget</span><span class="p">:</span><span class="w"> </span><span class="n">AgentBudget</span><span class="p">):</span><span class="w"> </span><span class="n">Flow</span><span class="o">&lt;</span><span class="n">AgentEvent</span><span class="o">&gt;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">channelFlow</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">state</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">TaskStateMachine</span><span class="p">.</span><span class="na">start</span><span class="p">(</span><span class="n">task</span><span class="p">.</span><span class="na">id</span><span class="p">)</span>
+
+<span class="w">    </span><span class="c1">// ── 阶段 0：规划（只调一次强模型）─────────────────────────</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">plan</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">orchestrator</span><span class="p">.</span><span class="na">plan</span><span class="p">(</span><span class="n">task</span><span class="p">)</span><span class="w">            </span><span class="c1">// 可能因预算被拒</span>
+<span class="w">    </span><span class="n">send</span><span class="p">(</span><span class="n">AgentEvent</span><span class="p">.</span><span class="na">Started</span><span class="p">(</span><span class="n">task</span><span class="p">.</span><span class="na">id</span><span class="p">,</span><span class="w"> </span><span class="n">plan</span><span class="p">.</span><span class="na">steps</span><span class="p">))</span>
+
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">step</span><span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="n">plan</span><span class="p">.</span><span class="na">steps</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="c1">// ── 预算检查（★ 一等公民，在每一步之前）──────────────</span>
+<span class="w">        </span><span class="k">when</span><span class="w"> </span><span class="p">(</span><span class="kd">val</span><span class="w"> </span><span class="nv">verdict</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">budget</span><span class="p">.</span><span class="na">check</span><span class="p">(</span><span class="n">state</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="k">is</span><span class="w"> </span><span class="n">Exceeded</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">send</span><span class="p">(</span><span class="n">Failed</span><span class="p">(...));</span><span class="w"> </span><span class="k">return</span><span class="nd">@channelFlow</span><span class="w"> </span><span class="p">}</span>
+<span class="w">            </span><span class="k">else</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{}</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">        </span><span class="c1">// ── 护栏检查（不可绕过，且在感知之前）────────────────</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">safety</span><span class="p">.</span><span class="na">blocked</span><span class="p">(</span><span class="n">step</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">send</span><span class="p">(</span><span class="n">UserInterventionRequired</span><span class="p">(...));</span><span class="w"> </span><span class="k">return</span><span class="nd">@channelFlow</span><span class="w"> </span><span class="p">}</span>
+
+<span class="w">        </span><span class="c1">// ── 感知阶梯（★ 第 0 档合法：不感知）────────────────</span>
+<span class="w">        </span><span class="kd">val</span><span class="w"> </span><span class="nv">snapshot</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ladder</span><span class="p">.</span><span class="na">acquire</span><span class="p">(</span><span class="n">step</span><span class="p">)</span><span class="w">       </span><span class="c1">// 可能是 null（第 0 档）</span>
+<span class="w">        </span><span class="n">send</span><span class="p">(</span><span class="n">StepStarted</span><span class="p">(...))</span>
+
+<span class="w">        </span><span class="c1">// ── 定位（仅在需要元素时）───────────────────────────</span>
+<span class="w">        </span><span class="kd">val</span><span class="w"> </span><span class="nv">ref</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">step</span><span class="p">.</span><span class="na">needsElement</span><span class="p">)</span><span class="w"> </span><span class="n">grounder</span><span class="p">.</span><span class="na">locate</span><span class="p">(</span><span class="n">step</span><span class="p">.</span><span class="na">targetDescription</span><span class="p">,</span><span class="w"> </span><span class="n">snapshot</span><span class="p">)</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="kc">null</span>
+
+<span class="w">        </span><span class="c1">// ── 执行 ───────────────────────────────────────────</span>
+<span class="w">        </span><span class="kd">val</span><span class="w"> </span><span class="nv">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">dispatcher</span><span class="p">.</span><span class="na">dispatch</span><span class="p">(</span><span class="n">step</span><span class="p">.</span><span class="na">toAction</span><span class="p">(</span><span class="n">ref</span><span class="p">))</span>
+<span class="w">        </span><span class="n">send</span><span class="p">(</span><span class="n">StepExecuted</span><span class="p">(...))</span>
+
+<span class="w">        </span><span class="c1">// ── 校验（规则优先，模型兜底）─────────────────────────</span>
+<span class="w">        </span><span class="kd">val</span><span class="w"> </span><span class="nv">after</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ladder</span><span class="p">.</span><span class="na">acquireForVerify</span><span class="p">(</span><span class="n">step</span><span class="p">)</span>
+<span class="w">        </span><span class="kd">val</span><span class="w"> </span><span class="nv">verdict2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">verifier</span><span class="p">.</span><span class="na">verify</span><span class="p">(</span><span class="n">step</span><span class="p">.</span><span class="na">expectation</span><span class="p">,</span><span class="w"> </span><span class="n">snapshot</span><span class="p">,</span><span class="w"> </span><span class="n">after</span><span class="p">)</span>
+<span class="w">        </span><span class="n">send</span><span class="p">(</span><span class="n">StepVerified</span><span class="p">(...))</span>
+
+<span class="w">        </span><span class="c1">// ── 失败处理 ────────────────────────────────────────</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">verdict2</span><span class="w"> </span><span class="k">is</span><span class="w"> </span><span class="n">Failed</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">state</span><span class="p">.</span><span class="na">replanCount</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="n">task</span><span class="p">.</span><span class="na">maxReplans</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">send</span><span class="p">(</span><span class="n">Failed</span><span class="p">(...));</span><span class="w"> </span><span class="k">return</span><span class="nd">@channelFlow</span><span class="w"> </span><span class="p">}</span>
+<span class="w">            </span><span class="kd">val</span><span class="w"> </span><span class="nv">newPlan</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">orchestrator</span><span class="p">.</span><span class="na">replan</span><span class="p">(</span><span class="n">task</span><span class="p">,</span><span class="w"> </span><span class="n">state</span><span class="p">,</span><span class="w"> </span><span class="n">verdict2</span><span class="p">)</span>
+<span class="w">            </span><span class="n">send</span><span class="p">(</span><span class="n">Replanning</span><span class="p">(</span><span class="n">state</span><span class="p">.</span><span class="na">replanCount</span><span class="p">,</span><span class="w"> </span><span class="n">verdict2</span><span class="p">.</span><span class="na">reason</span><span class="p">))</span>
+<span class="w">            </span><span class="c1">// ⚠️ 重规划后是否重置 stepIndex？见 §2.4 待决策 D-AR</span>
+<span class="w">        </span><span class="p">}</span>
+
+<span class="w">        </span><span class="c1">// ── Checkpoint（每步后落盘，为中断恢复）──────────────</span>
+<span class="w">        </span><span class="n">checkpoint</span><span class="p">.</span><span class="na">save</span><span class="p">(</span><span class="n">state</span><span class="p">)</span><span class="w">                    </span><span class="c1">// ★ 移动端必需</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="n">send</span><span class="p">(</span><span class="n">Completed</span><span class="p">(...))</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<h2 id="23">2.3 四个阶段各自的关键设计</h2>
+<h3 id="231">2.3.1 规划阶段：<strong>只调一次</strong></h3>
+<div class="codehilite"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nc">Planner</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">suspend</span><span class="w"> </span><span class="kd">fun</span><span class="w"> </span><span class="nf">plan</span><span class="p">(</span><span class="n">task</span><span class="p">:</span><span class="w"> </span><span class="n">AgentTask</span><span class="p">,</span><span class="w"> </span><span class="n">budget</span><span class="p">:</span><span class="w"> </span><span class="n">BudgetReamaining</span><span class="p">):</span><span class="w"> </span><span class="n">Plan</span>
+<span class="w">    </span><span class="kd">suspend</span><span class="w"> </span><span class="kd">fun</span><span class="w"> </span><span class="nf">replan</span><span class="p">(</span><span class="n">task</span><span class="p">:</span><span class="w"> </span><span class="n">AgentTask</span><span class="p">,</span><span class="w"> </span><span class="n">state</span><span class="p">:</span><span class="w"> </span><span class="n">TaskState</span><span class="p">,</span><span class="w"> </span><span class="n">failure</span><span class="p">:</span><span class="w"> </span><span class="n">VerifyResult</span><span class="p">):</span><span class="w"> </span><span class="n">Plan</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p><strong>★ 为什么"只调一次"很重要</strong>：现有契约的注释说"长程规划交给云端强模型"，
+但没有说明频率。若做成"每步都重新规划"，则：
+- 轮次翻倍 → <strong>能耗翻倍</strong>（移动端文档：能耗几乎完全由轮次决定）
+- 每步多一次网络往返 → 弱网下体验崩坏
+- 用户看到计划反复改变 → 不敢用</p>
+<p><strong>建议</strong>：规划一次产出<strong>完整步骤列表</strong>（<code>PlanStep</code> 的 <code>index</code> 字段已经暗示了这个设计），
+只在<strong>校验明确失败</strong>时才 <code>replan</code>。</p>
+<h3 id="232-0">2.3.2 感知阶段：第 0 档是最大的优化空间</h3>
+<p>移动端文档 §§2.1 的五档阶梯：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>档</th>
+<th>手段</th>
+<th>成本</th>
+<th>何时用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>0</strong></td>
+<td><strong>不感知，直接 <code>am start</code></strong></td>
+<td><strong>零</strong></td>
+<td>启动 App、明确 deep link</td>
+</tr>
+<tr>
+<td>1</td>
+<td>无障碍树</td>
+<td>极低</td>
+<td>大部分点击/输入</td>
+</tr>
+<tr>
+<td>2</td>
+<td>树 + 局部截图</td>
+<td>低</td>
+<td>树信息不足</td>
+</tr>
+<tr>
+<td>3</td>
+<td>全屏降质截图</td>
+<td>中</td>
+<td>自绘 UI（游戏、Flutter）</td>
+</tr>
+<tr>
+<td>4</td>
+<td>全屏原质截图</td>
+<td>高</td>
+<td>兜底</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>★ 现在的契约里没有档位概念</strong> —— <code>StepStarted</code> 直接带 <code>snapshotSummary</code>，
+默认了"每步都有快照"。<strong>草稿里 <code>ladder.acquire(step)</code> 返回 <code>ScreenSnapshot?</code>（可空）</strong>
+是刻意的：<strong>第 0 档返回 null 是合法状态，不是错误。</strong></p>
+<blockquote>
+<p>⚠️ <strong>这是最容易在实现时被"顺手修好"的地方</strong> —— 一个可空返回值看起来像是设计缺陷，
+后来者会倾向把它改成非空。<strong>必须在接口注释里写明"null 表示第 0 档，是正常路径"。</strong></p>
+</blockquote>
+<h3 id="233">2.3.3 定位阶段：优先缓存，输出序号而非坐标</h3>
+<p>现有 <code>Grounder</code> 契约的三条要点（保持）：
+1. 优先命中 UI 图谱缓存 → 重复任务成本趋近 0
+2. <strong>输入用序号而非坐标</strong> → 准确率更高、token 更省
+3. 低置信度返回 <code>NeedMoreInfo</code> → 补一张截图重试</p>
+<p><strong>草稿新增一条</strong>：<code>GroundResult.Ambiguous</code> 现在是"返回候选列表，由调用方消歧"，
+但<strong>调用方是谁、怎么消歧</strong>没定义。建议补：</p>
+<div class="codehilite"><pre><span></span><code><span class="kd">sealed</span><span class="w"> </span><span class="kd">interface</span><span class="w"> </span><span class="nc">AmbiguousResolution</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">data</span><span class="w"> </span><span class="kd">class</span><span class="w"> </span><span class="nc">PickFirst</span><span class="p">(</span><span class="kd">val</span><span class="w"> </span><span class="nv">reason</span><span class="p">:</span><span class="w"> </span><span class="kt">String</span><span class="p">)</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">AmbiguousResolution</span><span class="w">      </span><span class="c1">// 置信度差距大</span>
+<span class="w">    </span><span class="kd">data</span><span class="w"> </span><span class="kd">class</span><span class="w"> </span><span class="nc">AskUser</span><span class="p">(</span><span class="kd">val</span><span class="w"> </span><span class="nv">options</span><span class="p">:</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="kt">String</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">AmbiguousResolution</span><span class="w"> </span><span class="c1">// 差距小，交给用户</span>
+<span class="w">    </span><span class="kd">data</span><span class="w"> </span><span class="kd">class</span><span class="w"> </span><span class="nc">Refine</span><span class="p">(</span><span class="kd">val</span><span class="w"> </span><span class="nv">hint</span><span class="p">:</span><span class="w"> </span><span class="kt">String</span><span class="p">)</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">AmbiguousResolution</span><span class="w">           </span><span class="c1">// 再问一次模型</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p><strong>判据建议</strong>：最高分与次高分的置信度差距 &gt; 0.2 → <code>PickFirst</code>；否则 <code>AskUser</code>。
+（与项目其它地方一致：<strong>能自动判断的自动判断，不能的明确交给用户，不做静默猜测。</strong>）</p>
+<h3 id="234-80">2.3.4 校验阶段：规则优先，且必须能覆盖 80%</h3>
+<p>现有 <code>Verifier</code> 契约已明确"规则层必须优先，每一步都调模型会把用户的钱烧光"。</p>
+<p><strong>草稿补充规则层的具体清单</strong>（这些是零成本的）：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>规则</th>
+<th>判定</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>包名 / Activity 变化</td>
+<td>期望跳转 → Success；未变 → 可能 Failed</td>
+</tr>
+<tr>
+<td>目标文本出现 / 消失</td>
+<td>按 <code>PlanStep.expectation</code> 匹配</td>
+</tr>
+<tr>
+<td>元素仍在原位</td>
+<td>点击未生效 → Failed</td>
+</tr>
+<tr>
+<td>屏幕无任何变化</td>
+<td>连续 2 次 → <strong>卡死</strong>（现有契约已定义：同一动作重复 2 次且屏幕无变化）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>⚠️ 卡死检测的一个陷阱</strong>：某些动作（如 <code>WAIT</code>、<code>SCROLL</code> 到底部）<strong>本就应该无变化</strong>。
+卡死检测必须<strong>排除这些动作类型</strong>，否则会把正常的"滚到底了"判成卡死。
+（这是"类型化的动作枚举"（§2.1 第 ③ 条修正）带来收益的又一个例子 —— 字符串版本没法可靠排除。）</p>
+<h2 id="24">2.4 待决策</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>ID</th>
+<th>问题</th>
+<th>选项</th>
+<th>建议</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>D-AR</strong></td>
+<td>重规划后 <code>stepIndex</code> 是否重置？</td>
+<td>重置 / 累加</td>
+<td><strong>累加</strong>。重置会让 <code>maxSteps</code> 失去意义（无限重规划 = 无限步数），而移动端最怕的就是轮次失控</td>
+</tr>
+<tr>
+<td><strong>D-AS</strong></td>
+<td><code>PlanStep.actionType</code> 是否改成 <code>ActionType</code> 枚举？</td>
+<td>改 / 保持 String</td>
+<td><strong>改</strong>。理由见 §2.1 第 ③ 条 —— 字符串拼错是静默的</td>
+</tr>
+<tr>
+<td><strong>D-AT</strong></td>
+<td><code>GroundResult.Ambiguous</code> 的消歧判据</td>
+<td>置信度差距阈值 / 总是问用户</td>
+<td><strong>阈值 0.2</strong>，超过自动选、否则问用户</td>
+</tr>
+<tr>
+<td><strong>D-AU</strong></td>
+<td>规划失败的降级</td>
+<td>直接失败 / 降级为手动引导</td>
+<td><strong>降级</strong>。与原则 5 一致（"手动引导是正式产品形态"）</td>
+</tr>
+<tr>
+<td><strong>D-AV</strong></td>
+<td><code>AgentBudget</code> 的默认值</td>
+<td>见 §3.1</td>
+<td>轮次 8 / 时长 5min / 能耗 0.1%</td>
+</tr>
+<tr>
+<td><strong>D-AW</strong></td>
+<td>Checkpoint 落盘频率</td>
+<td>每步 / 每 N 步</td>
+<td><strong>每步</strong>。移动端进程随时会死（移动端文档 §2.3），省这一次写入会让恢复点变得不可预测</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h1 id="p3p4p5">第三部分 · P3/P4/P5：三条能力通道</h1>
+<h2 id="31-p5-p3p4">3.1 P5：五个横切组件（建议<strong>先于</strong> P3/P4 做，因为它们约束后者的形状）</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>组件</th>
+<th>职责</th>
+<th>为什么不能后加</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong><code>AgentBudget</code></strong></td>
+<td>轮次 / 时长 / 能耗 / 流量上限，超限主动中止</td>
+<td>★ <strong>轮次能耗差三个数量级</strong>（30 轮 0.27% vs 8 轮 0.07%）。事后加等于重写循环</td>
+</tr>
+<tr>
+<td><strong><code>TaskCheckpoint</code></strong></td>
+<td>每步后持久化任务状态</td>
+<td>移动端中断频率极高，<strong>恢复能力是产品形态的一部分</strong>，不是补丁</td>
+</tr>
+<tr>
+<td><strong><code>PerceptionLadder</code></strong></td>
+<td>五档降级选择</td>
+<td>它决定循环里"要不要感知"，<strong>循环骨架依赖它</strong></td>
+</tr>
+<tr>
+<td><strong><code>PrivacyFilter</code></strong></td>
+<td>上传前裁剪 / 降质 / 遮蔽</td>
+<td>★ 必须是<strong>所有上传路径的唯一出口</strong>。事后加必然漏</td>
+</tr>
+<tr>
+<td><strong><code>PowerGovernor</code></strong></td>
+<td>能耗采集 + 触发降级</td>
+<td>需要全局视角（App + Node + 网络），<strong>单层实现不了</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>建议的默认预算值（草稿）：</strong></p>
+<div class="codehilite"><pre><span></span><code><span class="kd">data</span><span class="w"> </span><span class="kd">class</span><span class="w"> </span><span class="nc">AgentBudget</span><span class="p">(</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">maxTurns</span><span class="p">:</span><span class="w"> </span><span class="kt">Int</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">8</span><span class="p">,</span><span class="w">            </span><span class="c1">// 移动端文档的推荐值</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">maxDurationMs</span><span class="p">:</span><span class="w"> </span><span class="kt">Long</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">300</span><span class="n">_000</span><span class="p">,</span><span class="w"> </span><span class="c1">// 5 分钟</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">maxEnergyPercent</span><span class="p">:</span><span class="w"> </span><span class="kt">Float</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">0.1f</span><span class="p">,</span><span class="w"> </span><span class="c1">// 0.1% —— P0-5 实测读数可用，但 ±1% 量化误差</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">maxUploadBytes</span><span class="p">:</span><span class="w"> </span><span class="kt">Long</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">5</span><span class="n">_000_000</span><span class="p">,</span><span class="w"> </span><span class="c1">// 5MB，非 WiFi 下的可感知阈值</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">requireWifiForHeavy</span><span class="p">:</span><span class="w"> </span><span class="kt">Boolean</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span><span class="w"> </span><span class="c1">// 用户可选</span>
+<span class="p">)</span>
+</code></pre></div>
+
+<blockquote>
+<p>⚠️ <strong>能耗上限 0.1% 与 P0-5 的实测结论有张力</strong>：P0-5 结论是"±1% 量化误差 →
+只能测长任务，测不了单次任务"。<strong>0.1% 的预算用当前读数是测不准的。</strong>
+→ 这暴露一个真实缺口：<strong>要么改用更细的能耗来源（如 <code>BatteryStats</code>），
+要么把能耗预算改为"任务结束后核对"而非"中途强制中止"</strong>。见 D-AV。</p>
+</blockquote>
+<h2 id="32-p3">3.2 P3：感知通道</h2>
+<p><strong>现状</strong>：<code>:perception</code> 只有 <code>ScreenSnapshot.kt</code>（契约完整，零实现）。</p>
+<p><strong>关键约束（<code>ScreenSnapshot.kt</code> 契约注释已写明）</strong>：
+- ⚠️ <strong>这是感知层的唯一出口</strong> —— 决策层不认识 <code>AccessibilityNodeInfo</code>，也不认识 <code>Bitmap</code>
+- 无障碍树遍历<strong>必须支持超时</strong>（建议 300ms），超时返回部分结果
+- 截图<strong>必须走前台服务</strong>，且 Android 14+ 每次会话需用户确认
+- <code>dispose()</code> <strong>必须在 <code>finally</code> 中调用</strong> —— 截图是最高敏感度数据</p>
+<p><strong>实施建议</strong>：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>步</th>
+<th>内容</th>
+<th>依赖</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>3.2.1</td>
+<td><code>AccessibilitySnapshotProducer</code>（树 → <code>UiNode</code> 归一化）</td>
+<td>真机</td>
+</tr>
+<tr>
+<td>3.2.2</td>
+<td><code>MediaProjectionSnapshotProducer</code>（截图 + OCR 兜底）</td>
+<td>真机</td>
+</tr>
+<tr>
+<td>3.2.3</td>
+<td><code>PerceptionLadder</code> 的档位决策（<strong>纯逻辑，可离线测</strong>）</td>
+<td>—</td>
+</tr>
+<tr>
+<td>3.2.4</td>
+<td><code>PerceptionManager</code> 实现（编排上面三者）</td>
+<td>3.2.1–3</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>★ 3.2.3 可以离线做</strong> —— 档位决策是"给定期望与能力，选最低够用的档"，
+纯策略逻辑，与 Android 无关。</p>
+<h2 id="33-p4">3.3 P4：执行通道</h2>
+<p><strong>现状</strong>：<code>:action</code> 只有 <code>ActionExecutor.kt</code>（契约完整，零实现）。</p>
+<p><strong>四条通道的优先级与降级</strong>（契约已定义）：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>通道</th>
+<th>抗政策风险</th>
+<th>体验</th>
+<th>实施难度</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ACCESSIBILITY</code></td>
+<td><strong>低</strong>（Android 17 APM 会禁）</td>
+<td>好</td>
+<td>中</td>
+</tr>
+<tr>
+<td><code>SHIZUKU</code></td>
+<td>中</td>
+<td>一般</td>
+<td>中（需装 Shizuku）</td>
+</tr>
+<tr>
+<td><code>IME</code></td>
+<td>中</td>
+<td>一般</td>
+<td>高（需自建输入法）</td>
+</tr>
+<tr>
+<td><code>OVERLAY_PROMPT</code></td>
+<td><strong>高</strong></td>
+<td>差</td>
+<td>低（复用悬浮球）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>建议实施顺序：<code>ACCESSIBILITY</code> → <code>OVERLAY_PROMPT</code> → <code>SHIZUKU</code> → <code>IME</code>。</strong></p>
+<p>理由：
+1. <strong>先做 ACCESSIBILITY</strong>（体验最好，且是当前政策下仍可用的主路径）
+2. <strong>立刻做 OVERLAY_PROMPT</strong>（成本最低，且它是"永远可用"的兜底 —— 
+   产品的抗风险承诺靠它兑现，不能留到最后）
+3. SHIZUKU / IME 是增强项，依赖用户额外配置</p>
+<blockquote>
+<p>⚠️ <strong><code>HumanizePolicy</code> 已在契约里定义</strong>（随机偏移 / 随机间隔 / 频率上限）。
+契约注释明确写了它的正当性："不是规避检测的黑产手段，而是让自动化行为更接近真人操作节奏"。
+<strong>实施时必须真的随机化</strong> —— 固定常量会让"拟人化"变成"规律化"，效果相反。</p>
+</blockquote>
+<hr />
+<h1 id="p6p7">第四部分 · P6/P7：视觉层与发行</h1>
+<h2 id="41-p6overlay">4.1 P6：overlay 视觉层 + 急停跨进程投递</h2>
+<p><strong>现状缺口</strong>（MEMORY 已记录）：
+- <code>OverlayService</code> 视觉层<strong>只打日志</strong>
+- 急停的<strong>跨进程实际投递没做</strong></p>
+<p><strong>必须真机的部分</strong>：面板 / 进度环 / 吸附动画 / 模型选择菜单。</p>
+<p><strong>可以离线的部分</strong>：进度环的<strong>状态推导</strong>（<code>overlaylogic</code> 已有状态机）、
+急停的<strong>协议定义</strong>（消息格式、超时、确认）。建议先把协议冻结，再做投递。</p>
+<p><strong>⚠️ 一条易忘的约束</strong>：贴边几何算错的后果链特别长 ——
+球跑出屏幕 → 丢掉"存在可见 overlay 窗口" → <strong>丢掉 Android 15 的后台启动 FGS 豁免</strong>。
+<code>overlaylogic</code> 的 <code>computeEdgePosition</code> 已按此实现（球心停在屏幕边缘内侧，只留一条细线），
+<strong>改动时要保持这个性质</strong>。</p>
+<h2 id="42-p7-build">4.2 P7：发行 build</h2>
+<p><strong>内容</strong>：确保 <code>debuggable = false</code>。</p>
+<p><strong>为什么单列一项</strong>：这关系到 <code>run-as com.termux</code> 那套开发期验证手段的有效性。
+MEMORY 已记：「<strong>仅限开发期验证</strong> —— 正式 APK 不该 debuggable，我们自己的应用将来不能用这招」。
+→ <strong>必须有一个明确的检查点</strong>，否则容易带着 <code>debuggable=true</code> 发出去。</p>
+<p><strong>建议</strong>：加进 <code>tools/verify/</code> 的检查清单，做成脚本守卫（防止复发）。</p>
+<hr />
+<h1 id="_1">第五部分 · 实施顺序建议（含真机依赖标注）</h1>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>内容</th>
+<th>真机</th>
+<th>可离线</th>
+<th>预计产出</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>S1</strong></td>
+<td>P1 的 1.4.1–1.4.5（<code>GatewayCore</code> 全套）</td>
+<td>❌</td>
+<td>✅</td>
+<td>网关核心 + 单测</td>
+</tr>
+<tr>
+<td><strong>S2</strong></td>
+<td>P2 的纯逻辑部分：<code>Planner</code> 契约修正、<code>TaskStateMachine</code> 实现、<code>AgentBudget</code></td>
+<td>❌</td>
+<td>✅</td>
+<td>循环骨架 + 状态机</td>
+</tr>
+<tr>
+<td><strong>S3</strong></td>
+<td>P5 的 <code>AgentBudget</code> / <code>TaskCheckpoint</code> / <code>PerceptionLadder</code>（纯逻辑）</td>
+<td>❌</td>
+<td>✅</td>
+<td>三个横切组件</td>
+</tr>
+<tr>
+<td><strong>S4</strong></td>
+<td>P7（发行检查脚本）</td>
+<td>❌</td>
+<td>✅</td>
+<td>守卫脚本</td>
+</tr>
+<tr>
+<td>───</td>
+<td>─── <strong>以下是真机分界线</strong> ───</td>
+<td>───</td>
+<td>───</td>
+<td>───</td>
+</tr>
+<tr>
+<td><strong>S5</strong></td>
+<td>P1 的 1.4.6–1.4.7（HTTP 服务端 + 安全加固）</td>
+<td>✅</td>
+<td>❌</td>
+<td>可用的网关</td>
+</tr>
+<tr>
+<td><strong>S6</strong></td>
+<td>P3 的 3.2.1–3.2.2（感知实现）</td>
+<td>✅</td>
+<td>❌</td>
+<td>能看屏幕</td>
+</tr>
+<tr>
+<td><strong>S7</strong></td>
+<td>P4 的 ACCESSIBILITY + OVERLAY_PROMPT</td>
+<td>✅</td>
+<td>❌</td>
+<td>能点屏幕</td>
+</tr>
+<tr>
+<td><strong>S8</strong></td>
+<td>P2 的端到端接通</td>
+<td>✅</td>
+<td>❌</td>
+<td><strong>能执行任务</strong></td>
+</tr>
+<tr>
+<td><strong>S9</strong></td>
+<td>P6（视觉层）+ 其余执行通道</td>
+<td>✅</td>
+<td>❌</td>
+<td>产品形态完整</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>★ S1–S4 全部不需要真机</strong> —— 这是这份规划最有价值的信息：
+<strong>在真机就位之前，有相当一部分工作可以完整推进并验证。</strong></p>
+<hr />
+<h1 id="_2">第六部分 · 待决策汇总（本文字新增）</h1>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>ID</th>
+<th>问题</th>
+<th>建议</th>
+<th>出处</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>D-AP</strong></td>
+<td>网关是否拆「核心 / HTTP 外壳」两层</td>
+<td>采纳</td>
+<td>§1.2</td>
+</tr>
+<tr>
+<td><strong>D-AQ</strong></td>
+<td><code>ChatRequest.model</code> 由谁决定</td>
+<td>网关忽略，只看路由</td>
+<td>§1.6</td>
+</tr>
+<tr>
+<td><strong>D-AR</strong></td>
+<td>重规划后 <code>stepIndex</code> 是否重置</td>
+<td>累加（不重置）</td>
+<td>§2.4</td>
+</tr>
+<tr>
+<td><strong>D-AS</strong></td>
+<td><code>PlanStep.actionType</code> 改 <code>ActionType</code> 枚举</td>
+<td>改</td>
+<td>§2.1</td>
+</tr>
+<tr>
+<td><strong>D-AT</strong></td>
+<td><code>Ambiguous</code> 消歧判据</td>
+<td>置信度差距 0.2</td>
+<td>§2.3.3</td>
+</tr>
+<tr>
+<td><strong>D-AU</strong></td>
+<td>规划失败的降级</td>
+<td>降级为手动引导</td>
+<td>§2.4</td>
+</tr>
+<tr>
+<td><strong>D-AV</strong></td>
+<td><code>AgentBudget</code> 默认值 + 能耗预算的测准问题</td>
+<td>轮次 8 / 时长 5min；<strong>能耗改"事后核对"</strong></td>
+<td>§3.1</td>
+</tr>
+<tr>
+<td><strong>D-AW</strong></td>
+<td>Checkpoint 落盘频率</td>
+<td>每步</td>
+<td>§2.4</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>★ D-AV 需要特别说明</strong>：它不是一个"选哪个数字"的问题，而是暴露了一个<strong>真实的技术缺口</strong>
+（P0-5 实测：能耗读数 ±1% 量化误差）。<strong>建议在 S3 阶段先做一个小实验确认能拿到更细的读数</strong>，
+再决定能耗预算是"硬中止"还是"事后核对"。</p>
+<hr />
+<h1 id="_3">附录 · 本文对既有文档的修正</h1>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>文档</th>
+<th>原文</th>
+<th>修正</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>BYOK 文档 §5.3</td>
+<td>只规划了单一 <code>LlmGatewayServer</code></td>
+<td>拆成 <code>GatewayCore</code>（纯逻辑）+ <code>HttpGatewayServer</code>，理由见 §1.2</td>
+</tr>
+<tr>
+<td>2</td>
+<td>BYOK 文档 全文</td>
+<td>假设网关消费方只有 dsh</td>
+<td>实际有两个（dsh + agent 循环），后者不需要 HTTP</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>AgentOrchestrator.kt</code></td>
+<td><code>PlanStep.actionType: String</code></td>
+<td>建议改 <code>ActionType</code> 枚举，理由见 §2.1</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h1 id="b">附录 B · 本文的确定性分级</h1>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>内容</th>
+<th>确定性</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>现有各契约（<code>AgentOrchestrator</code> / <code>ScreenSnapshot</code> / <code>ActionExecutor</code> / <code>SafetyGuard</code> / <code>ModelRouter</code> / <code>LlmProvider</code>）的实际内容</td>
+<td><strong>已核对源码</strong></td>
+</tr>
+<tr>
+<td>BYOK 文档中的 dsh 实测结论（baseURL / headers / 三协议 / MCP transport）</td>
+<td><strong>转述实测</strong>（原文见该文档附录 A）</td>
+</tr>
+<tr>
+<td>五个横切组件的必要性论证</td>
+<td><strong>转述移动端文档</strong>（§2.1 能耗账）</td>
+</tr>
+<tr>
+<td>循环骨架的伪代码、模块切分、实施顺序</td>
+<td><strong>本文建议</strong>，待评审</td>
+</tr>
+<tr>
+<td>能耗预算 0.1% 与 P0-5 量化误差的冲突</td>
+<td><strong>本文发现的缺口</strong>，需小实验确认</td>
+</tr>
+</tbody>
+</table></div>
+  </main>
+</div>
+</body>
+</html>
