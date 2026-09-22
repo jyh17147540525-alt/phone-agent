@@ -6,8 +6,10 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.pocketagent.core.database.dao.CredentialDao
 import com.pocketagent.core.database.dao.ModelConfigDao
+import com.pocketagent.core.database.dao.UsageDao
 import com.pocketagent.core.database.entity.CredentialEntity
 import com.pocketagent.core.database.entity.ModelConfigEntity
+import com.pocketagent.core.database.entity.UsageRecordEntity
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 
 /**
@@ -19,6 +21,7 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
  * |---|---|
  * | 1 | `credential` 表（密文 Key） |
  * | 2 | `credential.purpose` 列 + 索引；新增 `model_config` 表 |
+ * | 3 | 新增 `usage_record` 表（用量账本，只有元数据、无请求正文） |
  *
  * ⚠️ **`exportSchema = true` 不是可选项。**
  *    Room 的 schema JSON 是写迁移的唯一依据：没有它，加字段时只能靠猜
@@ -33,8 +36,9 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
     entities = [
         CredentialEntity::class,
         ModelConfigEntity::class,
+        UsageRecordEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class PocketAgentDatabase : RoomDatabase() {
@@ -42,6 +46,8 @@ abstract class PocketAgentDatabase : RoomDatabase() {
     abstract fun credentialDao(): CredentialDao
 
     abstract fun modelConfigDao(): ModelConfigDao
+
+    abstract fun usageDao(): UsageDao
 }
 
 /**

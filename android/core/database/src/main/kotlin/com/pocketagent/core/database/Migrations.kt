@@ -92,6 +92,61 @@ object Migrations {
         }
     }
 
+    /**
+     * v2 → v3：用量账本。
+     *
+     * 变更内容：新建 `usage_record` 表。
+     *
+     * ⚠️ 这是本项目**唯一一张纯新增**的迁移（不动既有表）——
+     *    所以它没有"旧数据怎么填"的问题，也不存在数据丢失风险。
+     *    但依然要小心 `createSql` 的逐字一致性，见 [MIGRATION_1_2] 的注释。
+     *
+     * ⚠️ **自增主键的写法**：`id INTEGER PRIMARY KEY AUTOINCREMENT` 是 SQLite 的
+     *    特例语法 —— 它**不能**写成 `id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT`
+     *    （`AUTOINCREMENT` 要求紧跟在 `PRIMARY KEY` 之后）。
+     *    Room 生成的正是 `PRIMARY KEY(`id` AUTOINCREMENT)` 这种把约束并进列定义的写法。
+     *    手写时抄 schemas/3.json，别按其他表的样式类推。
+     *
+     * ⚠️ **没有 `NOT NULL` 的列**：`upstreamInputTokens` / `upstreamOutputTokens` /
+     *    `failure` / `warning` 四列可空，SQL 里就**不能**带 NOT NULL ——
+     *    "上游没返回 usage" 与 "token 是 0" 是两件事，用 0 代替 null 会让
+     *    "估算偏了多少" 这件事算不出来（0 会被当成真实值参与统计）。
+     */
+    val MIGRATION_2_3 = object : Migration(2, 3) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `usage_record` (
+                    `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    `modelConfigId` TEXT NOT NULL,
+                    `providerId` TEXT NOT NULL,
+                    `consumer` TEXT NOT NULL,
+                    `inputTokens` INTEGER NOT NULL,
+                    `outputTokens` INTEGER NOT NULL,
+                    `upstreamInputTokens` INTEGER,
+                    `upstreamOutputTokens` INTEGER,
+                    `failure` TEXT,
+                    `warning` TEXT,
+                    `createdAtMillis` INTEGER NOT NULL
+                )
+                """.trimIndent()
+            )
+
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_usage_record_createdAtMillis` " +
+                    "ON `usage_record` (`createdAtMillis`)"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_usage_record_modelConfigId` " +
+                    "ON `usage_record` (`modelConfigId`)"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_usage_record_consumer` " +
+                    "ON `usage_record` (`consumer`)"
+            )
+        }
+    }
+
     /** 全部迁移，按顺序 */
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2)
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
 }

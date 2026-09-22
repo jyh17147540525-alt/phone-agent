@@ -45,6 +45,18 @@ include(":provider:local")
 // 一堆"这一行对语音无效"的字段。
 include(":provider:tts-openai")
 
+// 模型网关的**核心逻辑**（纯 Kotlin，零 Android 依赖）。
+//
+// ⚠️ 与「HTTP 服务端」分开成两个模块，这是刻意的。网关有两个消费方：
+//   · PocketAgent 自己的 agent 循环 —— 直接函数调用，不需要 HTTP
+//   · dsh（Node 进程）             —— 需要 loopback HTTP + SSE
+// 如果一上来就把"网关"等同于"HTTP 服务端"，agent 循环每轮都要绕一圈
+// 127.0.0.1 发 HTTP 给自己（同机 TCP + SSE 编解码，纯浪费）。
+//
+// 拆开的另一个收益：路由 / 熔断 / 计量这些最值得单测的逻辑能进离线验证器，
+// 而 HTTP 外壳只剩"协议翻译"，出错时排查面很小。
+include(":provider:gateway")
+
 // 多模型调度：按任务难度在已配置模型间派发。
 // 纯 Kotlin、零 Android 依赖 —— 决策错误表现为"静默走贵了"或"任务办砸"，
 // 都不报错，所以必须靠离线单测覆盖。

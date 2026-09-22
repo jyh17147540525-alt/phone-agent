@@ -424,6 +424,211 @@ class MigrationTest {
 
         db.close()
     }
+
+    // ─────────────────────────────────────────────────────────────
+    //  v2 → v3：用量账本
+    // ─────────────────────────────────────────────────────────────
+    //
+    // ⚠️ 从 v1 一路升到最新版（而不是只测 2→3），因为用户手上的版本
+    //    可能是 v1、v2 或 v3 中的任何一个 —— 跳版升级必须也能走通。
+    //    `runMigrationsAndValidate(3, ...)` 会把两条迁移按顺序都跑一遍。
+
+    @Test
+    fun `从 v1 一路迁移到 v3 后表结构符合 Room 预期`() {
+        helper.createDatabase(1).close()
+
+        helper.runMigrationsAndValidate(
+            3,
+            listOf(Migrations.MIGRATION_1_2, Migrations.MIGRATION_2_3),
+        ).close()
+    }
+
+    @Test
+    fun `从 v2 迁移到 v3 后表结构符合 Room 预期`() {
+        // 单独测 2→3 一档：只测跳版的话，"2→3 单独跑"的路径没被覆盖，
+        // 而它正是已经在用 v2 的用户（也就是现在的大多数人）会走的路径。
+        helper.createDatabase(2).close()
+
+        helper.runMigrationsAndValidate(3, listOf(Migrations.MIGRATION_2_3)).close()
+    }
+
+    @Test
+    fun `迁移后 usage_record 的索引名与 Room 期望一致`() {
+        // ⚠️ 索引名写错 = 索引不存在 = Room 判定"迁移未正确处理"。
+        //    三个索引都要列出来 —— 漏一个不会被结构校验抓到，
+        //    但会让"按模型聚合花费"这类查询在全表扫描下变慢，
+        //    而那时用户已经有几千条记录了，很难联想到是迁移的问题。
+        helper.createDatabase(2).close()
+        val db = helper.runMigrationsAndValidate(3, listOf(Migrations.MIGRATION_2_3))
+
+        val names = db.queryStrings(
+            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='usage_record'"
+        )
+
+        val expected = listOf(
+            "index_usage_record_createdAtMillis",
+            "index_usage_record_modelConfigId",
+            "index_usage_record_consumer",
+        )
+        expected.forEach {
+            assertTrue("缺少索引 $it，实际有：$names", it in names)
+        }
+
+        db.close()
+    }
+
+    @Test
+    fun `v2 的既有数据在升级到 v3 后完好`() {
+        // ⚠️ 本迁移只新增表、不动既有表，所以数据保全的**风险极低** ——
+        //    但"风险低"不等于"不用测"。一条写错的迁移（比如误用
+        //    DROP + CREATE 重建 credential）会让用户的 Key 全部消失，
+        //    而它在结构校验里**看起来完全正常**（表结构对，只是没数据了）。
+        helper.createDatabase(2).use { db ->
+            db.execSQL(
+                """
+                INSERT INTO credential
+                    (id, providerId, purpose, label, ciphertext, iv, keyLength,
+                     baseUrlOverride, createdAtMillis, lastCheckedAtMillis,
+                     lastStatus, lastStatusDetail, modelCount, isDefault)
+                VALUES
+                    ('c1', 'deepseek', 'LLM', '主力', X'0102', X'0304', 35,
+                     NULL, 1000, NULL, NULL, NULL, NULL, 1)
+                """.trimIndent()
+            )
+            db.execSQL(
+                """
+                INSERT INTO model_config
+                    (id, credentialId, modelId, label, tier, roleMask,
+                     inputPriceOverride, outputPriceOverride, enabled, createdAtMillis)
+                VALUES
+                    ('m1', 'c1', 'deepseek-chat', '快模型', 'LIGHT', 3,
+                     NULL, NULL, 1, 1000)
+                """.trimIndent()
+            )
+        }
+
+        val db = helper.runMigrationsAndValidate(3, listOf(Migrations.MIGRATION_2_3))
+
+        // 凭据与模型配置都还在
+        assertEquals(1L, db.queryLong("SELECT COUNT(*) FROM credential"))
+        assertEquals(1L, db.queryLong("SELECT COUNT(*) FROM model_config"))
+
+        // 新表是空的（不是被塞了假数据）
+        assertEquals(0L, db.queryLong("SELECT COUNT(*) FROM usage_record"))
+
+        db.close()
+    }
+
+    @Test
+    fun `usage_record 可写入并读回`() {
+        helper.createDatabase(2).close()
+        val db = helper.runMigrationsAndValidate(3, listOf(Migrations.MIGRATION_2_3))
+
+        db.execSQL(
+            """
+            INSERT INTO usage_record
+                (modelConfigId, providerId, consumer, inputTokens, outputTokens,
+                 upstreamInputTokens, upstreamOutputTokens, failure, warning, createdAtMillis)
+            VALUES
+                ('m1', 'deepseek', 'AgentLoop', 120, 34, 118, 30, NULL, NULL, 1000)
+            """.trimIndent()
+        )
+
+        db.prepare(
+            "SELECT modelConfigId, consumer, inputTokens, upstreamInputTokens FROM usage_record"
+        ).use { stmt ->
+            assertTrue(stmt.step())
+            assertEquals("m1", stmt.getText(0))
+            assertEquals("AgentLoop", stmt.getText(1))
+            assertEquals(120L, stmt.getLong(2))
+            assertEquals(118L, stmt.getLong(3))
+        }
+
+        db.close()
+    }
+
+    @Test
+    fun `usage_record 的上游用量可以为空`() {
+        // ⚠️ 这条钉住的是"上游没返回 usage"这个**正常**情况。
+        //    若那四列被误加上了 NOT NULL，本用例会失败 ——
+        //    而真实后果是"用本地 Ollama 或某些第三方中转时，记账直接写不进去"，
+        //    表现是统计页一片空白，用户以为我们在偷偷不记账。
+        helper.createDatabase(2).close()
+        val db = helper.runMigrationsAndValidate(3, listOf(Migrations.MIGRATION_2_3))
+
+        db.execSQL(
+            """
+            INSERT INTO usage_record
+                (modelConfigId, providerId, consumer, inputTokens, outputTokens,
+                 upstreamInputTokens, upstreamOutputTokens, failure, warning, createdAtMillis)
+            VALUES
+                ('m1', 'ollama', 'Dsh', 200, 0, NULL, NULL, 'timeout', NULL, 2000)
+            """.trimIndent()
+        )
+
+        db.prepare(
+            "SELECT upstreamInputTokens, upstreamOutputTokens, failure FROM usage_record"
+        ).use { stmt ->
+            assertTrue(stmt.step())
+            // 用 isNull 而不是"值等于 0" —— 这两件事必须能区分开
+            assertTrue("上游没给 usage 时该列为 null", stmt.isNull(0))
+            assertTrue("上游没给 usage 时该列为 null", stmt.isNull(1))
+            assertEquals("timeout", stmt.getText(2))
+        }
+
+        db.close()
+    }
+
+    @Test
+    fun `usage_record 的主键是自增的`() {
+        // ⚠️ 自增主键的 SQL 写法是 SQLite 的特例（`AUTOINCREMENT` 的位置），
+        //    而这个错在结构校验里**不一定**报出来 —— 它可能被建成普通
+        //    INTEGER PRIMARY KEY，行为上仍然可用，但 rowid 复用会让
+        //    "已经删掉的记录的 id 被下一条占用"。
+        //    本用例直接插入两条不带 id 的记录，断言它们拿到不同的 id。
+        helper.createDatabase(2).close()
+        val db = helper.runMigrationsAndValidate(3, listOf(Migrations.MIGRATION_2_3))
+
+        val insert = """
+            INSERT INTO usage_record
+                (modelConfigId, providerId, consumer, inputTokens, outputTokens,
+                 upstreamInputTokens, upstreamOutputTokens, failure, warning, createdAtMillis)
+            VALUES
+                ('m1', 'deepseek', 'AgentLoop', 10, 1, NULL, NULL, NULL, NULL, ?)
+        """.trimIndent()
+
+        db.bindAndExec(insert, "1000")
+        db.bindAndExec(insert, "2000")
+
+        assertEquals(2L, db.queryLong("SELECT COUNT(*) FROM usage_record"))
+        assertEquals(
+            "自增主键应给两条记录分配不同的 id",
+            2L,
+            db.queryLong("SELECT COUNT(DISTINCT id) FROM usage_record"),
+        )
+
+        db.close()
+    }
+
+    @Test
+    fun `usage_record 的聚合查询在空表上不返回 null`() {
+        // ⚠️ 这条防的是用量页在"刚装上应用、还没有任何记录"时崩溃 ——
+        //    `SUM` 在空集上返回的是 **null 而不是 0**，而 DAO 方法声明的是
+        //    非空 Int，Room 映射 null 进去会抛异常。
+        //    开发期库里总有测试数据，所以这个 bug **测不出来**。
+        //
+        //    DAO 里已经用 COALESCE 兜住了，这里把同样的语义在 SQL 层钉一次。
+        helper.createDatabase(2).close()
+        val db = helper.runMigrationsAndValidate(3, listOf(Migrations.MIGRATION_2_3))
+
+        val total = db.queryLong(
+            "SELECT COALESCE(SUM(inputTokens + outputTokens), 0) " +
+                "FROM usage_record WHERE modelConfigId = 'm1'"
+        )
+        assertEquals(0L, total)
+
+        db.close()
+    }
 }
 
 // ─────────────────────────────────────────────────────────────

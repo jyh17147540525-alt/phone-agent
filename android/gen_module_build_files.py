@@ -37,6 +37,12 @@ PURE_KOTLIN = {
     # 与 :overlay 分开：后者要 WindowManager/Service，只能真机验证；
     # 而这里的东西没有任何 Android 依赖，能被离线验证器完整覆盖。
     "overlaylogic",
+    # 模型网关的核心（路由 / 熔断 / 解密 / 计量）。
+    # 零 Android 与零 Room 依赖是**硬约束** —— 落库走接口注入
+    # （UsageRecorder 是接口，实现在 keymgmt）。一旦这里依赖 :
+    # core:database，它就再也进不了离线验证器，而"预算熔断算错成本"
+    # 恰好是那种不报错、只是静默烧钱的问题，必须有测试钉住。
+    "provider/gateway",
 }
 
 # Android Library 模块 → 该模块需要额外依赖的库别名
@@ -190,10 +196,31 @@ PROJECT_DEPS = {
     #   :core:crypto    —— 主密钥与加解密
     #   :core:database  —— 密文落库（SQLCipher）
     #   :provider:api   —— 校验 Key 时只依赖接口，不依赖任何厂商实现
-    "keymgmt": [":core:crypto", ":core:database", ":provider:api"],
+    #   :provider:gateway —— 网关的凭据解密入口（CredentialSource 实现）
+    #                        与用量落库（UsageRecorder 实现）。
+    #                        ⚠️ 方向是 keymgmt → gateway，**绝不能反过来** ——
+    #                        网关一旦依赖 keymgmt 就拖进了 Room，而它必须
+    #                        保持纯 Kotlin 才能进离线验证器。契约在 gateway、
+    #                        实现在 keymgmt，这是本项目的既定模式。
+    "keymgmt": [
+        ":core:crypto",
+        ":core:database",
+        ":provider:api",
+        ":provider:gateway",
+        # 调度层模型（ModelConfig / ModelTier / ModelRouter）。
+        # 顺序必须与 build 文件里出现的顺序一致 —— 生成器是**逐行比对**的，
+        # 换序会报成"不一致"，而那看起来像缺依赖。
+        ":modelrouter",
+    ],
     # 悬浮球：Android 壳只做"显示与交互"，状态机/几何/急停语义在 :overlaylogic。
     # 拆开的理由见 PURE_KOTLIN 里的注释 —— 那些逻辑必须能离线测试。
     "overlay": [":overlaylogic"],
+    # 网关核心：路由决策来自 :modelrouter，请求/响应契约来自 :provider:api。
+    # ⚠️ 刻意**不依赖任何具体 Provider 实现**（openai-compat / anthropic / …）——
+    #    具体 Provider 一律通过构造器注入 `List<LlmProvider>`。否则每新增一家厂商
+    #    都要回来改网关的 build 文件与 when 分支，而漏改的表现是
+    #    "这家厂商怎么都配不上"（不报错，只是永远路由不到）。
+    "provider/gateway": [":provider:api", ":modelrouter"],
 }
 
 # 哪些模块的**公开 API 暴露了某个库的类型** —— 这些必须是 `api` 而不是 `implementation`。
@@ -227,6 +254,23 @@ HEADER = """// ⚠️ 自动生成（gen_module_build_files.py）。如需长期
 
 
 def kotlin_jvm(module: str, path: str) -> str:
+    # ⚠️ PROJECT_DEPS 以前**没有被这个模板消费** —— 纯 Kotlin 模块从来不产出
+    #    `implementation(project(":xxx"))`，而之前 PURE_KOTLIN 里的模块
+    #    （provider/api、core/common、plugin/api、modelrouter、overlaylogic）
+    #    碰巧都没有项目间依赖，所以这个缺口一直没暴露。
+    #    `provider/gateway` 是第一个既要当纯 Kotlin 模块、又要依赖
+    #    `:provider:api` 与 `:modelrouter` 的模块 —— 加它的时候才发现。
+    #
+    #    这里补上 PROJECT_DEPS 的消费。不改的话表现是：生成器说"一致"，
+    #    而真实的 build 文件里一条项目依赖都没有，编译时才报一堆
+    #    "Unresolved reference" —— 而报错地点在源码，不在构建文件，
+    #    排查方向会跑偏到"是不是包名写错了"。
+    project_lines = "".join(
+        f'    implementation(project("{dep}"))\n'
+        for dep in PROJECT_DEPS.get(module, [])
+    )
+    project_block = f"\n{project_lines}" if project_lines else ""
+
     return f"""{HEADER}plugins {{
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
@@ -244,7 +288,7 @@ kotlin {{
     }}
 }}
 
-dependencies {{
+dependencies {{{project_block}
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
 
