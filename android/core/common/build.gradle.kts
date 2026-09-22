@@ -25,4 +25,8 @@ dependencies {
     testImplementation(libs.turbine)
     testImplementation(libs.truth)
     testImplementation(libs.kotlinx.coroutines.core)
+    // ⚠️ `runTest` / `TestScope` 来自**这个**坐标，不在 coroutines.core 里。
+    //    缺了它的表现是测试源码 Unresolved reference，而报错指向测试文件 ——
+    //    看起来像"少 import"，实际是少依赖。
+    testImplementation(libs.kotlinx.coroutines.test)
 }

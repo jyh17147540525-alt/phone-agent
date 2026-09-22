@@ -329,26 +329,41 @@ class SseResponseWriter(
         /**
          * 默认 JSON 配置。
          *
-         * ⚠️ `explicitNulls = false` 是**必须的**：不开的话
-         *    `"content": null` 会被显式写进 JSON，而部分客户端的
-         *    `content.trim()` 会 NPE。开了之后 null 字段直接不出现。
+         * ═══════════════════════════════════════════════════════════
+         *  ⚠️ 这里开 `encodeDefaults = true`，与最初的设计**相反**
+         * ═══════════════════════════════════════════════════════════
          *
-         * ⚠️ `encodeDefaults = false` 同理 —— 少发没信息的字段。
-         *    但它有**副作用**：等于默认值的字段**整个消失**，
-         *    包括客户端必读的 `object` / `delta`。所以那两个字段
-         *    刻意不给默认值，见 DTO 与 [frame] 的注释。
+         * 第一版开的是 `false`，理由听起来很对："少发没有信息的字段"。
+         * 但它被 `HttpGatewayServerTest` 抓出一个**静默**故障：
          *
-         * ⚠️ 也**不要**开 `encodeDefaults = true` 来"顺手解决" ——
-         *    那会让每个分片都带上 `"index":0` 之类的无用字段，
-         *    而且会重新引入显式 null 的问题。
+         * `GatewayChoice.finishReason` 的默认值是 `null`，而
+         * `SseResponseWriter` 在 `Delta` 路径上**不传它**。于是
+         * `encodeDefaults = false` 把 `finish_reason` **整个从 JSON
+         * 里删掉** —— 而 OpenAI 协议要求这个字段**每一帧都在**
+         * （值为 `null` 表示"还没结束"）。大量 SDK 靠 `"finish_reason"
+         * in chunk` 判断该不该继续读，字段缺失会被当成流异常。
+         *
+         * 症状的迷惑性在于：**流式看起来完全正常**（文本一帧帧到达），
+         * 只有做"非流式聚合"或换用严格 SDK 的客户端才会崩 ——
+         * 而那时排查方向会指向聚合逻辑，不是 JSON 配置。
+         *
+         * 修法是开 `true`。代价是每帧多几个 `"index":0` 之类的字段
+         * （几字节）。**用几字节换取"协议字段永不意外消失"是划算的**，
+         * 因为后者是一种**会静默破坏客户端**的失效模式。
+         *
+         * ⚠️ `explicitNulls = false` 仍然必须：开 `encodeDefaults`
+         *    不带它的话 `"content": null` 会被显式写出来，而部分
+         *    客户端的 `content.trim()` 会 NPE。两者要一起开 ——
+         *    "默认值照发" + "null 不发" 才是协议要的形态。
+         *
+         * ⚠️ 不设 `prettyPrint`：SSE 的每个 data 载荷必须是**单行**。
+         *    开了它会让 JSON 里出现换行，把一个事件拆成两个 ——
+         *    而症状是"客户端 JSON 解析失败"，指向完全不在配置上。
          */
         fun defaultJson(): Json = Json {
-            encodeDefaults = false
+            encodeDefaults = true
             explicitNulls = false
             ignoreUnknownKeys = true
-            // ⚠️ 不设 `prettyPrint`：SSE 的每个 data 载荷必须是**单行**。
-            //    开了它会让 JSON 里出现换行，把一个事件拆成两个 ——
-            //    而症状是"客户端 JSON 解析失败"，指向完全不在配置上。
         }
     }
 }

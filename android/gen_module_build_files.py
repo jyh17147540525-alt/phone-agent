@@ -240,6 +240,73 @@ API_DEPS = {
     "core/database": {"androidx.room.runtime", "androidx.room.ktx"},
 }
 
+# 哪些模块在标准测试依赖之外还要额外的 testImplementation。
+#
+# ═══════════════════════════════════════════════════════════════
+#  ⚠️ 为什么要有这张表，而不是"谁需要谁手写"
+# ═══════════════════════════════════════════════════════════════
+#
+# 因为「谁手写」的结果就是**漂移**：`--check` 会把它报成"模块与生成器不一致"，
+# 而那个告警的位置**不分语义** —— 一条真实的缺失（比如少了 room-compiler）
+# 与一条无害的本地新增（比如多一个测试库）在输出里长得一模一样。
+#
+# 当无害条目长期占用告警位时，真实条目就会被当成同类忽略。**一个总是报警的
+# 检查等于没有检查** —— 这与 [structural_lines] 的注释是同一个道理。
+#
+# 所以：**凡是"多个模块都需要的测试依赖"，就搬进生成器**，让 `--check` 归零。
+# 只有真正一次性的、单模块调试用的东西才留在磁盘上（见下面 robolectric 那段）。
+EXTRA_TEST_DEPS = {
+    # ═══════════════════════════════════════════════════════════
+    #  协程测试：`kotlinx-coroutines-test`
+    # ═══════════════════════════════════════════════════════════
+    #
+    # `kotlinx-coroutines-test` 提供了 `runTest` / `TestScope`，而本项目的
+    # 单元测试几乎全都依赖它们（要控制虚拟时间、要断言流量）。
+    #
+    # ⚠️ `kotlinx.coroutines.core` 里**没有** `runTest` —— 两者是不同的坐标。
+    #    只写 core 的话测试源码里 `runTest` 直接编译不过（Unresolved
+    #    reference），而报错指向测试文件，看起来像"少 import"，实际是少依赖。
+    #
+    # ⚠️ **这张清单的判据是"今天磁盘上真的有它"，不是"将来可能需要"。**
+    #    第一版我按后者写，把 21 个模块全列进去了 —— `--check` 立刻从
+    #    4 条漂移涨到 21 条，方向恰好反了：生成器开始**期待**一个磁盘上
+    #    还不存在的依赖。生成器是"描述现状"的，不是"描述理想"的。
+    #
+    #    将来某模块真的写出第一个 `runTest` 时，把它加进这张表即可 ——
+    #    那一步是显式的，而且 `--check` 会提示。
+    **{
+        m: ["kotlinx.coroutines.test"]
+        for m in (
+            # ── 已有 runTest 的模块（`grep -rl runTest`）──
+            "modelrouter",
+            "overlaylogic",
+            "provider/gateway",
+            # ── 手工补过这一行、且确实需要的模块 ──
+            "core/common",
+            "core/network",
+            "safety",
+            # 这两个是纯 Kotlin 契约模块，测试里也要跑协程断言
+            "provider/api",
+            "plugin/api",
+        )
+    },
+    # ═══════════════════════════════════════════════════════════
+    #  Room 迁移测试：只有声明了 @Database 的模块需要
+    # ═══════════════════════════════════════════════════════════
+    #
+    # `MigrationTestHelper` 要读 schemas/*.json，而那只有 ROOM_MODULES
+    # 里的模块才有（`exportSchema = true` + `room.schemaLocation`）。
+    "core/database": [
+        # Room 只在**运行期**校验迁移（"Migration didn't properly handle …"），
+        # 编译期完全不管。没有这个依赖就只能靠人工核对 SQL，而人工核对
+        # 漏掉一个 NOT NULL 的表现是：用户装上后崩在打开数据库那一步 ——
+        # 他连界面都进不去，也就看不到任何提示。
+        "androidx.room.testing",
+        # `ApplicationProvider` 来自这里（MigrationTestHelper 需要 Context）
+        "androidx.test.core",
+    ],
+}
+
 # 哪些模块声明了 Room 的 @Database —— 需要给 Room 处理器指定 schema 导出目录。
 #
 # ⚠️ 光写 `exportSchema = true` 是**不够的**：那个开关只在给了
@@ -248,6 +315,40 @@ API_DEPS = {
 #    于是你以为自己有迁移依据，实际上没有 —— 直到某天要加字段才发现，
 #    而那时已经无从知道旧表长什么样。
 ROOM_MODULES = {"core/database", "memory"}
+
+# 哪些模块在 `testOptions { unitTests.isIncludeAndroidResources = true }` 之后
+# 还要额外的行（Robolectric 调试开关、测试 assets 路径等）。
+#
+# ═══════════════════════════════════════════════════════════════
+#  ⚠️ 这张表本来是"已确认的本地定制"，最终决定收进生成器
+# ═══════════════════════════════════════════════════════════════
+#
+# 之前的注释写着"core/database 里那一行属于已确认的本地定制，跑 --check
+# 时看到它报这一条是预期行为，不必处理"。那个立场现在**推翻**，理由是：
+#
+# 「预期会报的告警」和「真出问题的告警」在输出里**长得一模一样**。
+# --check 只说"语义第 N 行不一致"，不会标注"这条是已知的"。
+# 于是每次跑检查都要人肉回忆"这 2 条是白名单里的" ——
+# 而一旦形成"这个检查总有几条红的，正常"的习惯，
+# 将来真漂移（比如少了 room-compiler）就会被一起划掉。
+#
+# **一个总有红条的检查等于没有检查。** 目标是把红条数压到 0，
+# 让它变成"红了就是有事"。这与 [structural_lines] 的注释是同一个道理。
+EXTRA_TEST_OPTIONS = {
+    # Robolectric 的日志往 stdout 打。
+    # 本质是 core/database 的**局部调试需要**（要读 Room 抛的
+    # "Migration didn't properly handle" 细节）。
+    # ⚠️ 只给 core/database —— 全局默认会让 30+ 个模块凭空多一行。
+    "core/database": '        unitTests.all { it.systemProperty("robolectric.logging", "stdout") }',
+}
+
+# 哪些模块需要往测试 assets 里挂 schema 目录（MigrationTestHelper 要读它）。
+#
+# ⚠️ `room.schemaLocation` 只是让 Room 把 JSON **写**出去；
+#    测试要**读**它，还得把它挂进 assets。
+#    漏了的表现是运行时 `FileNotFoundException: Cannot find schema file` ——
+#    而那句报错完全不提示"你该配 sourceSets"。
+SCHEMA_ASSETS_MODULES = {"core/database"}
 
 HEADER = """// ⚠️ 自动生成（gen_module_build_files.py）。如需长期定制，请移出生成列表。
 """
@@ -289,6 +390,14 @@ def kotlin_jvm(module: str, path: str) -> str:
     #    我第三次才靠 `diff` 的 repr 输出定住。
     project_block = f"\n{project_lines}" if project_lines else ""
 
+    # 模块级额外测试依赖（见 EXTRA_TEST_DEPS 的注释）。
+    # ⚠️ 顺序必须与磁盘上的 build 文件**逐行一致** —— `--check` 是逐行比对的，
+    #    换序会报成"不一致"，而那个表象看起来像缺依赖。
+    extra_test_lines = "".join(
+        f"    testImplementation(libs.{d})\n"
+        for d in EXTRA_TEST_DEPS.get(module, [])
+    )
+
     return f"""{HEADER}plugins {{
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
@@ -315,8 +424,7 @@ dependencies {{{project_block}
     testImplementation(libs.turbine)
     testImplementation(libs.truth)
     testImplementation(libs.kotlinx.coroutines.core)
-    testImplementation(libs.kotlinx.coroutines.test)
-}}
+{extra_test_lines}}}
 """
 
 
@@ -408,6 +516,44 @@ def android_lib(module: str, deps: list[str]) -> str:
     #      与 room.schemaLocation 同类。跑 `--check` 时看到它报这一条，
     #      是预期行为，不必处理。
 
+    # Robolectric / 测试相关的额外配置（见 EXTRA_TEST_OPTIONS 的注释）。
+    # ⚠️ 缩进是 8 空格，因为它落在 `testOptions {` 内部。
+    extra_test_option_lines = "".join(
+        f"\n{v}"
+        for k, v in EXTRA_TEST_OPTIONS.items()
+        if k == module
+    )
+
+    # 测试 assets 里挂 schema 目录（见 SCHEMA_ASSETS_MODULES 的注释）。
+    # ⚠️ 它必须落在 `android { }` 内部、且**在 testOptions 之后** ——
+    #    与磁盘上的 core/database/build.gradle.kts 逐行一致。
+    schema_assets_block = ""
+    if module in SCHEMA_ASSETS_MODULES:
+        schema_assets_block = (
+            "\n"
+            "    // ⚠️ **这一块是 MigrationTestHelper 能工作的前提。**\n"
+            "    //    `room.schemaLocation` 只是让 Room 把 JSON **写**出去；\n"
+            "    //    测试要**读**它，还得把它挂进测试的 assets 路径。\n"
+            "    //    漏了这块的表现是运行时 `FileNotFoundException: Cannot find schema file` ——\n"
+            "    //    而那句报错完全不提示\"你该配 sourceSets\"。\n"
+            "    sourceSets {\n"
+            '        getByName("test").assets.srcDirs("${projectDir}/schemas")\n'
+            '        getByName("androidTest").assets.srcDirs("${projectDir}/schemas")\n'
+            "    }\n"
+        )
+
+    # 模块级额外测试依赖（见 EXTRA_TEST_DEPS 的注释）。
+    # ⚠️ 放在 `testImplementation(libs.kotlinx.coroutines.core)` **之后** ——
+    #    与磁盘上的 build 文件保持一致，否则逐行比对会报"不一致"。
+    #
+    # ⚠️ `androidx.room.testing` / `androidx.test.core` 也要走这里，
+    #    不能像以前那样只留在 core/database 的磁盘文件里 ——
+    #    那正是 `--check` 长期报漂移的来源之一。
+    extra_test_lines = "".join(
+        f"    testImplementation(libs.{d})\n"
+        for d in EXTRA_TEST_DEPS.get(module, [])
+    )
+
     return f"""{HEADER}plugins {{
 {plugins}
 }}
@@ -441,9 +587,9 @@ android {{
     }}
 
     testOptions {{
-        unitTests.isIncludeAndroidResources = true
+        unitTests.isIncludeAndroidResources = true{extra_test_option_lines}
     }}
-}}
+{schema_assets_block}}}
 
 {room_ksp_block}dependencies {{
     implementation(project(":core:common"))
@@ -456,7 +602,7 @@ android {{
     testImplementation(libs.truth)
     testImplementation(libs.robolectric)
     testImplementation(libs.kotlinx.coroutines.core)
-}}
+{extra_test_lines}}}
 """
 
 
