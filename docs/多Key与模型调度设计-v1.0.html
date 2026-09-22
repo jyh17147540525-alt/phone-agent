@@ -176,6 +176,8 @@ pre code {
 <li><a href="#83">8.3 离线验证的关键价值</a></li>
 <li><a href="#84-modelrouter-android">8.4 modelrouter 必须零 Android 依赖</a></li>
 <li><a href="#85">8.5 其他模块的职责边界</a></li>
+<li><a href="#86-bug">8.6 迁移校验：一个离线校验器，以及它抓到的两个真 bug</a></li>
+<li><a href="#87-gradle">8.7 ⚠️ 本机 Gradle 配置阶段故障（与项目代码无关，但会反复咬人）</a></li>
 <li><a href="#86">8.6 悬浮球的两个模块为什么拆开</a></li>
 </ul>
 </li>
@@ -869,13 +871,13 @@ LlmGateway —— 按 RoutingMode 选择模型
 </tr>
 <tr>
 <td><code>core:database</code></td>
-<td>待改</td>
-<td>新增 <code>ModelConfigEntity</code> + <code>purpose</code> 字段 + Migration</td>
+<td>✅ <strong>已实现</strong></td>
+<td><code>purpose</code> 字段 + <code>ModelConfigEntity</code> + <code>Migration 1→2</code>（离线校验通过）</td>
 </tr>
 <tr>
 <td><code>keymgmt</code></td>
-<td>小改</td>
-<td>扩展支持 <code>purpose</code></td>
+<td>✅ <strong>已实现</strong></td>
+<td>支持 <code>purpose</code>；4 处默认 Key 调用点按用途收窄</td>
 </tr>
 <tr>
 <td><code>app</code></td>
@@ -889,6 +891,132 @@ LlmGateway —— 按 RoutingMode 选择模型
 </tr>
 </tbody>
 </table></div>
+<h3 id="86-bug">8.6 迁移校验：一个离线校验器，以及它抓到的两个真 bug</h3>
+<p><code>MigrationTestHelper</code> 需要 Gradle 跑到 <code>:core:database:testDebugUnitTest</code>，
+而本机 Gradle 的配置阶段存在一个<strong>与项目代码无关</strong>的超时故障（见 §8.7）。
+于是补了一个 <code>tools/verify/check_migration.py</code>：用 Python 的 <code>sqlite3</code>
+<strong>完整复现 <code>runMigrationsAndValidate</code> 的判定逻辑</strong> ——</p>
+<ol>
+<li>用 <code>schemas/1.json</code> 里的 <code>createSql</code> 建 v1 库（Room 自己导出的，权威）</li>
+<li>从 <code>Migrations.kt</code> 提取 <code>execSQL</code> 语句并执行</li>
+<li>与 <code>schemas/2.json</code>（Room 从 <code>@Entity</code> 生成的期望）逐项比对</li>
+<li>附加数据保全、唯一约束两组行为断言</li>
+</ol>
+<p><strong>它抓到了两个真 bug</strong>，都只在运行时才会暴露：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>问题</th>
+<th>后果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>索引名写成 <code>index_model_config_role</code>（应为 <code>...roleMask</code>）</td>
+<td>Room 按名字匹配索引 → <code>Migration didn't properly handle</code></td>
+</tr>
+<tr>
+<td>（曾怀疑）<code>ALTER TABLE ADD COLUMN</code> 使 <code>purpose</code> 落在末列</td>
+<td><strong>经查是误判，见下</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p>⚠️ <strong>关于列顺序，有一条反直觉结论必须记住。</strong>
+<code>purpose</code> 在实体里是第 3 个字段，但 <code>ALTER TABLE ADD COLUMN</code> 只能追加到末尾，
+迁移后的物理列顺序与 <code>2.json</code> 的 <code>createSql</code> 不一致 —— 看起来必须重建表。
+反编译 room-runtime 2.6.1 的 <code>TableInfo.equals</code> 后确认<strong>不必</strong>：</p>
+<div class="codehilite"><pre><span></span><code>name        : String          → 比内容
+columns     : java.util.Map   → Map 相等，与顺序无关
+foreignKeys : java.util.Set   → 顺序无关
+indices     : java.util.Set   → 顺序无关
+</code></pre></div>
+
+<p>而 <code>TableInfo$Index.equals</code> 比的是 <code>unique + columns + orders + name</code>
+（<code>name</code> 还会先剥掉 <code>index_</code> 前缀）——<strong>所以列顺序无关，索引名字必须精确。</strong></p>
+<p>校验器已做<strong>故障注入验证</strong>：故意改错索引名，它报
+<code>✗ 缺索引 index_model_config_roleMask</code> 并给出多余索引名，证明它真的能抓错，
+而不是一条恒过的空断言。</p>
+<h3 id="87-gradle">8.7 ⚠️ 本机 Gradle 配置阶段故障（与项目代码无关，但会反复咬人）</h3>
+<p>现象：任何触发<strong>全项目配置</strong>的 Gradle 命令都会在 ~60–77 秒后失败。</p>
+<div class="codehilite"><pre><span></span><code>A problem occurred configuring project ':channel'.
+&gt; java.util.concurrent.TimeoutException
+&gt; Android Graph Plugin: project ':channel' does not specify `compileSdk`
+</code></pre></div>
+
+<p>而 <code>channel/build.gradle.kts</code> 第 10 行明明有 <code>compileSdk</code>。<strong>报错是假的。</strong></p>
+<p><strong>已排除的可能</strong>（每条都做了对照实验）：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>猜想</th>
+<th>实验</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>channel</code> 脚本本身坏了</td>
+<td>把 <code>contribute</code> 的脚本内容换给 <code>channel</code></td>
+<td>❌ 失败点<strong>转移到 <code>:core:crypto</code></strong></td>
+</tr>
+<tr>
+<td>陈旧的 <code>channel/build/</code></td>
+<td>移走该目录</td>
+<td>❌ 无变化</td>
+</tr>
+<tr>
+<td>冷启动 Gradle 守护进程</td>
+<td>连续跑两次（第二次已热）</td>
+<td>❌ 仍失败</td>
+</tr>
+<tr>
+<td><code>org.gradle.parallel</code></td>
+<td><code>-Dorg.gradle.parallel=false</code></td>
+<td>❌ 仍失败</td>
+</tr>
+<tr>
+<td>守护进程堆太小</td>
+<td><code>-Xmx6g -XX:MaxMetaspaceSize=1g</code></td>
+<td>❌ 仍失败</td>
+</tr>
+<tr>
+<td>Kotlin 守护进程堆</td>
+<td><code>-Dkotlin.daemon.jvm.options=-Xmx4g</code></td>
+<td>❌ 仍失败</td>
+</tr>
+<tr>
+<td>访问器生成</td>
+<td><code>org.gradle.kotlin.dsl.accessors.enabled=false</code></td>
+<td>⚠️ <code>TimeoutException</code> 消失，但 <code>compileSdk</code> 报错<strong>仍在</strong></td>
+</tr>
+<tr>
+<td>首行 emoji 注释的编码</td>
+<td>换成纯 ASCII</td>
+<td>❌ 仍失败</td>
+</tr>
+<tr>
+<td>项目路径含中文（日志里显示为 <code>D:\ֻagent\...</code>）</td>
+<td>——</td>
+<td><strong>未定论，但最可疑</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>决定性证据</strong>：失败点会<strong>随模块配置顺序漂移</strong>（<code>:channel</code> → <code>:core:crypto</code> → <code>:action</code>），
+说明它与<strong>具体模块无关</strong>，而是"配置到第 N 个模块时超时"。
+真实堆栈指向 <code>GenerateProjectAccessors</code>（Gradle 的类型安全项目访问器生成）：</p>
+<div class="codehilite"><pre><span></span><code>at org.gradle.kotlin.dsl.accessors.GenerateProjectAccessors.execute(AccessorsClassPath.kt:161)
+at org.gradle.kotlin.dsl.concurrent.DefaultAsyncIOScopeFactory$newScope$1.close(BuildServices.kt:98)
+</code></pre></div>
+
+<p><strong>已确认的影响范围</strong>：只有需要<strong>全项目配置</strong>的命令受影响。
+<code>./gradlew :overlaylogic:test</code>、<code>:overlay:compileDebugKotlin</code>、
+<code>:core:database:compileDebugKotlin</code> 这些<strong>之前都成功过</strong> ——
+但那是因为它们碰巧没走到 <code>:channel</code> 之后。</p>
+<p><strong>当前应对</strong>：
+1. 纯逻辑模块 → 用 <code>tools/verify/run_logic_tests.py</code>（不经过 Gradle）
+2. 迁移验证 → 用 <code>tools/verify/check_migration.py</code>（不经过 Gradle）
+3. Android 模块编译 → 仍需 Gradle，若撞上就重试或换顺序（成功与否不稳定）
+4. <strong>不要</strong>为了绕过它去改 <code>channel</code> 或其它模块的构建脚本 —— 已验证无效</p>
 <h3 id="86">8.6 悬浮球的两个模块为什么拆开</h3>
 <p><code>overlay</code> 需要 <code>WindowManager</code> / <code>Service</code>，<strong>只能等真机验证</strong>。
 但悬浮球里真正容易出错的部分（状态迁移、贴边几何、急停去重）<strong>都不依赖 Android</strong>。</p>
