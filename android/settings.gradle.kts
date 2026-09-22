@@ -46,6 +46,12 @@ include(":provider:local")
 // 都不报错，所以必须靠离线单测覆盖。
 include(":modelrouter")
 
+// 悬浮球的交互逻辑：状态机 / 贴边吸附几何 / 急停语义。
+// ⚠️ 与 :overlay 是两件事 —— 本模块零 Android 依赖，可离线测试。
+// 拆开的原因：贴边算错会让球移出屏幕（连带丢掉 Android 15 的 FGS 启动豁免），
+// 这类几何/状态错误读代码极难发现，必须有测试钉住。
+include(":overlaylogic")
+
 // ── 能力层 ──────────────────────────────────────────────
 include(":perception")
 include(":action")
@@ -68,10 +74,14 @@ include(":update")            // 应用内自更新、哈希校验
 include(":channel")           // 渠道号与隐私友好统计
 include(":onboarding")        // 分机型权限引导向导与自检
 
-// ── 虚拟屏（v3.0 新增）────────────────────────────────────
-// ⚠️ 依赖 Shizuku：Android 10 起普通应用无法把第三方 App 启动到虚拟屏上
-include(":display")           // 虚拟屏创建/销毁、启动 App、可用性检测
-include(":display:preview")   // 副屏预览悬浮窗 + 坐标映射
+// ── 虚拟屏（v3.0 引入，2026-09-22 已否决）──────────────────
+// ⚠️ P0-3 实测：副屏能建、能注入，但**启不了第三方 App**。
+//    决定性证据：`uid=2000`(shell) 也被 SafeActivityOptions.checkPermissions 拒，
+//    而 Shizuku 同为 uid 2000 → 拿不到更高权限。**这条路已被证伪。**
+// 模块保留但不再前进，仅作为历史记录与复活可能（瓶颈只剩"启动"一环）。
+// 四级降级链改为：~~虚拟屏~~ → 小窗(freeform) → 全屏接管 → 手动引导。
+include(":display")           // ⚠️ 已否决，勿在此模块投入
+include(":display:preview")   // ⚠️ 同上
 
 // ── 开源协作（v3.0 新增）──────────────────────────────────
 // ⚠️ 凭据必须运行时注入，绝不硬编码进 APK

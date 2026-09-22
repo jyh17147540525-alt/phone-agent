@@ -33,6 +33,10 @@ PURE_KOTLIN = {
     # 零 Android 依赖让它能被 run_logic_tests.py 完整覆盖 ——
     # 而路由选错模型是"不报错、只是静默走贵了"的那类 bug，必须有测试钉住。
     "modelrouter",
+    # 悬浮球的交互逻辑（状态机 / 几何 / 急停语义）。
+    # 与 :overlay 分开：后者要 WindowManager/Service，只能真机验证；
+    # 而这里的东西没有任何 Android 依赖，能被离线验证器完整覆盖。
+    "overlaylogic",
 }
 
 # Android Library 模块 → 该模块需要额外依赖的库别名
@@ -177,6 +181,9 @@ PROJECT_DEPS = {
     #   :core:database  —— 密文落库（SQLCipher）
     #   :provider:api   —— 校验 Key 时只依赖接口，不依赖任何厂商实现
     "keymgmt": [":core:crypto", ":core:database", ":provider:api"],
+    # 悬浮球：Android 壳只做"显示与交互"，状态机/几何/急停语义在 :overlaylogic。
+    # 拆开的理由见 PURE_KOTLIN 里的注释 —— 那些逻辑必须能离线测试。
+    "overlay": [":overlaylogic"],
 }
 
 # 哪些模块的**公开 API 暴露了某个库的类型** —— 这些必须是 `api` 而不是 `implementation`。

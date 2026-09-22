@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- ══════════════════════════════════════════════════════════
+         悬浮球（overlay）
+
+         设计要点：**悬浮球只做 UI，不做重活。**
+
+         它是独立于 agent 执行进程的"急停开关" —— 即使 agent 跑飞，
+         圆点仍然响应停止。这是本模块存在的第一理由，其次才是交互形态。
+
+         ⚠️ 权限遵循项目纪律：**随功能落地逐项启用，不预先声明。**
+         本模块只需两项。
+         ══════════════════════════════════════════════════════════ -->
+
+    <!-- 悬浮球本体。用户在设置页手动授权 -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!--
+        前台服务。
+
+        ⚠️ 用 `specialUse` 而非 `dataSync`/`mediaProcessing`：
+        Android 15 起后两者在 24 小时内累计只能跑 6 小时，超时抛
+        RemoteServiceException。悬浮球需要长期驻留，只能用 specialUse。
+
+        ⚠️ specialUse 要求在 manifest 里**诚实说明用途**（见下方
+        PROPERTY_SPECIAL_USE_FGS_SUBTYPE）。滥用会加速被厂商列入管控名单。
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <!-- 前台服务需要一条常驻通知（Android 8+ 强绑定） -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application>
+        <!--
+            悬浮球服务。
+
+            `exported="false"`：只有本应用（含 app 模块）能启动它。
+            ⚠️ `stopWithTask="false"`：用户从最近任务划掉应用时**不**停止服务 ——
+            否则悬浮球会跟着消失，后台启动 FGS 的豁免也就没了。
+        -->
+        <service
+            android:name=".OverlayService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="persistent_task_control_widget" />
+        </service>
+
+        <!--
+            急停广播接收器。
+
+            ⚠️ `exported="false"` —— 急停信号只允许应用内部投递。
+            开放给外部等于给了任意应用"停止我们任务"的能力。
+        -->
+        <receiver
+            android:name=".StopSignalReceiver"
+            android:exported="false" />
+    </application>
+
+</manifest>

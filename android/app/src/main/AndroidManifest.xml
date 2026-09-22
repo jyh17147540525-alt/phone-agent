@@ -24,19 +24,40 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!--
-    ── 以下为 M1+ 目标配置，随功能落地逐项启用 ─────────────────
+    <!-- ── M1 已启用：悬浮球 ────────────────────────────────── -->
 
-    <!- 悬浮窗：悬浮球与执行过程可视化，唯一不受无障碍政策影响的入口 ->
+    <!--
+        悬浮窗：悬浮球。
+
+        ⚠️ 这是**唯一不受无障碍政策影响**的入口 —— 即使 Android 17
+        封死无障碍权限，悬浮球仍能工作，并由它引导用户手动完成操作。
+        执行层的 OVERLAY_PROMPT 通道就以它为载体。
+
+        ⚠️ Android 15 起，本权限还是「从后台启动前台服务」的豁免条件之一，
+        但要求**当前存在可见的 overlay 窗口** —— 所以悬浮球必须常显，
+        贴边隐藏也只能收成一条细线，不能完全移出屏幕。
+    -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
-    <!- 前台服务：截图会话与无障碍服务必须以前台服务运行 ->
+    <!-- 前台服务：悬浮球需长期驻留 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <!--
+        ⚠️ 用 specialUse 而非 mediaProjection/数据同步类：
+        Android 15 起 dataSync / mediaProcessing 在 24 小时内累计只能跑 6 小时，
+        超时抛 RemoteServiceException。悬浮球要一直在，只能用 specialUse。
+    -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-
-    <!- 截图会话的通知载体 ->
+    <!-- 前台服务的常驻通知载体（Android 13+ 需用户授权） -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
+    ── 以下仍为 M1+ 目标配置，随功能落地逐项启用 ─────────────────
+
+    注意：块内**不能出现** `<!--`（会提前闭合本注释），
+    因此块内的注释一律写成 `<!- ... ->`。
+
+    <!- 屏幕捕获：截图会话（感知层第 3/4 档） ->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
 
     <!- 通知监听：读取通知内容用于上下文理解（可选，用户可拒绝） ->
     <uses-permission android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"

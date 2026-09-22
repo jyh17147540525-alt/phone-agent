@@ -119,6 +119,11 @@ MODULES = [
     "android/safety",
     "android/plugin/api",
     "android/modelrouter",
+    # 悬浮球的交互逻辑：状态机 / 贴边几何 / 急停语义。
+    # 三个都是"错了也不报错、只是体验变差"的东西 ——
+    # 贴边算错会让球跑出屏幕（连带丢掉 FGS 启动豁免），
+    # 状态机漏分支会让球卡在某个状态。必须离线钉死。
+    "android/overlaylogic",
 ]
 
 # JDK 17+ 跑 IntelliJ 平台编译器需要的模块开放

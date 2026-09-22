@@ -176,6 +176,7 @@ pre code {
 <li><a href="#83">8.3 离线验证的关键价值</a></li>
 <li><a href="#84-modelrouter-android">8.4 modelrouter 必须零 Android 依赖</a></li>
 <li><a href="#85">8.5 其他模块的职责边界</a></li>
+<li><a href="#86">8.6 悬浮球的两个模块为什么拆开</a></li>
 </ul>
 </li>
 <li><a href="#9">9. 待决策</a></li>
@@ -857,6 +858,16 @@ LlmGateway —— 按 RoutingMode 选择模型
 </thead>
 <tbody>
 <tr>
+<td><code>overlaylogic</code></td>
+<td>✅ <strong>已实现</strong></td>
+<td>悬浮球状态机 / 贴边几何 / 急停语义（纯 Kotlin，39 个单测）</td>
+</tr>
+<tr>
+<td><code>overlay</code></td>
+<td>✅ <strong>已实现（待真机）</strong></td>
+<td><code>OverlayService</code> + <code>WindowManager</code> 壳；播放/展开/停止</td>
+</tr>
+<tr>
 <td><code>core:database</code></td>
 <td>待改</td>
 <td>新增 <code>ModelConfigEntity</code> + <code>purpose</code> 字段 + Migration</td>
@@ -865,11 +876,6 @@ LlmGateway —— 按 RoutingMode 选择模型
 <td><code>keymgmt</code></td>
 <td>小改</td>
 <td>扩展支持 <code>purpose</code></td>
-</tr>
-<tr>
-<td><code>overlay</code></td>
-<td>待实现</td>
-<td><strong>悬浮球</strong>（原为空壳模块）</td>
 </tr>
 <tr>
 <td><code>app</code></td>
@@ -883,6 +889,18 @@ LlmGateway —— 按 RoutingMode 选择模型
 </tr>
 </tbody>
 </table></div>
+<h3 id="86">8.6 悬浮球的两个模块为什么拆开</h3>
+<p><code>overlay</code> 需要 <code>WindowManager</code> / <code>Service</code>，<strong>只能等真机验证</strong>。
+但悬浮球里真正容易出错的部分（状态迁移、贴边几何、急停去重）<strong>都不依赖 Android</strong>。</p>
+<p>拆成 <code>overlaylogic</code>（纯 Kotlin）+ <code>overlay</code>（Android 壳）后的收益：</p>
+<ul>
+<li>状态机漏分支、贴边算错、急停去重失效 → <strong>离线可测</strong>，不必等设备</li>
+<li>Android 壳只剩"把事件翻译成 <code>OverlayEvent</code>、把 <code>OverlayEffect</code> 变成 UI 操作"，
+  这部分薄到几乎不可能写错</li>
+</ul>
+<p>⚠️ <strong>贴边几何算错的后果特别严重</strong>：球跑出屏幕 → 丢掉「存在可见 overlay 窗口」
+→ 丢掉 Android 15 的后台启动前台服务豁免。这个因果链很长，
+真机上排查起来极难，所以必须用离线测试钉死。</p>
 <hr />
 <h2 id="9">9. 待决策</h2>
 <div class="tw"><table>
@@ -892,6 +910,7 @@ LlmGateway —— 按 RoutingMode 选择模型
 <th>决策点</th>
 <th>选项</th>
 <th>建议</th>
+<th>实现现状</th>
 </tr>
 </thead>
 <tbody>
@@ -900,40 +919,56 @@ LlmGateway —— 按 RoutingMode 选择模型
 <td>调度默认状态</td>
 <td>默认关闭 / 默认开启</td>
 <td><strong>默认关闭</strong>（零配置优先）</td>
+<td>已按此实现</td>
 </tr>
 <tr>
 <td><strong>D-AK</strong></td>
 <td>难度评估方式</td>
 <td>让模型分类 / 本地启发式</td>
-<td><strong>模型分类 + 本地兜底</strong></td>
+<td>~~模型分类 + 本地兜底~~ → <strong>本地启发式</strong></td>
+<td><strong>已改为纯本地</strong>（见下）</td>
 </tr>
 <tr>
 <td><strong>D-AL</strong></td>
 <td>悬浮球默认可见性</td>
 <td>常显 / 贴边隐藏</td>
 <td><strong>贴边但保留细线</strong>（保豁免）</td>
+<td>已按此实现</td>
 </tr>
 <tr>
 <td><strong>D-AM</strong></td>
 <td>任务过程是否展示</td>
 <td>实时展示 / 按需展开</td>
 <td><strong>按需展开</strong>（减少干扰）</td>
+<td>已按此实现</td>
 </tr>
 <tr>
 <td><strong>D-AN</strong></td>
 <td>档位自动推导</td>
 <td>全自动 / 自动+可覆盖</td>
 <td><strong>自动+可覆盖</strong></td>
+<td>已按此实现</td>
 </tr>
 <tr>
 <td><strong>D-AO</strong></td>
 <td>模型配置是否必需</td>
 <td>必需 / 可自动从 Key 生成</td>
 <td><strong>可自动生成</strong>（进一步简化）</td>
+<td>待实现</td>
 </tr>
 </tbody>
 </table></div>
 <blockquote>
+<p><strong>⚠️ D-AK 已变更，理由值得记录。</strong></p>
+<p>原建议是"模型分类 + 本地兜底"，即让底层模型来判断任务难度。
+<strong>实现时发现这是错的</strong>：让模型做分类要<strong>额外一次模型调用</strong> ——
+多一次网络往返、多一次等待、多一份花费，<strong>与"减少干扰"的最高优先级直接冲突</strong>，
+而收益几乎为零：难度判断本身就只需要看几个表面特征。</p>
+<p>改为<strong>纯本地启发式</strong>后：零成本、零延迟、离线可用。
+底层"调度模型"这个配置项因此不再是必需品 —— 但<strong>保留为可选</strong>，
+因为用户可以借此把"调度"和"执行"分配给小同的账户/配额。</p>
+<p>这个变更让需求 3（底层调度模型）从"必需"变成"可选增强"，与需求 4
+（单模型模式）的关系也更简单了。</p>
 <p><strong>D-AO 值得单独说</strong>：用户添加 Key 后，我们可以<strong>自动</strong>把他校验时
 探到的模型批量生成配置（默认取 Provider 推荐的 1-2 个）。
 用户想省事就完全不用进模型配置页。这是"简化配置"的又一处落地。</p>

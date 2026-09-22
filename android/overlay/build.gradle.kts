@@ -34,6 +34,7 @@ android {
 
 dependencies {
     implementation(project(":core:common"))
+    implementation(project(":overlaylogic"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.service)
     implementation(libs.kotlinx.coroutines.android)
