@@ -29,6 +29,19 @@ android {
 
     testOptions {
         unitTests.isIncludeAndroidResources = true
+        // ⚠️ Robolectric 下也要能读到 schemas —— 否则 MigrationTestHelper
+        //    找不到 1.json，报"can't find schema file"。
+        unitTests.all { it.systemProperty("robolectric.logging", "stdout") }
+    }
+
+    // ⚠️ **这一块是 MigrationTestHelper 能工作的前提。**
+    //    `room.schemaLocation` 只是让 Room 把 JSON **写**出去；
+    //    测试要**读**它，还得把它挂进测试的 assets 路径。
+    //    漏了这块的表现是运行时 `FileNotFoundException: Cannot find schema file` ——
+    //    而那句报错完全不提示"你该配 sourceSets"。
+    sourceSets {
+        getByName("test").assets.srcDirs("${projectDir}/schemas")
+        getByName("androidTest").assets.srcDirs("${projectDir}/schemas")
     }
 }
 
@@ -72,4 +85,12 @@ dependencies {
     testImplementation(libs.truth)
     testImplementation(libs.robolectric)
     testImplementation(libs.kotlinx.coroutines.core)
+    // ⚠️ 迁移测试的唯一可靠手段。
+    //    Room 只在**运行期**校验迁移（"Migration didn't properly handle ..."），
+    //    编译期完全不管。没有这个依赖就只能靠人工核对 SQL，
+    //    而人工核对漏掉一个 NOT NULL 的表现是：用户装上后崩在打开数据库那一步 ——
+    //    他连界面都进不去，也就看不到任何提示。
+    testImplementation(libs.androidx.room.testing)
+    // `ApplicationProvider` 来自这里（MigrationTestHelper 需要 Context）
+    testImplementation(libs.androidx.test.core)
 }

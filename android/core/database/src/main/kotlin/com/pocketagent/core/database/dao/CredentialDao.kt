@@ -31,6 +31,23 @@ interface CredentialDao {
     @Query("SELECT * FROM credential WHERE isDefault = 1 LIMIT 1")
     suspend fun defaultCredential(): CredentialEntity?
 
+    /**
+     * **指定用途下**当前使用的那一个。
+     *
+     * ⚠️ 这是 v2 起的正确用法。旧的无参 [defaultCredential] 语义已收窄为
+     *    "每个 purpose 至多一个 true"，所以不指定用途的查询在不同用途
+     *    Key 共存时会返回不确定的结果。发请求时**一律用这个方法**。
+     */
+    @Query("SELECT * FROM credential WHERE isDefault = 1 AND purpose = :purpose LIMIT 1")
+    suspend fun defaultByPurpose(purpose: String): CredentialEntity?
+
+    /** 按用途列出（Key 管理页分两组展示） */
+    @Query("SELECT * FROM credential WHERE purpose = :purpose ORDER BY createdAtMillis ASC")
+    fun observeByPurpose(purpose: String): Flow<List<CredentialEntity>>
+
+    @Query("SELECT COUNT(*) FROM credential WHERE purpose = :purpose")
+    suspend fun countByPurpose(purpose: String): Int
+
     @Query("SELECT COUNT(*) FROM credential")
     suspend fun count(): Int
 
@@ -70,8 +87,18 @@ interface CredentialDao {
         modelCount: Int?,
     )
 
-    @Query("UPDATE credential SET isDefault = 0")
-    suspend fun clearDefaultFlag()
+    /**
+     * 清掉**指定用途下**的默认标记。
+     *
+     * ⚠️ v2 起必须带 `purpose` 参数。如果清全表，会出现：
+     *    用户设置 TTS 的默认 Key → 顺手把 LLM 的默认标记也清了。
+     *    表现是"我刚设了语音 Key，模型就不工作了"。
+     *
+     * 调用顺序：本方法 → [markDefault]，两者必须在同一事务里，
+     * 否则中间态会出现"两个都不是默认"。
+     */
+    @Query("UPDATE credential SET isDefault = 0 WHERE purpose = :purpose")
+    suspend fun clearDefaultFlag(purpose: String)
 
     @Query("UPDATE credential SET isDefault = 1 WHERE id = :id")
     suspend fun markDefault(id: String)

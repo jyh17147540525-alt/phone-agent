@@ -5,28 +5,43 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.pocketagent.core.database.dao.CredentialDao
+import com.pocketagent.core.database.dao.ModelConfigDao
 import com.pocketagent.core.database.entity.CredentialEntity
+import com.pocketagent.core.database.entity.ModelConfigEntity
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 
 /**
  * 应用数据库。
  *
- * 当前只有凭据一张表。用量/费用表（`UsageEntity`）在网关落地时加进来 ——
- * 届时 `version` 升到 2 并补一条 `Migration`。
+ * ## 版本历史
+ *
+ * | 版本 | 变更 |
+ * |---|---|
+ * | 1 | `credential` 表（密文 Key） |
+ * | 2 | `credential.purpose` 列 + 索引；新增 `model_config` 表 |
  *
  * ⚠️ **`exportSchema = true` 不是可选项。**
  *    Room 的 schema JSON 是写迁移的唯一依据：没有它，加字段时只能靠猜
  *    旧表长什么样。目录由 `core/database/build.gradle.kts` 的
  *    `room.schemaLocation` 指定，产物**必须入库**。
+ *
+ * ⚠️ **每次升版都要导出一份新的 `<version>.json`。**
+ *    漏了它，下一次迁移就没有"上一版长什么样"的依据 ——
+ *    而那时旧版已经在用户手机上了，无从反推。
  */
 @Database(
-    entities = [CredentialEntity::class],
-    version = 1,
+    entities = [
+        CredentialEntity::class,
+        ModelConfigEntity::class,
+    ],
+    version = 2,
     exportSchema = true,
 )
 abstract class PocketAgentDatabase : RoomDatabase() {
 
     abstract fun credentialDao(): CredentialDao
+
+    abstract fun modelConfigDao(): ModelConfigDao
 }
 
 /**
@@ -59,6 +74,10 @@ object PocketAgentDatabaseFactory {
             DATABASE_NAME,
         )
             .openHelperFactory(SupportOpenHelperFactory(passphrase))
+            // ⚠️ **绝不能用 `fallbackToDestructiveMigration()` 代替迁移。**
+            //    那会在升级时静默删掉整个库 —— 用户的 API Key 全部消失，
+            //    而界面上只会表现为"配置没了"。这类数据丢失是不可逆的。
+            .addMigrations(*Migrations.ALL)
             .build()
     }
 

@@ -6,6 +6,7 @@ import com.pocketagent.core.crypto.EncryptedBlob
 import com.pocketagent.core.database.PocketAgentDatabase
 import com.pocketagent.core.database.entity.CredentialCheckStatus
 import com.pocketagent.core.database.entity.CredentialEntity
+import com.pocketagent.core.database.entity.CredentialPurpose
 import com.pocketagent.provider.api.LlmProvider
 import com.pocketagent.provider.api.ProviderCredential
 import com.pocketagent.provider.api.ProviderException
@@ -55,6 +56,18 @@ class CredentialRepository(
         rows.map { it.toDomain(displayNameFor(it.providerId)) }
     }
 
+    /**
+     * 按用途筛选的列表。
+     *
+     * Key 管理页用它分两组展示（模型接口 / 语音合成）——
+     * 一个混合了十来个 Key 的平铺列表里，用户很难一眼看出
+     * "哪个是给模型用的、哪个是给语音用的"，而这两者**不能混用**。
+     */
+    fun credentialsByPurpose(purpose: CredentialPurpose): Flow<List<StoredCredential>> =
+        dao.observeByPurpose(purpose.name).map { rows ->
+            rows.map { it.toDomain(displayNameFor(it.providerId)) }
+        }
+
     /** 可选的服务商。界面用来渲染选择列表 */
     val availableProviders: List<LlmProvider> get() = providers
 
@@ -68,12 +81,17 @@ class CredentialRepository(
      * ⚠️ **不在这里做网络校验**，见 [AddCredentialResult] 的注释：
      *    网络不通时若拒绝保存，用户会在"网络不好"的日子里完全没法添加 Key。
      *    校验是 [validate] 的独立职责，结果单独反馈。
+     *
+     * @param purpose 凭据用途。默认 [CredentialPurpose.LLM] —— 绝大多数用户
+     *        只关心模型 Key，TTS 是进阶功能，不该让默认路径多一步选择。
+     *        但**显式传参比默认值更重要**：调用方必须想一下"我在加哪类 Key"。
      */
     suspend fun add(
         providerId: String,
         rawKey: String,
         label: String = "",
         baseUrlOverride: String? = null,
+        purpose: CredentialPurpose = CredentialPurpose.LLM,
     ): AddCredentialResult {
         val provider = providers.firstOrNull { it.id == providerId }
             ?: return AddCredentialResult.Rejected("不认识的服务商「$providerId」。")
@@ -100,6 +118,7 @@ class CredentialRepository(
         val base = CredentialEntity(
             id = UUID.randomUUID().toString(),
             providerId = provider.id,
+            purpose = purpose,
             label = label.trim(),
             ciphertext = blob.ciphertext,
             iv = blob.iv,
@@ -115,9 +134,14 @@ class CredentialRepository(
 
         val saved = try {
             db.withTransaction {
-                // 第一条自动成为默认 —— 否则用户加完 Key 却发不出请求，
+                // 该用途下的第一条自动成为默认 —— 否则用户加完 Key 却发不出请求，
                 // 而界面上没有任何提示告诉他"还差一步设置默认"
-                val shouldBeDefault = dao.count() == 0
+                //
+                // ⚠️ 计数必须**限定 purpose**。用全表 count 的话：
+                //    用户先加了一个 LLM Key（成为默认），再加 TTS Key 时
+                //    count 不为 0 → TTS Key 不会成为默认 → 语音功能用不了，
+                //    而界面上明明有一个 TTS Key 躺着。
+                val shouldBeDefault = dao.countByPurpose(purpose.name) == 0
                 val entity = base.copy(isDefault = shouldBeDefault)
                 dao.upsert(entity)
                 entity
@@ -134,24 +158,43 @@ class CredentialRepository(
     /**
      * 删除一条凭据。
      *
-     * ⚠️ 若删掉的正好是默认项，**必须**把默认标记转移到剩下的第一条。
+     * ⚠️ 若删掉的正好是默认项，**必须**把默认标记转移到**同用途下**剩下的第一条。
      *    否则会留下"有 Key、但没有默认 Key"的状态：用户每次发请求都失败，
      *    而列表里明明躺着好几个 Key —— 这种不一致比直接报错更难排查。
+     *
+     * ⚠️ 转移范围**必须限定同 purpose**。跨用途转移会出现
+     *    "删了 TTS Key，结果 LLM 的默认变成了另一个 TTS Key" 这种荒谬状态。
      */
     suspend fun remove(id: String) {
         db.withTransaction {
-            val wasDefault = dao.byId(id)?.isDefault == true
+            val entity = dao.byId(id)
+            val wasDefault = entity?.isDefault == true
+            val purpose = entity?.purpose
+
             dao.deleteById(id)
-            if (wasDefault) {
-                dao.all().firstOrNull()?.let { dao.markDefault(it.id) }
+
+            if (wasDefault && purpose != null) {
+                dao.all()
+                    .firstOrNull { it.purpose == purpose }
+                    ?.let { dao.markDefault(it.id) }
             }
         }
     }
 
-    /** 设为当前使用。先全清再置一，两步必须在同一事务里 */
+    /**
+     * 设为当前使用。
+     *
+     * 先清该用途下的标记、再置一，两步必须在同一事务里 ——
+     * 否则中间态会出现"两个都不是默认"，而这个窗口里恰好有请求进来就会失败。
+     *
+     * ⚠️ `clearDefaultFlag` 必须带 purpose。清全表的话：
+     *    用户设置 TTS 的默认 Key → 顺手把 LLM 的默认标记也清了 →
+     *    表现是"我刚设了语音 Key，模型就不工作了"。
+     */
     suspend fun setDefault(id: String) {
         db.withTransaction {
-            dao.clearDefaultFlag()
+            val entity = dao.byId(id) ?: return@withTransaction
+            dao.clearDefaultFlag(entity.purpose.name)
             dao.markDefault(id)
         }
     }
@@ -237,9 +280,17 @@ class CredentialRepository(
     //  取用
     // ─────────────────────────────────────────────────────────────
 
-    /** 当前使用的凭据（不含明文） */
-    suspend fun defaultCredential(): StoredCredential? {
-        val entity = dao.defaultCredential() ?: return null
+    /**
+     * 当前使用的凭据（不含明文）。
+     *
+     * @param purpose 限定用途。**有默认值但强烈建议显式传** ——
+     *        不指定时在多用途 Key 共存的情况下返回值是不确定的
+     *        （库里每种用途各有一个 `isDefault = 1`，`LIMIT 1` 拿到哪个看运气）。
+     */
+    suspend fun defaultCredential(
+        purpose: CredentialPurpose = CredentialPurpose.LLM,
+    ): StoredCredential? {
+        val entity = dao.defaultByPurpose(purpose.name) ?: return null
         return entity.toDomain(displayNameFor(entity.providerId))
     }
 
@@ -249,13 +300,23 @@ class CredentialRepository(
      * 这是**唯一**推荐的取用方式 —— 不要在任何地方长期持有解密后的字节。
      * 作用域结束后（含异常路径）明文立即清零。
      *
+     * ⚠️ **用途硬编码为 [CredentialPurpose.LLM]，不开放参数。**
+     *
+     *    这个方法的名字里没有"purpose"，一旦允许传 TTS 就会有人传 ——
+     *    然后把 TTS 的 Key 拿去发对话请求，得到 401，界面报"Key 无效"。
+     *    而那个 Key 在语音场景明明好着，用户完全无法理解发生了什么。
+     *
+     *    将来 TTS 需要取用时，**另开一个 `useDefaultTtsKey`**：
+     *    签名不同、返回类型不同（TTS 不需要 `LlmProvider`），
+     *    调用点一眼就能看出用的是哪一类 Key。
+     *
      * @return null 表示还没有可用的默认凭据。调用方应引导用户去配置，
      *         而不是抛异常 —— "还没配 Key"是正常状态，不是错误。
      */
     suspend fun <T> useDefaultKey(
         block: suspend (provider: LlmProvider, credential: ProviderCredential) -> T,
     ): T? {
-        val entity = dao.defaultCredential() ?: return null
+        val entity = dao.defaultByPurpose(CredentialPurpose.LLM.name) ?: return null
         val provider = providers.firstOrNull { it.id == entity.providerId } ?: return null
 
         return crypto.withDecryptedKey(

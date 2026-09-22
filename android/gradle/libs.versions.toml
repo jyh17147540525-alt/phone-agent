@@ -105,6 +105,7 @@ androidx-datastore-preferences = { module = "androidx.datastore:datastore-prefer
 androidx-room-runtime       = { module = "androidx.room:room-runtime",                   version.ref = "room" }
 androidx-room-ktx           = { module = "androidx.room:room-ktx",                       version.ref = "room" }
 androidx-room-compiler      = { module = "androidx.room:room-compiler",                  version.ref = "room" }
+androidx-room-testing       = { module = "androidx.room:room-testing",                   version.ref = "room" }
 androidx-work-runtime       = { module = "androidx.work:work-runtime-ktx",               version.ref = "workManager" }
 androidx-security-crypto    = { module = "androidx.security:security-crypto",            version.ref = "securityCrypto" }
 
@@ -153,6 +154,7 @@ mockk                       = { module = "io.mockk:mockk",                      
 robolectric                 = { module = "org.robolectric:robolectric",                  version.ref = "robolectric" }
 truth                       = { module = "com.google.truth:truth",                       version.ref = "truth" }
 androidx-test-junit         = { module = "androidx.test.ext:junit",                      version.ref = "androidxTestJunit" }
+androidx-test-core          = { module = "androidx.test:core",                           version.ref = "androidxTestJunit" }
 androidx-test-espresso      = { module = "androidx.test.espresso:espresso-core",         version.ref = "espresso" }
 
 [plugins]

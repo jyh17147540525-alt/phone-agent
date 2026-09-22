@@ -27,6 +27,7 @@ internal fun CredentialEntity.toDomain(providerDisplayName: String): StoredCrede
     StoredCredential(
         id = id,
         providerId = providerId,
+        purpose = purpose,
         providerDisplayName = providerDisplayName,
         label = label,
         keyLength = keyLength,

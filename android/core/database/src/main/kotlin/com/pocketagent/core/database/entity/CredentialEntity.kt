@@ -30,6 +30,8 @@ import androidx.room.PrimaryKey
         Index("providerId"),
         // 「当前使用哪一个」是最高频查询（每次发请求都要），给它建索引
         Index("isDefault"),
+        // 按用途筛选（Key 管理页分两组展示、发请求时只找 LLM 类）
+        Index("purpose"),
     ],
 )
 data class CredentialEntity(
@@ -39,6 +41,15 @@ data class CredentialEntity(
 
     /** 对应 `ProviderProfile.id` / `LlmProvider.id`，如 "deepseek" / "openrouter" */
     val providerId: String,
+
+    /**
+     * 该凭据的用途（模型接口 / 语音合成）。
+     *
+     * ⚠️ 由 v1 → v2 迁移新增，**默认值是 [CredentialPurpose.LLM]**。
+     *    理由：v1 时代只有模型 Key 一种用途，把现有行标成 LLM 是唯一正确的解释。
+     *    标成 TTS 会让所有老用户的 Key 突然发不出请求。
+     */
+    val purpose: CredentialPurpose,
 
     /** 用户自己起的名字，如"主力 Key"。用来在列表里区分多个 Key */
     val label: String,
@@ -81,11 +92,18 @@ data class CredentialEntity(
     val modelCount: Int?,
 
     /**
-     * 是否为当前使用的凭据。
+     * 是否为**该用途下**当前使用的凭据。
      *
-     * 同一时刻**至多一个**为 true —— 这个不变量由仓储层在事务里保证，
-     * 数据库层没有唯一约束可以表达"至多一行为 true"（部分索引在 SQLite 上
-     * 写法别扭且 Room 不生成），所以放在仓储层守。
+     * ⚠️ v2 起语义收窄：不是"全表至多一个 true"，而是
+     *    **每个 [purpose] 至多一个 true**。
+     *
+     *    所以可以同时存在「LLM 的默认 Key」与「TTS 的默认 Key」各一个 ——
+     *    这是正常且必要的状态。
+     *
+     *    这个不变量由仓储层在事务里保证（先 `clearDefaultFlag(purpose)` 再
+     *    `markDefault(id)`）。数据库层没有唯一约束能表达"按分组至多一行为 true"：
+     *    SQLite 的部分唯一索引要手写 `WHERE isDefault = 1`，
+     *    而 Room 不生成这种约束，最终仍要落到应用层守。
      */
     val isDefault: Boolean,
 ) {
@@ -97,6 +115,7 @@ data class CredentialEntity(
             other is CredentialEntity &&
                 id == other.id &&
                 providerId == other.providerId &&
+                purpose == other.purpose &&
                 label == other.label &&
                 ciphertext.contentEquals(other.ciphertext) &&
                 iv.contentEquals(other.iv) &&
@@ -113,6 +132,7 @@ data class CredentialEntity(
     override fun hashCode(): Int {
         var result = id.hashCode()
         result = 31 * result + providerId.hashCode()
+        result = 31 * result + purpose.hashCode()
         result = 31 * result + label.hashCode()
         result = 31 * result + ciphertext.contentHashCode()
         result = 31 * result + iv.contentHashCode()
@@ -129,7 +149,7 @@ data class CredentialEntity(
 
     /** 禁止把密文打进日志。默认的 data class toString 会打印整个 ByteArray 的地址+内容摘要 */
     override fun toString(): String =
-        "CredentialEntity(id=$id, provider=$providerId, label=$label, " +
+        "CredentialEntity(id=$id, provider=$providerId, purpose=$purpose, label=$label, " +
             "keyLength=$keyLength, isDefault=$isDefault, status=$lastStatus)"
 }
 

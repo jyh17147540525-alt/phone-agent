@@ -549,10 +549,94 @@ Kotlin 的 `Result<T>` 要求失败侧是 `Throwable`。而"用户还没配 Key"
 |---|---|---|
 | `overlaylogic` | ✅ **已实现** | 悬浮球状态机 / 贴边几何 / 急停语义（纯 Kotlin，39 个单测） |
 | `overlay` | ✅ **已实现（待真机）** | `OverlayService` + `WindowManager` 壳；播放/展开/停止 |
-| `core:database` | 待改 | 新增 `ModelConfigEntity` + `purpose` 字段 + Migration |
-| `keymgmt` | 小改 | 扩展支持 `purpose` |
+| `core:database` | ✅ **已实现** | `purpose` 字段 + `ModelConfigEntity` + `Migration 1→2`（离线校验通过） |
+| `keymgmt` | ✅ **已实现** | 支持 `purpose`；4 处默认 Key 调用点按用途收窄 |
 | `app` | 待改 | 新增模型配置页；Key 页按 purpose 分开 |
 | `agent` | 待改 | 消费 `ModelRouter`，把选中的模型交给 `LlmGateway` |
+
+### 8.6 迁移校验：一个离线校验器，以及它抓到的两个真 bug
+
+`MigrationTestHelper` 需要 Gradle 跑到 `:core:database:testDebugUnitTest`，
+而本机 Gradle 的配置阶段存在一个**与项目代码无关**的超时故障（见 §8.7）。
+于是补了一个 `tools/verify/check_migration.py`：用 Python 的 `sqlite3`
+**完整复现 `runMigrationsAndValidate` 的判定逻辑** ——
+
+1. 用 `schemas/1.json` 里的 `createSql` 建 v1 库（Room 自己导出的，权威）
+2. 从 `Migrations.kt` 提取 `execSQL` 语句并执行
+3. 与 `schemas/2.json`（Room 从 `@Entity` 生成的期望）逐项比对
+4. 附加数据保全、唯一约束两组行为断言
+
+**它抓到了两个真 bug**，都只在运行时才会暴露：
+
+| 问题 | 后果 |
+|---|---|
+| 索引名写成 `index_model_config_role`（应为 `...roleMask`） | Room 按名字匹配索引 → `Migration didn't properly handle` |
+| （曾怀疑）`ALTER TABLE ADD COLUMN` 使 `purpose` 落在末列 | **经查是误判，见下** |
+
+⚠️ **关于列顺序，有一条反直觉结论必须记住。**
+`purpose` 在实体里是第 3 个字段，但 `ALTER TABLE ADD COLUMN` 只能追加到末尾，
+迁移后的物理列顺序与 `2.json` 的 `createSql` 不一致 —— 看起来必须重建表。
+反编译 room-runtime 2.6.1 的 `TableInfo.equals` 后确认**不必**：
+
+```
+name        : String          → 比内容
+columns     : java.util.Map   → Map 相等，与顺序无关
+foreignKeys : java.util.Set   → 顺序无关
+indices     : java.util.Set   → 顺序无关
+```
+
+而 `TableInfo$Index.equals` 比的是 `unique + columns + orders + name`
+（`name` 还会先剥掉 `index_` 前缀）——**所以列顺序无关，索引名字必须精确。**
+
+校验器已做**故障注入验证**：故意改错索引名，它报
+`✗ 缺索引 index_model_config_roleMask` 并给出多余索引名，证明它真的能抓错，
+而不是一条恒过的空断言。
+
+### 8.7 ⚠️ 本机 Gradle 配置阶段故障（与项目代码无关，但会反复咬人）
+
+现象：任何触发**全项目配置**的 Gradle 命令都会在 ~60–77 秒后失败。
+
+```
+A problem occurred configuring project ':channel'.
+> java.util.concurrent.TimeoutException
+> Android Graph Plugin: project ':channel' does not specify `compileSdk`
+```
+
+而 `channel/build.gradle.kts` 第 10 行明明有 `compileSdk`。**报错是假的。**
+
+**已排除的可能**（每条都做了对照实验）：
+
+| 猜想 | 实验 | 结果 |
+|---|---|---|
+| `channel` 脚本本身坏了 | 把 `contribute` 的脚本内容换给 `channel` | ❌ 失败点**转移到 `:core:crypto`** |
+| 陈旧的 `channel/build/` | 移走该目录 | ❌ 无变化 |
+| 冷启动 Gradle 守护进程 | 连续跑两次（第二次已热） | ❌ 仍失败 |
+| `org.gradle.parallel` | `-Dorg.gradle.parallel=false` | ❌ 仍失败 |
+| 守护进程堆太小 | `-Xmx6g -XX:MaxMetaspaceSize=1g` | ❌ 仍失败 |
+| Kotlin 守护进程堆 | `-Dkotlin.daemon.jvm.options=-Xmx4g` | ❌ 仍失败 |
+| 访问器生成 | `org.gradle.kotlin.dsl.accessors.enabled=false` | ⚠️ `TimeoutException` 消失，但 `compileSdk` 报错**仍在** |
+| 首行 emoji 注释的编码 | 换成纯 ASCII | ❌ 仍失败 |
+| 项目路径含中文（日志里显示为 `D:\ֻagent\...`） | —— | **未定论，但最可疑** |
+
+**决定性证据**：失败点会**随模块配置顺序漂移**（`:channel` → `:core:crypto` → `:action`），
+说明它与**具体模块无关**，而是"配置到第 N 个模块时超时"。
+真实堆栈指向 `GenerateProjectAccessors`（Gradle 的类型安全项目访问器生成）：
+
+```
+at org.gradle.kotlin.dsl.accessors.GenerateProjectAccessors.execute(AccessorsClassPath.kt:161)
+at org.gradle.kotlin.dsl.concurrent.DefaultAsyncIOScopeFactory$newScope$1.close(BuildServices.kt:98)
+```
+
+**已确认的影响范围**：只有需要**全项目配置**的命令受影响。
+`./gradlew :overlaylogic:test`、`:overlay:compileDebugKotlin`、
+`:core:database:compileDebugKotlin` 这些**之前都成功过** ——
+但那是因为它们碰巧没走到 `:channel` 之后。
+
+**当前应对**：
+1. 纯逻辑模块 → 用 `tools/verify/run_logic_tests.py`（不经过 Gradle）
+2. 迁移验证 → 用 `tools/verify/check_migration.py`（不经过 Gradle）
+3. Android 模块编译 → 仍需 Gradle，若撞上就重试或换顺序（成功与否不稳定）
+4. **不要**为了绕过它去改 `channel` 或其它模块的构建脚本 —— 已验证无效
 
 ### 8.6 悬浮球的两个模块为什么拆开
 

@@ -2,6 +2,7 @@ package com.pocketagent.keymgmt
 
 import com.pocketagent.core.database.entity.CredentialCheckStatus
 import com.pocketagent.core.database.entity.CredentialEntity
+import com.pocketagent.core.database.entity.CredentialPurpose
 import com.pocketagent.provider.api.KeyValidationResult
 import com.pocketagent.provider.api.ProviderException
 import org.junit.Assert.assertEquals
@@ -33,9 +34,11 @@ class CredentialMappingTest {
         lastStatus: CredentialCheckStatus? = null,
         label: String = "",
         providerId: String = "deepseek",
+        purpose: CredentialPurpose = CredentialPurpose.LLM,
     ) = CredentialEntity(
         id = "id-1",
         providerId = providerId,
+        purpose = purpose,
         label = label,
         ciphertext = byteArrayOf(1, 2, 3),
         iv = byteArrayOf(4, 5, 6),
@@ -329,5 +332,63 @@ class CredentialMappingTest {
 
         assertTrue("应当包含 id 便于排查：$text", text.contains("id-1"))
         assertFalse("不应打印密文内容：$text", text.contains("[1, 2, 3]"))
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  六、用途区分（v2 新增）
+    // ═══════════════════════════════════════════════════════════
+
+    @Test
+    fun `用途被正确映射到领域模型`() {
+        assertEquals(
+            CredentialPurpose.LLM,
+            entity(purpose = CredentialPurpose.LLM).toDomain("X").purpose,
+        )
+        assertEquals(
+            CredentialPurpose.TTS,
+            entity(purpose = CredentialPurpose.TTS).toDomain("X").purpose,
+        )
+    }
+
+    @Test
+    fun `TTS 的 Key 不能用于对话请求`() {
+        // ★ 这条是本组最重要的守卫。
+        //
+        // TTS 的 Key 拿去发对话请求会得到 401，界面报"Key 无效"，
+        // 而那个 Key 在语音场景明明好着 —— 用户完全无法理解发生了什么，
+        // 也没有任何线索指向"我给错了用途"。
+        // 把判断收在 usableForChat 里，让它在**选择阶段**就被拦住。
+        val tts = entity(purpose = CredentialPurpose.TTS).toDomain("X")
+        assertTrue("TTS Key 本身是有效的", tts.usable)
+        assertFalse("但它不能发对话请求", tts.usableForChat)
+    }
+
+    @Test
+    fun `LLM 的 Key 在可用状态下能用于对话请求`() {
+        val llm = entity(purpose = CredentialPurpose.LLM, lastStatus = null).toDomain("X")
+        assertTrue(llm.usableForChat)
+    }
+
+    @Test
+    fun `LLM 的 Key 状态异常时也不能用于对话请求`() {
+        // 用途对 + 状态坏 → 同样不可用。两个条件是"与"的关系
+        val llm = entity(
+            purpose = CredentialPurpose.LLM,
+            lastStatus = CredentialCheckStatus.INVALID,
+        ).toDomain("X")
+        assertFalse(llm.usableForChat)
+    }
+
+    @Test
+    fun `只有 LLM 用途能服务对话请求`() {
+        // 枚举层面的不变量。将来加新用途时，这条会逼作者想清楚
+        // "这个新用途能不能发对话请求"，而不是默认继承 true
+        CredentialPurpose.values().forEach { purpose ->
+            assertEquals(
+                "用途 $purpose 的判断不一致",
+                purpose == CredentialPurpose.LLM,
+                purpose.canServeChatRequests,
+            )
+        }
     }
 }

@@ -317,6 +317,24 @@ def android_lib(module: str, deps: list[str]) -> str:
         plugin_lines.append("    alias(libs.plugins.kotlin.serialization)")
     plugins = "\n".join(plugin_lines)
 
+    # Robolectric 的日志要不要往 stdout 打。
+    #
+    # ⚠️ 结论：**不要把它做进生成器。**
+    #
+    #    试过两种做法，都不划算：
+    #      · 全局默认   → `--check` 报全部 31 个模块不一致，而生成器"只创建
+    #                     不覆盖"的设计会让人误以为要重写 31 个文件
+    #      · 仅 Room 模块 → `memory` 也是 ROOM_MODULES 但没这行，仍不一致
+    #
+    #    它本质是 core/database 的**局部调试需要**（要读 Room 抛的
+    #    "Migration didn't properly handle" 细节）。收益是一个日志开关，
+    #    代价是让 31 个模块的构建文件长期处于"与生成器不一致"的状态 ——
+    #    而这个告警本身是有价值的，不该被一条已知噪声长期占用。
+    #
+    #    ⇒ core/database/build.gradle.kts 里的那一行属于**已确认的本地定制**，
+    #      与 room.schemaLocation 同类。跑 `--check` 时看到它报这一条，
+    #      是预期行为，不必处理。
+
     return f"""{HEADER}plugins {{
 {plugins}
 }}

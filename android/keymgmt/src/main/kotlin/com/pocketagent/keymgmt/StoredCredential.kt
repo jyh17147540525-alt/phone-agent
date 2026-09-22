@@ -1,6 +1,7 @@
 package com.pocketagent.keymgmt
 
 import com.pocketagent.core.database.entity.CredentialCheckStatus
+import com.pocketagent.core.database.entity.CredentialPurpose
 
 /**
  * 用户提供的一条 API 凭据（界面视角）。
@@ -22,6 +23,9 @@ data class StoredCredential(
 
     /** 对应 `LlmProvider.id` / `ProviderProfile.id` */
     val providerId: String,
+
+    /** 该凭据的用途（模型接口 / 语音合成）。Key 管理页据此分组 */
+    val purpose: CredentialPurpose,
 
     /** Provider 的展示名，由仓储层从 Provider 注册表解析后填入 */
     val providerDisplayName: String,
@@ -63,6 +67,18 @@ data class StoredCredential(
     val usable: Boolean
         get() = status == CredentialCheckStatus.VALID ||
             status == CredentialCheckStatus.UNCHECKED
+
+    /**
+     * 能否用于**对话请求**。
+     *
+     * ⚠️ 单独一个属性而不是让调用方自己判 `purpose == LLM`。
+     *    理由：TTS 的 Key 拿去发对话请求会得到 401，界面报"Key 无效"，
+     *    而那个 Key 在 TTS 场景明明好着 —— 用户无法自救。
+     *    把判断收在这里，让"用错 Key"在**选择阶段**就被拦住，
+     *    而不是等发请求失败后回来排查。
+     */
+    val usableForChat: Boolean
+        get() = usable && purpose.canServeChatRequests
 }
 
 /**
