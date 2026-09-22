@@ -1,0 +1,1083 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>后台常驻、语音交互与插件安全检测方案 v1.0</title>
+<style>
+:root {
+  --bg: #14161a;
+  --bg-soft: #1a1d22;
+  --panel: #1e2228;
+  --panel-2: #23272f;
+  --border: #2e343d;
+  --text: #e6e9ee;
+  --text-dim: #9aa4b2;
+  --text-faint: #6b7684;
+  --accent: #6ea8fe;
+  --accent-2: #7ee0c0;
+  --warn: #f0b429;
+  --danger: #f2685c;
+  --ok: #57c98a;
+  --code-bg: #15181d;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+               "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans SC", sans-serif;
+  font-size: 15.5px;
+  line-height: 1.85;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { display: flex; max-width: 1500px; margin: 0 auto; }
+aside {
+  width: 300px; flex: 0 0 300px;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  padding: 28px 18px 60px 28px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-soft);
+  font-size: 13.5px;
+}
+aside .brand {
+  font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--text-faint); margin-bottom: 4px;
+}
+aside .title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 20px; line-height: 1.5; }
+aside ul { list-style: none; padding-left: 0; margin: 0; }
+aside ul ul { padding-left: 14px; margin-top: 4px; }
+aside li { margin: 2px 0; }
+aside a {
+  color: var(--text-dim); text-decoration: none; display: block;
+  padding: 4px 8px; border-radius: 6px; border-left: 2px solid transparent;
+  transition: .15s;
+}
+aside a:hover { color: var(--text); background: var(--panel-2); border-left-color: var(--accent); }
+main { flex: 1; min-width: 0; padding: 44px 56px 120px; max-width: 1080px; }
+
+h1 {
+  font-size: 30px; line-height: 1.35; margin: 0 0 8px; font-weight: 800;
+  letter-spacing: -.01em;
+}
+h2 {
+  font-size: 22px; margin: 56px 0 18px; padding-bottom: 10px;
+  border-bottom: 1px solid var(--border); font-weight: 700; scroll-margin-top: 20px;
+}
+h3 { font-size: 17.5px; margin: 34px 0 12px; font-weight: 700; color: #dfe5ee; scroll-margin-top: 20px; }
+h4 { font-size: 15.5px; margin: 24px 0 10px; font-weight: 700; color: var(--text-dim); }
+p { margin: 12px 0; }
+a { color: var(--accent); }
+strong { color: #fff; font-weight: 700; }
+hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+blockquote {
+  margin: 18px 0; padding: 14px 20px;
+  background: linear-gradient(90deg, rgba(110,168,254,.10), rgba(110,168,254,.02));
+  border-left: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0; color: #cfd6e0;
+}
+blockquote p { margin: 6px 0; }
+
+ul, ol { padding-left: 24px; margin: 12px 0; }
+li { margin: 5px 0; }
+li > ul, li > ol { margin: 5px 0; }
+
+.tw { overflow-x: auto; margin: 18px 0; border: 1px solid var(--border); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--panel); }
+th, td { padding: 9px 14px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { background: var(--panel-2); font-weight: 700; color: #fff; white-space: nowrap; font-size: 13.5px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: rgba(110,168,254,.045); }
+
+code {
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+  font-size: 13px; background: var(--code-bg); padding: 2px 6px;
+  border-radius: 5px; color: #8fd3ff; border: 1px solid var(--border);
+}
+pre {
+  background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px;
+  padding: 18px 20px; overflow-x: auto; margin: 18px 0;
+  font-size: 12.8px; line-height: 1.65;
+}
+pre code {
+  background: none; border: none; padding: 0; color: #cfd8e3;
+  white-space: pre; font-family: "JetBrains Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+}
+.codehilite { background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; margin: 18px 0; }
+.codehilite pre { border: none; margin: 0; background: none; }
+.codehilite .k, .codehilite .kd, .codehilite .kn { color: #ff7b9c; }
+.codehilite .s, .codehilite .s1, .codehilite .s2 { color: #7ee0c0; }
+.codehilite .c1, .codehilite .cm { color: #5f6b7a; font-style: italic; }
+.codehilite .n, .codehilite .nf, .codehilite .nc { color: #8fd3ff; }
+.codehilite .m, .codehilite .mi { color: #f0b429; }
+
+@media (max-width: 1000px) {
+  aside { display: none; }
+  main { padding: 28px 20px 80px; }
+  body { font-size: 15px; }
+  h1 { font-size: 24px; }
+  h2 { font-size: 19px; }
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: #333a45; border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: #414a58; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <aside>
+    <div class="brand">Project Plan</div>
+    <div class="title">后台常驻、语音交互与插件安全检测方案 v1.0</div>
+    <div class="toc">
+<ul>
+<li><a href="#0">0. 先说结论</a></li>
+<li><a href="#1">1. 总体架构：进程与生命周期</a><ul>
+<li><a href="#11">1.1 三层进程模型</a></li>
+<li><a href="#12-app">1.2 首次启动装配（"打开 App 即就绪"的核心）</a></li>
+<li><a href="#13-p0">1.3 体积必须重做（与 P0 报告呼应）</a></li>
+</ul>
+</li>
+<li><a href="#2-app">2. 打开 App 即自动启动：可行的实现路径</a><ul>
+<li><a href="#21">2.1 四种"自启动"触发源的现实评估</a></li>
+<li><a href="#22-ex-17">2.2 建议新增 EX-17 实验</a></li>
+<li><a href="#23-specialuse">2.3 specialUse 类型是更优选择</a></li>
+</ul>
+</li>
+<li><a href="#3">3. 系统限制全景（这是最需要你知道的部分）</a><ul>
+<li><a href="#31">3.1 各版本硬限制（已核实官方文档）</a></li>
+<li><a href="#32-v20-11">3.2 权限清单（在 v2.0 的 11 项之上新增）</a></li>
+<li><a href="#33-6">3.3 ⚠️ 需要你决策：6 小时上限怎么处理</a></li>
+</ul>
+</li>
+<li><a href="#4">4. 如何保证用户操作不受干扰（需要修订的期望）</a><ul>
+<li><a href="#41">4.1 一个必须承认的事实</a></li>
+<li><a href="#42">4.2 现实中的四档干扰程度</a></li>
+<li><a href="#43">4.3 干扰最小化的具体手段</a></li>
+<li><a href="#44-ui">4.4 悬浮球：不仅仅是个 UI</a></li>
+</ul>
+</li>
+<li><a href="#5">5. 语音交互</a><ul>
+<li><a href="#51">5.1 语音唤醒：真实的门槛</a></li>
+<li><a href="#52">5.2 唤醒引擎选择</a></li>
+<li><a href="#53">5.3 ⚠️ 麦克风独占冲突（必须在引导里说清）</a></li>
+<li><a href="#54-tts">5.4 TTS 与文字对话</a></li>
+<li><a href="#55">5.5 弹窗文字对话</a></li>
+</ul>
+</li>
+<li><a href="#6-key">6. Key 的加密存储（你强调的重点）</a><ul>
+<li><a href="#61">6.1 现状：已有机制，需扩展</a></li>
+<li><a href="#62">6.2 防"反向提取"的具体措施</a></li>
+<li><a href="#63">6.3 新增待办</a></li>
+</ul>
+</li>
+<li><a href="#7">7. 插件病毒检测（原设想需要改设计）</a><ul>
+<li><a href="#71-virustotal-api">7.1 ❌ 坏消息：VirusTotal 公开 API 不能用</a></li>
+<li><a href="#72">7.2 ✅ 改后的分层检测设计</a></li>
+<li><a href="#73">7.3 隔离要求的具体落实（你强调的重点）</a></li>
+<li><a href="#74">7.4 但说实话：静态扫描的局限</a></li>
+</ul>
+</li>
+<li><a href="#8">8. 待你决策</a></li>
+<li><a href="#9-m0">9. 新增实验（补进 M0 手册）</a></li>
+<li><a href="#10">10. 一句话总结</a></li>
+</ul>
+</div>
+
+  </aside>
+  <main>
+<h1 id="v10">后台常驻、语音交互与插件安全检测方案 v1.0</h1>
+<p><a href="后台常驻与语音交互方案-v1.0.en.md">English</a> | <strong>简体中文</strong></p>
+<blockquote>
+<p>本文回答六个问题：① agent 能否在后台持续运行而不干扰用户 ② 打开 App 即自动就绪，
+不再需要 Termux ③ 各方案所需权限与系统限制 ④ 如何保证用户操作不受干扰
+⑤ 语音唤醒 + 用户自带 TTS Key 的交互设计 ⑥ 插件市场的病毒检测与隐私隔离</p>
+<p><strong>前置事实</strong>：P0 五项真机验证（2026-09-22）已确认 —— 虚拟屏<strong>已否决</strong>，
+dsh 通过 <strong>proot-distro Debian 容器</strong>跑通（容器 1.6 GB / node_modules 307 MB）。</p>
+</blockquote>
+<hr />
+<h2 id="0">0. 先说结论</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>问题</th>
+<th>结论</th>
+<th>性质</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>后台持续运行</td>
+<td><strong>可行，但有硬天花板</strong> —— 前台服务 + 悬浮窗 + 无障碍三件套，Android 15 下 <code>dataSync</code> 类<strong>每天累计 6 小时</strong></td>
+<td>⚠️ 需产品决策</td>
+</tr>
+<tr>
+<td>打开 App 即就绪</td>
+<td><strong>可行</strong> —— 首次引导装配 proot 环境，之后常驻</td>
+<td>✅ 无阻断</td>
+</tr>
+<tr>
+<td>无需手动启动 Termux</td>
+<td><strong>可行</strong> —— 我们自己跑 proot，Termux 只是开发期验证工具</td>
+<td>✅ 无阻断</td>
+</tr>
+<tr>
+<td>不干扰用户</td>
+<td><strong>部分可行</strong> —— 悬浮小窗可用；"完全不影响"在 P0-3 后已丢失，见 §4</td>
+<td>⚠️ 需重新定义</td>
+</tr>
+<tr>
+<td>语音唤醒</td>
+<td><strong>可行但门槛高</strong> —— 麦克风前台服务不能在后台凭空启动；需常驻通知 + 隐私指示器</td>
+<td>⚠️ 有系统性代价</td>
+</tr>
+<tr>
+<td>TTS/对话弹窗</td>
+<td><strong>可行</strong> —— 悬浮窗 + 独立配置页，Key 走既有加密链路</td>
+<td>✅ 无阻断</td>
+</tr>
+<tr>
+<td>插件病毒检测</td>
+<td><strong>要改设计</strong> —— VirusTotal 公开 API <strong>禁止商业产品使用</strong>，且上传样本会分享给厂商</td>
+<td>❌ 原设想不可用</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>最需要你先拍板的一件事</strong>：<code>dataSync</code> 前台服务每天 6 小时上限。这直接决定
+"agent 能不能全天候待命"，或者退一步做"任务期才激活"。详见 §3.3。</p>
+<hr />
+<h2 id="1">1. 总体架构：进程与生命周期</h2>
+<h3 id="11">1.1 三层进程模型</h3>
+<div class="codehilite"><pre><span></span><code>┌─────────────────────────────────────────────────────────────┐
+│  L0  主进程 (com.pocketagent)                                │
+│      ├── UiActivity（Compose UI）                            │
+│      ├── AgentForegroundService  ← 常驻通知，唯一保活锚点     │
+│      ├── AgentAccessibilityService ← 系统绑定，独立生命周期    │
+│      └── OverlayService（悬浮球/悬浮窗）                       │
+├─────────────────────────────────────────────────────────────┤
+│  L1  :agent 进程（Android 独立进程，android:process=":agent"） │
+│      └── 任务编排、预算熔断、checkpoint                       │
+│      ⚠️ 不常驻，任务期启停                                     │
+├─────────────────────────────────────────────────────────────┤
+│  L2  proot 容器内的 Node + dsh（Linux 进程，非 Android 进程）  │
+│      └── 由 L1 通过 runInContainer 拉起，任务结束即回收        │
+└─────────────────────────────────────────────────────────────┘
+</code></pre></div>
+
+<p><strong>关键设计：只有一个常驻锚点。</strong></p>
+<p>所有保活压力集中在 <code>AgentForegroundService</code> 一个服务上。其余全部按需启停：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>组件</th>
+<th>生命周期</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AgentForegroundService</code></td>
+<td><strong>常驻</strong>（用户可关）</td>
+<td>唯一保活锚点；被杀则全盘失效</td>
+</tr>
+<tr>
+<td><code>AgentAccessibilityService</code></td>
+<td>系统管，我们只能引导</td>
+<td>系统绑定，不受我们的服务存亡影响</td>
+</tr>
+<tr>
+<td><code>OverlayService</code></td>
+<td>随主服务</td>
+<td>悬浮球是用户可见的"正在待命"信号</td>
+</tr>
+<tr>
+<td><code>:agent</code> 进程</td>
+<td>任务期</td>
+<td>隔离崩溃；空闲时零开销</td>
+</tr>
+<tr>
+<td>Node + dsh</td>
+<td>任务期</td>
+<td>P0-1 证明能跑，但 1.6 GB 常驻无意义</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>⚠️ <strong>不要试图让 Node 独立保活。</strong> 《移动端约束分析》已写明：App 被系统杀掉，
+Node 必然一起死。proot 容器在这个 App 的 uid 下跑，没有独立的存活资格。</p>
+</blockquote>
+<h3 id="12-app">1.2 首次启动装配（"打开 App 即就绪"的核心）</h3>
+<p>用户<strong>永远不需要碰 Termux</strong>。Termux 只是我们在开发期用来验证 dsh 能否跑通的工具，
+产品里不出现。</p>
+<div class="codehilite"><pre><span></span><code>首次启动引导
+├── 1. 权限引导（11 项，见 v2.0 §6.2）
+├── 2. 【新增】运行时装配
+│      ├── 解压 Debian rootfs 到 app 私有目录
+│      │   （/data/data/com.pocketagent/files/proot/）
+│      ├── 解压 Node arm64 二进制（122 MB）
+│      ├── 解压裁剪后的 dsh profile（见 §1.3）
+│      └── 进度条 + 可中断可续传
+└── 3. 自检：起一个 hello 任务验证容器可用
+</code></pre></div>
+
+<p>⚠️ <strong>必须做成可中断可续传。</strong> 1.6 GB 的解压 + 首次启动，用户可能中途切走。
+断点续传的状态要持久化，否则重来一遍是灾难。</p>
+<h3 id="13-p0">1.3 体积必须重做（与 P0 报告呼应）</h3>
+<p>P0-1 实测容器 1.6 GB 是<strong>未裁剪</strong>的全量部署。产品化必须砍：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>全量</th>
+<th>目标</th>
+<th>手段</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Debian rootfs</td>
+<td>~1.4 GB</td>
+<td><strong>待实测</strong></td>
+<td>用 docker 导出精简 rootfs，删文档/man/apt 缓存</td>
+</tr>
+<tr>
+<td>Node</td>
+<td>122 MB</td>
+<td>122 MB</td>
+<td>已是最小官方 tarball，保留</td>
+</tr>
+<tr>
+<td><code>node_modules</code></td>
+<td>307 MB</td>
+<td><strong>待实测</strong></td>
+<td>裁掉 pnpm(39) / @opentelemetry(31) / @img/sharp(28) / node-pty(27) / @mistralai(25)</td>
+</tr>
+<tr>
+<td><strong>合计</strong></td>
+<td><strong>1.6 GB</strong></td>
+<td><strong>目标 ≤ 400 MB</strong></td>
+<td>需要一轮实测</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p><strong>⚠️ 关键问题：<code>node-pty</code> 能不能裁？</strong> dsh 的终端工具依赖它，但我们<strong>安卓上没有 bash</strong>，
+终端类工具本来就要剔除。若 <code>node-pty</code> 只是终端工具的依赖 → 可裁。<strong>这要实测验证</strong>
+—— 如果它是 dsh 核心启动链路的一部分，裁不掉，体积下限就被卡住。</p>
+</blockquote>
+<p><strong>另一个选项：proot 是否必要？</strong>
+纯 Node 部分（无 native 模块）本来可以不用 proot。但 P0-1 已证明 dsh 需要
+<code>node-pty</code> / <code>@img/sharp</code> 的 glibc 版本 —— 除非我们确认这两个能裁掉，
+否则 proot 是硬需求。<strong>这同样是待实测项。</strong></p>
+<hr />
+<h2 id="2-app">2. 打开 App 即自动启动：可行的实现路径</h2>
+<h3 id="21">2.1 四种"自启动"触发源的现实评估</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>触发源</th>
+<th>可行性</th>
+<th>限制</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>用户点击图标</strong></td>
+<td>✅ 最可靠</td>
+<td>但需要用户主动点</td>
+</tr>
+<tr>
+<td><code>BOOT_COMPLETED</code></td>
+<td>⚠️ <strong>受限</strong></td>
+<td><strong>不得用它启动</strong> <code>dataSync</code> / <code>mediaPlayback</code> / <code>mediaProjection</code> / <code>camera</code> / <code>phoneCall</code> 类型的前台服务（Android 15）；<code>microphone</code> 从 Android 14 起也不行</td>
+</tr>
+<tr>
+<td>无障碍服务自启</td>
+<td>✅ <strong>最佳路径</strong></td>
+<td>系统会在满足条件时自动绑定，不受 BOOT_COMPLETED 限制</td>
+</tr>
+<tr>
+<td>快捷方式 / 桌面小组件</td>
+<td>✅ 可用</td>
+<td>用户显式操作，豁免后台启动限制</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>结论：主路径走无障碍服务自绑定，而非 <code>BOOT_COMPLETED</code>。</strong></p>
+<div class="codehilite"><pre><span></span><code>开机
+ └─ 系统扫描已启用的无障碍服务 → 自动绑定 AgentAccessibilityService
+     └─ onServiceConnected() 里启动 AgentForegroundService
+         └─ 此时"应用处于前台"吗？→ 见 §3.2 的豁免分析
+</code></pre></div>
+
+<p>⚠️ <strong>这里的坑</strong>：<code>onServiceConnected</code> 回调时应用算不算"前台"？如果不算，
+启动 <code>microphone</code> 或 <code>dataSync</code> 前台服务会被拒。<strong>这是必须真机验证的新实验（EX-17）。</strong></p>
+<h3 id="22-ex-17">2.2 建议新增 EX-17 实验</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>假设</strong></td>
+<td>无障碍服务 <code>onServiceConnected</code> 回调期间，应用满足后台启动前台服务的豁免条件</td>
+</tr>
+<tr>
+<td><strong>方法</strong></td>
+<td>① 冷启动后等服务自绑定，看 <code>startForeground</code> 是否抛 <code>ForegroundServiceStartNotAllowedException</code> ② 对比用户点击图标后的同操作 ③ 分别测各 <code>foregroundServiceType</code></td>
+</tr>
+<tr>
+<td><strong>通过标准</strong></td>
+<td>至少 <code>specialUse</code> 类型能在绑定回调里启动成功</td>
+</tr>
+<tr>
+<td><strong>失败预案</strong></td>
+<td>退化为"必须用户点一次图标"，引导流程里明确要求</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="23-specialuse">2.3 <code>specialUse</code> 类型是更优选择</h3>
+<p>Android 14+ 强制声明前台服务类型。对本项目，<strong><code>specialUse</code></strong> 比 <code>dataSync</code> 更合适：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>类型</th>
+<th>6 小时限制</th>
+<th>适用性</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dataSync</code></td>
+<td>⚠️ <strong>受限</strong>（Android 15 起每天 6 小时）</td>
+<td>语义是"数据同步"，与我们不符</td>
+</tr>
+<tr>
+<td><code>specialUse</code></td>
+<td>✅ <strong>不受 6 小时限制</strong></td>
+<td>语义是"其他用途"，需在 manifest 里写 <code>PROPERTY_SPECIAL_USE_FGS_SUBTYPE</code> 说明</td>
+</tr>
+</tbody>
+</table></div>
+<div class="codehilite"><pre><span></span><code><span class="nt">&lt;service</span>
+<span class="w">    </span><span class="na">android:name=</span><span class="s">".service.AgentForegroundService"</span>
+<span class="w">    </span><span class="na">android:foregroundServiceType=</span><span class="s">"specialUse"</span><span class="nt">&gt;</span>
+<span class="w">    </span><span class="nt">&lt;property</span>
+<span class="w">        </span><span class="na">android:name=</span><span class="s">"android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"</span>
+<span class="w">        </span><span class="na">android:value=</span><span class="s">"用户主动开启的屏幕辅助任务执行，任务期间需要保持与本地AI运行时的连接"</span><span class="w"> </span><span class="nt">/&gt;</span>
+<span class="nt">&lt;/service&gt;</span>
+</code></pre></div>
+
+<p>⚠️ <strong>别把 <code>specialUse</code> 当免死金牌。</strong> Google Play 会审核该说明的合理性；
+我们不上架，但<strong>滥用该类型会加速系统/厂商把我们列入管控名单</strong>。
+声明必须诚实 —— 我们确实不是"数据同步"。</p>
+<hr />
+<h2 id="3">3. 系统限制全景（这是最需要你知道的部分）</h2>
+<h3 id="31">3.1 各版本硬限制（已核实官方文档）</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>版本</th>
+<th>限制</th>
+<th>对我们的影响</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Android 12</strong> (API 31)</td>
+<td>后台不得启动前台服务（少数例外）</td>
+<td>必须在前台或豁免场景启动</td>
+</tr>
+<tr>
+<td><strong>Android 14</strong> (API 34)</td>
+<td>必须声明所有 FGS 类型 + 对应权限，否则 <code>SecurityException</code></td>
+<td>漏一个就崩</td>
+</tr>
+<tr>
+<td><strong>Android 14</strong></td>
+<td><code>microphone</code> <strong>不得</strong>从 <code>BOOT_COMPLETED</code> 启动</td>
+<td>语音唤醒不能靠开机广播拉起</td>
+</tr>
+<tr>
+<td><strong>Android 15</strong> (API 35)</td>
+<td><code>dataSync</code> / <code>mediaProcessing</code> <strong>24 小时内累计 6 小时</strong></td>
+<td>⚠️ <strong>本方案最大约束</strong></td>
+</tr>
+<tr>
+<td><strong>Android 15</strong></td>
+<td><code>SYSTEM_ALERT_WINDOW</code> 应用从后台启动 FGS 的豁免<strong>收窄</strong> —— 必须当前有可见悬浮窗</td>
+<td>悬浮窗策略要重新设计</td>
+</tr>
+<tr>
+<td><strong>Android 16</strong> (API 36)</td>
+<td>前台服务启动的后台作业须遵守 JobScheduler 配额</td>
+<td>未来风险，先记录</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Android 15 的悬浮窗豁免收窄，这条特别要注意</strong> —— 它直接打在"悬浮小窗"这个方案上：</p>
+<blockquote>
+<p>只有在应用当前具有<strong>可见的叠加层窗口</strong>时，持 <code>SYSTEM_ALERT_WINDOW</code> 的应用
+才能从后台启动前台服务。之前豁免范围更广。</p>
+</blockquote>
+<p>含义：<strong>悬浮球必须在"常显"状态</strong>，不能是"需要时才画"。这反而简化了设计 ——
+悬浮球常驻既满足豁免条件，又是给用户的可见信号。</p>
+<h3 id="32-v20-11">3.2 权限清单（在 v2.0 的 11 项之上新增）</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>权限</th>
+<th>用途</th>
+<th>何时申请</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>12</td>
+<td><code>FOREGROUND_SERVICE</code></td>
+<td>前台服务基础</td>
+<td>安装即声明</td>
+</tr>
+<tr>
+<td>13</td>
+<td><code>FOREGROUND_SERVICE_SPECIAL_USE</code></td>
+<td>我们的服务类型</td>
+<td>安装即声明</td>
+</tr>
+<tr>
+<td>14</td>
+<td><code>POST_NOTIFICATIONS</code></td>
+<td>前台服务通知（Android 13+ 需运行时申请）</td>
+<td>引导流程</td>
+</tr>
+<tr>
+<td>15</td>
+<td><code>RECORD_AUDIO</code></td>
+<td>语音唤醒</td>
+<td><strong>用户主动开启时</strong>，见 §5</td>
+</tr>
+<tr>
+<td>16</td>
+<td><code>SYSTEM_ALERT_WINDOW</code></td>
+<td>悬浮窗</td>
+<td>v2.0 已有（#4）</td>
+</tr>
+<tr>
+<td>17</td>
+<td><code>REQUEST_IGNORE_BATTERY_OPTIMIZATIONS</code></td>
+<td>保活</td>
+<td>v2.0 已有（#10）</td>
+</tr>
+<tr>
+<td>18</td>
+<td><code>INTERNET</code></td>
+<td>TTS / 模型调用</td>
+<td>安装即声明</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>⚠️ <strong><code>RECORD_AUDIO</code> 必须与"语音唤醒"功能开关绑定</strong>。不能因为"以后可能用"就提前要。
+这是社区分发最容易被质疑的点，也是最容易被用户反感的权限。</p>
+</blockquote>
+<h3 id="33-6">3.3 ⚠️ 需要你决策：6 小时上限怎么处理</h3>
+<p>这是本方案唯一的<strong>产品级分叉</strong>：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>方案</th>
+<th>做法</th>
+<th>优点</th>
+<th>缺点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>A. 常驻</strong></td>
+<td>用 <code>specialUse</code> 类型，不受 6 小时限制</td>
+<td>全天候待命</td>
+<td>常驻通知 + 悬浮球永远在；耗电；被厂商管控风险高</td>
+</tr>
+<tr>
+<td><strong>B. 任务期</strong></td>
+<td>空闲时停 FGS，用户召唤才启动</td>
+<td>省电、干扰小</td>
+<td>不能用语音唤醒（麦克风 FGS 不能在后台凭空起）</td>
+</tr>
+<tr>
+<td><strong>C. 混合</strong></td>
+<td>悬浮球常驻（低开销），重资源任务期才起 FGS</td>
+<td>平衡</td>
+<td>实现复杂，要考虑状态机</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>我的建议是 C</strong>，理由是它对应《移动端约束分析》里的资源分级：
+悬浮球常驻成本极低（一个 overlay view），真正的开销在 Node/dsh/截图。
+而"打开 App 即自动启动"这个需求，其实只需要<strong>悬浮球 + 无障碍服务 + 一个轻量服务</strong>，
+不需要让整个 agent 运行时全天候空转。</p>
+<hr />
+<h2 id="4">4. 如何保证用户操作不受干扰（需要修订的期望）</h2>
+<h3 id="41">4.1 一个必须承认的事实</h3>
+<p><strong>P0-3 已否决虚拟屏，所以"完全不影响用户用手机"这个目标已经丢失。</strong>
+这是我必须说清楚的，不能含糊过去。</p>
+<p>原设计想的是：agent 在虚拟副屏上干活，用户在主屏照常用手机，两者互不干扰。
+实测证明第三方侧载应用做不到（<code>uid=2000</code> 连 adb 都被拒）。</p>
+<h3 id="42">4.2 现实中的四档干扰程度</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>档位</th>
+<th>形态</th>
+<th>用户感受</th>
+<th>何时可用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>0 后台静默</strong></td>
+<td>不占屏，只处理数据类任务</td>
+<td>🟢 无感</td>
+<td>任务不需要看屏幕时</td>
+</tr>
+<tr>
+<td><strong>1 悬浮小窗</strong></td>
+<td>freeform 小窗浮在角落</td>
+<td>🟡 占一小块屏</td>
+<td><strong>主形态</strong></td>
+</tr>
+<tr>
+<td><strong>2 全屏接管</strong></td>
+<td>agent 全屏操作</td>
+<td>🔴 用户完全无法用手机</td>
+<td>用户主动交出控制权</td>
+</tr>
+<tr>
+<td><strong>3 手动引导</strong></td>
+<td>系统教用户自己点</td>
+<td>🟢 用户完全掌控</td>
+<td>政策收紧时的保命方案</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="43">4.3 干扰最小化的具体手段</h3>
+<ol>
+<li><strong>进程优先级隔离</strong>：agent 任务跑在 <code>:agent</code> 进程，UI 线程永不被占</li>
+<li><strong>感知降级阶梯</strong>（《移动端约束分析》核心设计）：
+   优先第 0 档（不感知，直接 <code>am start</code>）→ 树 → 局部截图 → 全屏
+   <strong>每降低一档截图需求，就少一次屏幕占用</strong></li>
+<li><strong>任务预算熔断</strong>：<code>AgentBudget</code> 限制轮次/时长/能耗，避免"跑飞了停不下来"</li>
+<li><strong>随时可中断</strong>：悬浮球长按 = 立即停止；这是给用户的"急停开关"</li>
+<li><strong>不抢焦点</strong>：悬浮窗用 <code>FLAG_NOT_FOCUSABLE</code>，不抢输入焦点</li>
+<li><strong>音频让路</strong>：语音唤醒检测到其他应用占用麦克风时主动退让（见 §5.3）</li>
+</ol>
+<h3 id="44-ui">4.4 悬浮球：不仅仅是个 UI</h3>
+<p>在 Android 15 的豁免收窄规则下，<strong>常显的悬浮窗是"能否从后台启动服务"的钥匙</strong>。
+所以悬浮球承担三个职责：</p>
+<ul>
+<li>用户可见的"agent 在待命"信号</li>
+<li>后台启动前台服务的<strong>豁免凭据</strong>（有可见 overlay 窗口）</li>
+<li>急停按钮</li>
+</ul>
+<blockquote>
+<p>设计上要克制：一个小的半透明圆点，可在引导里让用户选"贴边隐藏"。
+<strong>但"完全隐藏"要慎用</strong> —— 隐藏了可能就丢豁免。这需要 EX-17 一并验证。</p>
+</blockquote>
+<hr />
+<h2 id="5">5. 语音交互</h2>
+<h3 id="51">5.1 语音唤醒：真实的门槛</h3>
+<p><strong>核心限制（已核实）</strong>：</p>
+<blockquote>
+<p><code>RECORD_AUDIO</code> 受"使用期间"（while-in-use）限制。应用在后台运行时，
+<strong>无法创建 <code>microphone</code> 前台服务</strong>；也不能从 <code>BOOT_COMPLETED</code> 启动。</p>
+</blockquote>
+<p>含义：<strong>语音唤醒不可能"开机自动待命"。</strong> 用户必须：</p>
+<div class="codehilite"><pre><span></span><code>打开 App → 打开"语音唤醒"开关 → 授予麦克风权限
+  → 应用在前台启动 microphone FGS → 之后可退到后台持续监听
+</code></pre></div>
+
+<p>这是 Android 的设计意图（防止偷偷录音），<strong>不是可以绕过的技术问题</strong>。</p>
+<h3 id="52">5.2 唤醒引擎选择</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>方案</th>
+<th>体积</th>
+<th>离线</th>
+<th>唤醒词</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Porcupine（Picovoice）</strong></td>
+<td>小</td>
+<td>✅</td>
+<td>自定义</td>
+<td>免费额度限个人；商用需授权</td>
+</tr>
+<tr>
+<td><strong>Vosk / Kaldi</strong></td>
+<td>中</td>
+<td>✅</td>
+<td>需训练</td>
+<td>开源，体积较大</td>
+</tr>
+<tr>
+<td><strong>自训练小型模型</strong></td>
+<td>~100 KB 级</td>
+<td>✅</td>
+<td>自定义</td>
+<td>见 Mamba 架构方案，需自己训</td>
+</tr>
+<tr>
+<td><strong>系统 <code>VoiceInteractionService</code></strong></td>
+<td>0</td>
+<td>✅</td>
+<td>系统唤醒词</td>
+<td><strong>需要系统签名预装，我们拿不到</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>建议：Porcupine 起步（验证流程），长期切自训练模型（GPL-3.0 合规 + 零授权费）。</strong>
+⚠️ Porcupine 商用需付费授权，而我们<strong>不盈利但接收捐赠</strong> —— 这个边界要法务确认，
+保守做法是直接用开源方案。</p>
+<h3 id="53">5.3 ⚠️ 麦克风独占冲突（必须在引导里说清）</h3>
+<p>Android 的麦克风是<strong>独占资源</strong>。我们常驻监听 → <strong>用户用语音输入法、打电话、
+录视频时可能冲突</strong>。</p>
+<p>行业惯例做法（讯飞 SDK 文档提到）：<strong>屏幕点亮时暂停唤醒</strong>。</p>
+<div class="codehilite"><pre><span></span><code>锁屏 / 息屏  → 持续监听唤醒词（此时没人和我们抢麦克风）
+屏幕点亮     → 暂停监听，释放麦克风（用户可能在用语音输入）
+悬浮球长按   → 手动进入语音输入
+</code></pre></div>
+
+<p>这个策略要写进引导，否则用户会觉得"这 App 让我的语音输入法坏了"。</p>
+<h3 id="54-tts">5.4 TTS 与文字对话</h3>
+<p><strong>TTS Key 的存放（按你的要求，独立弹窗）</strong>：</p>
+<div class="codehilite"><pre><span></span><code>设置页
+├── 模型 Key（对话用）        ← 独立入口，独立弹窗
+├── 【新增】语音合成 Key      ← 独立入口，独立弹窗
+└── 其他配置
+</code></pre></div>
+
+<p><strong>UI 要点</strong>：
+- 两个 Key 各自独立页面，<strong>顶部互相标注"这是给语音合成用的，不是对话模型"</strong>
+- 填入后立即校验（发一个短合成请求），失败要明确指出是 Key 问题还是网络问题
+- 显示 Key 时默认打码，需要点击"眼睛"才展开</p>
+<p><strong>TTS 提供商</strong>（BYO Key 模式，覆盖主流）：
+| 提供商 | 协议 | 备注 |
+|---|---|---|
+| OpenAI TTS | HTTP | 最通用 |
+| Azure Speech | REST | 音色多 |
+| 火山引擎 / 讯飞 | REST | 国内速度快 |
+| Edge TTS | 非官方 API | 免费但无 Key，<strong>不稳定，不推荐作为默认</strong> |</p>
+<h3 id="55">5.5 弹窗文字对话</h3>
+<p><strong>两种形态</strong>：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>形态</th>
+<th>触发</th>
+<th>实现</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>悬浮球点击展开</strong></td>
+<td>用户点悬浮球</td>
+<td>悬浮窗内嵌输入框，不抢主屏焦点</td>
+</tr>
+<tr>
+<td><strong>主动询问弹窗</strong></td>
+<td>agent 需要用户决策时</td>
+<td><code>ask-user</code> 类交互，悬浮窗内展示</td>
+</tr>
+</tbody>
+</table></div>
+<p>⚠️ <strong>悬浮窗内的文本输入是个技术难点</strong>：<code>FLAG_NOT_FOCUSABLE</code> 的悬浮窗收不到键盘输入。
+需要：
+- 输入时<strong>临时移除</strong> <code>FLAG_NOT_FOCUSABLE</code>
+- 或者<strong>跳一个透明 Activity</strong> 承载输入（更可靠，但会短暂抢焦点）</p>
+<p><strong>建议用透明 Activity 方案</strong> —— 悬浮窗的输入法弹出行为在各 ROM 上差异太大。</p>
+<hr />
+<h2 id="6-key">6. Key 的加密存储（你强调的重点）</h2>
+<h3 id="61">6.1 现状：已有机制，需扩展</h3>
+<p>项目已有 <code>keymgmt</code> 模块（✅ 30 个测试）：
+<strong>Keystore + AES-GCM + SQLCipher 两级密钥</strong>。</p>
+<h3 id="62">6.2 防"反向提取"的具体措施</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>威胁</th>
+<th>防护</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>备份被拖走</strong></td>
+<td><code>android:allowBackup="false"</code> + <code>dataExtractionRules</code> 排除</td>
+</tr>
+<tr>
+<td><strong>Root 后读文件</strong></td>
+<td>SQLCipher 加密页；密钥在 Keystore（TEE/StrongBox），<strong>不出硬件</strong></td>
+</tr>
+<tr>
+<td><strong>内存 dump</strong></td>
+<td><code>withDecryptedKey { }</code> 作用域用完即 <code>fill(0)</code> 清零（已实现）</td>
+</tr>
+<tr>
+<td><strong>日志/崩溃上报</strong></td>
+<td><code>LogSanitizer</code> + 上报前置 PII 扫描（已实现）</td>
+</tr>
+<tr>
+<td><strong>屏幕被读</strong></td>
+<td>Key 显示默认打码，且加 <code>FLAG_SECURE</code> 防截屏</td>
+</tr>
+<tr>
+<td><strong>调试器附加</strong></td>
+<td>生产 build 加 <code>android:debuggable="false"</code>（⚠️ P0-1 用的 <code>run-as</code> 就靠 debuggable，<strong>发行版绝不能开</strong>）</td>
+</tr>
+</tbody>
+</table></div>
+<p>⚠️ <strong><code>FLAG_SECURE</code> 这条要新增</strong>：Key 页面和语音配置页必须防截屏。
+否则用户截个图发群里求助，Key 就泄露了。</p>
+<h3 id="63">6.3 新增待办</h3>
+<ul>
+<li>[ ] Key 相关页面加 <code>FLAG_SECURE</code>（当前未加）</li>
+<li>[ ] 发行 build 确保 <code>debuggable=false</code>（可用 <code>check_*</code> 脚本进 CI 校验）</li>
+<li>[ ] Key 泄露全路径扫描覆盖<strong>新增的 TTS Key</strong>（EX-09 扩展）</li>
+</ul>
+<hr />
+<h2 id="7">7. 插件病毒检测（原设想需要改设计）</h2>
+<h3 id="71-virustotal-api">7.1 ❌ 坏消息：VirusTotal 公开 API 不能用</h3>
+<p>我核实了官方文档，有三条硬伤：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>问题</th>
+<th>原文</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>禁止商用</strong></td>
+<td>"<strong>The API must not be used in commercial products or services</strong>, it can not be used as a substitute for antivirus products... Noncompliance of these terms will result in <strong>immediate permanent ban</strong>"</td>
+</tr>
+<tr>
+<td><strong>上传即分享</strong></td>
+<td>上传的样本会进入 VirusTotal 的样本库，<strong>分享给安全厂商</strong></td>
+</tr>
+<tr>
+<td><strong>速率极低</strong></td>
+<td>免费版 <strong>每分钟 4 次请求</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>第二条是致命的</strong>：插件的 <code>.pagent</code> 包可能包含作者未公开的内容，上传即等于公开。
+而且"上传"这个动作本身就违背了我们"数据不出设备"的原则。</p>
+<h3 id="72">7.2 ✅ 改后的分层检测设计</h3>
+<p><strong>核心原则：本地能判的绝不上传；必须联网的，只发哈希不发文件。</strong></p>
+<div class="codehilite"><pre><span></span><code>L0  本地静态分析（零网络，默认开启）★主力
+├── AndroidManifest 解析
+│   ├── 危险权限越权检测（插件声明了 keymgmt 不该有的权限？）
+│   ├── exported 组件检测（是否导出了不该导出的组件）
+│   └── 前台服务类型与实际行为是否匹配
+├── DEX 字节码扫描
+│   ├── 敏感 API 调用检测（反射 / Runtime.exec / 动态加载 dex）
+│   ├── 已知恶意特征匹配（本地特征库）
+│   └── 混淆强度评估
+├── 资源与配置审计
+│   ├── 硬编码 URL / IP（偷偷外传数据）
+│   └── 内嵌可执行文件
+└── 与声明能力做交叉验证 ★最重要
+    └── 插件声明"读剪贴板"，却调了网络 API → 高危
+
+L1  哈希查询（联网，只发 SHA256，不发文件）
+├── 查询公开威胁情报的哈希库
+├── 命中 → 直接拒绝
+└── 未命中 → 不等于安全（新样本查不到），继续 L2
+
+L2  隔离沙箱行为分析（可选，需用户显式同意）
+├── 在受限环境运行插件，监控行为
+└── ⚠️ Android 上做沙箱隔离极难，优先级放到 M3 之后
+</code></pre></div>
+
+<p><strong>L1 到底查谁？</strong> —— 这里需要你决策：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>选项</th>
+<th>可行性</th>
+<th>隐私</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>VirusTotal 哈希查询 API</td>
+<td>⚠️ 免费版禁商用，可查但违反 ToS</td>
+<td>只发哈希，但仍需同意 ToS</td>
+</tr>
+<tr>
+<td><strong>自建哈希库</strong>（GitHub Pages 静态 JSON）</td>
+<td>✅ 与"不建后端"原则一致</td>
+<td>完全可控</td>
+</tr>
+<tr>
+<td>Google Safe Browsing</td>
+<td>✅ 系统级，但只覆盖 URL 不覆盖 APK</td>
+<td>隐私好</td>
+</tr>
+<tr>
+<td>多引擎聚合服务（如 MetaDefender）</td>
+<td>❌ 商用需付费</td>
+<td>—</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>建议：自建哈希库（威胁情报由社区贡献）+ 可选接入 Safe Browsing。</strong>
+不依赖任何禁止商用的 API，也守住"数据不出设备"。</p>
+<h3 id="73">7.3 隔离要求的具体落实（你强调的重点）</h3>
+<blockquote>
+<p>"坚决拒绝该病毒检测程序直接接触到用户的隐私信息和 apikey"</p>
+</blockquote>
+<p><strong>落实为四条硬规则</strong>：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>规则</th>
+<th>实现</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>① 无 Key 访问</strong></td>
+<td>检测模块作为<strong>独立进程 + 独立模块</strong>，无法 <code>@Inject</code> 到 <code>keymgmt</code>。用依赖方向强制：<code>plugin:scan</code> 不依赖 <code>keymgmt</code></td>
+</tr>
+<tr>
+<td><strong>② 只读待检文件</strong></td>
+<td>只接受一个 <code>File</code> 或 <code>ByteArray</code> 入参，不透出任何应用上下文</td>
+</tr>
+<tr>
+<td><strong>③ 网络请求最小化</strong></td>
+<td>只允许发 SHA256；请求体用 <code>check_kt_quotes</code> 式的静态审计脚本钉住（进 CI）</td>
+</tr>
+<tr>
+<td><strong>④ 用户可见</strong></td>
+<td>每次联网检测前告知"将上传文件哈希值"，可关闭</td>
+</tr>
+</tbody>
+</table></div>
+<p>⚠️ <strong><code>plugin:scan</code> 模块要在 <code>settings.gradle.kts</code> 里显式声明"禁止依赖 keymgmt"</strong>，
+并用 <code>check_module_deps.py</code> 之类的脚本做守卫 —— 让架构约束可被自动化检查。</p>
+<h3 id="74">7.4 但说实话：静态扫描的局限</h3>
+<p>必须诚实告知用户：</p>
+<blockquote>
+<p><strong>静态扫描能拦住"明显恶意"的插件，但拦不住"看起来正常"的。</strong>
+一个 L2 脚本插件完全可以在运行时才拼接出恶意行为。</p>
+<p>所以真正可靠的防线不是扫描，而是<strong>能力边界本身</strong>：
+插件永远拿不到 Key、绕不过 SafetyGuard、调不了 <code>payment.*</code>。
+扫描是"多一道提醒"，安全边界才是"真正的保险"。</p>
+</blockquote>
+<p>这个表述要写进插件页 UI —— <strong>不能让用户以为"扫过了就安全"</strong>。</p>
+<hr />
+<h2 id="8">8. 待你决策</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>决策点</th>
+<th>选项</th>
+<th>建议</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>D-Y</strong></td>
+<td>后台驻留策略</td>
+<td>A 常驻 / B 任务期 / C 混合</td>
+<td><strong>C 混合</strong></td>
+</tr>
+<tr>
+<td><strong>D-Z</strong></td>
+<td>语音唤醒引擎</td>
+<td>Porcupine / 开源自训练 / 暂不做</td>
+<td><strong>先开源方案验证，避免授权费</strong></td>
+</tr>
+<tr>
+<td><strong>D-AA</strong></td>
+<td>病毒检测的联网层</td>
+<td>自建哈希库 / 接入 VT / 只做本地</td>
+<td><strong>自建哈希库</strong></td>
+</tr>
+<tr>
+<td><strong>D-AB</strong></td>
+<td>麦克风监听策略</td>
+<td>息屏监听 / 手动触发 / 都要</td>
+<td><strong>都要，默认息屏</strong></td>
+</tr>
+<tr>
+<td><strong>D-AC</strong></td>
+<td>发行版体积目标</td>
+<td>≤400MB / 接受 1GB+</td>
+<td><strong>先实测再定</strong></td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="9-m0">9. 新增实验（补进 M0 手册）</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>实验</th>
+<th>目的</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>EX-17</strong></td>
+<td>无障碍绑定回调能否启动前台服务</td>
+<td>决定"打开即就绪"能否自动化</td>
+</tr>
+<tr>
+<td><strong>EX-18</strong></td>
+<td><code>specialUse</code> FGS 的实际存活时长</td>
+<td>验证是否真不受 6 小时限制</td>
+</tr>
+<tr>
+<td><strong>EX-19</strong></td>
+<td>息屏时的麦克风可用性</td>
+<td>验证语音唤醒方案</td>
+</tr>
+<tr>
+<td><strong>EX-20</strong></td>
+<td>悬浮窗在"贴边隐藏"时是否仍满足豁免</td>
+<td>决定悬浮球能否隐藏</td>
+</tr>
+<tr>
+<td><strong>EX-21</strong></td>
+<td>裁剪后体积实测</td>
+<td>回答 1.6 GB 能压到多少</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="10">10. 一句话总结</h2>
+<p>技术上是<strong>可行的</strong>，代价是必须承认三件事：</p>
+<ol>
+<li><strong>"完全不影响用户"已经做不到了</strong>（虚拟屏被否决），现实目标是"干扰可控"</li>
+<li><strong>"全天候待命"与"省电 + 低管控风险"是矛盾的</strong>，必须选边</li>
+<li><strong>语音唤醒必须由用户主动开启且不能开机自启</strong>，这是 Android 的设计意图，不是技术缺陷</li>
+</ol>
+<p>而 VirusTotal 那条路，<strong>从隐私和合规两个角度都必须放弃</strong> ——
+这与"数据不出设备"的根本原则冲突。</p>
+  </main>
+</div>
+</body>
+</html>
