@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    单元测试（Robolectric）用的 manifest 覆盖层。
+
+    ═══════════════════════════════════════════════════════════════
+      ★ 这个文件为什么必须存在
+    ═══════════════════════════════════════════════════════════════
+
+    本模块把 `unitTests.isIncludeAndroidResources = true` 打开了（见
+    `build.gradle.kts`）—— Robolectric 需要真实的资源与 manifest 才能跑，
+    否则 `MigrationTestHelper` 连 `ApplicationProvider.getApplicationContext()`
+    都拿不到。
+
+    一旦打开这个开关，AGP 就会**为单元测试也做一次 manifest 合并**，
+    而合并的输入之一是 `androidx.test:core` 这个依赖自带的 manifest。
+    它里面有：
+
+        <activity android:name="androidx.test.core.app.InstrumentationActivityInvoker$BootstrapActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+            </intent-filter>
+        </activity>
+
+    ⚠️ **声明了 intent-filter，却没有 `android:exported`。**
+
+    Android 12（API 31）起，这成了**硬性要求** —— 任何带 intent-filter 的组件
+    必须显式写明 `android:exported`。所以只要我们模块的 `targetSdk >= 31`，
+    manifest merger 就会拒绝，报：
+
+        android:exported needs to be explicitly specified for element
+        <activity#androidx.test.core.app.InstrumentationActivityInvoker$BootstrapActivity>.
+
+    这是 `androidx.test` 上游遗留的问题，**不是我们写错了什么**。
+
+    ═══════════════════════════════════════════════════════════════
+      ★ 为什么用 tools:node="merge" 逐个补，而不是一刀切
+    ═══════════════════════════════════════════════════════════════
+
+    正确做法是**只补 `exported` 这一个属性**，其余保持上游原样 ——
+    用 `tools:node="merge"` 就能做到：同名的 activity 会被合并而非替换，
+    我们只覆盖 `exported`。
+
+    ⚠️ 不要用 `tools:replace="android:exported"`：那个语义是"用我的整体
+       替换掉对方的"，在属性粒度上其实也可行，但一旦上游哪天改了别的属性
+       （比如加了 `android:theme`），`replace` 会把它整个丢掉，
+       而症状是**测试莫名起不来**，跟 manifest 八竿子打不着，极难排查。
+
+    ⚠️ 值取 `false` 而不是 `true`：这些 activity 只在测试进程内被显式
+       `startActivity` 调用，不需要任何外部应用唤起它们。
+       **测试用的组件没有理由对外暴露** —— 给个 `true` 只是图省事，
+       而它会让这些 activity 在装了测试包的设备上被任意应用启动。
+
+    上游修复后这个文件就可以删掉。判断方法：删掉它跑一次
+    `./gradlew :core:database:testDebugUnitTest`，不报 exported 相关错误即可。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application>
+        <!-- androidx.test:core 的四个 InstrumentationActivityInvoker 内部 activity。
+             它们都声明了 intent-filter 却没写 exported —— 逐个补上。 -->
+        <activity
+            android:name="androidx.test.core.app.InstrumentationActivityInvoker$BootstrapActivity"
+            android:exported="false"
+            tools:node="merge" />
+
+        <activity
+            android:name="androidx.test.core.app.InstrumentationActivityInvoker$EmptyActivity"
+            android:exported="false"
+            tools:node="merge" />
+
+        <activity
+            android:name="androidx.test.core.app.InstrumentationActivityInvoker$EmptyFloatingActivity"
+            android:exported="false"
+            tools:node="merge" />
+    </application>
+
+</manifest>

@@ -53,21 +53,24 @@
     <!--
     ── 以下仍为 M1+ 目标配置，随功能落地逐项启用 ─────────────────
 
-    注意：块内**不能出现** `<!--`（会提前闭合本注释），
-    因此块内的注释一律写成 `<!- ... ->`。
+    ⚠️ 块内注释纪律（踩过一次真 bug）：
+    XML 规范禁止注释内容里出现连续两个连字符（即使包在反引号里）。
+    写这行警告时我自己就踩了 —— 在注释里写下那两个字面字符，
+    直接导致 AAPT/ManifestMerger 报 SAXParseException 解析失败。
+    块内注释统一写成 `!- ... -`（两侧各一个连字符）。
 
-    <!- 屏幕捕获：截图会话（感知层第 3/4 档） ->
+    !- 屏幕捕获：截图会话（感知层第 3/4 档） -
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
 
-    <!- 通知监听：读取通知内容用于上下文理解（可选，用户可拒绝） ->
+    !- 通知监听：读取通知内容用于上下文理解（可选，用户可拒绝） -
     <uses-permission android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
         tools:ignore="ProtectedPermissions" />
 
-    <!- 语音输入（V1） ->
+    !- 语音输入（V1） -
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
-    <!- 生物识别：保护 API Key 存储（可选开启） ->
+    !- 生物识别：保护 API Key 存储（可选开启） -
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     -->
 

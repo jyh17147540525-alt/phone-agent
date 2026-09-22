@@ -19,6 +19,30 @@ release/
 captures/
 .cxx/
 
+# ── Room / SQLite 测试留下的临时文件 ──────────────────────────
+# ⚠️ 这几条防的是「测试用数据库被误提交」，更重要的是**提醒它们的存在**。
+#
+# `MigrationTestHelper` 的 `File` 参数若是**相对路径**，会按测试进程的工作
+# 目录解析并留下文件 —— 实测曾把 `migration-test.db`（含 `user_version = 2`
+# 和真实表结构）甩在 `android/core/database/` 下，还会甩一个 `.lck`。
+#
+# 后果不止是脏：那个文件**跨运行留存**，下一次 `createDatabase(1)` 会打开
+# 它、发现是 v2、于是尝试「2 → 1」迁移并抛
+# `IllegalStateException: A migration from 2 to 1 was required but not found`
+# —— 把排查带偏到"生产代码漏了迁移"上去。
+#
+# 现在的测试已改用系统临时目录下的 UUID 路径（不会落在源码树里），
+# 这几条是**兜底**：万一以后有人又写成相对路径，至少不会误提交一个
+# 装着用户数据的数据库文件。
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.lck
+# ⚠️ 例外：Room 导出的 schema JSON **必须入库**（写迁移的唯一依据），
+#    所以不能笼统忽略 schemas/ 目录。上面那几条只针对 .db/.lck，安全。
+!**/schemas/**
+
 # 被文件锁卡住的构建中间产物暂存区。
 # ⚠️ Windows 上 dexBuilder 偶尔会因句柄延迟释放而报 AccessDeniedException，
 #    而 tasklist 里根本找不到占用进程。处置方式是把受影响的目录**移**到这里
