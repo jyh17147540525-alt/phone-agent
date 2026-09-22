@@ -419,18 +419,20 @@ is in that file.
 | `activity-compose` | 1.11.0 | Requires `minCompileSdk=36` / `minAGP=8.9.1` — **right on the line** |
 | `core-ktx` | 1.17.0 | Same as above |
 
-### Six verification scripts
+### Seven verification scripts
 
 ```bash
 python tools/verify/run_logic_tests.py                     # offline unit tests, no Android SDK needed
 python tools/verify/check_version_catalog.py android       # reconcile libs.* accessors
 python tools/verify/check_module_deps.py android           # find missing project dependencies
 python tools/verify/check_kt_quotes.py android             # ASCII quotes misused in Chinese copy
+python tools/verify/check_release_readiness.py android     # 10 pre-release safety/config rules
+python tools/verify/test_release_check.py                  # self-test for the checker above
 python tools/verify/check_aar_metadata.py --bom 2026.06.01 # read compileSdk ceilings from aars
 python community-source/build_source.py --check            # do source artifacts match the sources
 ```
 
-The first five live under `tools/verify/`; the last one travels with the community source (it
+The first six live under `tools/verify/`; the last one travels with the community source (it
 validates that directory's artifacts, and keeping it there is what stops it being forgotten).
 
 **`run_logic_tests.py`** — the bulk of this project's high-risk logic (SSE parsing, key redaction,
@@ -472,6 +474,38 @@ four-minute build failure.
 **`check_kt_quotes.py`** — when writing quotes in Chinese copy it is easy to type an ASCII `"`, which
 in Kotlin is a string delimiter and terminates the string early. The mistake is nearly invisible in a
 monospace font, and the error line points several lines further down.
+
+**`check_release_readiness.py`** — run before shipping. Ten rule groups, all covering things that
+**do not hurt during development but become fatal only once you distribute publicly**:
+
+| Group | Check | Why it is fatal |
+|---|---|---|
+| R1 | `debuggable` must not be on for release | **Zero tolerance.** It ships the `run-as` backdoor |
+| R2 | `allowBackup` must be `false` | Otherwise `adb backup` can drag off the encrypted database |
+| R3 | **Both** cloud-backup and device-transfer domains exclude `database`/`sharedpref`/`file` | Excluding only one domain still uploads credentials through the other |
+| R4 | No globally permitted cleartext traffic | One line in `base-config` or a wildcard domain voids all of HTTPS |
+| R5 | Release must not use the debug signing config | The debug key is public in AOSP; anyone can sign a same-package-name replacement |
+| R6 | Release must enable `minify` + `shrinkResources` | Not just size — obfuscation is part of the L3 plugin decompilation barrier |
+| R7 | Version name carries no `-m0`/`-dev`/`-alpha` marker | Ship one and users cannot tell which track they are on |
+| R8 | No `run-as` in `src/main` | We verify via `run-as com.termux` during development; this rule keeps that discipline |
+| R9 | `proguard-rules.pro` exists and is non-empty | An emptied file **does not fail the build** — it just silently stops obfuscating |
+| R10 | No unreplaced placeholders | `TODO`/`XXXX`/`<your-key>` shipped means leaked intent or a broken app |
+
+Exit codes: `0` pass / `1` errors present / `2` a required file is missing (**deliberately distinct
+from "pass"** — silently returning 0 when a file cannot be found is the worst kind of checker).
+
+**`test_release_check.py`** — the self-test for the checker above, 20 fixtures. It exists because of
+a hard judgement call: **a checker that always prints OK looks exactly like "the code is clean" (both
+are green), and the former is worse than having no checker at all.** So every rule must be proven to
+actually go red by deliberately constructing a violating input. The self-test also contains a reverse
+assertion: an `isDebuggable = true` sitting inside a comment **must not** be flagged — this repo is
+comment-heavy, and a checker tripping over its own documentation is a real risk.
+
+> This self-test has already caught one **real bug**: the `base-config` branch of R4 was **dead**.
+> `extract_xml_block` only returns content *after* the opening tag, while `cleartextTrafficPermitted`
+> is an **attribute on the opening tag** — the code was there, it read like it was checking, and the
+> rule could never go red. The fix adds `extract_xml_element` (opening tag included). Without the
+> self-test this rule would have sat inside the checker looking "covered" indefinitely.
 
 ---
 

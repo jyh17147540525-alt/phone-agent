@@ -388,6 +388,8 @@ python tools/verify/check_version_catalog.py android       # libs.* 访问器对
 python tools/verify/check_module_deps.py android           # 模块间 project 依赖是否漏声明
 python tools/verify/check_kt_quotes.py android             # 中文文案里的 ASCII 引号误用
 python tools/verify/check_xml_comments.py android          # XML 注释里的 `--` 非法序列
+python tools/verify/check_release_readiness.py android      # 发行前 10 组安全/配置规则
+python tools/verify/test_release_check.py                   # 上面那个检查器的自测（造违规输入证明它会红）
 python tools/verify/check_aar_metadata.py --bom 2026.06.01 # 读 aar 里的 compileSdk 门槛
 python android/gen_module_build_files.py android --check   # 各模块 build 文件是否落后于生成器
 python community-source/build_source.py --check            # 社区源的产物是否与源一致
@@ -399,7 +401,7 @@ python community-source/build_source.py --check            # 社区源的产物�
 > 于是真实漂移（比如少了 `room-compiler`，会让 Room 直到运行时才崩）会被一起划掉。
 > 现在那些"已知差异"被描述进生成器的配置表，红条归零，剩下的红条就是真问题。
 
-前六个在 `tools/verify/` 下；生成器跟着代码走（`android/`），社区源那个跟着社区源走
+前八个在 `tools/verify/` 下；生成器跟着代码走（`android/`），社区源那个跟着社区源走
 （它校验的是那个目录的产物，放在一起才不会被遗忘）。
 
 **`run_logic_tests.py`** —— 本项目绝大多数高风险逻辑（SSE 解析、密钥脱敏、
@@ -438,6 +440,38 @@ token 估算、费用计算、插件校验、zip 防护）都在**零 Android �
 **`check_kt_quotes.py`** —— 中文文案里写引号时很容易打成 ASCII `"`，而它在 Kotlin 里
 是字符串定界符，会让字符串提前终止。这个错误在等宽字体下几乎看不出来，
 报错行还会指向后面几行。
+
+**`check_release_readiness.py`** —— 发行前跑一遍，10 组规则，涵盖的都是
+**"错了不影响开发调试、只在公开分发时才致命"**的配置：
+
+| 组 | 检查 | 为什么致命 |
+|---|---|---|
+| R1 | `debuggable` 不得在 release 开启 | **零容忍**。等于把 `run-as` 后门随包发出去 |
+| R2 | `allowBackup` 必须为 `false` | 否则 `adb backup` 能整包拖走加密数据库 |
+| R3 | 云备份与设备迁移**两个域**都排除 `database`/`sharedpref`/`file` | 只排除一个域，另一个照样把凭据传上云 |
+| R4 | 不得全局放行明文流量 | `base-config` 或通配域一行就能废掉全部 HTTPS |
+| R5 | release 不得用 debug 签名 | debug 密钥是 AOSP 公开的，任何人可签出同包名替换版 |
+| R6 | release 必须开 `minify` + `shrinkResources` | 不只是体积，混淆也是 L3 插件反编译门槛的一部分 |
+| R7 | 版本号不含 `-m0`/`-dev`/`-alpha` 等开发期标记 | 带标记的版本发出去，用户无法判断自己在哪条线上 |
+| R8 | `src/main` 里不得出现 `run-as` | 开发期靠 `run-as com.termux` 验证，这条纪律要靠检查器守住 |
+| R9 | `proguard-rules.pro` 存在且非空 | 文件被清空时构建**不会报错**，只是悄悄不混淆 |
+| R10 | 无未替换的占位符 | `TODO`/`XXXX`/`<your-key>` 进包即泄漏意图或直接不可用 |
+
+退出码：`0` 通过 / `1` 有 error / `2` 缺少关键文件（**刻意与"通过"区分** ——
+文件找不到时静默返回 0 是最坏的一种检查）。
+
+**`test_release_check.py`** —— 上面那个检查器的自测，20 项 fixture。
+它的存在理由是一条很硬的判断：**一个永远打印 OK 的检查器，看起来和"代码很干净"
+完全一样（两者都是绿色），而前者比没有检查更糟。** 所以每条规则都要**故意造一个
+违规输入、确认它真的报红**才算数。自测里还有一条反向断言：注释里写的
+`isDebuggable = true` **不应该**报错 —— 本仓库注释极多，检查器被自己的文档绊倒
+是真实风险。
+
+> 这个自测已经抓到过一条**真 bug**：R4 的 `base-config` 分支原先是**死的**。
+> 原因是 `extract_xml_block` 只返回开标签**之后**的内容，而
+> `cleartextTrafficPermitted` 是**开标签上的属性** —— 代码在、读起来也在检查，
+> 规则却永远不报红。修法是新增 `extract_xml_element`（含开标签）。
+> 这条规则如果没有自测，会以"已覆盖"的形态一直躺在检查器里。
 
 ---
 
