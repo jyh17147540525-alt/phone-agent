@@ -375,16 +375,43 @@ sealed interface AmbiguousResolution {
 data class AgentBudget(
     val maxTurns: Int = 8,            // 移动端文档的推荐值
     val maxDurationMs: Long = 300_000, // 5 分钟
-    val maxEnergyPercent: Float = 0.1f, // 0.1% —— P0-5 实测读数可用，但 ±1% 量化误差
+    val maxEnergyPercent: Float = 0.1f, // 0.1% —— ★ 已实测可测，见下
     val maxUploadBytes: Long = 5_000_000, // 5MB，非 WiFi 下的可感知阈值
     val requireWifiForHeavy: Boolean = false, // 用户可选
 )
 ```
 
-> ⚠️ **能耗上限 0.1% 与 P0-5 的实测结论有张力**：P0-5 结论是"±1% 量化误差 →
-> 只能测长任务，测不了单次任务"。**0.1% 的预算用当前读数是测不准的。**
-> → 这暴露一个真实缺口：**要么改用更细的能耗来源（如 `BatteryStats`），
-> 要么把能耗预算改为"任务结束后核对"而非"中途强制中止"**。见 D-AV。
+### ✅ D-AV 已解决：能耗读数改用 `Charge counter`（2026-09-22 实测）
+
+**原疑虑**：P0-5 结论是"±1% 量化误差 → 只能测长任务"，与 0.1% 的预算冲突。
+
+**实测解法**：`dumpsys battery` 里除了 1% 粒度的 `level`，还有一个 **`Charge counter`**
+（绝对电荷量，µAh 级）：
+
+```
+level: 93                ← 1% 粒度
+Charge counter: 3045     ← ★ 1 单位粒度
+```
+
+**分辨率实测**（5 秒 × 5 次采样）：
+```
+18:53:11  Charge counter:3049
+18:53:18  Charge counter:3049
+18:53:25  Charge counter:3045   ← 5 秒内观测到变化
+18:53:33  Charge counter:3045
+18:53:40  Charge counter:3045
+```
+
+**换算**：总量 3049，1% ≈ 30 单位 → **1 单位 ≈ 0.033%，比 `level` 精确约 30 倍。**
+
+**结论：**
+- ✅ **能耗预算保留"硬中止"设计**，不必退化成"事后核对"
+- ✅ `maxEnergyPercent = 0.1%` 可测（≈3 个单位）
+- ⚠️ **真实测量必须在拔线状态做**（本次实测在 `USB powered: true` 下，
+  充电会干扰读数）
+- 应用侧路径：`BatteryManager.getIntProperty(BATTERY_PROPERTY_CHARGE_COUNTER)`
+  （API 21+，返回 µAh）—— 这是 `dumpsys` 的同源数据
+  （`/sys/class/power_supply/battery/charge_counter` 被 SELinux 拦，不可用）
 
 ## 3.2 P3：感知通道
 
@@ -483,6 +510,12 @@ MEMORY 已记：「**仅限开发期验证** —— 正式 APK 不该 debuggable
 **★ S1–S4 全部不需要真机** —— 这是这份规划最有价值的信息：
 **在真机就位之前，有相当一部分工作可以完整推进并验证。**
 
+> ✅ **2026-09-22 更新：真机已确认就位。**
+> `adb devices` → `1e47d871 / mondrian / 23013RK75C`（**正是目标机型 K60**），
+> Android 15 / API 35 / HyperOS OS3.0，`com.pocketagent.debug` 已装，
+> Shizuku 与 Termux 均已安装。
+> → **S5 及以后的分界线已经打开**，S1–S4 与 S5–S9 现在可以按需交叉推进。
+
 ---
 
 # 第六部分 · 待决策汇总（本文字新增）
@@ -495,12 +528,11 @@ MEMORY 已记：「**仅限开发期验证** —— 正式 APK 不该 debuggable
 | **D-AS** | `PlanStep.actionType` 改 `ActionType` 枚举 | 改 | §2.1 |
 | **D-AT** | `Ambiguous` 消歧判据 | 置信度差距 0.2 | §2.3.3 |
 | **D-AU** | 规划失败的降级 | 降级为手动引导 | §2.4 |
-| **D-AV** | `AgentBudget` 默认值 + 能耗预算的测准问题 | 轮次 8 / 时长 5min；**能耗改"事后核对"** | §3.1 |
+| **D-AV** | ~~`AgentBudget` 默认值 + 能耗预算的测准问题~~ | ✅ **已确认**：能耗改用 `Charge counter` 差分，保留硬中止 | §3.1 |
 | **D-AW** | Checkpoint 落盘频率 | 每步 | §2.4 |
 
-**★ D-AV 需要特别说明**：它不是一个"选哪个数字"的问题，而是暴露了一个**真实的技术缺口**
-（P0-5 实测：能耗读数 ±1% 量化误差）。**建议在 S3 阶段先做一个小实验确认能拿到更细的读数**，
-再决定能耗预算是"硬中止"还是"事后核对"。
+> ✅ **D-AV 已于 2026-09-22 真机实测解决**（`Charge counter` 精度约 0.033%，
+> 比 `level` 的 1% 高约 30 倍）—— **从"待决策"降为"已确认"。** 详见 §3.1。
 
 ---
 

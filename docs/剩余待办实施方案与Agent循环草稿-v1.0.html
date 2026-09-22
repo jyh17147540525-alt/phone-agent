@@ -150,7 +150,10 @@ pre code {
 </ul>
 </li>
 <li><a href="#24">2.4 待决策</a></li>
-<li><a href="#31-p5-p3p4">3.1 P5：五个横切组件（建议先于 P3/P4 做，因为它们约束后者的形状）</a></li>
+<li><a href="#31-p5-p3p4">3.1 P5：五个横切组件（建议先于 P3/P4 做，因为它们约束后者的形状）</a><ul>
+<li><a href="#d-av-charge-counter2026-09-22">✅ D-AV 已解决：能耗读数改用 Charge counter（2026-09-22 实测）</a></li>
+</ul>
+</li>
 <li><a href="#32-p3">3.2 P3：感知通道</a></li>
 <li><a href="#33-p4">3.3 P4：执行通道</a></li>
 <li><a href="#41-p6overlay">4.1 P6：overlay 视觉层 + 急停跨进程投递</a></li>
@@ -765,18 +768,37 @@ pre code {
 <div class="codehilite"><pre><span></span><code><span class="kd">data</span><span class="w"> </span><span class="kd">class</span><span class="w"> </span><span class="nc">AgentBudget</span><span class="p">(</span>
 <span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">maxTurns</span><span class="p">:</span><span class="w"> </span><span class="kt">Int</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">8</span><span class="p">,</span><span class="w">            </span><span class="c1">// 移动端文档的推荐值</span>
 <span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">maxDurationMs</span><span class="p">:</span><span class="w"> </span><span class="kt">Long</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">300</span><span class="n">_000</span><span class="p">,</span><span class="w"> </span><span class="c1">// 5 分钟</span>
-<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">maxEnergyPercent</span><span class="p">:</span><span class="w"> </span><span class="kt">Float</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">0.1f</span><span class="p">,</span><span class="w"> </span><span class="c1">// 0.1% —— P0-5 实测读数可用，但 ±1% 量化误差</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">maxEnergyPercent</span><span class="p">:</span><span class="w"> </span><span class="kt">Float</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">0.1f</span><span class="p">,</span><span class="w"> </span><span class="c1">// 0.1% —— ★ 已实测可测，见下</span>
 <span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">maxUploadBytes</span><span class="p">:</span><span class="w"> </span><span class="kt">Long</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">5</span><span class="n">_000_000</span><span class="p">,</span><span class="w"> </span><span class="c1">// 5MB，非 WiFi 下的可感知阈值</span>
 <span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">requireWifiForHeavy</span><span class="p">:</span><span class="w"> </span><span class="kt">Boolean</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span><span class="w"> </span><span class="c1">// 用户可选</span>
 <span class="p">)</span>
 </code></pre></div>
 
-<blockquote>
-<p>⚠️ <strong>能耗上限 0.1% 与 P0-5 的实测结论有张力</strong>：P0-5 结论是"±1% 量化误差 →
-只能测长任务，测不了单次任务"。<strong>0.1% 的预算用当前读数是测不准的。</strong>
-→ 这暴露一个真实缺口：<strong>要么改用更细的能耗来源（如 <code>BatteryStats</code>），
-要么把能耗预算改为"任务结束后核对"而非"中途强制中止"</strong>。见 D-AV。</p>
-</blockquote>
+<h3 id="d-av-charge-counter2026-09-22">✅ D-AV 已解决：能耗读数改用 <code>Charge counter</code>（2026-09-22 实测）</h3>
+<p><strong>原疑虑</strong>：P0-5 结论是"±1% 量化误差 → 只能测长任务"，与 0.1% 的预算冲突。</p>
+<p><strong>实测解法</strong>：<code>dumpsys battery</code> 里除了 1% 粒度的 <code>level</code>，还有一个 <strong><code>Charge counter</code></strong>
+（绝对电荷量，µAh 级）：</p>
+<div class="codehilite"><pre><span></span><code>level: 93                ← 1% 粒度
+Charge counter: 3045     ← ★ 1 单位粒度
+</code></pre></div>
+
+<p><strong>分辨率实测</strong>（5 秒 × 5 次采样）：</p>
+<div class="codehilite"><pre><span></span><code>18:53:11  Charge counter:3049
+18:53:18  Charge counter:3049
+18:53:25  Charge counter:3045   ← 5 秒内观测到变化
+18:53:33  Charge counter:3045
+18:53:40  Charge counter:3045
+</code></pre></div>
+
+<p><strong>换算</strong>：总量 3049，1% ≈ 30 单位 → <strong>1 单位 ≈ 0.033%，比 <code>level</code> 精确约 30 倍。</strong></p>
+<p><strong>结论：</strong>
+- ✅ <strong>能耗预算保留"硬中止"设计</strong>，不必退化成"事后核对"
+- ✅ <code>maxEnergyPercent = 0.1%</code> 可测（≈3 个单位）
+- ⚠️ <strong>真实测量必须在拔线状态做</strong>（本次实测在 <code>USB powered: true</code> 下，
+  充电会干扰读数）
+- 应用侧路径：<code>BatteryManager.getIntProperty(BATTERY_PROPERTY_CHARGE_COUNTER)</code>
+  （API 21+，返回 µAh）—— 这是 <code>dumpsys</code> 的同源数据
+  （<code>/sys/class/power_supply/battery/charge_counter</code> 被 SELinux 拦，不可用）</p>
 <h2 id="32-p3">3.2 P3：感知通道</h2>
 <p><strong>现状</strong>：<code>:perception</code> 只有 <code>ScreenSnapshot.kt</code>（契约完整，零实现）。</p>
 <p><strong>关键约束（<code>ScreenSnapshot.kt</code> 契约注释已写明）</strong>：
@@ -974,6 +996,13 @@ MEMORY 已记：「<strong>仅限开发期验证</strong> —— 正式 APK 不�
 </table></div>
 <p><strong>★ S1–S4 全部不需要真机</strong> —— 这是这份规划最有价值的信息：
 <strong>在真机就位之前，有相当一部分工作可以完整推进并验证。</strong></p>
+<blockquote>
+<p>✅ <strong>2026-09-22 更新：真机已确认就位。</strong>
+<code>adb devices</code> → <code>1e47d871 / mondrian / 23013RK75C</code>（<strong>正是目标机型 K60</strong>），
+Android 15 / API 35 / HyperOS OS3.0，<code>com.pocketagent.debug</code> 已装，
+Shizuku 与 Termux 均已安装。
+→ <strong>S5 及以后的分界线已经打开</strong>，S1–S4 与 S5–S9 现在可以按需交叉推进。</p>
+</blockquote>
 <hr />
 <h1 id="_2">第六部分 · 待决策汇总（本文字新增）</h1>
 <div class="tw"><table>
@@ -1024,8 +1053,8 @@ MEMORY 已记：「<strong>仅限开发期验证</strong> —— 正式 APK 不�
 </tr>
 <tr>
 <td><strong>D-AV</strong></td>
-<td><code>AgentBudget</code> 默认值 + 能耗预算的测准问题</td>
-<td>轮次 8 / 时长 5min；<strong>能耗改"事后核对"</strong></td>
+<td>~~<code>AgentBudget</code> 默认值 + 能耗预算的测准问题~~</td>
+<td>✅ <strong>已确认</strong>：能耗改用 <code>Charge counter</code> 差分，保留硬中止</td>
 <td>§3.1</td>
 </tr>
 <tr>
@@ -1036,9 +1065,10 @@ MEMORY 已记：「<strong>仅限开发期验证</strong> —— 正式 APK 不�
 </tr>
 </tbody>
 </table></div>
-<p><strong>★ D-AV 需要特别说明</strong>：它不是一个"选哪个数字"的问题，而是暴露了一个<strong>真实的技术缺口</strong>
-（P0-5 实测：能耗读数 ±1% 量化误差）。<strong>建议在 S3 阶段先做一个小实验确认能拿到更细的读数</strong>，
-再决定能耗预算是"硬中止"还是"事后核对"。</p>
+<blockquote>
+<p>✅ <strong>D-AV 已于 2026-09-22 真机实测解决</strong>（<code>Charge counter</code> 精度约 0.033%，
+比 <code>level</code> 的 1% 高约 30 倍）—— <strong>从"待决策"降为"已确认"。</strong> 详见 §3.1。</p>
+</blockquote>
 <hr />
 <h1 id="_3">附录 · 本文对既有文档的修正</h1>
 <div class="tw"><table>
