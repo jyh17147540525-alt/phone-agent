@@ -126,6 +126,7 @@ retrofit                    = { module = "com.squareup.retrofit2:retrofit",     
 kotlinx-serialization-json  = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
 kotlinx-coroutines-android  = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 kotlinx-coroutines-core     = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core",    version.ref = "coroutines" }
+kotlinx-coroutines-test     = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test",     version.ref = "coroutines" }
 
 # ── 系统能力 ───────────────────────────────────────────
 shizuku-api                 = { module = "dev.rikka.shizuku:api",                        version.ref = "shizuku" }

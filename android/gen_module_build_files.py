@@ -243,6 +243,10 @@ dependencies {{
     testImplementation(libs.turbine)
     testImplementation(libs.truth)
     testImplementation(libs.kotlinx.coroutines.core)
+    // ★ runTest / TestScope。测 `suspend` 函数与 Flow 必需 ——
+    //   用 runBlocking 会让超时的用例**永远挂着**而不是失败，
+    //   在 CI 上表现为"卡住"，最难排查。
+    testImplementation(libs.kotlinx.coroutines.test)
 }}
 """
 

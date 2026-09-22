@@ -38,6 +38,9 @@ dependencies {
     implementation(project(":core:crypto"))
     implementation(project(":core:database"))
     implementation(project(":provider:api"))
+    // 调度层模型（ModelConfig / ModelTier / ModelRouter）。
+    // 它是纯 Kotlin 模块 —— 依赖它不会把 android.* 带进 keymgmt 之外的地方。
+    implementation(project(":modelrouter"))
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
