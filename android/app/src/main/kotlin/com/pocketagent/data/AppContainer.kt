@@ -14,6 +14,9 @@ import com.pocketagent.core.database.PassphraseUnavailableException
 import com.pocketagent.core.database.PocketAgentDatabase
 import com.pocketagent.core.database.PocketAgentDatabaseFactory
 import com.pocketagent.keymgmt.CredentialRepository
+import com.pocketagent.keymgmt.ModelConfigRepositoryImpl
+import com.pocketagent.keymgmt.ModelDeclarationEntry
+import com.pocketagent.keymgmt.modelDeclarationsOf
 import com.pocketagent.plugin.api.MarketCatalog
 import com.pocketagent.plugin.api.SubscriptionSource
 import com.pocketagent.provider.api.LlmProvider
@@ -252,6 +255,44 @@ class AppContainer(context: Context) {
     private val providers: List<LlmProvider> =
         ProviderProfiles.all.map { OpenAiCompatProvider(it, http) }
 
+    /**
+     * 静态模型清单：`modelId` → 「展示名 + 价格」。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  它是"离线快照"，不是"实时列表"
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 数据源是 `ProviderProfiles.all` 里每家厂商的 `defaultModels` ——
+     * 随应用版本更新，**不发网络请求**。
+     *
+     * 为什么不去调 `LlmProvider.listModels()`：那要求**已解密的凭据**
+     * 并且**发网络请求**。而配置页打开时用户还没选 Key，也必须在
+     * 飞行模式下能打开（它读的是"我配过什么"，不是"厂商有什么"）。
+     *
+     * ⚠️ **查不到不是错误。** 用户可能配了自建端点的模型名，或厂商下架了
+     *    清单里的模型。此时展示名回落到裸 `modelId`、价格回落到 null
+     *    （未知）。把"未知"当成"免费"会让预算熔断静默失效，见
+     *    `ModelConfigMapping` 的长注释。
+     *
+     * ⚠️ **这里是一次性求值的 `val`，不是 `by lazy`。**
+     *    `ProviderProfiles.all` 在 [providers] 那里已经被遍历过一次了
+     *    （为了建 Provider 实例），所以这次遍历是搭便车，不额外引入
+     *    冷启动成本。真正的开销在后端：`ModelConfigRepositoryImpl`
+     *    内部对它做了 `by lazy` 缓存，配置页读时才展开。
+     */
+    private val modelDeclarations = modelDeclarationsOf(
+        ProviderProfiles.all.flatMap { profile ->
+            profile.defaultModels.map { model ->
+                ModelDeclarationEntry(
+                    modelId = model.id,
+                    displayName = model.displayName,
+                    inputPricePerMillion = model.inputPricePerMillion,
+                    outputPricePerMillion = model.outputPricePerMillion,
+                )
+            }
+        }
+    )
+
     /** 串行化"打开存储"与"重建存储"，避免两个协程同时初始化 */
     private val storeLock = Mutex()
 
@@ -260,6 +301,17 @@ class AppContainer(context: Context) {
 
     @Volatile
     private var credentialStore: CredentialRepository? = null
+
+    /**
+     * 模型配置仓储。
+     *
+     * ⚠️ 与 [credentialStore] **同生命周期** —— 它们共用同一个数据库句柄，
+     *    而那个句柄在 [resetCredentialStore] 里会被关掉。
+     *    若这里不跟着置空，重建之后旧仓储还指着一个已关闭的库，
+     *    下一次读模型列表会报"数据库已关闭"，而用户的动作只是"重建存储"。
+     */
+    @Volatile
+    private var modelStore: ModelConfigRepositoryImpl? = null
 
     /**
      * 打开加密存储。
@@ -352,6 +404,15 @@ class AppContainer(context: Context) {
                 providers = providers,
             )
             credentialStore = repository
+
+            // 模型仓储与凭据仓储共用同一个 db 句柄，必须一起建 ——
+            // 分开建会让"凭据已就绪但模型还没"成为一个可达状态，
+            // 而那时配置页会显示空列表，用户以为配置丢了
+            modelStore = ModelConfigRepositoryImpl(
+                db = db,
+                declarations = modelDeclarations,
+            )
+
             CredentialStoreResult.Ready(repository)
         }
     }
@@ -376,6 +437,7 @@ class AppContainer(context: Context) {
     suspend fun resetCredentialStore() = withContext(Dispatchers.IO) {
         storeLock.withLock {
             credentialStore = null
+            modelStore = null
             runCatching { database?.close() }
             database = null
 
@@ -383,6 +445,19 @@ class AppContainer(context: Context) {
             keyProvider.delete()
         }
     }
+
+    /**
+     * 取模型配置仓储。
+     *
+     * ⚠️ 返回值是 `null` 表示**加密存储还没打开**，而不是"没有模型"。
+     *    调用方必须分别处理 —— 否则配置页会把"存储没打开"显示成
+     *    "你还没配任何模型"，用户就会去重新配一遍（而他配过的东西还在库里）。
+     *
+     * 常规用法是先进 [openCredentialStore]，拿到 `Ready` 之后再取这个。
+     * 之所以不把两者合成一个返回类型：它们是**两个页面**的依赖
+     * （Key 页 / 模型页），合成会让 Key 页也被迫持有模型仓储的概念。
+     */
+    fun modelRepository(): ModelConfigRepositoryImpl? = modelStore
 
     private companion object {
         /**

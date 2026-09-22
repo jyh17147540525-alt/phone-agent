@@ -59,6 +59,58 @@ fun interface ModelDeclarationSource {
 val NoModelDeclarations: ModelDeclarationSource = ModelDeclarationSource { emptyMap() }
 
 /**
+ * 用一组「(模型 id, 展示名, 输入价, 输出价)」构造声明源。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  为什么收一个"扁平的元组列表"而不是 `List<ModelInfo>`
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * `keymgmt` **不依赖** `provider:openai-compat`（那是 `app` 的事）。
+ * 若这里直接吃 `ModelInfo`，就得把那个模块的依赖加进来 ——
+ * 而 `ModelInfo` 只是 `provider:api` 里的一个数据类，
+ * 为它引入整条 openai-compat 依赖链不值得。
+ *
+ * 更要紧的是：`ProviderProfiles.all` 是 `openai-compat` 的**公开常量**，
+ * 但它的元素类型 `ProviderProfile` 是"厂商配置"（含 baseUrl / 鉴权方式 /
+ * 路径……），把那一整坨暴露给 `keymgmt` 会让模块边界变得含糊。
+ *
+ * 所以本函数只收映射层真正需要的四个值，由 `app` 侧做那一步适配。
+ *
+ * ⚠️ **重复的 modelId：后者覆盖前者。**
+ *    真实会发生 —— 同一批清单里可能有多家 Provider 提供同名模型
+ *    （例如两家都代理 `gpt-4o`）。此时价格取**先出现的那个**还是后出现的，
+ *    没有正确答案；但**必须确定**，否则每次启动显示的价格可能不同。
+ *    `associate` 的行为是后者胜，这里保持它并在测试里钉住。
+ *
+ * @param entries 每项为 `(modelId, displayName, inputPrice, outputPrice)`。
+ *        价格可为 null（未知），**不要**用 0.0 表示未知。
+ */
+fun modelDeclarationsOf(
+    entries: Iterable<ModelDeclarationEntry>,
+): ModelDeclarationSource = ModelDeclarationSource {
+    entries.associate { entry ->
+        entry.modelId to DeclaredModel(
+            displayName = entry.displayName,
+            inputPricePerMillion = entry.inputPricePerMillion,
+            outputPricePerMillion = entry.outputPricePerMillion,
+        )
+    }
+}
+
+/**
+ * 一条模型声明的四个字段。见 [modelDeclarationsOf] 的注释。
+ *
+ * ⚠️ 展示名为空串时，映射层会回落到 `modelId`（见 `ModelConfigMapping`），
+ *    所以这里不必替调用方兜底 —— 保持"存了什么就是什么"。
+ */
+data class ModelDeclarationEntry(
+    val modelId: String,
+    val displayName: String,
+    val inputPricePerMillion: Double? = null,
+    val outputPricePerMillion: Double? = null,
+)
+
+/**
  * 模型配置的持久化仓储。
  *
  * ═══════════════════════════════════════════════════════════════

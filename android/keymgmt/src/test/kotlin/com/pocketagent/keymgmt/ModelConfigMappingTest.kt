@@ -313,4 +313,76 @@ class ModelConfigMappingTest {
         assertEquals(0.5, configs[0].inputPricePerMillion!!, 1e-9)
         assertEquals(5.0, configs[1].inputPricePerMillion!!, 1e-9)
     }
+
+    // ═════════════════════════════════════════════════════════════
+    //  声明源构造（modelDeclarationsOf）
+    // ═════════════════════════════════════════════════════════════
+
+    @Test
+    fun `声明源把条目按 modelId 建索引`() {
+        val source = modelDeclarationsOf(
+            listOf(
+                ModelDeclarationEntry("deepseek-chat", "DeepSeek Chat", 0.14, 0.28),
+                ModelDeclarationEntry("gpt-4o-mini", "GPT-4o mini", 0.15, 0.6),
+            )
+        )
+
+        val map = source.declarations()
+
+        assertEquals(setOf("deepseek-chat", "gpt-4o-mini"), map.keys)
+        assertEquals("DeepSeek Chat", map.getValue("deepseek-chat").displayName)
+        assertEquals(0.14, map.getValue("deepseek-chat").inputPricePerMillion!!, 1e-9)
+    }
+
+    /**
+     * ⚠️ 重复 `modelId`：**后者覆盖前者**。
+     *
+     * 真实会发生 —— 同一批清单里可能有多家 Provider 提供同名模型
+     * （例如两家都代理 `gpt-4o`）。哪个价格更"对"没有答案，
+     * 但**行为必须确定**，否则每次启动显示的价格可能不同，
+     * 用户会以为应用在乱算钱。
+     */
+    @Test
+    fun `重复的 modelId 后者覆盖前者`() {
+        val source = modelDeclarationsOf(
+            listOf(
+                ModelDeclarationEntry("dup", "先出现的", 1.0, 1.0),
+                ModelDeclarationEntry("dup", "后出现的", 2.0, 2.0),
+            )
+        )
+
+        val entry = source.declarations().getValue("dup")
+
+        assertEquals("后出现的", entry.displayName)
+        assertEquals(2.0, entry.inputPricePerMillion!!, 1e-9)
+    }
+
+    @Test
+    fun `空清单得到空的声明源`() {
+        assertTrue(modelDeclarationsOf(emptyList()).declarations().isEmpty())
+    }
+
+    /** 默认的 [NoModelDeclarations] 什么都不知道，但**必须能正常用** */
+    @Test
+    fun `默认声明源返回空 map`() {
+        assertTrue(NoModelDeclarations.declarations().isEmpty())
+    }
+
+    /**
+     * 价格缺失时声明里是 null，**不是 0.0**。
+     *
+     * 这条与前面"两边都没有价格时是 null"是同一根链条的两端：
+     * 声明源这一侧若把缺价格写成 0.0，后面所有回落逻辑都救不回来。
+     */
+    @Test
+    fun `声明条目缺价格时保持 null`() {
+        val source = modelDeclarationsOf(
+            listOf(ModelDeclarationEntry("local", "本地模型"))
+        )
+
+        val entry = source.declarations().getValue("local")
+
+        assertNull(entry.inputPricePerMillion)
+        assertNull(entry.outputPricePerMillion)
+    }
 }
