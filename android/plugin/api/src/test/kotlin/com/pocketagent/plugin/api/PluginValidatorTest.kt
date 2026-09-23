@@ -355,6 +355,88 @@ class PluginValidatorTest {
         )
     }
 
+    // ── 文件能力（v3.1）──────────────────────────────────────
+
+    @Test
+    fun `文件能力已注册且不被禁止前缀拦住`() {
+        // ★ 这条守的是一个**很容易被误伤**的地方：
+        //   FORBIDDEN_PREFIXES 里有 "system."、"key." 之类的前缀。
+        //   如果有人往里面加一个过宽的（比如 "f" 或 "file."），
+        //   文件能力就会永远无法声明 —— 而症状是"插件装不上"，
+        //   排查方向会指向插件作者，而不是这里。
+        val fileCaps = listOf(
+            PluginCapability.FILE_READ,
+            PluginCapability.FILE_WRITE,
+            PluginCapability.FILE_DELETE,
+        )
+
+        fileCaps.forEach { cap ->
+            assertEquals("${cap.id} 应当能按 id 找回", cap, PluginCapability.fromId(cap.id))
+            PluginCapability.FORBIDDEN_PREFIXES.forEach { prefix ->
+                assertFalse(
+                    "${cap.id} 不该落在禁止前缀「$prefix」之下 —— 那会让文件能力永远无法声明",
+                    cap.id.startsWith(prefix),
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `L1 声明文件能力时给出警告`() {
+        // L1 是声明式规则包，动作只有点击/输入/滚动那一组，
+        // 没有任何一步能拿文件内容做判断 —— 声明了就是冗余（或别有用心）
+        val result = PluginValidator.validate(
+            manifest(capabilities = listOf(PluginCapability.FILE_READ))
+        )
+
+        assertAccepted(result)
+        val warning = (result as PluginValidationResult.Accepted).warnings
+            .firstOrNull { it.field == "capabilities" }
+        assertTrue("L1 用不到文件能力，应当有警告", warning != null)
+        assertTrue("警告应指出具体是哪个能力：${warning!!.message}", warning.message.contains("file.read"))
+    }
+
+    @Test
+    fun `删除能力风险等级最高`() {
+        // ★ 删除不可撤销，必须与读写分开定级 ——
+        //   界面上的措辞与确认强度都依赖这个分级。
+        //   把它和 file.read 定成同一级，用户就会觉得"反正都一样"。
+        assertEquals(PluginCapability.RiskLevel.CRITICAL, PluginCapability.FILE_DELETE.risk)
+        assertEquals(PluginCapability.RiskLevel.HIGH, PluginCapability.FILE_READ.risk)
+        assertEquals(PluginCapability.RiskLevel.HIGH, PluginCapability.FILE_WRITE.risk)
+    }
+
+    @Test
+    fun `文件能力都需要用户显式同意`() {
+        // 按 v3.0 的沙箱原则：默认全部拒绝，逐项放行。
+        // 一个不需要同意的文件能力等于默认开放。
+        listOf(
+            PluginCapability.FILE_READ,
+            PluginCapability.FILE_WRITE,
+            PluginCapability.FILE_DELETE,
+        ).forEach { cap ->
+            assertTrue("${cap.id} 必须要求用户显式同意", cap.requiresExplicitConsent)
+        }
+    }
+
+    @Test
+    fun `文件能力的说明面向用户而不是开发者`() {
+        // ★ 按项目纪律，能力的 userFacingDescription 禁止出现技术名词。
+        //   用户要能看懂"这个插件会读我的文件"，而不是 "READ_EXTERNAL_STORAGE"。
+        listOf(
+            PluginCapability.FILE_READ,
+            PluginCapability.FILE_WRITE,
+            PluginCapability.FILE_DELETE,
+        ).forEach { cap ->
+            val text = cap.userFacingDescription
+            assertTrue("${cap.id} 的说明不该为空", text.isNotBlank())
+            assertFalse(
+                "${cap.id} 的说明里不该出现路径或权限常量：$text",
+                text.contains("/") || text.contains("_"),
+            )
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════
     //  八、目标应用
     // ═══════════════════════════════════════════════════════════

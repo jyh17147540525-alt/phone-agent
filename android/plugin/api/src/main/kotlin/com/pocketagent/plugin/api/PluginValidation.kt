@@ -421,6 +421,11 @@ object PluginValidator {
         PluginCapability.CLIPBOARD_WRITE,
         PluginCapability.STORAGE,
         PluginCapability.NETWORK_REQUEST,
+        // 文件能力同样用不到：L1 是声明式规则包，它的动作只有点击/输入/滚动那一组，
+        // 没有任何一步能拿文件内容做判断。声明了就是冗余。
+        PluginCapability.FILE_READ,
+        PluginCapability.FILE_WRITE,
+        PluginCapability.FILE_DELETE,
     )
 
     private fun error(field: String, message: String) =
