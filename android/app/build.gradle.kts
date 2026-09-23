@@ -111,6 +111,32 @@ dependencies {
 
     // 以下随对应模块落地启用：
     implementation(project(":core:common"))           // 原子写文本文件（配置投递用）
+    // 第 0 档能力（零占屏）的 Android 侧通道。
+    //
+    // ⚠️ 加这一行不只是为了"能用" —— `WRITE_SECURE_SETTINGS` 与
+    //    `WRITE_SETTINGS` 是声明在 :capability 自己的 manifest 里的，
+    //    而 **manifest 合并只在有人依赖那个模块时才生效**。
+    //    少这一行的话，权限声明不会进最终 APK，`pm grant` 会报
+    //    "Unknown permission"（或静默不生效），而模块代码照样编译通过 ——
+    //    又是一次"不报错、只是安静地少做一件事"。
+    //
+    // ⚠️ 它不引入任何新的第三方依赖：:capability 只用 androidx.core、
+    //    coroutines 与 timber，这三样 :app 本来就有。
+    implementation(project(":capability"))            // T0-A 设置读写通道（第 0 档）
+    // 第 0 档能力页要直接列目录、直接裁决、直接把结果翻成文案 ——
+    // 那些类型（Capability / CapabilityOutcome / CapabilityMessages）全在纯模块里。
+    // ⚠️ 光有 `:capability` 不够：它是 `implementation` 依赖，
+    //    `:capabilitylogic` 不会传递到 `:app` 的编译类路径上，
+    //    而**离线跑器看不出来**（它把所有模块塞进同一次 kotlinc 调用）。
+    implementation(project(":capabilitylogic"))
+    // 第 0 档的**文件范围**（`FileScope` / `ScopeRoot`）—— 这一页要把它
+    // 从 SAF 授权里现算出来，再交给 `CapabilityRunner`。
+    //
+    // ⚠️ 为什么不把这个 lambda 塞进 `:capability` 里、让 `:app` 完全看不到
+    //    `:filelogic`：因为"用户现在授权了哪些目录"是**这一页的状态**，
+    //    而状态属于 ViewModel。把它藏进下层只会让"授权完要刷新"这件事
+    //    没有明确的触发点 —— 表现是"刚选完目录，点了却说还没授权"。
+    implementation(project(":filelogic"))
     // implementation(project(":provider:anthropic"))
     // implementation(project(":provider:gemini"))
     // implementation(project(":provider:local"))

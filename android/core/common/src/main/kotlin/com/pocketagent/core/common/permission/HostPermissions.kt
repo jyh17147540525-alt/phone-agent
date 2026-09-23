@@ -16,8 +16,10 @@ package com.pocketagent.core.common.permission
  *    → 用户做什么都没用，但他会一直试
  *  · 用进程内标志（服务是否被系统绑定）判断"权限有没有开"
  *    → 那个标志**会滞后**，于是界面在"已开启 / 未开启"之间闪
+ *  · 把"只能在电脑上授予"的权限显示成"未开启"并给一个「去设置」按钮
+ *    → 用户把系统设置翻遍也找不到那个开关（见 [GrantState.NeedsComputer]）
  *
- * 三条都不是异常，都是**界面在说假话**。而按本项目的立场：
+ * 四条都不是异常，都是**界面在说假话**。而按本项目的立场：
  * **一个说错话的界面比一个不说这话的界面更糟** —— 用户不会怀疑文案，
  * 他会怀疑自己。（见 `SettingsViewModel` 的类注释）
  *
@@ -40,6 +42,16 @@ object HostPermissions {
     const val ID_OVERLAY = "overlay"
     const val ID_NOTIFICATIONS = "notifications"
     const val ID_SCREENSHOT = "screenshot"
+
+    /**
+     * 写 `Settings.Global` / `Settings.Secure` 要的权限。
+     *
+     * ⚠️ 它与下面那一项**不是同一件事**，见 [SettingsPermission] 的实测表。
+     */
+    const val ID_WRITE_SECURE_SETTINGS = "write_secure_settings"
+
+    /** 写 `Settings.System` 要的权限（appop 型，授予路径完全不同）。 */
+    const val ID_WRITE_SETTINGS = "write_settings"
 
     /**
      * 判定。
@@ -98,15 +110,61 @@ object HostPermissions {
             },
             action = PermissionAction.OPEN_ACCESSIBILITY_SETTINGS,
         ),
+
+        // ══════════════════════════════════════════════════════════
+        //  第 0 档能力要用的两项 —— 授予路径**不同**，所以是两个条目
+        // ══════════════════════════════════════════════════════════
+
+        verdict(
+            id = ID_WRITE_SECURE_SETTINGS,
+            label = "修改系统安全设置",
+            purpose = "让 agent 能改深色模式、充电保持亮屏这类系统开关",
+            // ⚠️ 这一项**没有**系统设置入口（签名级权限，且带 `development` 位）。
+            //    所以"没授予"时不能给"去设置"按钮 —— 用户会翻遍设置也找不到。
+            //    它是本文件里唯一一个 [GrantState.NeedsComputer] 的项。
+            state = if (signals.canWriteSecureSettings) {
+                GrantState.Granted
+            } else {
+                GrantState.NeedsComputer
+            },
+            // 给了也不会画按钮（见 `verdict`），传它是为了让"该去哪"这件事
+            // 在类型里是明确的，而不是靠"这个 state 恰好不给按钮"来暗示。
+            action = null,
+            guidance = SettingsPermissionGuide.guidanceFor(
+                SettingsPermission.WRITE_SECURE_SETTINGS,
+                signals.applicationId,
+            ),
+        ),
+        verdict(
+            id = ID_WRITE_SETTINGS,
+            label = "修改系统设置",
+            purpose = "让 agent 能改亮度、自动旋转、熄屏时间这类系统开关",
+            // ⚠️ 这一项与上面正相反：**手机上有开关**（特殊应用权限 → 修改系统设置）。
+            //    两项看起来都在说"写设置"，但一个能在手机上解决、一个不能 ——
+            //    合并成一条会让其中一半的用户被指引到错误的地方。
+            state = if (signals.canWriteSystemSettings) {
+                GrantState.Granted
+            } else {
+                GrantState.Denied
+            },
+            action = PermissionAction.OPEN_WRITE_SETTINGS,
+            guidance = SettingsPermissionGuide.guidanceFor(
+                SettingsPermission.WRITE_SETTINGS_APPOP,
+                signals.applicationId,
+            ),
+        ),
     )
 
     /** 徽章用的一行汇总。 */
     fun summarize(verdicts: List<PermissionVerdict>): PermissionSummary = PermissionSummary(
         granted = verdicts.count { it.state == GrantState.Granted },
-        // ⚠️ 只有 Denied 算"用户现在就该去处理"。
+        // ⚠️ 只有 Denied 算"用户**在手机上**现在就能处理"。
         //    把 Undeclared 也算进来，就会出现"3 项待开启"而其中一项用户根本开不了
         //    —— 他会一直试。
         actionable = verdicts.count { it.state == GrantState.Denied },
+        // ⚠️ NeedsComputer **不能**并进 actionable：它同样是"用户要做点什么"，
+        //    但做的事在另一台设备上。并进去的话，用户会先在手机设置里找一圈。
+        needsComputer = verdicts.count { it.state == GrantState.NeedsComputer },
         appSidePending = verdicts.count { it.state == GrantState.Undeclared },
     )
 
@@ -115,19 +173,37 @@ object HostPermissions {
      *
      * ⚠️ 顺序要紧：**先报用户能做的事**。应用侧还没做的（[GrantState.Undeclared]）
      *    排第二，因为那件事用户插不上手，写在前面只会让他白找。
+     *
+     * ⚠️ 两类"待处理"同时存在时**必须都报出来** —— 只报手机上那一类，
+     *    用户会以为做完就齐了，而实际上还差一条在电脑上的命令。
      */
     fun badgeText(summary: PermissionSummary): String = when {
+        summary.actionable > 0 && summary.needsComputer > 0 ->
+            "${summary.actionable} 项待开启 · ${summary.needsComputer} 项需电脑"
+
         summary.actionable > 0 -> "${summary.actionable} 项待开启"
+        summary.needsComputer > 0 -> "${summary.needsComputer} 项需电脑"
         summary.appSidePending > 0 -> "部分未实现"
         else -> "已就绪"
     }
 
+    /**
+     * @param guidance 这一项**没拿到时**要告诉用户怎么做。
+     *
+     * ⚠️ 它只对"用户能解决"的两种状态有意义（[GrantState.Denied] /
+     *    [GrantState.NeedsComputer]）。已授予时给 `null` —— 一句
+     *    "已经好了"的说明只会把真正要看的那一行挤下去。
+     *
+     * ⚠️ 文案来自 [SettingsPermissionGuide]，与执行层失败时用的是**同一份**。
+     *    两边各写一份的后果不是"重复"，而是它们会不一致。
+     */
     private fun verdict(
         id: String,
         label: String,
         purpose: String,
         state: GrantState,
-        action: PermissionAction,
+        action: PermissionAction?,
+        guidance: String? = null,
     ) = PermissionVerdict(
         id = id,
         label = label,
@@ -137,7 +213,13 @@ object HostPermissions {
         //    点一个不解决问题的按钮，比没有按钮更让人困惑。
         action = when (state) {
             GrantState.Granted, GrantState.Undeclared -> null
-            GrantState.Denied -> action
+            GrantState.Denied, GrantState.NeedsComputer -> action
+        },
+        // 同理：已授予 / 用户插不上手的，不写"怎么授权"。
+        guidance = if (state == GrantState.Granted || state == GrantState.Undeclared) {
+            null
+        } else {
+            guidance
         },
     )
 }
@@ -160,12 +242,40 @@ data class HostSignals(
     val notificationsEnabled: Boolean,
     /** 无障碍服务配置里有没有声明 `android:canTakeScreenshot` */
     val screenshotDeclared: Boolean,
+
+    /**
+     * 本应用真实的 applicationId。
+     *
+     * ⚠️ 它只用于拼"去电脑上跑哪条命令"的文案，而**必须**是真实的那一个：
+     *    本项目有两个 id（`com.pocketagent` / `com.pocketagent.debug`），
+     *    写错的那条 `pm grant` 是**跑得通、但什么也没授**的命令。
+     *    所以它从 `context.packageName` 来，不写死。
+     */
+    val applicationId: String,
+
+    /**
+     * `WRITE_SECURE_SETTINGS` 拿到了没有。
+     *
+     * ⚠️ 判据必须与执行层**同源**（`AndroidSettingsAccess.isGranted()`）——
+     *    两边用不同的 API 判断同一件事，就会出现"界面说已开启、执行说没权限"，
+     *    而这种不一致没有任何东西会报错。
+     */
+    val canWriteSecureSettings: Boolean,
+
+    /**
+     * `WRITE_SETTINGS` 拿到了没有。
+     *
+     * ⚠️ 它是 **appop 型**权限，所以判据是 `Settings.System.canWrite(context)`，
+     *    **不能**用 `checkSelfPermission(WRITE_SETTINGS)` —— 后者对它永远返回
+     *    DENIED，会把"用户已经开好了"显示成"还没开"。
+     */
+    val canWriteSystemSettings: Boolean,
 )
 
 /**
  * 一项权限的状态。
  *
- * ⚠️ **三种而不是两种**。合并成"已授权 / 未授权"的代价见 [Undeclared]。
+ * ⚠️ **四种而不是两种**。合并成"已授权 / 未授权"的代价见 [Undeclared] 与 [NeedsComputer]。
  */
 enum class GrantState {
     /** 系统确认已授予 */
@@ -183,6 +293,20 @@ enum class GrantState {
      *    把后者显示成前者，等于让用户白跑一趟系统设置。
      */
     Undeclared,
+
+    /**
+     * 没授予，**且系统设置里没有它的开关** —— 需要在电脑上跑一条命令。
+     *
+     * ⚠️ 与 [Denied] 的区别同样是"用户能不能在**这台设备上**解决"：
+     *    [Denied] → 就在手机上，去设置里开；
+     *    [NeedsComputer] → 手机上翻遍也找不到（签名级权限没有界面入口），
+     *                      要用 adb 从电脑上授予。
+     *
+     * 把这一项显示成 [Denied] 的代价很具体：用户会在
+     * 「应用 → 特殊应用权限」里逐页找「修改系统安全设置」，找不到，
+     * 于是以为是自己手机型号的问题 —— 而那个开关**从来不在那里**。
+     */
+    NeedsComputer,
 }
 
 /** 用户能做的那一个动作。**刻意是枚举而非 Intent 字符串** —— "跳去哪个系统页"留在 Android 侧。 */
@@ -197,12 +321,22 @@ enum class PermissionAction {
 
     /** API 32 及以下的"应用通知"设置页 —— 那时没有权限可请求，开关在那里 */
     OPEN_NOTIFICATION_SETTINGS,
+
+    /**
+     * 「特殊应用权限 → 修改系统设置」。
+     *
+     * ⚠️ 只有 appop 型的 `WRITE_SETTINGS` 走这里。签名级的
+     *    `WRITE_SECURE_SETTINGS` **没有**对应的系统页，所以它不配一个动作
+     *    —— 给了就是一个永远点不开正确地方的按钮。
+     */
+    OPEN_WRITE_SETTINGS,
 }
 
 /**
  * 一项权限的判定结果。
  *
- * @param action `null` = 用户无事可做（已授予 / 应用还没做）
+ * @param action `null` = 用户无事可做（已授予 / 应用还没做 / 系统里没这个开关）
+ * @param guidance 没拿到时要告诉用户怎么做。已授予或用户插不上手时为 `null`
  */
 data class PermissionVerdict(
     val id: String,
@@ -210,14 +344,17 @@ data class PermissionVerdict(
     val purpose: String,
     val state: GrantState,
     val action: PermissionAction?,
+    val guidance: String? = null,
 )
 
 /**
- * @param actionable 用户**现在就该去处理**的项数（只有 [GrantState.Denied] 算）
+ * @param actionable 用户**在手机上**现在就该去处理的项数（只有 [GrantState.Denied] 算）
+ * @param needsComputer 要在电脑上处理才能拿到的项数（[GrantState.NeedsComputer]）
  * @param appSidePending 应用侧还没做的项数 —— 用户插不上手，但也不该被说成"已就绪"
  */
 data class PermissionSummary(
     val granted: Int,
     val actionable: Int,
+    val needsComputer: Int,
     val appSidePending: Int,
 )

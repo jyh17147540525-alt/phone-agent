@@ -20,6 +20,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -32,6 +33,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.pocketagent.capability.SafDirectoryGrants
+import com.pocketagent.capability.SafFileChannel
 import com.pocketagent.data.AppContainer
 import com.pocketagent.ui.design.AuroraBackground
 import com.pocketagent.ui.design.PaBottomBar
@@ -48,6 +51,8 @@ import com.pocketagent.ui.market.MarketScreen
 import com.pocketagent.ui.market.MarketViewModel
 import com.pocketagent.ui.models.ModelsScreen
 import com.pocketagent.ui.models.ModelsViewModel
+import com.pocketagent.ui.capability.CapabilityScreen
+import com.pocketagent.ui.capability.CapabilityViewModel
 import com.pocketagent.ui.permissions.PermissionsScreen
 import com.pocketagent.ui.permissions.PermissionsViewModel
 import com.pocketagent.ui.plugins.InstalledPluginsViewModel
@@ -92,6 +97,9 @@ object Routes {
     const val MODELS = "models"
     const val DSH = "dsh"
     const val PERMISSIONS = "permissions"
+    // 第 0 档能力的入口。它是"用户真的能用一次"的那一页 ——
+    // 在此之前裁决/规划/通道/编排四层都有测试，但没有任何界面能调用它们。
+    const val CAPABILITIES = "capabilities"
 }
 
 /**
@@ -130,7 +138,7 @@ private val TABS = listOf(
         icon = Icons.Default.Tune,
         owns = setOf(
             Routes.SETTINGS, Routes.SOURCES, Routes.KEYS,
-            Routes.MODELS, Routes.DSH, Routes.PERMISSIONS,
+            Routes.MODELS, Routes.DSH, Routes.PERMISSIONS, Routes.CAPABILITIES,
         ),
     ),
 )
@@ -266,6 +274,7 @@ fun AppShell(container: AppContainer) {
                         onOpenImport = { navController.navigate(Routes.IMPORT) },
                         permissionSummary = permissionSummary,
                         onOpenPermissions = { navController.navigate(Routes.PERMISSIONS) },
+                        onOpenCapabilities = { navController.navigate(Routes.CAPABILITIES) },
                     )
                 }
 
@@ -287,6 +296,36 @@ fun AppShell(container: AppContainer) {
                         }
                     )
                     PermissionsScreen(
+                        viewModel = vm,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+
+                // 第 0 档能力的入口。⚠️ 它拿的是**同一个** `settingsAccess`
+                // 对象 —— 权限页读"有没有授权"、这一页真正去写，
+                // 两边同源才不会出现"页面说已授权、点下去说没权限"。
+                composable(Routes.CAPABILITIES) {
+                    // ⚠️ 取 `applicationContext` 再传下去，不要用 `LocalContext.current`
+                    //    本身：ViewModel 活得比 Activity 长，持有 Activity 的 Context
+                    //    会把它连同整棵 View 树一起泄漏掉。
+                    val appContext = LocalContext.current.applicationContext
+
+                    val vm: CapabilityViewModel = viewModel(
+                        factory = viewModelFactory {
+                            initializer {
+                                CapabilityViewModel(
+                                    settingsAccess = container.settingsAccess,
+                                    // ⚠️ 这两个都是**无状态**的薄壳（真相来源是系统：
+                                    //    SAF 授权在 `persistedUriPermissions`、
+                                    //    文件在 ContentResolver 里），所以在这里
+                                    //    每次重建一个完全没问题。
+                                    safGrants = SafDirectoryGrants(appContext),
+                                    fileChannel = SafFileChannel(appContext),
+                                )
+                            }
+                        }
+                    )
+                    CapabilityScreen(
                         viewModel = vm,
                         onBack = { navController.popBackStack() },
                     )

@@ -96,6 +96,29 @@ include(":agentlogic")
 //   没有一条抛异常，没有一条在真机上"一眼看出来"。唯一可靠的抓手是确定性离线测试。
 include(":filelogic")
 
+// 第 0 档能力（零占屏）的纯逻辑部分：能力声明 / 硬拒绝清单 / 参数校验 / 裁决 / 规划 / 审计。
+//
+// ⚠️ 与 :action 是两件事 —— :action 管"点屏幕"，本模块管"**不占屏地**改系统状态"
+//    （系统设置、Shizuku shell、通知、媒体控制）。
+//    拆成零 Android 依赖的模块，理由和 :filelogic 完全一样：
+//
+// ★ 这里判错的后果**全是静默的，而且用户根本看不见** —— 第 0 档的定义
+//   就是"屏幕上不出现任何因 agent 而起的界面变化"，所以连"看起来不对劲"
+//   这个机会都没有：
+//   · 硬拒绝清单漏一条设置键 → `secure/enabled_accessibility_services`
+//     可写，agent 给自己授予无障碍权限，整个"默认拒绝、逐项放行"的模型归零
+//   · 参数校验写松一点     → `cmd package disable` 收到系统 UI 的包名，
+//     用户下次拿起手机发现没有状态栏、没有导航、没有桌面
+//   · 确认标志被提前消费   → "用户点过确认"变成绕过一切的后门
+//   没有一条抛异常，没有一条在真机上"一眼看出来"。
+//   唯一可靠的抓手是确定性离线测试。
+include(":capabilitylogic")
+
+// 第 0 档能力的 Android 侧通道（T0-A 设置读写）。
+// ⚠️ 它只做"把 :capabilitylogic 定下的端口接到系统 API 上"，
+//    一行判定逻辑都没有 —— 理由见上面那一段。
+include(":capability")
+
 include(":safety")
 include(":keymgmt")
 include(":memory")

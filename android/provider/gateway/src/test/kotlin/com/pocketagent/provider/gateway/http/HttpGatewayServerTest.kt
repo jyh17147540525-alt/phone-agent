@@ -903,17 +903,39 @@ class HttpGatewayServerTest {
 
         val results = (1..8).map { i ->
             Thread.ofVirtual().unstarted {
-                // 存到线程安全的容器里不好取，这里直接用数组
+                // ⚠️ 存**整个 Resp**，不只是状态码。
+                //
+                //    第一版只存 `status`，于是失败时报告里只有一个 `502` ——
+                //    没有响应体、没有 failureCode、没有异常类型。
+                //    而 502 在本服务里有两个来源（`UpstreamError` 与
+                //    **"非 GatewayCallException 的意外异常"**），
+                //    两者要查的地方完全不同。
+                //
+                //    ⇒ **不可诊断的失败比 flaky 本身更值得修**：它会让人
+                //      在"并发有 bug"和"测试环境脏了"之间反复猜，最后
+                //      两边都不查。响应体里带着 `describeFailure(e)`
+                //      的输出，那才是能定位问题的那一行。
                 threadResults[i - 1] = request(
                     server, "POST", "/v1/chat/completions", chatBody(stream = false)
-                ).status
+                )
             }
         }
         results.forEach { it.start() }
         results.forEach { it.join() }
 
-        assertEquals(List(8) { 200 }, threadResults.toList())
+        val got = threadResults.toList()
+        assertEquals(
+            "8 个并发请求都该成功。实际：\n" + got.mapIndexed { i, r ->
+                "  [$i] status=${r?.status} body=${r?.body?.take(300)}"
+            }.joinToString("\n"),
+            List(8) { 200 },
+            got.map { it?.status },
+        )
     }
 
-    private val threadResults = IntArray(8)
+    /**
+     * ⚠️ 用 `Resp?` 而不是 `IntArray` —— 见上面那段注释。
+     *    每个线程写**不同下标**，`join()` 之后读，没有可见性问题。
+     */
+    private val threadResults = arrayOfNulls<Resp>(8)
 }

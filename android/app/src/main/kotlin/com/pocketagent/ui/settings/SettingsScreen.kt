@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.Cable
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Shield
@@ -70,6 +71,7 @@ fun SettingsScreen(
     onOpenSources: (() -> Unit)? = null,
     onOpenImport: (() -> Unit)? = null,
     onOpenPermissions: (() -> Unit)? = null,
+    onOpenCapabilities: (() -> Unit)? = null,
 ) {
     val (keyBadge, keyTone) = keyBadgeFor(keyStatus)
 
@@ -79,6 +81,11 @@ fun SettingsScreen(
         permissionSummary == null -> PaBadgeTone.Neutral
         // 有用户能处理的 → 警示色，那是他该做的事
         permissionSummary.actionable > 0 -> PaBadgeTone.Warning
+        // ⚠️ 只剩"要在电脑上授权"的那几项 → **不能掉进下面的 Success**。
+        //    那等于告诉用户"全都好了"，而写 `Settings.Global` 那几条能力
+        //    其实一条都跑不了。Accent 而不是 Warning：它确实是用户的待办，
+        //    但**不是**"去系统设置点一下"—— 给警示色会让他去设置里找一个不存在的开关。
+        permissionSummary.needsComputer > 0 -> PaBadgeTone.Accent
         // 用户做完了、只是应用还没做 → 中性色。**不能给 Success**：
         // 那等于告诉用户"全都好了"，而截图其实还拿不到。
         permissionSummary.appSidePending > 0 -> PaBadgeTone.Neutral
@@ -174,6 +181,24 @@ fun SettingsScreen(
                         badge = permissionBadge,
                         badgeTone = permissionTone,
                         onClick = onOpenPermissions,
+                    )
+                    PaListDivider()
+                    // ⚠️ 这一行与上一行是**两件事**：
+                    //    上面是"系统让不让我们看"（系统权限），
+                    //    下面是"我们准不准自己动手"（能力授权）。
+                    //    合成一行会让用户以为开了权限就等于放行了能力 ——
+                    //    而两者是彼此独立的两套授权，各管一段。
+                    PaListRow(
+                        icon = Icons.Default.PlayArrow,
+                        title = "第 0 档能力",
+                        // ⚠️ 副标题必须与那一页**实际有什么**对得上。
+                        //    它曾经写的是"改设置、调媒体、发通知" —— 那 14 条
+                        //    设备控制类能力已经被移出第 0 档（见 CapabilityGroup），
+                        //    而这里的文案留了下来：用户按它点进去，看到的是
+                        //    一页文件能力，于是会以为"功能被砍了"。
+                        //    （2026-09-23 真机目击）
+                        subtitle = "不占屏幕就能做的事：读写文件、发通知",
+                        onClick = onOpenCapabilities,
                     )
                 }
             }

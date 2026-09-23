@@ -53,6 +53,27 @@ PURE_KOTLIN = {
     #   没有一条会抛异常，没有一条会在真机上"一眼看出来"。
     #   这类问题唯一可靠的抓手就是能离线跑的确定性测试。
     "agentlogic",
+    # 文件能力沙箱的纯逻辑：范围模型 / 路径归一化 / 穿越防护 / 操作裁决 / 审计。
+    #
+    # ⚠️ **这一条是补登的**（2026-09-23）。filelogic 从建模块起就在磁盘上
+    #    带着"⚠️ 自动生成"的文件头，但它**不在这张表里** —— 于是：
+    #      · 生成器从不检查它（`--check` 只遍历生成器认识的模块）
+    #      · 它被悄悄漏掉，而 `--check` 照样报"全部 34 个模块一致"
+    #    这正是"一个总有红条的检查等于没有检查"的反面：**一个漏掉模块的检查
+    #    同样是假的**，只是它不报红，所以更不容易被发现。
+    #    ⇒ 教训：往 PURE_KOTLIN 加模块时，必须同时确认 `--check` 的**总数**在涨。
+    "filelogic",
+    # 第 0 档能力的纯逻辑：能力声明 / 硬拒绝清单 / 参数校验 / 裁决 / 规划 / 审计。
+    #
+    # ★ 与 :action 是两件事 —— :action 管"点屏幕"，本模块管"不占屏地改系统状态"。
+    #
+    # ★ 这一层判错的后果**全是静默的，而且用户看不见**（第 0 档的定义就是
+    #   "屏幕上什么都不发生"）：
+    #   · 硬拒绝清单漏一条设置键 → agent 能给自己授予无障碍权限，安全模型归零
+    #   · 参数校验写松一点     → `cmd package disable` 收到系统 UI 的包名
+    #   · 确认标志被提前消费   → "用户确认过"变成绕过一切的后门
+    #   没有一条抛异常，没有一条在真机上"一眼看出来"。唯一抓手是确定性离线测试。
+    "capabilitylogic",
 }
 
 # Android Library 模块 → 该模块需要额外依赖的库别名
@@ -92,6 +113,19 @@ ANDROID_LIB = {
     "action": [
         "androidx.core.ktx", "kotlinx.coroutines.android",
         "shizuku.api", "shizuku.provider", "timber",
+    ],
+    # 第 0 档能力的 **Android 侧通道**（T0-A 设置读写）。
+    #
+    # ★ 与 :action 是两件事：:action 管"点屏幕"，本模块管"不占屏地改系统状态"。
+    #   判定逻辑一行都不在这里 —— 它全在 :capabilitylogic（纯模块、可离线测）。
+    #   本模块只把那个模块定下的端口接到系统 API 上。
+    #
+    # ⚠️ 刻意**不**依赖 shizuku：设置通道走 `Settings.*` 的 API，
+    #   不需要 shell 身份。这是第 0 档能在 Shizuku 服务没跑起来的情况下
+    #   仍然可用的原因。shell 端口（T0-B）将来的实现要另算 ——
+    #   见 :capabilitylogic 里 ShellRunner 的注释（上游已移除 newProcess）。
+    "capability": [
+        "androidx.core.ktx", "kotlinx.coroutines.android", "timber",
     ],
     "agent": [
         "kotlinx.coroutines.android", "kotlinx.serialization.json", "timber",
@@ -195,6 +229,28 @@ NEEDS_SERIALIZATION = {
 #    教训：**改完代码光跑离线单测是不够的**。它覆盖的是纯逻辑模块，
 #    而 Android 模块的编译错误只有 `./gradlew test` 才会暴露。
 PROJECT_DEPS = {
+    # 第 0 档能力层要用 `:core:common` 里的 `SettingsPermission` ——
+    # 「写哪个命名空间需要哪项系统授权」这件事**有两个消费方**
+    # （能力层：执行失败时给命令；权限页：还没授权时就把命令显示出来），
+    # 而两边各写一份文案的后果是它们会不一致。
+    #
+    # ⚠️ 方向是 capabilitylogic → core:common，**不能反过来**：
+    #    `:core:common` 是这两层共同的下层（`HostPermissions` 也在那里），
+    #    反方向依赖会成环。而 `:capabilitylogic` 本来就已经通过
+    #    生成器给每个模块的 `implementation(project(":core:common"))` 站在它上面。
+    #
+    # ★ `:filelogic` 是 2026-09-23 加的（第 0 档重新定位：从"设备开关"转向
+    #    "文件办公"）。这条边**不会**损害离线可测性 —— `:filelogic` 是纯 Kotlin
+    #    （零 Android 依赖），两个模块都在 PURE_KOTLIN 里，都能进离线验证器。
+    #
+    #    ⚠️ 文件裁决**必须**在 `:capabilitylogic` 侧被调用（由 CapabilityRunner
+    #    编排），**不能**下移到通道实现（`:capability`）里 —— 那样
+    #    "什么允许、什么不允许"就同时存在于两处，而漂移的方向永远是
+    #    **松的那一份生效**（调用方会走到它先通过的那条路上）。
+    #
+    #    方向也不能反过来：`:filelogic` 一旦依赖本模块，它就从纯判定层变成了
+    #    "知道能力目录"的东西，而它的全部价值正在于**只认识路径与范围**。
+    "capabilitylogic": [":core:common", ":filelogic"],
     # 数据库需要 Keystore 提供 SQLCipher 口令（口令本身也用主密钥加密后落盘）
     "core/database": [":core:crypto"],
     "provider/openai-compat": [":provider:api"],
@@ -225,6 +281,17 @@ PROJECT_DEPS = {
     # 悬浮球：Android 壳只做"显示与交互"，状态机/几何/急停语义在 :overlaylogic。
     # 拆开的理由见 PURE_KOTLIN 里的注释 —— 那些逻辑必须能离线测试。
     "overlay": [":overlaylogic"],
+    # 第 0 档能力：Android 侧只做"把端口接到系统 API 上"，裁决/规划/审计/编排
+    # 全在 :capabilitylogic。⚠️ 方向**不能**反过来 —— 纯模块一旦依赖 Android
+    # 就进不了离线验证器，而第 0 档判错的后果全是静默的（屏幕上什么都不发生）。
+    #
+    # ⚠️ `:filelogic` 必须**显式**列出来，哪怕 `:capabilitylogic` 已经依赖它：
+    #    `:capabilitylogic` 用的是 `implementation`，**不会传递**到本模块 ——
+    #    而 SAF 通道要实现 `:filelogic` 的 `FileChannel` 接口、用到它的
+    #    `ScopeRoot` / `EntryStat` / `ChannelResult`。少这一行的话 Gradle 报
+    #    "Cannot access 'FileChannel' which is a supertype of ..."，
+    #    而那句报错完全没提"你该去上游模块加 api"（见下面 API_DEPS 的注释）。
+    "capability": [":capabilitylogic", ":filelogic"],
     # 网关核心：路由决策来自 :modelrouter，请求/响应契约来自 :provider:api。
     # ⚠️ 刻意**不依赖任何具体 Provider 实现**（openai-compat / anthropic / …）——
     #    具体 Provider 一律通过构造器注入 `List<LlmProvider>`。否则每新增一家厂商
@@ -292,6 +359,11 @@ EXTRA_TEST_DEPS = {
             "overlaylogic",
             "provider/gateway",
             "agentlogic",
+            # 通道层的端口是 suspend 的，测试用 runTest 驱动
+            # （`CapabilityRunnerTest` 里 20 多条都是 `= runTest { }`）。
+            # 不登记的话 Gradle 通道会缺 kotlinx-coroutines-test：
+            # 离线通道看不出来（那个 jar 是全局加的），只有 Gradle 会红。
+            "capabilitylogic",
             # ── 手工补过这一行、且确实需要的模块 ──
             "core/common",
             "core/network",
@@ -299,6 +371,19 @@ EXTRA_TEST_DEPS = {
             # 这两个是纯 Kotlin 契约模块，测试里也要跑协程断言
             "provider/api",
             "plugin/api",
+            # ── 磁盘上有这一行、但实际用不到的模块 ──
+            #
+            # ⚠️ filelogic 的主源码与测试**都没有 import 任何 kotlinx 包**
+            #    （`grep -rh "^import kotlinx" android/filelogic/src` 为空，
+            #    测试里也 grep 不到 runTest）。这一行是建模块时手加上的多余依赖。
+            #
+            #    登记它、而不是直接删掉它，是因为生成器的职责是**描述现状**：
+            #    不登记的话 `--check` 会永远报 filelogic 不一致，而那条红条
+            #    会和"真缺了 room-compiler"长得一模一样 —— 见本表开头的论证。
+            #
+            #    ⇒ 清理它是一次**独立**的改动（删磁盘那一行 + 删这条登记），
+            #      不该和"补登一个被漏掉的模块"混在一起做。
+            "filelogic",
         )
     },
     # ═══════════════════════════════════════════════════════════

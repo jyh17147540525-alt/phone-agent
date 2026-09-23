@@ -248,7 +248,7 @@ class FileAccessDecider(
 
         return when (reason) {
             ConfirmReason.OVERWRITE_EXISTING ->
-                "「$name」已经存在$metaText。继续写入会把它的原有内容**整体替换掉**，" +
+                "「$name」已经存在$metaText。继续写入会把它的原有内容「整体替换掉」，" +
                     "而且没法撤销。要覆盖它吗？"
 
             ConfirmReason.DELETE_FILE ->
@@ -263,7 +263,7 @@ class FileAccessDecider(
                     count == null -> "要删除文件夹「$name」。$tail"
                     count == 0 -> "要删除空文件夹「$name」。$tail"
                     else -> "要删除文件夹「$name」，里面还有 $count 个子项，" +
-                        "它们会**一起被删掉**。$tail"
+                        "它们会「一起被删掉」。$tail"
                 }
             }
 

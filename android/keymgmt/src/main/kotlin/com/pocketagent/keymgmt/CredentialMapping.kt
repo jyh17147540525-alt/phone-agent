@@ -80,7 +80,7 @@ internal fun KeyValidationResult.toOutcome(): ValidationOutcome = when (this) {
 
     is KeyValidationResult.Unreachable -> ValidationOutcome(
         status = CredentialCheckStatus.UNREACHABLE,
-        detail = "连不上服务商：$reason。**这不代表 Key 有问题** —— " +
+        detail = "连不上服务商：$reason。「这不代表 Key 有问题」—— " +
             "检查一下网络或代理，稍后重新校验。",
     )
 }
@@ -120,17 +120,17 @@ internal fun ProviderException.toOutcome(): ValidationOutcome = when (this) {
     is ProviderException.NetworkError -> ValidationOutcome(
         status = CredentialCheckStatus.UNREACHABLE,
         detail = "连不上服务商（${cause?.message ?: "网络错误"}）。" +
-            "**这不代表 Key 有问题** —— 检查一下网络或代理，稍后重新校验。",
+            "「这不代表 Key 有问题」—— 检查一下网络或代理，稍后重新校验。",
     )
 
     is ProviderException.Timeout -> ValidationOutcome(
         status = CredentialCheckStatus.UNREACHABLE,
-        detail = "服务商没有在超时时间内响应。**这不代表 Key 有问题**，稍后重试。",
+        detail = "服务商没有在超时时间内响应。「这不代表 Key 有问题」，稍后重试。",
     )
 
     is ProviderException.ProtocolError -> ValidationOutcome(
         status = CredentialCheckStatus.UNREACHABLE,
-        detail = "服务商的响应看不懂，可能它改了接口。**这不代表 Key 有问题**。" +
+        detail = "服务商的响应看不懂，可能它改了接口。「这不代表 Key 有问题」。" +
             "如果一直这样，请提交反馈。",
     )
 

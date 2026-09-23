@@ -70,7 +70,7 @@ class AppPrivateDshConfigSink(
 
         if (credentialsYaml == null) {
             return DshWriteResult.Partial(
-                "已写入 dsh 设置，但**未能生成凭据文件** —— dsh 现有的凭据文件结构" +
+                "已写入 dsh 设置，但「未能生成凭据文件」—— dsh 现有的凭据文件结构" +
                     "与预期不符（可能是 dsh 升级后改了格式）。请把设置文件里的 " +
                     "${DshConfigPatch.DEFAULT_CREDENTIAL_REF} 手工加到 dsh 的凭据文件里，" +
                     "否则请求会报凭据缺失。"

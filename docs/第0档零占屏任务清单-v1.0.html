@@ -1,0 +1,1028 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 0 档零占屏任务清单 v1.0</title>
+<style>
+:root {
+  --bg: #14161a;
+  --bg-soft: #1a1d22;
+  --panel: #1e2228;
+  --panel-2: #23272f;
+  --border: #2e343d;
+  --text: #e6e9ee;
+  --text-dim: #9aa4b2;
+  --text-faint: #6b7684;
+  --accent: #6ea8fe;
+  --accent-2: #7ee0c0;
+  --warn: #f0b429;
+  --danger: #f2685c;
+  --ok: #57c98a;
+  --code-bg: #15181d;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+               "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans SC", sans-serif;
+  font-size: 15.5px;
+  line-height: 1.85;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { display: flex; max-width: 1500px; margin: 0 auto; }
+aside {
+  width: 300px; flex: 0 0 300px;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  padding: 28px 18px 60px 28px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-soft);
+  font-size: 13.5px;
+}
+aside .brand {
+  font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--text-faint); margin-bottom: 4px;
+}
+aside .title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 20px; line-height: 1.5; }
+aside ul { list-style: none; padding-left: 0; margin: 0; }
+aside ul ul { padding-left: 14px; margin-top: 4px; }
+aside li { margin: 2px 0; }
+aside a {
+  color: var(--text-dim); text-decoration: none; display: block;
+  padding: 4px 8px; border-radius: 6px; border-left: 2px solid transparent;
+  transition: .15s;
+}
+aside a:hover { color: var(--text); background: var(--panel-2); border-left-color: var(--accent); }
+main { flex: 1; min-width: 0; padding: 44px 56px 120px; max-width: 1080px; }
+
+h1 {
+  font-size: 30px; line-height: 1.35; margin: 0 0 8px; font-weight: 800;
+  letter-spacing: -.01em;
+}
+h2 {
+  font-size: 22px; margin: 56px 0 18px; padding-bottom: 10px;
+  border-bottom: 1px solid var(--border); font-weight: 700; scroll-margin-top: 20px;
+}
+h3 { font-size: 17.5px; margin: 34px 0 12px; font-weight: 700; color: #dfe5ee; scroll-margin-top: 20px; }
+h4 { font-size: 15.5px; margin: 24px 0 10px; font-weight: 700; color: var(--text-dim); }
+p { margin: 12px 0; }
+a { color: var(--accent); }
+strong { color: #fff; font-weight: 700; }
+hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+blockquote {
+  margin: 18px 0; padding: 14px 20px;
+  background: linear-gradient(90deg, rgba(110,168,254,.10), rgba(110,168,254,.02));
+  border-left: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0; color: #cfd6e0;
+}
+blockquote p { margin: 6px 0; }
+
+ul, ol { padding-left: 24px; margin: 12px 0; }
+li { margin: 5px 0; }
+li > ul, li > ol { margin: 5px 0; }
+
+.tw { overflow-x: auto; margin: 18px 0; border: 1px solid var(--border); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--panel); }
+th, td { padding: 9px 14px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { background: var(--panel-2); font-weight: 700; color: #fff; white-space: nowrap; font-size: 13.5px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: rgba(110,168,254,.045); }
+
+code {
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+  font-size: 13px; background: var(--code-bg); padding: 2px 6px;
+  border-radius: 5px; color: #8fd3ff; border: 1px solid var(--border);
+}
+pre {
+  background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px;
+  padding: 18px 20px; overflow-x: auto; margin: 18px 0;
+  font-size: 12.8px; line-height: 1.65;
+}
+pre code {
+  background: none; border: none; padding: 0; color: #cfd8e3;
+  white-space: pre; font-family: "JetBrains Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+}
+.codehilite { background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; margin: 18px 0; }
+.codehilite pre { border: none; margin: 0; background: none; }
+.codehilite .k, .codehilite .kd, .codehilite .kn { color: #ff7b9c; }
+.codehilite .s, .codehilite .s1, .codehilite .s2 { color: #7ee0c0; }
+.codehilite .c1, .codehilite .cm { color: #5f6b7a; font-style: italic; }
+.codehilite .n, .codehilite .nf, .codehilite .nc { color: #8fd3ff; }
+.codehilite .m, .codehilite .mi { color: #f0b429; }
+
+@media (max-width: 1000px) {
+  aside { display: none; }
+  main { padding: 28px 20px 80px; }
+  body { font-size: 15px; }
+  h1 { font-size: 24px; }
+  h2 { font-size: 19px; }
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: #333a45; border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: #414a58; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <aside>
+    <div class="brand">Project Plan</div>
+    <div class="title">第 0 档零占屏任务清单 v1.0</div>
+    <div class="toc">
+<ul>
+<li><a href="#0">0. 为什么要有这份清单</a></li>
+<li><a href="#1">1. 定义与判据</a><ul>
+<li><a href="#11">1.1 一个必要的细分</a></li>
+</ul>
+</li>
+<li><a href="#2">2. 六条零占屏通道</a><ul>
+<li><a href="#21-t0-a">2.1 T0-A 的实测细节（重要）</a></li>
+<li><a href="#22-t0-b">2.2 T0-B 的边界</a></li>
+</ul>
+</li>
+<li><a href="#3">3. 真机实测的零占屏控制清单</a></li>
+<li><a href="#4">4. 任务清单</a><ul>
+<li><a href="#41">4.1 系统与设备</a></li>
+<li><a href="#42">4.2 通知与消息</a></li>
+<li><a href="#43">4.3 媒体与音频</a></li>
+<li><a href="#44">4.4 数据与信息</a></li>
+<li><a href="#45">4.5 通信</a></li>
+</ul>
+</li>
+<li><a href="#5-0">5. 反面清单（明确不属于第 0 档）</a></li>
+<li><a href="#6">6. 前置条件（用户要配什么）</a></li>
+<li><a href="#7">7. 与既有架构的衔接</a></li>
+<li><a href="#8">8. 待实测项（诚实清单）</a></li>
+<li><a href="#9">9. 建议的落地顺序</a><ul>
+<li><a href="#91">9.1 落地时确立的硬约束（改动需评审）</a></li>
+</ul>
+</li>
+</ul>
+</div>
+
+  </aside>
+  <main>
+<h1 id="0-v10">第 0 档零占屏任务清单 v1.0</h1>
+<blockquote>
+<p>2026-09-23 · 全部命令均在真机 K60（<code>mondrian</code> / Android 15 / API 35 / HyperOS <code>OS3.0.8.0.VMNCNXM</code>）
+上实测取得，标注 ✅ 的表示<strong>现场验证过</strong>，标注 ⚠️ 的表示<strong>仅推断、待实测</strong>。</p>
+</blockquote>
+<hr />
+<h2 id="0">0. 为什么要有这份清单</h2>
+<p>前面几轮已经依次否掉三条路：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>方向</th>
+<th>结论</th>
+<th>死因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>虚拟屏</td>
+<td>❌ 已否决</td>
+<td>P0-3：<code>isCallerAllowedToLaunchOnDisplay()</code> 架构封死，第三方无法把别人的 App 启到非默认屏</td>
+</tr>
+<tr>
+<td>freeform 小窗</td>
+<td>❌ 本机不可用</td>
+<td>无 <code>freeform_window_management</code> feature + <code>setprop</code> 被 SELinux 拒 + <code>--windowingMode 5</code> 静默降级</td>
+</tr>
+<tr>
+<td>系统分身</td>
+<td>❌ 已否决</td>
+<td>全机只有一块 INTERNAL display，分身与主空间是<strong>切换式</strong>关系</td>
+</tr>
+</tbody>
+</table></div>
+<p>⇒ <strong>「不占屏地操作别人的 App」这条路，第三方应用走不通。</strong></p>
+<p>第 0 档换一个问法：<strong>不操作界面，能不能把事办了？</strong></p>
+<p>答案是可以，而且能办的事比预想的多 —— 前提是<strong>目标 App 提供了无界面的入口</strong>。</p>
+<hr />
+<h2 id="1">1. 定义与判据</h2>
+<blockquote>
+<p><strong>第 0 档 = 任务执行全程，屏幕上不出现任何「因 agent 而起」的界面变化。</strong></p>
+</blockquote>
+<p>三条判据（必须全满足）：</p>
+<ol>
+<li>不调用 <code>startActivity</code></li>
+<li>不读无障碍节点树、不截图</li>
+<li>不注入触摸/按键事件（<strong>媒体键除外</strong> —— 它不改变画面）</li>
+</ol>
+<h3 id="11">1.1 一个必要的细分</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>档位</th>
+<th>含义</th>
+<th>例子</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>第 0 档（严格）</strong></td>
+<td>全程零界面变化</td>
+<td>「把 Wi-Fi 关了」「给张三发条短信」</td>
+</tr>
+<tr>
+<td><strong>第 0 档+（终点跳转）</strong></td>
+<td>全程零界面变化，<strong>只在最后跳一次到结果页</strong></td>
+<td>「打开淘宝的订单页」</td>
+</tr>
+</tbody>
+</table></div>
+<p>⚠️ <strong>关键区分</strong>：</p>
+<ul>
+<li>「agent <strong>为了自己操作</strong>而把界面拉起来」→ <strong>占屏</strong></li>
+<li>「任务<strong>的结果本身就是</strong>给用户看的页面」→ <strong>不算占屏</strong></li>
+</ul>
+<p>这条区分决定了 <code>startActivity</code> 不是绝对禁止 —— 但它只能出现在<strong>终点</strong>，且<strong>只能出现一次</strong>。
+一旦出现第二次（翻页、返回、重进），任务就掉出第 0 档。</p>
+<hr />
+<h2 id="2">2. 六条零占屏通道</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>通道</th>
+<th>机制</th>
+<th>需要什么</th>
+<th>本机状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>T0-A</strong> 系统设置</td>
+<td><code>Settings.Global/System/Secure</code> 读写</td>
+<td><code>WRITE_SECURE_SETTINGS</code></td>
+<td>✅ 该权限 <code>prot=signature\|privileged\|development\|installer\|role</code> → <strong>可变更</strong>（实测）；⚠️ <strong>必须先在 manifest 声明</strong></td>
+</tr>
+<tr>
+<td><strong>T0-B</strong> Shizuku shell</td>
+<td>以 uid 2000 执行 <code>cmd *</code> / <code>pm</code> / <code>settings</code> / <code>svc</code></td>
+<td>用户装 Shizuku 并授权</td>
+<td>✅ Shizuku 已安装（当前未运行）；<code>cmd -l</code> 列出 <strong>354</strong> 个服务</td>
+</tr>
+<tr>
+<td><strong>T0-C</strong> 通知</td>
+<td>读（<code>NotificationListenerService</code>）/ 写（<code>cmd notification post</code>）/ 回复（<code>RemoteInput</code>）</td>
+<td>通知使用权 / Shizuku</td>
+<td>✅ <code>cmd notification</code> 支持 <code>post</code>/<code>set_dnd</code>/<code>list</code>/<code>get</code>/<code>snooze</code>；⚠️ 当前通知使用权被小米自带服务占用</td>
+</tr>
+<tr>
+<td><strong>T0-D</strong> 数据接口</td>
+<td><code>ContentProvider</code> / 网络 API / SAF 文件</td>
+<td>运行时权限 / SAF 授权</td>
+<td>部分就绪（<code>:filelogic</code> 判定层已完成，Android 侧通道待做）</td>
+</tr>
+<tr>
+<td><strong>T0-E</strong> 音频与媒体</td>
+<td>TTS 播报 / <code>cmd media_session dispatch</code> / 音量</td>
+<td>无（媒体控制需 Shizuku）</td>
+<td>✅ <code>dispatch play\|pause\|next\|previous</code> 可用；本机有活跃会话 <code>cn.longniu.pages</code></td>
+</tr>
+<tr>
+<td><strong>T0-F</strong> 广播与服务</td>
+<td><code>am broadcast</code> / <code>am start-foreground-service</code></td>
+<td>Shizuku；目标 App 需导出对应组件</td>
+<td>✅ 可用（导出组件需逐 App 调研）</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="21-t0-a">2.1 T0-A 的实测细节（重要）</h3>
+<p><code>WRITE_SECURE_SETTINGS</code> 是本清单里<strong>唯一能让 App 直接写系统设置</strong>的路径。实测结论：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># ① 该权限本身是可变更的 —— 对照组能反证</span>
+$<span class="w"> </span>pm<span class="w"> </span>grant<span class="w"> </span>&lt;pkg&gt;<span class="w"> </span>android.permission.WRITE_SECURE_SETTINGS<span class="w">        </span><span class="c1"># → 无异常</span>
+$<span class="w"> </span>pm<span class="w"> </span>grant<span class="w"> </span>&lt;pkg&gt;<span class="w"> </span>android.permission.BIND_NOTIFICATION_LISTENER_SERVICE
+<span class="w">  </span>SecurityException:<span class="w"> </span>...<span class="w"> </span>is<span class="w"> </span>not<span class="w"> </span>a<span class="w"> </span>changeable<span class="w"> </span>permission<span class="w"> </span><span class="nb">type</span><span class="w">      </span><span class="c1"># ← 纯 signature 的报这个</span>
+
+<span class="c1"># ② 但「没在 manifest 里声明」时，pm grant 是【静默无效】的</span>
+$<span class="w"> </span>pm<span class="w"> </span>grant<span class="w"> </span>&lt;pkg&gt;<span class="w"> </span>android.permission.WRITE_SECURE_SETTINGS<span class="w">        </span><span class="c1"># → 不报错</span>
+$<span class="w"> </span>dumpsys<span class="w"> </span>package<span class="w"> </span>&lt;pkg&gt;<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>WRITE_SECURE_SETTINGS<span class="w">             </span><span class="c1"># → 空，没生效</span>
+</code></pre></div>
+
+<p>⇒ <strong>正确流程：先在 <code>AndroidManifest.xml</code> 里声明，再由用户 <code>adb shell pm grant</code> 授予。</strong>
+跳过声明那一步不会报错，只会安静地不生效 —— 属于本项目反复踩的那类 bug。</p>
+<p>✅ <strong>已实测通过（2026-09-23，K60 / Android 15）</strong>：声明放进 <code>:capability</code> 的 manifest、
+构建安装后：</p>
+<div class="codehilite"><pre><span></span><code>$<span class="w"> </span>dumpsys<span class="w"> </span>package<span class="w"> </span>com.pocketagent.debug<span class="w"> </span><span class="p">|</span><span class="w"> </span>sed<span class="w"> </span>-n<span class="w"> </span><span class="s1">'/requested permissions:/,/install permissions:/p'</span>
+<span class="w">      </span>android.permission.WRITE_SETTINGS
+<span class="w">      </span>android.permission.WRITE_SECURE_SETTINGS<span class="w">                    </span><span class="c1"># ← 声明进了 APK</span>
+$<span class="w"> </span>pm<span class="w"> </span>grant<span class="w"> </span>com.pocketagent.debug<span class="w"> </span>android.permission.WRITE_SECURE_SETTINGS<span class="w">   </span><span class="c1"># → 退出码 0</span>
+$<span class="w"> </span>dumpsys<span class="w"> </span>package<span class="w"> </span>com.pocketagent.debug<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span><span class="s2">"WRITE_SECURE_SETTINGS:"</span>
+<span class="w">      </span>android.permission.WRITE_SECURE_SETTINGS:<span class="w"> </span><span class="nv">granted</span><span class="o">=</span><span class="nb">true</span><span class="w">      </span><span class="c1"># ← 真的生效了</span>
+</code></pre></div>
+
+<p>⚠️ <strong>但声明要进 APK，<code>:app</code> 必须真的依赖 <code>:capability</code></strong> —— manifest 合并只在
+有人依赖那个模块时才生效。少那一行的话模块代码照样编译通过、权限却不在 APK 里，
+<code>pm grant</code> 静默无效。又一次"不报错、只是安静地少做一件事"。</p>
+<h4 id="dumpsys-package-android">★★ 三个命名空间用的是<strong>两类</strong>权限（真机 <code>dumpsys package android</code> 实测）</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>命名空间</th>
+<th>权限</th>
+<th>保护级别（原样）</th>
+<th><code>pm grant</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GLOBAL</code> / <code>SECURE</code></td>
+<td><code>WRITE_SECURE_SETTINGS</code></td>
+<td><code>signature\|privileged\|</code><strong><code>development</code></strong><code>\|installer\|role</code></td>
+<td>✅ 能授</td>
+</tr>
+<tr>
+<td><code>SYSTEM</code></td>
+<td><code>WRITE_SETTINGS</code></td>
+<td><code>signature\|</code><strong><code>appop</code></strong><code>\|pre23\|preinstalled\|role</code></td>
+<td>❌ 报错</td>
+</tr>
+</tbody>
+</table></div>
+<p>差别就在那一位上：<code>development</code> 位让 <code>pm grant</code> 生效；<code>appop</code> 型的不走包管理器。</p>
+<p><code>WRITE_SETTINGS</code> 的三条实测（声明进 manifest 之后）：</p>
+<ul>
+<li><code>pm grant … WRITE_SETTINGS</code> → <code>SecurityException: Permission … is managed by role</code>，退出码 <strong>255</strong></li>
+<li><code>cmd appops get &lt;pkg&gt; WRITE_SETTINGS</code> → 声明前 <code>No operations / Default mode: default</code>，声明后 <code>ignore</code></li>
+<li><code>cmd appops set &lt;pkg&gt; WRITE_SETTINGS allow</code> → 复查为 <strong><code>allow</code></strong> ✅ 可行</li>
+</ul>
+<p>⚠️ <strong>把两者混成一个"没有写设置权限"，用户拿到的指引会有一半是错的</strong> ——
+而错的指引比没有指引更坏：他会照着 <code>pm grant</code> 做一遍、撞上一个
+<code>is managed by role</code> 的报错（那句话里没有一个字提到"你该改用 appops"），
+然后认定"这个功能坏了"。</p>
+<p>⇒ 两条指引已固化在 <code>SettingsPermissionPolicy.guidanceFor()</code>，<strong>逐字命令有测试钉住</strong>。</p>
+<h3 id="22-t0-b">2.2 T0-B 的边界</h3>
+<p>Shizuku 给的是 <strong>uid 2000（shell）</strong>，不是 root。它能做 <code>cmd</code>/<code>pm</code>/<code>settings</code>/<code>svc</code>/<code>am</code>，
+<strong>不能</strong>改 SELinux 策略、不能 <code>setprop</code> 受限属性（P0-3 里 <code>enable_freeform_support</code> 就是被这条挡住的）。</p>
+<h4 id="shizukunewprocess-2026-09-23">⚠️⚠️ <code>Shizuku#newProcess</code> 已经不存在了（2026-09-23 核实）</h4>
+<p>对 <code>dev.rikka.shizuku:api:13.1.5</code> 的 <code>classes.jar</code> 直接 <code>javap</code>：</p>
+<ul>
+<li><code>rikka.shizuku.Shizuku</code> 里<strong>没有</strong> <code>newProcess</code>。它只有 <code>pingBinder</code> /
+  <code>checkSelfPermission</code> / <code>requestPermission</code> / <code>getBinder</code> / <code>bindUserService</code> /
+  <code>unbindUserService</code> / <code>transactRemote</code> 等</li>
+<li><code>rikka.shizuku.ShizukuRemoteProcess</code> 还在，但构造器收的是
+  <code>moe.shizuku.server.IRemoteProcess</code>，而且是<strong>包内可见</strong>的 —— 外部构造不了</li>
+<li>官方 Changelog 13.1.1：「Prepare to remove <code>Shizuku#newProcess</code>, developers
+  should have to use <code>UserService</code> instead」</li>
+</ul>
+<p>⇒ <strong>T0-B 的实现路径是 <code>UserService</code></strong>：应用自带一个 <code>.aidl</code> 接口 + 一个 service 类，
+由 Shizuku 在 shell/root 身份的进程里拉起，应用再通过 <code>bindUserService</code> 拿它的 binder。
+代价是要开 AIDL 代码生成（<code>buildFeatures { aidl = true }</code>）。</p>
+<p>⚠️ <strong>为什么要把这段写下来</strong>：社区里仍在流传 <code>Shizuku.newProcess</code> 的写法，而它们
+<strong>看起来能跑</strong>。实测过的一个开源终端 App 就是用<strong>反射</strong>去调它 ——
+反射失败后回落到无权限的 <code>Runtime.exec</code>，界面上照常显示「Shizuku 模式」，
+命令却一点特权都没有；而它的 README 还写着"可访问 <code>/data</code>、<code>pm grant</code>、<code>dumpsys</code>"。
+⇒ 那正是本项目最忌讳的形态：<strong>不报错、不崩溃，只是安静地少做一件事。</strong></p>
+<p>⚠️ 因此 <code>:capability</code> 刻意<strong>不</strong>依赖 shizuku —— 设置通道走 <code>Settings.*</code> 的 API，
+不需要 shell 身份。这是第 0 档能在 Shizuku 服务没跑起来时仍然可用的原因。</p>
+<hr />
+<h2 id="3">3. 真机实测的零占屏控制清单</h2>
+<p>全部来自 <code>cmd &lt;svc&gt; -h</code> 的<strong>实际输出</strong>，不是文档推测。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>能力</th>
+<th>命令</th>
+<th>验证</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Wi-Fi 开关</td>
+<td><code>cmd wifi set-wifi-enabled enabled\|disabled</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>飞行模式</td>
+<td><code>cmd connectivity airplane-mode enable\|disable</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>勿扰模式</td>
+<td><code>cmd notification set_dnd on\|priority\|alarms\|off</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>媒体播放控制</td>
+<td><code>cmd media_session dispatch play\|pause\|play-pause\|next\|previous\|stop\|mute</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>音量</td>
+<td><code>cmd media_session volume --stream N --set I</code> / <code>--adj raise\|lower</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>深色模式</td>
+<td><code>cmd uimode night yes\|no\|auto</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>车机模式</td>
+<td><code>cmd uimode car yes\|no</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>电池待机/白名单</td>
+<td><code>cmd deviceidle force-idle\|unforce\|whitelist &lt;pkg&gt;</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>应用停用/启用</td>
+<td><code>cmd package disable\|enable\|disable-user\|disable-until-used</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>系统设置读写</td>
+<td><code>settings get/put global\|system\|secure</code></td>
+<td>✅ <strong>本机实测可写</strong>（读→写回同值→再读，值不变、无报错）</td>
+</tr>
+<tr>
+<td>通知栏收起</td>
+<td><code>cmd statusbar collapse</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>发通知</td>
+<td><code>cmd notification post</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>权限授予/撤销</td>
+<td><code>pm grant</code> / <code>pm revoke</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>AppOps 调整</td>
+<td><code>cmd appops set &lt;pkg&gt; &lt;op&gt; &lt;mode&gt;</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>角色授予</td>
+<td><code>cmd role add-role-holder ROLE PACKAGE</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>NFC</td>
+<td><code>svc nfc enable\|disable</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>USB 功能</td>
+<td><code>svc usb setFunctions</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>电源保持唤醒</td>
+<td><code>svc power stayon true\|false</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>息屏 / 亮屏</td>
+<td><code>input keyevent KEYCODE_SLEEP</code> / <code>KEYCODE_WAKEUP</code></td>
+<td>✅（不产生画面）</td>
+</tr>
+<tr>
+<td>定时 / 任务调度</td>
+<td><code>cmd alarm</code> / <code>cmd jobscheduler</code></td>
+<td>✅ 服务存在（子命令待查）</td>
+</tr>
+</tbody>
+</table></div>
+<p>⚠️ <strong>本机不存在的</strong>：<code>svc data</code>、<code>svc wifi</code> —— Android 15 的 <code>svc</code> 只剩 <code>power / usb / nfc /
+system-server</code>。开关 Wi-Fi / 数据要改用 <code>cmd wifi</code> / <code>cmd connectivity</code>。</p>
+<hr />
+<h2 id="4">4. 任务清单</h2>
+<h3 id="41">4.1 系统与设备</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>任务</th>
+<th>通道</th>
+<th>零窗口</th>
+<th>现状</th>
+<th>需新增</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>开/关 Wi-Fi</td>
+<td>T0-B</td>
+<td>✅</td>
+<td>命令可用</td>
+<td>Shizuku 桥</td>
+</tr>
+<tr>
+<td>开/关飞行模式</td>
+<td>T0-B</td>
+<td>✅</td>
+<td>✅</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>开/关勿扰</td>
+<td>T0-B</td>
+<td>✅</td>
+<td>✅</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>深色模式</td>
+<td>T0-B</td>
+<td>✅</td>
+<td>✅</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>音量 / 静音</td>
+<td>T0-B</td>
+<td>✅</td>
+<td>✅</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>息屏 / 亮屏</td>
+<td>T0-B</td>
+<td>✅</td>
+<td>✅</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>停用 / 启用某 App</td>
+<td>T0-B</td>
+<td>✅</td>
+<td>✅</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>收起通知栏</td>
+<td>T0-B</td>
+<td>✅</td>
+<td>✅</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>屏幕亮度</td>
+<td>T0-A</td>
+<td>✅</td>
+<td>可写</td>
+<td>声明 + 授予 <code>WRITE_SECURE_SETTINGS</code></td>
+</tr>
+<tr>
+<td>屏幕超时</td>
+<td>T0-A</td>
+<td>✅</td>
+<td>可写</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>省电模式</td>
+<td>T0-A</td>
+<td>⚠️</td>
+<td>待查</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>语言 / 输入法切换</td>
+<td>T0-A / T0-B</td>
+<td>⚠️</td>
+<td>待查</td>
+<td>同上</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="42">4.2 通知与消息</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>任务</th>
+<th>通道</th>
+<th>零窗口</th>
+<th>现状</th>
+<th>需新增</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>读所有通知</td>
+<td>T0-C</td>
+<td>✅</td>
+<td>❌ 未声明 listener</td>
+<td><code>NotificationListenerService</code> + 用户授权</td>
+</tr>
+<tr>
+<td>清掉某条通知</td>
+<td>T0-C</td>
+<td>✅</td>
+<td>❌</td>
+<td>listener 的 <code>cancelNotification</code></td>
+</tr>
+<tr>
+<td>发一条自定义通知</td>
+<td>T0-C</td>
+<td>✅</td>
+<td>✅ <code>cmd notification post</code></td>
+<td>Shizuku 桥</td>
+</tr>
+<tr>
+<td><strong>直接回复微信 / QQ 消息</strong></td>
+<td>T0-C</td>
+<td>✅</td>
+<td>❌</td>
+<td>读通知 action + <code>RemoteInput</code> 回填，<strong>⚠️ 需实测</strong></td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="43">4.3 媒体与音频</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>任务</th>
+<th>通道</th>
+<th>零窗口</th>
+<th>现状</th>
+<th>需新增</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>播放 / 暂停 / 切歌</td>
+<td>T0-B</td>
+<td>✅</td>
+<td>✅</td>
+<td>Shizuku 桥</td>
+</tr>
+<tr>
+<td>调音量</td>
+<td>T0-B</td>
+<td>✅</td>
+<td>✅</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>语音播报结果（TTS）</td>
+<td>T0-E</td>
+<td>✅</td>
+<td>❌ 代码未接</td>
+<td><code>TtsProvider</code> 接成播报通道</td>
+</tr>
+<tr>
+<td>指定 App 播放某首歌</td>
+<td>—</td>
+<td>❌</td>
+<td>—</td>
+<td><strong>不属于第 0 档</strong>（需在 App 内点击）</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="44">4.4 数据与信息</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>任务</th>
+<th>通道</th>
+<th>零窗口</th>
+<th>现状</th>
+<th>需新增</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>查天气 / 汇率 / 快递</td>
+<td>T0-D</td>
+<td>✅</td>
+<td>⚠️ 网关未接</td>
+<td><code>:gateway</code> + <code>:agent</code> 接线</td>
+</tr>
+<tr>
+<td>写日历</td>
+<td>T0-D</td>
+<td>✅</td>
+<td>❌</td>
+<td><code>CalendarContract</code></td>
+</tr>
+<tr>
+<td>读 / 写联系人</td>
+<td>T0-D</td>
+<td>✅</td>
+<td>❌</td>
+<td><code>ContactsContract</code></td>
+</tr>
+<tr>
+<td>读 / 写文件（沙箱内）</td>
+<td>T0-D</td>
+<td>✅</td>
+<td>❌ 判定层已完成</td>
+<td>SAF 授权界面 + <code>DocumentFile</code> 通道</td>
+</tr>
+<tr>
+<td>拍照（无 UI）</td>
+<td>T0-D</td>
+<td>⚠️</td>
+<td>❌</td>
+<td>FGS(<code>camera</code>)；<strong>⚠️ 需实测</strong></td>
+</tr>
+<tr>
+<td>截图</td>
+<td>—</td>
+<td>❌</td>
+<td>—</td>
+<td>需读屏能力，<strong>不属于第 0 档</strong></td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="45">4.5 通信</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>任务</th>
+<th>通道</th>
+<th>零窗口</th>
+<th>现状</th>
+<th>需新增</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>发短信（静默）</td>
+<td>T0-D</td>
+<td>✅</td>
+<td>❌</td>
+<td><code>SmsManager</code> + <code>SEND_SMS</code>；<strong>⚠️ 需风控护栏</strong></td>
+</tr>
+<tr>
+<td>发邮件</td>
+<td>T0-D</td>
+<td>⚠️</td>
+<td>❌</td>
+<td>SMTP / Provider API</td>
+</tr>
+<tr>
+<td>发微信消息</td>
+<td>T0-C</td>
+<td>⚠️</td>
+<td>❌</td>
+<td>见 4.2（<code>RemoteInput</code>）</td>
+</tr>
+<tr>
+<td>打电话</td>
+<td>—</td>
+<td>❌</td>
+<td>—</td>
+<td><strong>必然占屏</strong>（通话界面）</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="5-0">5. 反面清单（明确不属于第 0 档）</h2>
+<ul>
+<li>打开任意 App 的任意页面<strong>并操作</strong>（需 <code>startActivity</code> + 读点）</li>
+<li>微信 / 淘宝 / 抖音等 App 内的<strong>任何交互式任务</strong>（除非命中通知 <code>RemoteInput</code>）</li>
+<li><strong>支付</strong> —— 架构原则 4：主动放弃，命中敏感页面立即停止</li>
+<li>截图 / 录屏（需读屏能力）</li>
+<li>跨 App 表单填写</li>
+<li>打电话（通话界面必然出现）</li>
+</ul>
+<hr />
+<h2 id="6">6. 前置条件（用户要配什么）</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>通道</th>
+<th>用户需做什么</th>
+<th>难度</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>T0-A</td>
+<td>电脑上跑一次 <code>adb shell pm grant com.pocketagent.debug android.permission.WRITE_SECURE_SETTINGS</code></td>
+<td>中（需电脑）</td>
+</tr>
+<tr>
+<td>T0-B</td>
+<td>装 Shizuku，用无线调试配对启动</td>
+<td>中（Android 11+ 无需电脑）</td>
+</tr>
+<tr>
+<td>T0-C 读通知</td>
+<td>设置 → 通知使用权 → 勾选 PocketAgent</td>
+<td>低</td>
+</tr>
+<tr>
+<td>T0-D SAF</td>
+<td>首次选一次目录</td>
+<td>低</td>
+</tr>
+<tr>
+<td>T0-D 运行时权限</td>
+<td>常规弹窗</td>
+<td>低</td>
+</tr>
+</tbody>
+</table></div>
+<p>⚠️ 遵循既定边界「<strong>我们只负责开发，其余由用户自行配置</strong>」—— 上述全部写成引导，不做自动化绕过。
+尤其<strong>不用 Shizuku 去替用户自动授予运行时权限</strong>（技术上可行，但会绕过用户的知情同意）。</p>
+<hr />
+<h2 id="7">7. 与既有架构的衔接</h2>
+<ul>
+<li><strong>感知阶梯的第 0 档就是本清单</strong>：不感知 → 直接走能力通道，跳过树/截图</li>
+<li>✅ <strong>纯逻辑层已实现：<code>:capabilitylogic</code></strong>（纯 Kotlin、零 Android 依赖，见 §9.1）</li>
+<li><code>Capability</code> 声明 + <code>CapabilityCatalog</code>（<strong>15 条</strong>内置能力）+ <code>CapabilityParams</code> 参数校验</li>
+<li><code>CapabilityGuard</code> <strong>七步裁决</strong>：目录 → 硬拒绝 → 来源 → 参数 → 规划 → 规划后硬校验 → 放行 → 确认</li>
+<li><code>CommandPlanner</code> 展开成 <code>PlannedExecution</code>；<code>ShellArgv</code> 用<strong>数组</strong>，注入在结构上不可能</li>
+<li><code>CapabilityAuditLog</code> 审计：只记包名与设置键，<strong>绝不记参数原值</strong></li>
+<li>✅ <strong>通道层也已就位</strong>（纯模块内）：<code>SettingsAccess</code> / <code>ShellRunner</code> 两个端口 +
+  <code>ChannelResult</code> 结果模型 + <code>CapabilityRunner</code> 派发器 + <code>CapabilityRuntime</code> 编排</li>
+<li>⚠️ 端口声明在纯模块、实现在 Android 侧，与 <code>filelogic</code> 的 <code>FileChannel</code> 同构 ——
+    好处是<strong>派发逻辑能离线钉死</strong>（argv 过边界、先读后写、端口缺失走哪个分支）</li>
+<li>⚠️ <strong>编排层（<code>CapabilityRuntime</code>）也在纯模块里</strong>，而不是 Android 侧：它一行
+    Android 代码都没有，三个依赖全是本模块定义的纯对象。而「裁决 → 执行 → 记账」
+    的<strong>顺序</strong>恰恰最该被钉住 —— 单看每个组件都对，连错顺序也不会让任何一条
+    "正向测试"变红（记账提前 = 日志说执行了而实际没执行）</li>
+<li>⚠️ <code>ShellRunner.run</code> 收的是 <code>List&lt;String&gt;</code>。<strong>把它改成 <code>String</code>（或实现方自己
+    <code>joinToString(" ")</code> 再交给 shell）会让「注入在结构上不可能」这条论证整个作废</strong> ——
+    而后果不会立刻显现，要等某条能力的某个参数恰好含 <code>;</code> 才发作</li>
+<li>⚠️ <strong>两种「不可用」必须分开</strong>：<code>Unavailable</code>（去配置：权限没给 / Shizuku 没跑 /
+    端口没接）与 <code>Failed</code>（试过了，没成）。混成一个 <code>Boolean</code> 之后界面上就只剩
+    「操作失败」一句 —— 而那句话对这两种情况<strong>都是错的指引</strong></li>
+<li>⚠️ 设置写入<strong>先读原值再写</strong>。顺序反了不报错，只会让撤销把设置「恢复」成
+    它刚变成的那个样子（SAFE 的判据之一是「可逆」）</li>
+<li>⚠️ <strong>连续同因的通道失败只记第一条</strong>（不同能力不合并 —— 它们的 <code>targetDigest</code> 不同）。
+    不合并的后果是 500 格环形缓冲被同一句话填满，而那份日志是用户判断
+    「这个插件想干什么」的唯一线索</li>
+<li>✅ <strong>Android 侧薄适配器已落地：<code>:capability</code></strong>（2026-09-23，<code>compileDebugKotlin</code> 通过）</li>
+<li><code>AndroidSettingsAccess</code>：<code>Settings.Global / System / Secure</code> 的读写<ul>
+<li>⚠️ 走 <strong>API 而不是 <code>settings put</code> 命令</strong> —— 两者权限要求相同，但只有 API 路径
+  有返回值，能区分「权限被拒」与「写成功了」</li>
+<li>⚠️ 权限判据与界面<strong>必须同源</strong>（<code>isGranted()</code> 就是 <code>write()</code> 用的那一个），
+  否则会出现"页面显示已授权、点下去却报没权限"，而用户无从判断该信哪一个</li>
+</ul>
+</li>
+<li>⚠️ 权限声明放在 <code>:capability</code> 自己的 manifest 里（遵循「随功能落地逐项启用」），
+    但 <strong><code>:app</code> 必须真的依赖 <code>:capability</code></strong> —— 见 §2.1</li>
+<li>⏳ <strong>shell 通道（T0-B）尚未实现</strong>：上游已移除 <code>Shizuku#newProcess</code>，正解是
+    <code>UserService</code>（要开 AIDL 代码生成）。<strong>不要照旧文档写 <code>newProcess</code></strong> —— 见 §2.2</li>
+<li>⏳ <strong>还差一个用户入口</strong>：<code>PermissionsScreen</code> 里还没有「写系统设置」这一项，
+  也没有任何界面能真的触发一条能力。⇒ 现在用户还<strong>用不了</strong>，只是底层通了</li>
+<li>⏳ <strong><code>ActionExecutor</code> 需要新增一条 T0 通道</strong>：无手势、无节点树，只有 <code>PlannedExecution</code></li>
+<li><strong>SafetyGuard 必须覆盖 T0</strong> —— <code>settings put</code> / <code>pm disable</code> / <code>cmd *</code> 的破坏力不比点击小</li>
+<li>✅ <strong>已按「能力白名单」落地</strong>（不是命令白名单）：能力必须先在目录里声明才能被调用</li>
+<li>✅ 危险项由 <code>CapabilityDenyRules</code> <strong>固定拒绝</strong>，不参与任何覆盖逻辑：
+    10 类能力 id 前缀（<code>setting.write.*</code> / <code>locksettings.*</code> / <code>credential.*</code> / <code>role.*</code> /
+    <code>package.install</code> / <code>package.uninstall</code> / <code>package.grant</code> / <code>package.revoke</code> /
+    <code>process.kill</code> / <code>debug.*</code>）+ <strong>28 条设置键</strong> + <strong>13 个系统包</strong></li>
+<li>⚠️ 最重要的一条是 <code>secure/enabled_accessibility_services</code>：它可写 = agent 能
+    <strong>给自己授予无障碍权限</strong>（读全屏、点全屏、看得到支付页），
+    而整个安全模型建立在"特殊权限只能由用户亲手授予"这个前提上</li>
+<li><code>AgentBudget</code>：T0 任务几乎不耗 token（多数是本地命令）→ 预算压力最小</li>
+<li>⚠️ <strong>T0 是唯一能「息屏 + 后台」执行的档位</strong> → 与 <code>PowerGovernor</code> 天然契合，
+  也让「悬浮球只作待命信号」这个设计更有意义</li>
+</ul>
+<hr />
+<h2 id="8">8. 待实测项（诚实清单）</h2>
+<ol>
+<li>~~<code>WRITE_SECURE_SETTINGS</code> 声明进 manifest 后，<code>pm grant</code> 是否真生效~~ ——
+   ✅ <strong>已实测：生效</strong>（<code>granted=true</code>，见 §2.1）。同批还测掉了 <code>WRITE_SETTINGS</code> 的
+   appop 通路（<code>pm grant</code> 报 <code>is managed by role</code>，<code>appops set … allow</code> 可行）</li>
+<li>通知 <code>RemoteInput</code> 直接回复微信是否可行（Android 15 对 <code>PendingIntent</code> 可变性的限制）</li>
+<li><code>cmd location</code> / <code>cmd alarm</code> / <code>cmd jobscheduler</code> 的子命令</li>
+<li><code>am broadcast</code> 能否触达常见 App 的导出接收器（需逐 App 调研 <code>dumpsys package</code>）</li>
+<li>拍照在 FGS(<code>camera</code>) 下无 UI 是否可行</li>
+<li>省电模式 / 输入法切换的可写性
+   - 亮度（<code>SYSTEM/screen_brightness</code>）<strong>已由权限侧覆盖</strong> —— 走的是
+     <code>WRITE_SETTINGS</code> appop 那条路，通路已通，剩下的只是值域与副作用</li>
+<li><strong><code>Shizuku#newProcess</code> 移除后，<code>UserService</code> 方案的实际代价</strong> ——
+   要开 AIDL 代码生成 + 一个 service 类，且必须在 Shizuku 服务运行中才能验。
+   当前设备上 Shizuku 服务<strong>没在跑</strong>，所以 T0-B 暂时无法验证（见 §2.2）</li>
+<li><strong><code>Settings.Secure</code> 的读是否对所有键都免权限</strong> —— 部分键（如
+   <code>enabled_accessibility_services</code>）的读也可能被限，需要逐键确认</li>
+</ol>
+<hr />
+<h2 id="9">9. 建议的落地顺序</h2>
+<ol>
+<li>✅ <strong>纯逻辑层已完成</strong> —— <code>android/capabilitylogic</code>：<strong>11 个源文件 + 7 个测试类</strong>、
+   离线测试 <strong>1250 条</strong>（全仓基线从 1116 起，每步都有变异验证兜底）
+   ✅ <strong>通道层 + 编排层也已就位</strong>（两者都在纯模块内）：<code>SettingsAccess</code> / <code>ShellRunner</code>
+   两个端口 + <code>ChannelResult</code> 结果模型 + <code>CapabilityRunner</code>（派发）+
+   <code>CapabilityRuntime</code>（裁决→执行→记账）+ <code>SettingsPermissionPolicy</code>（权限映射与指引）。
+   <strong>13 处故障注入全部命中</strong>（argv 被拼成字符串 / 先写后读 / 吞掉取消异常 /
+   端口缺失抛异常 / <code>toString</code> 泄露原值 / 顺手碰另一个端口 …）
+   ✅ <strong>Android 侧薄适配器已落地</strong> —— <code>android/capability</code>：<code>AndroidSettingsAccess</code>
+   （<code>Settings.Global / System / Secure</code> 的读写，走 API 不走 <code>settings put</code>）
+   + <code>WRITE_SECURE_SETTINGS</code> / <code>WRITE_SETTINGS</code> 两个声明。
+   <code>:app</code> 已依赖它（<strong>manifest 合并需要</strong>），<code>compileDebugKotlin</code> 与 <code>assembleDebug</code> 均通过，
+   <code>WRITE_SECURE_SETTINGS</code> 在真机上 <code>pm grant</code> 实测 <strong><code>granted=true</code></strong>（见 §2.1）
+   ⏳ <strong>还剩两件事</strong>：
+   - ① <code>PermissionsScreen</code> 里加「写系统设置」一项 + 一个<strong>能真的触发能力</strong>的入口。
+     <strong>没有它用户还用不了</strong> —— 现在只是底层通了
+   - ② T0-B 的 shell 通道。上游已移除 <code>Shizuku#newProcess</code>，正解是 <code>UserService</code>
+     （要开 AIDL 代码生成）；且当前设备 Shizuku 服务<strong>没在跑</strong>，暂时验不了（见 §2.2）</li>
+</ol>
+<p>①做完即可解锁 §4.1 里<strong>走设置的那几条</strong>：深色模式 / 亮度 / 熄屏超时 /
+   自动旋转 / 充电保持亮屏。②做完才能解锁 <code>cmd</code> 那批（Wi-Fi / 飞行模式 / 勿扰 /
+   音量 / 停用 App / 媒体控制）
+2. <strong>T0-E 的 TTS 播报</strong> —— 解锁「语音回结果」，配合第 1 步形成「说一句 → 做完 → 说一句」的闭环
+3. <strong>T0-C 的读通知</strong> —— 解锁通知类任务
+4. <strong>T0-D 的网络 + SAF</strong> —— 需 <code>:gateway</code> / <code>:agent</code> 先接线
+5. <strong>T0-C 的 <code>RemoteInput</code> 回复</strong> —— 收益最大但最不确定，放最后当实验做</p>
+<blockquote>
+<p>第 1 步做完，「不占屏」这件事就从「不可能」变成「有一批任务真的能做到」——
+这是整个产品唯一一条不靠占屏也能立住的路。</p>
+</blockquote>
+<h3 id="91">9.1 落地时确立的硬约束（<strong>改动需评审</strong>）</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>约束</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>一条能力 = 一个具体动作</strong>；禁止 <code>shell.exec(argv…)</code> / <code>setting.write(ns,key,val)</code> 这类通用能力</td>
+<td>通用能力一旦存在，风险分级 / 参数校验 / 确认流程都只是在给一个后门镶边</td>
+</tr>
+<tr>
+<td><strong><code>ShellArgv</code> 必须是数组</strong>，实现方不得拼成字符串再交给 shell</td>
+<td><code>Shizuku.newProcess(String[])</code> → <code>Runtime.exec(String[])</code> <strong>不经过 shell</strong>，分号 / 竖线 / 反引号 / <code>$()</code> 全是普通字符</td>
+</tr>
+<tr>
+<td><strong>配方里不支持拼接</strong>（不许出现 <code>--set={index}</code> 这种半拼接 token）</td>
+<td>拼接是注入的温床。代价是少数能力暂时进不来，这个取舍划算</td>
+</tr>
+<tr>
+<td><strong>设置键是配方字面量</strong>，不能由参数决定</td>
+<td>否则一条能力就能写任意设置键，<code>CapabilityDenyRules</code> 的键白名单立刻失效</td>
+</tr>
+<tr>
+<td><strong><code>confirmedByUser</code> 只在最后一步被消费</strong></td>
+<td>提前消费 = 把"用户点过确认"变成绕过一切的后门</td>
+</tr>
+<tr>
+<td><strong>规划后的产物要再校验一次</strong></td>
+<td>防"安全的能力 + 危险的参数"：<code>app.set_enabled</code> 本身正当，而 <code>com.android.systemui</code> 是<strong>格式合法</strong>的包名，参数校验拦不住</td>
+</tr>
+<tr>
+<td><strong>审计只记包名与设置键，绝不记参数原值</strong></td>
+<td>通知正文是用户内容；而"昨晚停用了哪个 App"是必须能回答的 —— 单条规则（只有像包名的值才记）让这个取舍不随能力数量漂移</td>
+</tr>
+<tr>
+<td><strong><code>CapabilityRisk</code> 只有 SAFE / GUARDED 两级</strong>，不设 <code>FORBIDDEN</code></td>
+<td>"永不放行"的东西要做成<strong>能力不存在</strong>，而不是"出现在目录里但标着禁止" —— 后者迟早会有人写一行 <code>if (risk != FORBIDDEN)</code> 放它过去</td>
+</tr>
+<tr>
+<td><strong>通道层必须区分 <code>Unavailable</code> 与 <code>Failed</code></strong></td>
+<td>前者是「去配置」，后者是「试过了，没成」。而「用户放行这条能力」与「系统给了这个权限」是<strong>两套独立授权</strong>（前者在本体数据库、后者在系统包管理）—— 混起来用户就不知道该去点授权还是去跑 adb</td>
+</tr>
+<tr>
+<td><strong>端口签名 <code>ShellRunner.run(List&lt;String&gt;)</code> 不得改成 <code>String</code></strong></td>
+<td>这是 argv 过边界的<strong>最后一道</strong>。后果不会立刻显现，要等某条能力的某个参数恰好含 <code>;</code> 才发作</td>
+</tr>
+<tr>
+<td><strong>设置写入必须先读原值、再写</strong></td>
+<td>顺序反了不报错，只会让撤销把设置「恢复」成它刚变成的那个样子。SAFE 的判据之一是「可逆」，而不知道原值就改不回去</td>
+</tr>
+<tr>
+<td><strong><code>Succeeded.previousValue</code> 不进审计日志，且 <code>toString()</code> 必须覆写隐去它</strong></td>
+<td><code>data class</code> 自动生成的 <code>toString()</code> 会原样打出来 —— 一句 <code>Log.d(TAG, result.toString())</code> 就把它写进日志。<strong>自动生成的东西没人会去审，所以它是最安全的泄漏路径</strong></td>
+</tr>
+<tr>
+<td><strong>不要用 <code>internal</code> 构造器去「加固」<code>PlannedExecution</code></strong></td>
+<td>试过，白费力气：<code>data class</code> 的 <code>copy()</code> 绕得过任何非公开构造器（编译器会警告 <code>non-public primary constructor is exposed via the generated copy()</code>）。更根本的是，可见性<strong>挡不住真正危险的那件事</strong> ——「跳过裁决器直接调 runner」。⇒ 真正的边界是<strong>接口形状</strong>：runner 要的那个对象只能来自 <code>Allowed.execution</code>。<strong>可见性挡不住「绕过去」，只有「没有别的入口」才挡得住</strong></td>
+</tr>
+<tr>
+<td><strong><code>GLOBAL</code>/<code>SECURE</code> 与 <code>SYSTEM</code> 是两类授权，指引</strong>绝不<strong>能合并</strong></td>
+<td><code>WRITE_SECURE_SETTINGS</code> 有 <code>development</code> 位（<code>pm grant</code> 能授）；<code>WRITE_SETTINGS</code> 是 <code>appop</code> 型（<code>pm grant</code> 报 <code>is managed by role</code>，只能 <code>appops set … allow</code>）。合并成一个"没有写设置权限"= 一半指引是错的，而<strong>错的指引比没有指引更坏</strong>：用户照做一遍、撞上一个看不懂的报错，然后认定功能坏了</td>
+</tr>
+<tr>
+<td><strong>权限声明所在模块必须被 <code>:app</code> 真正依赖</strong></td>
+<td>manifest 合并只在有人依赖时生效。少那一行的话模块代码照样编译通过、权限却不在 APK 里，<code>pm grant</code> 静默无效。<strong>声明写在哪不重要，"有没有人依赖它"才决定它进不进 APK</strong></td>
+</tr>
+<tr>
+<td><strong><code>CapabilityRuntime</code>（编排）留在纯模块</strong>，不下沉到 Android 侧</td>
+<td>它一行 Android 代码都没有。而「裁决 → 执行 → 记账」的<strong>顺序</strong>必须能离线钉住 —— 记账提前的后果是"日志说执行了、实际没执行"，而它不会让任何正向测试变红</td>
+</tr>
+<tr>
+<td><strong>连续同因的通道失败只记第一条</strong>（不同能力不合并）</td>
+<td>权限没配时每一次调用都产生一条 <code>Unavailable</code>，500 格环形缓冲会被同一句话填满。而那份日志是用户判断「这个插件想干什么」的<strong>唯一线索</strong> —— 被填满的日志看起来和"什么都没发生"一样。不同能力即使原因相同也不合并：它们的 <code>targetDigest</code> 不同，而"想动哪个目标"正是那份日志的主要用途</td>
+</tr>
+<tr>
+<td><strong>界面的权限判据必须与执行判据同源</strong></td>
+<td><code>AndroidSettingsAccess.isGranted()</code> 就是 <code>write()</code> 用的那一个。界面自己写一套会出现"页面显示已授权、点下去却报没权限"，而用户<strong>完全无从判断该信哪一个</strong></td>
+</tr>
+<tr>
+<td><strong>T0-B 的实现路径是 Shizuku <code>UserService</code>，不是 <code>newProcess</code></strong></td>
+<td><code>Shizuku#newProcess</code> 在 13.1.1 起已被移除（<code>javap</code> 核实 13.1.5 的 <code>Shizuku</code> 类里没有它）。照旧文档写 <code>newProcess</code> 会<strong>静默降级</strong>成无特权的 <code>Runtime.exec</code> —— 有开源项目就是这么做的，界面显示"Shizuku 模式"而命令一点特权都没有。<strong>不要照旧文档写实现</strong></td>
+</tr>
+</tbody>
+</table></div>
+  </main>
+</div>
+</body>
+</html>

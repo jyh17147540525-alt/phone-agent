@@ -11,8 +11,10 @@ import android.provider.Settings
 import android.util.Xml
 import android.view.accessibility.AccessibilityManager
 import com.pocketagent.R
+import com.pocketagent.capability.AndroidSettingsAccess
 import com.pocketagent.core.common.permission.HostSignals
 import com.pocketagent.core.common.permission.PermissionAction
+import com.pocketagent.core.common.permission.SettingsPermission
 import org.xmlpull.v1.XmlPullParser
 
 /**
@@ -30,7 +32,20 @@ import org.xmlpull.v1.XmlPullParser
  * ⚠️ 特别地：**不要**用 [AgentAccessibilityService.connected] 判断权限。
  *    那是进程内状态、会滞后，两件事不是一回事（见那个字段的注释）。
  */
-class HostPermissionReader(private val context: Context) {
+class HostPermissionReader(
+    private val context: Context,
+
+    /**
+     * 写设置那两项的判据**唯一来源**。
+     *
+     * ⚠️ 刻意复用执行层的那一个对象，而不是在这里另写一份
+     *    `checkSelfPermission` —— 两边用不同 API 判断同一件事，
+     *    就会出现「界面说已开启、执行说没权限」，而**没有任何东西会报错**。
+     *    这里的两个 `isGranted` 调用与 `AndroidSettingsAccess.write()`
+     *    开头那个守卫走的是同一段代码。
+     */
+    private val settingsAccess: AndroidSettingsAccess,
+) {
 
     fun read(): HostSignals = HostSignals(
         sdkInt = Build.VERSION.SDK_INT,
@@ -38,6 +53,17 @@ class HostPermissionReader(private val context: Context) {
         canDrawOverlays = Settings.canDrawOverlays(context),
         notificationsEnabled = areNotificationsEnabled(),
         screenshotDeclared = isScreenshotDeclaredInConfig(),
+        // ⚠️ 真实的应用 id，不是 `context.packageName` 的近似 ——
+        //    debug 构建是 `com.pocketagent.debug`，而写错的 `pm grant`
+        //    是一条跑得通、但什么也没授的命令。
+        applicationId = context.packageName,
+        // ⚠️ 问的是**权限**，不是命名空间 —— 这一层不该认识「能力层的命名空间」
+        //    这个概念，而且那样写会让 `:app` 凭空多一条对 `:capabilitylogic`
+        //    的依赖：离线跑器看不出来（全模块一次 kotlinc），Gradle 才会挂。
+        canWriteSecureSettings =
+        settingsAccess.isGranted(SettingsPermission.WRITE_SECURE_SETTINGS),
+        canWriteSystemSettings =
+        settingsAccess.isGranted(SettingsPermission.WRITE_SETTINGS_APPOP),
     )
 
     /**
@@ -63,6 +89,14 @@ class HostPermissionReader(private val context: Context) {
         PermissionAction.OPEN_NOTIFICATION_SETTINGS ->
             Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
                 .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+
+        // ⚠️ appop 型权限的入口。带 `package:` 才落到「本应用」那一页
+        //    —— 与悬浮窗同一手法。不带的话用户要在一列应用里自己找我们。
+        PermissionAction.OPEN_WRITE_SETTINGS ->
+            Intent(
+                Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                Uri.parse("package:${context.packageName}"),
+            )
 
         PermissionAction.REQUEST_NOTIFICATIONS -> null
     }

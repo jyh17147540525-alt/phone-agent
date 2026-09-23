@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- ══════════════════════════════════════════════════════════
+         第 0 档能力（零占屏）的 Android 侧通道
+
+         本模块只做一件事：把 :capabilitylogic 定下的端口接到系统 API 上。
+         裁决、规划、审计、编排全在那个纯模块里 —— 这里没有一行判定逻辑。
+
+         ⚠️ 权限遵循项目纪律：**随功能落地逐项启用，不预先声明。**
+         本模块只需下面两项，而它们**不是同一类权限**（见各自的注释）。
+         ══════════════════════════════════════════════════════════ -->
+
+    <!--
+        `Settings.Global` / `Settings.Secure` 要的权限。
+
+        ⚠️ 它的保护级别里带 `development` 位 —— 2026-09-23 在红米 K60
+        （Android 15 / API 35）上 `dumpsys package android` 实测：
+            signature|privileged|development|installer|role
+
+        所以**用户可以自己用 adb 授予**，不需要 root、也不需要系统签名：
+
+            adb shell pm grant <包名> android.permission.WRITE_SECURE_SETTINGS
+
+        这是本项目「我们只负责开发，其余由用户自行配置」这条边界能成立的
+        前提 —— 如果它不可授予，第 0 档里所有设置类能力就都没有合法通路了。
+    -->
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
+
+    <!--
+        `Settings.System` 要的权限。
+
+        ⚠️ 它与上面那一项**不是同一类**，这一点是整个第 0 档里最容易搞错的地方。
+        同一台机器实测：
+            signature|appop|pre23|preinstalled|role
+        没有 `development` 位，属于 **appop 型**。
+
+        ⇒ 后果很具体：`adb shell pm grant <包名> android.permission.WRITE_SETTINGS`
+          **会执行成功，但什么也没授**。用户照着做一遍、界面依然说没权限，
+          而全程没有任何报错 —— 这正是本项目最忌讳的那类失败。
+
+        正确的通路有两条：
+          · 用户在「设置 → 应用 → 特殊应用权限 → 修改系统设置」里手动打开
+          · `adb shell appops set <包名> WRITE_SETTINGS allow`
+
+        ⚠️ 仍然要声明它：不声明的话，连"申请"的入口都不会出现
+          （`Settings.System.canWrite()` 永远返回 false，且系统设置页里
+          根本不会列出本应用）。
+    -->
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+
+</manifest>
