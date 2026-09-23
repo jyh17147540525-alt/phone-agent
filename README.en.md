@@ -30,6 +30,12 @@ Done:
 - ✅ **`GatewayCore`** (1.4.1–1.4.5) — routing / budget circuit-breaking / decryption / forwarding / metering
 - ✅ **`HttpGatewayServer`** (1.4.6) — loopback HTTP + SSE, for dsh to consume
 - ✅ **`GatewayTokenProvider`** (1.4.7) — local token issuance + constant-time comparison + six hardening rules
+- ✅ **Gateway ↔ dsh config wiring** (1.4.6c) — `DshConfigPatch` renders dsh's
+  `settings.yaml` section and credential entry (**the real key never touches disk**;
+  dsh only ever receives a local one-shot token), `DshRoutingModeProvider` supplies the
+  real routing mode, and `DshConfigSink` delivers it.
+  **Verified end-to-end on a real device**: dsh routed its request to the local gateway
+  through this config and rendered the answer
 - ✅ **Agent loop pure-logic layer** (S2/S3, `agentlogic`) — four-dimension budget circuit breaker
   (turns/duration/energy/upload), task state machine + freeze detection, five-tier perception
   ladder, checkpoints with resume, ambiguity resolution
@@ -37,7 +43,7 @@ Done:
   upload path**: hard veto on sensitive pages, unconditional rejection of plugin screenshots,
   conservative drop when system-UI regions are unknown, redaction plans for input fields and
   message lists, and forged-marker detection
-- ✅ **859 offline unit tests passing** (including 44 real-socket integration tests)
+- ✅ **925 offline unit tests passing** (including 44 real-socket integration tests)
 - ✅ **Release-readiness checker** (`check_release_readiness.py`, 10 rule groups R1–R10 + 20 self-tests)
 - ✅ **All five P0 on-device experiments reached conclusions** (see "M0 on-device results" below)
 - ✅ **A debug APK that builds**
@@ -48,7 +54,7 @@ Not done (honest list):
   `:perception` / `:action` / `:agent` currently hold interface contracts only, with no implementations
 - ❌ **`PowerGovernor`** — the last of the five cross-cutting components (the first four are
   implemented). It needs a global view (app + Node + network) that no single layer can provide
-- ❌ **Wiring the gateway into dsh's config** (1.4.6c) and **wiring the gateway into the agent loop** (1.4.8)
+- ❌ **Wiring the gateway into the agent loop** (1.4.8) — gateway ↔ dsh config wiring (1.4.6c) is done and device-verified
 - ❌ **Plugin runtime** — the execution engine for the three plugin tiers (`:plugin:runtime` / `:script` etc. are empty modules)
 - ❌ **Memory, self-update, onboarding, contribution, channel distribution** — those modules have not been started
 - ❌ Release signing
@@ -64,7 +70,8 @@ Plugin bundles are fully validated — hash checking, zip slip / zip bomb protec
 forbidden-capability blocking. None of it is skipped.
 
 **Cannot**: it **does not read the screen, does not tap**. Installed plugins do not run either, because
-the execution engine is not implemented. The gateway itself already works (859 tests cover it), but no UI
+the execution engine is not implemented. The gateway itself already works (925 tests cover it, and
+dsh has been device-verified to obtain answers through it), but no UI
 hands it to a user yet — until the agent loop is connected, it is **a verified foundation**, nothing more.
 
 > The plugin system and the gateway were built out first because they are **the only parts that can be

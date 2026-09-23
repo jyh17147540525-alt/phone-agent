@@ -7,6 +7,7 @@ import com.pocketagent.provider.gateway.GatewayContext
 import com.pocketagent.provider.gateway.GatewayCore
 import com.pocketagent.provider.gateway.GatewayFailure
 import com.pocketagent.provider.gateway.Consumer
+import com.pocketagent.provider.gateway.dsh.DshConfigPatch
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -833,8 +834,16 @@ class HttpGatewayServer(
     }
 
     companion object {
-        /** 虚拟模型名（BYOK §4.5 策略 A） */
-        const val VIRTUAL_MODEL = "pocketagent-auto"
+        /**
+         * 虚拟模型名（BYOK §4.5 策略 A）。
+         *
+         * ⚠️ **别名指向 [DshConfigPatch.VIRTUAL_MODEL_ID]**，不是各写一份字面量 ——
+         *    dsh 配置里声明的模型名必须与服务端实际返回的名字**逐字相同**，
+         *    而这两处在两个类里。写两份字面量时，改了一处忘了另一处
+         *    表现是"dsh 界面选得到、一发就报模型不存在"，且**编译期无提示**。
+         *    现在编译器会替我们钉住这个一致性。
+         */
+        const val VIRTUAL_MODEL = DshConfigPatch.VIRTUAL_MODEL_ID
 
         private const val BACKLOG = 16
         private const val READ_TIMEOUT_MS = 30_000
