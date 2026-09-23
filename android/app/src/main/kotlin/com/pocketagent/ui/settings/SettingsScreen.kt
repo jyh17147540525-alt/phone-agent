@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cable
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Info
@@ -41,7 +42,7 @@ import com.pocketagent.ui.design.PaSpace
  * 这个组合的风险，只有在同一屏上才看得出来。
  */
 /**
- * ⚠️ 五个 `onOpen*` 都是**可空**的，这是有意的。
+ * ⚠️ 六个 `onOpen*` 都是**可空**的，这是有意的。
  *
  * 传 `null` 时 [PaListRow] 不会画右侧箭头 —— 于是"这一项暂时进不去"
  * 就通过**视觉本身**表达出来了。
@@ -56,6 +57,7 @@ fun SettingsScreen(
     keyStatus: SettingsViewModel.KeyStatus = SettingsViewModel.KeyStatus.Loading,
     onOpenKeys: (() -> Unit)? = null,
     onOpenModels: (() -> Unit)? = null,
+    onOpenDsh: (() -> Unit)? = null,
     onOpenSources: (() -> Unit)? = null,
     onOpenImport: (() -> Unit)? = null,
     onOpenPermissions: (() -> Unit)? = null,
@@ -96,6 +98,17 @@ fun SettingsScreen(
                         subtitle = "挑模型、定档位、指定谁来做调度",
                         onClick = onOpenModels,
                     )
+                    PaListDivider()
+                    // ⚠️ 第三行是"把模型**接到别处去**"，与前两行是另一个方向：
+                    //    前两行解决"本应用自己怎么调模型"，这一行解决
+                    //    "让 dsh 也用上这些模型"。合成一行的后果是用户以为
+                    //    配好模型就自动对 dsh 生效了 —— 而它需要**单独开启**。
+                    PaListRow(
+                        icon = Icons.Default.Cable,
+                        title = "dsh 集成",
+                        subtitle = "在本机起一个只供 dsh 用的模型出口",
+                        onClick = onOpenDsh,
+                    )
                 }
             }
 
@@ -131,8 +144,16 @@ fun SettingsScreen(
                         icon = Icons.Default.Shield,
                         title = "权限状态",
                         subtitle = "无障碍、截图、悬浮窗",
-                        badge = "待检查",
-                        badgeTone = PaBadgeTone.Warning,
+                        // ⚠️ 原来这里是 `"待检查"` —— 那是一句**承诺**，而没有任何
+                        //    代码在检查它。用户读到"待检查"会以为应用会自己查、
+                        //    或者点进去就能看到，而两者都不成立（`onClick` 是 null，
+                        //    检查逻辑也不存在）。
+                        //
+                        //    一个说错话的界面比一个不说这话的界面更糟 ——
+                        //    见 SettingsViewModel 的类注释：用户不会怀疑文案，
+                        //    他会怀疑自己。所以这里如实说"未实现"。
+                        badge = "未实现",
+                        badgeTone = PaBadgeTone.Neutral,
                         onClick = onOpenPermissions,
                     )
                 }

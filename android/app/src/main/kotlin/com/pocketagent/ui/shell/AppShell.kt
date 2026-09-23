@@ -36,6 +36,8 @@ import com.pocketagent.ui.design.PaBottomBar
 import com.pocketagent.ui.design.PaMotion
 import com.pocketagent.ui.design.PaNavItem
 import com.pocketagent.ui.design.PaTransition
+import com.pocketagent.ui.dsh.DshIntegrationScreen
+import com.pocketagent.ui.dsh.DshIntegrationViewModel
 import com.pocketagent.ui.importer.ImportScreen
 import com.pocketagent.ui.importer.ImportViewModel
 import com.pocketagent.ui.keys.KeysScreen
@@ -84,6 +86,7 @@ object Routes {
     const val SOURCES = "sources"
     const val KEYS = "keys"
     const val MODELS = "models"
+    const val DSH = "dsh"
 }
 
 /**
@@ -120,7 +123,7 @@ private val TABS = listOf(
         route = Routes.SETTINGS,
         label = "设置",
         icon = Icons.Default.Tune,
-        owns = setOf(Routes.SETTINGS, Routes.SOURCES, Routes.KEYS, Routes.MODELS),
+        owns = setOf(Routes.SETTINGS, Routes.SOURCES, Routes.KEYS, Routes.MODELS, Routes.DSH),
     ),
 )
 
@@ -245,6 +248,7 @@ fun AppShell(container: AppContainer) {
                         //    绝不能传 `{}`：箭头照画、点了没反应，用户会认为应用坏了。
                         onOpenKeys = { navController.navigate(Routes.KEYS) },
                         onOpenModels = { navController.navigate(Routes.MODELS) },
+                        onOpenDsh = { navController.navigate(Routes.DSH) },
                         onOpenSources = { navController.navigate(Routes.SOURCES) },
                         onOpenImport = { navController.navigate(Routes.IMPORT) },
                         onOpenPermissions = null,
@@ -345,6 +349,31 @@ fun AppShell(container: AppContainer) {
                         viewModel = vm,
                         onBack = { navController.popBackStack() },
                         onOpenKeys = { navController.navigate(Routes.KEYS) },
+                    )
+                }
+
+                composable(Routes.DSH) {
+                    val vm: DshIntegrationViewModel = viewModel(
+                        factory = viewModelFactory {
+                            initializer {
+                                // ⚠️ 全部收成函数而不是把 `AppContainer` 整个交给
+                                //    ViewModel —— 见 DshIntegrationViewModel 的注释：
+                                //    开关状态**不属于**这个页面，它只是镜像容器里那一份。
+                                //    把容器整个交进去，下一步就会有人在 ViewModel 里
+                                //    自己存一个 `isRunning`，然后页面开始说假话。
+                                DshIntegrationViewModel(
+                                    readStatus = container::dshIntegrationStatus,
+                                    startIntegration = container::startDshIntegration,
+                                    stopIntegration = container::stopDshIntegration,
+                                    readDraftSettings = container::dshDraftSettings,
+                                    draftSettingsPath = container.dshDraftSettingsPath,
+                                )
+                            }
+                        }
+                    )
+                    DshIntegrationScreen(
+                        viewModel = vm,
+                        onBack = { navController.popBackStack() },
                     )
                 }
             }

@@ -17,7 +17,9 @@ import com.pocketagent.provider.gateway.dsh.DshWriteResult
  * 1. **零权限** —— 不需要 Shizuku、不需要 root、不需要 `run-as`
  * 2. **零风险** —— 不碰用户的 `.credentials.yaml`（那里面有真 Key）
  * 3. **可验证** —— 用户能亲眼看到我们要他写进去的是什么，
- *    这与项目"沙箱优先 / 用户签字放行"的立场一致
+ *    这与项目"沙箱优先 / 用户签字放行"的立场一致。
+ *    ⚠️ 但"能看到"**必须由界面完成**：草稿落在应用私有目录，
+ *    非 root 设备上用户打不开那个目录（见 [CREDENTIALS_REL_PATH] 的注释）。
  *
  * ⚠️ **它是暂时的**。等真机验证出"Shizuku 能否写 Termux 私有目录"之后，
  *    应当补一个自动 sink。但**不该在验证之前先写自动 sink** ——
@@ -99,8 +101,16 @@ class AppPrivateDshConfigSink(
          * ⚠️ 这里**没有前导点**（dsh 真实目录里是 `.credentials.yaml`）。
          *
          * 刻意的：这是应用私有目录里的草稿文件，不是 dsh 会去读的那个。
-         * 不加点让它在文件管理器里可见（用户要能打开它抄内容），
-         * 而名字仍与 dsh 那份对应得上。
+         * 不加点让名字与 dsh 那份对应得上，用户对照着抄时不容易搞混。
+         *
+         * ⚠️ **但不要以为"不加点用户就能在文件管理器里找到它"** ——
+         *    这句话曾经写在这里，它是**错的**：草稿落在
+         *    `/data/data/<pkg>/files/dsh/`，非 root 设备上文件管理器与 MTP
+         *    都进不去，加点不加点都一样。
+         *
+         *    所以用户拿到这份内容的**唯一途径是界面** ——
+         *    见 `AppContainer.dshDraftSettings()` 与 `DshIntegrationScreen`
+         *    里的全文展示（长按可选中复制）。
          */
         const val CREDENTIALS_REL_PATH = "dsh/credentials.yaml"
     }

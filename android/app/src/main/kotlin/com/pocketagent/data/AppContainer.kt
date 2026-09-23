@@ -32,6 +32,8 @@ import com.pocketagent.provider.gateway.GatewayCore
 import com.pocketagent.provider.gateway.GatewayFailure
 import com.pocketagent.provider.gateway.RoutingBridge
 import com.pocketagent.provider.gateway.dsh.DshGatewaySession
+import com.pocketagent.provider.gateway.dsh.DshGatewayStartResult
+import com.pocketagent.provider.gateway.dsh.DshWriteResult
 import com.pocketagent.provider.gateway.http.HttpGatewayServer
 import com.pocketagent.provider.openaicompat.OpenAiCompatProvider
 import com.pocketagent.provider.openaicompat.ProviderProfiles
@@ -487,6 +489,7 @@ class AppContainer(context: Context) {
             //    顺带把端点也停掉：端口该释放了。
             dshSession?.stop()
             dshSession = null
+            dshStatus = DshIntegrationStatus.Off
 
             credentialStore = null
             modelStore = null
@@ -516,7 +519,7 @@ class AppContainer(context: Context) {
     // ═══════════════════════════════════════════════════════════════
 
     /**
-     * 串行化会话的建立。
+     * 串行化会话的建立与开关。
      *
      * ⚠️ 两个协程同时进来会各建一个 [HttpGatewayServer] —— 于是**各占一个端口**，
      *    而后建的那个会把 [dshSession] 覆盖掉。表现是：用户点两次"开启"，
@@ -528,10 +531,30 @@ class AppContainer(context: Context) {
     private var dshSession: DshGatewaySession? = null
 
     /**
-     * 取（必要时建立）dsh 集成会话。
+     * 当前状态。
      *
      * ═══════════════════════════════════════════════════════════════
-     *  ⚠️ 它**只能在 [openCredentialStore] 成功之后**建立
+     *  ⚠️ 状态存在**容器**里，不存在 ViewModel 里 —— 这是刻意的
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 网关的生命周期**长于任何页面**：用户开启之后会离开设置页，而 dsh 还要
+     * 继续用它。若状态放在页面级的 ViewModel 里，用户离开再回来会看到"未开启"，
+     * 而网关其实还在 127.0.0.1 上听着 —— 那正是本项目最忌讳的**界面说假话**
+     * （见 `SettingsViewModel` 的注释：一个说错话的界面比一个不说这话的界面更糟）。
+     *
+     * 所以唯一的事实来源放在这里，页面只**读**它。
+     */
+    @Volatile
+    private var dshStatus: DshIntegrationStatus = DshIntegrationStatus.Off
+
+    /** 当前状态。只读 —— 不要读了之后自己维护一份副本。 */
+    fun dshIntegrationStatus(): DshIntegrationStatus = dshStatus
+
+    /**
+     * 开启 dsh 集成（**幂等**）。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ⚠️ 它**只能在 [openCredentialStore] 成功之后**成功
      * ═══════════════════════════════════════════════════════════════
      *
      * 网关的两件依赖来自加密存储：
@@ -542,26 +565,73 @@ class AppContainer(context: Context) {
      * 这也正好符合"冷启动路径上不该有 Keystore"这条既定纪律：
      * dsh 集成是用户主动开启的功能，不该让没打算用它的用户在冷启动付一次开库代价。
      *
-     * ⚠️ 返回 [DshSessionResult] 而不是 `null`：`null` 说不清"为什么还没有"，
-     *    而用户需要知道**先去做什么**（去 Key 页？还是去模型页？）。
-     *    这与 [CredentialStoreResult] 是同一个理由。
+     * ⚠️ **同步阻塞**：要读两个文件、写两个文件、建 `ServerSocket`。
+     *    调用方**必须切到 IO 线程** —— 在主线程序调用会直接卡住那一帧。
+     *    （`DshGatewaySession.start()` 不是 suspend 函数，这一点容易看漏。）
+     *
+     * ⚠️ 返回 [DshIntegrationStatus] 而不是 `Boolean`：失败要说清**为什么**、
+     *    以及**用户该去做什么**（去 Key 页？还是去模型页？）。
      */
-    fun dshSession(): DshSessionResult = synchronized(dshLock) {
-        dshSession?.let { return@synchronized DshSessionResult.Ready(it) }
-
+    fun startDshIntegration(): DshIntegrationStatus = synchronized(dshLock) {
         val db = database
-            ?: return@synchronized DshSessionResult.Unavailable(
+            ?: return@synchronized blocked(
                 "加密存储还没打开。请先打开一次「API Key」页，再回来开启 dsh 集成。"
             )
         val models = modelStore
-            ?: return@synchronized DshSessionResult.Unavailable(
+            ?: return@synchronized blocked(
                 "模型配置还没加载。请先打开一次「模型」页，再回来开启 dsh 集成。"
             )
 
-        val session = buildDshSession(db, models)
-        dshSession = session
-        DshSessionResult.Ready(session)
+        val session = dshSession ?: buildDshSession(db, models).also { dshSession = it }
+
+        dshStatus = when (val result = session.start()) {
+            is DshGatewayStartResult.NotStarted -> DshIntegrationStatus.Blocked(result.reason)
+            is DshGatewayStartResult.Running ->
+                DshIntegrationStatus.On(baseUrl = result.baseUrl, delivery = result.delivery)
+        }
+        dshStatus
     }
+
+    /**
+     * 关闭 dsh 集成（幂等）。
+     *
+     * ⚠️ **不清理已投递的配置** —— 理由见 `DshGatewaySession.stop()` 的长注释：
+     *    清理需要对 dsh 真实目录的写权限，而那个权限正是本任务还没验证的东西；
+     *    即使能清，删掉配置会让 dsh 进入"完全没配过"的状态，
+     *    比"配了但连不上"更难向用户解释。
+     */
+    fun stopDshIntegration(): DshIntegrationStatus = synchronized(dshLock) {
+        dshSession?.stop()
+        dshStatus = DshIntegrationStatus.Off
+        dshStatus
+    }
+
+    /** 记下失败状态并把它交回去 —— 失败原因必须能被界面读到，不能只进日志。 */
+    private fun blocked(reason: String): DshIntegrationStatus =
+        DshIntegrationStatus.Blocked(reason).also { dshStatus = it }
+
+    /**
+     * 已投递的草稿配置全文 —— 给用户抄到 dsh 那边去。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ⚠️ 界面**必须**把它展示出来，这是用户拿到这份配置的唯一途径
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * `AppPrivateDshConfigSink` 的注释里写着"不加前导点让它在文件管理器里可见" ——
+     * **那句话只对"名字"成立，对"目录可达性"不成立**：草稿写在
+     * `/data/data/<pkg>/files/dsh/`，非 root 设备上文件管理器与 MTP 都进不去。
+     *
+     * 所以不能指望用户"自己去找那个文件"。界面展示 + 长按选择复制，是唯一的路。
+     */
+    fun dshDraftSettings(): String? = runCatching {
+        File(appContext.filesDir, AppPrivateDshConfigSink.SETTINGS_REL_PATH)
+            .takeIf { it.isFile }
+            ?.readText()
+    }.getOrNull()
+
+    /** 草稿文件的绝对路径，给界面显示（用户要照着找，或者贴给我们排查问题）。 */
+    val dshDraftSettingsPath: String
+        get() = File(appContext.filesDir, AppPrivateDshConfigSink.SETTINGS_REL_PATH).absolutePath
 
     /**
      * 把"起网关 → 渲染 → 合并 → 投递"这条链装起来。
@@ -669,22 +739,36 @@ sealed interface CredentialStoreResult {
 }
 
 /**
- * 取 dsh 集成会话的结果。
+ * dsh 集成对外的状态。
  *
- * ⚠️ 刻意用 sealed 而不是返回 `null` —— 与 [CredentialStoreResult] 同一个理由：
- *    `null` 只说"没有"，说不出**为什么没有**，于是界面只能显示"不可用"，
- *    而用户无从知道该先去做什么。
+ * ⚠️ 刻意用 sealed 而不是 `Boolean` / 返回 `null` —— 与 [CredentialStoreResult]
+ *    同一个理由：三种情况对用户意味着**三件不同的事**，界面必须能分别说清楚。
  *
- *    [Unavailable] 的 `reason` 必须点名**用户要做的那个动作**
- *    （"先打开一次「API Key」页"），而不是"依赖未就绪"这种我们内部的说法。
+ *      · [Off]     —— 没开启（还没点过，或者用户刚关掉）
+ *      · [On]      —— 网关在跑。**注意它不代表配置送达成功**，那要看 [On.delivery]
+ *      · [Blocked] —— 没跑起来，且**这一次不会自己好**，用户需要先去做点什么
  *
- * ⚠️ 注意 [Ready] 只代表**会话建起来了**，不代表配置已送达 ——
- *    后者看 `DshGatewayStartResult.Running.delivery`。
- *    这与"网关起来了 ≠ 配置送达了"是同一条分层原则。
+ *    [Blocked.reason] 必须点名**用户要做的那个动作**（"先打开一次「API Key」页"），
+ *    而不是"依赖未就绪"这种我们内部的说法 —— 后者用户读完不知道该干什么。
+ *
+ * ⚠️ 注意 [On] 里**没有** token。token 只活在容器与 `HttpGatewayServer` 之间，
+ *    绝不进界面状态：界面状态会被重组、被截图、被记进日志，而 token 是
+ *    "同机其它 App 能读到就完蛋"的东西。用户也不需要它 —— 他要抄的是配置里
+ *    那一行 `apiKeyEnv` 指向的**变量名**，不是值。
  */
-sealed interface DshSessionResult {
+sealed interface DshIntegrationStatus {
 
-    data class Ready(val session: DshGatewaySession) : DshSessionResult
+    data object Off : DshIntegrationStatus
 
-    data class Unavailable(val reason: String) : DshSessionResult
+    /**
+     * 网关在跑。
+     *
+     * @param baseUrl 形如 `http://127.0.0.1:12345/v1`。**每次开启都会变**
+     *        （端口是随机分配的）—— 界面必须让用户看到它，
+     *        否则 dsh 连不上时用户没有任何线索。
+     * @param delivery 配置投递结果。可能是 `Partial` / `Failure`，见 `DshWriteResult`。
+     */
+    data class On(val baseUrl: String, val delivery: DshWriteResult) : DshIntegrationStatus
+
+    data class Blocked(val reason: String) : DshIntegrationStatus
 }
