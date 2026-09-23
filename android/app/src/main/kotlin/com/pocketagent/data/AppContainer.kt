@@ -8,19 +8,31 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import com.pocketagent.core.common.AtomicTextFile
 import com.pocketagent.core.crypto.CryptoManager
 import com.pocketagent.core.database.DatabaseKeyProvider
 import com.pocketagent.core.database.PassphraseUnavailableException
 import com.pocketagent.core.database.PocketAgentDatabase
 import com.pocketagent.core.database.PocketAgentDatabaseFactory
+import com.pocketagent.core.network.LogSanitizer
+import com.pocketagent.keymgmt.AppPrivateDshConfigSink
 import com.pocketagent.keymgmt.CredentialRepository
+import com.pocketagent.keymgmt.GatewayCredentialSource
 import com.pocketagent.keymgmt.ModelConfigRepositoryImpl
 import com.pocketagent.keymgmt.ModelDeclarationEntry
+import com.pocketagent.keymgmt.RoomUsageRecorder
 import com.pocketagent.keymgmt.modelDeclarationsOf
+import com.pocketagent.modelrouter.ModelRouteCoordinator
 import com.pocketagent.plugin.api.MarketCatalog
 import com.pocketagent.plugin.api.SubscriptionSource
 import com.pocketagent.provider.api.LlmProvider
 import com.pocketagent.provider.api.TtsProvider
+import com.pocketagent.provider.gateway.GatewayCallException
+import com.pocketagent.provider.gateway.GatewayCore
+import com.pocketagent.provider.gateway.GatewayFailure
+import com.pocketagent.provider.gateway.RoutingBridge
+import com.pocketagent.provider.gateway.dsh.DshGatewaySession
+import com.pocketagent.provider.gateway.http.HttpGatewayServer
 import com.pocketagent.provider.openaicompat.OpenAiCompatProvider
 import com.pocketagent.provider.openaicompat.ProviderProfiles
 import com.pocketagent.provider.ttsopenai.OpenAiCompatTtsProvider
@@ -463,6 +475,19 @@ class AppContainer(context: Context) {
      */
     suspend fun resetCredentialStore() = withContext(Dispatchers.IO) {
         storeLock.withLock {
+            // ⚠️ **必须先拆掉 dsh 会话，再关库。**
+            //
+            //    会话持有的 `GatewayCredentialSource` 与模型仓储都指着这个 db，
+            //    库一关它们就成了"指向已关闭库的引用" —— 与上面 [modelStore]
+            //    那条注释是同一类错误，而这里的表现**更隐蔽**：
+            //    网关还挂在 127.0.0.1 上监听，dsh 的请求照常进来，
+            //    然后回一个"数据库已关闭"的错 —— 而用户的动作只是"重建存储"，
+            //    他没有任何线索能把这两件事联系起来。
+            //
+            //    顺带把端点也停掉：端口该释放了。
+            dshSession?.stop()
+            dshSession = null
+
             credentialStore = null
             modelStore = null
             runCatching { database?.close() }
@@ -485,6 +510,128 @@ class AppContainer(context: Context) {
      * （Key 页 / 模型页），合成会让 Key 页也被迫持有模型仓储的概念。
      */
     fun modelRepository(): ModelConfigRepositoryImpl? = modelStore
+
+    // ═══════════════════════════════════════════════════════════════
+    //  dsh 集成：本机网关 + 配置投递
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * 串行化会话的建立。
+     *
+     * ⚠️ 两个协程同时进来会各建一个 [HttpGatewayServer] —— 于是**各占一个端口**，
+     *    而后建的那个会把 [dshSession] 覆盖掉。表现是：用户点两次"开启"，
+     *    配置里指向的端口和实际在听的端口不是同一个，dsh 报连接被拒。
+     */
+    private val dshLock = Any()
+
+    @Volatile
+    private var dshSession: DshGatewaySession? = null
+
+    /**
+     * 取（必要时建立）dsh 集成会话。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ⚠️ 它**只能在 [openCredentialStore] 成功之后**建立
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 网关的两件依赖来自加密存储：
+     * - [GatewayCredentialSource] 要 `CredentialDao`（真 Key 在库里）
+     * - [RoutingBridge] 要模型仓储（路由要读用户配了哪些模型）
+     *
+     * 所以**不在构造容器时就建好** —— 那时 `database` 还是 null。
+     * 这也正好符合"冷启动路径上不该有 Keystore"这条既定纪律：
+     * dsh 集成是用户主动开启的功能，不该让没打算用它的用户在冷启动付一次开库代价。
+     *
+     * ⚠️ 返回 [DshSessionResult] 而不是 `null`：`null` 说不清"为什么还没有"，
+     *    而用户需要知道**先去做什么**（去 Key 页？还是去模型页？）。
+     *    这与 [CredentialStoreResult] 是同一个理由。
+     */
+    fun dshSession(): DshSessionResult = synchronized(dshLock) {
+        dshSession?.let { return@synchronized DshSessionResult.Ready(it) }
+
+        val db = database
+            ?: return@synchronized DshSessionResult.Unavailable(
+                "加密存储还没打开。请先打开一次「API Key」页，再回来开启 dsh 集成。"
+            )
+        val models = modelStore
+            ?: return@synchronized DshSessionResult.Unavailable(
+                "模型配置还没加载。请先打开一次「模型」页，再回来开启 dsh 集成。"
+            )
+
+        val session = buildDshSession(db, models)
+        dshSession = session
+        DshSessionResult.Ready(session)
+    }
+
+    /**
+     * 把"起网关 → 渲染 → 合并 → 投递"这条链装起来。
+     *
+     * ⚠️ 这里**刻意没有任何逻辑** —— 全部在 `:provider:gateway` 与 `:keymgmt` 里，
+     *    而那两处都有离线单测。本方法只是把构造参数摆出来（也顺便是一份可读的
+     *    依赖图）。装配本身错了的后果是"编译不过"，那是最便宜的一类错误。
+     */
+    private fun buildDshSession(
+        db: PocketAgentDatabase,
+        models: ModelConfigRepositoryImpl,
+    ): DshGatewaySession {
+        val coordinator = ModelRouteCoordinator(models)
+
+        val core = GatewayCore(
+            bridge = RoutingBridge(
+                coordinator = coordinator,
+                // ⚠️ 收函数而不是再收一个仓储 —— 见 `RoutingBridge` 构造参数注释：
+                //    同一个仓储注入两次，测试里很容易被换成不同的 fake，
+                //    表现是"路由用这份配置、取值用另一份"，而测试照样过。
+                modelById = { id -> models.byId(id) },
+            ),
+            credentials = GatewayCredentialSource(db.credentialDao(), crypto),
+            providers = providers,
+            usageRecorder = RoomUsageRecorder(db.usageDao()),
+        )
+
+        val endpoint = HttpGatewayServer(
+            core = core,
+            routingModeFor = {
+                // ⚠️ `inferMode()` 返回 null 表示"一个可用的模型都没有"。
+                //    这里**必须抛 [GatewayCallException]**，不能让它退化成
+                //    裸的 IllegalStateException ——
+                //    `HttpGatewayServer.describeFailure` 对非 GatewayCallException
+                //    只会回一句「模型服务出错（IllegalStateException）」，
+                //    用户看到那句会去查服务商，而真正的问题是"他还没配模型"。
+                //    [GatewayFailure.NoModelConfigured] 的文案是现成且正确的。
+                coordinator.inferMode()
+                    ?: throw GatewayCallException(GatewayFailure.NoModelConfigured)
+            },
+            sanitize = LogSanitizer::sanitize,
+        )
+
+        return DshGatewaySession(
+            endpoint = endpoint,
+            sink = AppPrivateDshConfigSink(
+                readFile = { relativePath ->
+                    File(appContext.filesDir, relativePath).takeIf { it.isFile }?.readText()
+                },
+                writeFile = ::writeAppPrivateFile,
+            ),
+            log = { Timber.i(it) },
+        )
+    }
+
+    /**
+     * 写应用私有目录下的一个文件。返回是否成功。
+     *
+     * ⚠️ 实现**刻意只有一行** —— 真正的逻辑在 [AtomicTextFile] 里，
+     *    因为本类在 `:app`（无测试源集、且依赖 `Context`），
+     *    而那个逻辑的失败形态是静默的（半截 YAML 被 dsh 按缺省值读进去）。
+     *    `:core:common` 是纯 Kotlin 模块，所以那份逻辑进得了离线单测。
+     *
+     * ⚠️ 这里**不 catch**：`AtomicTextFile.write` 已经约定不抛异常，
+     *    它返回的 `false` 会一路变成 `DshWriteResult.Failure` ——
+     *    那是一个**可解释的业务状态**，比异常好。
+     *    在这里再包一层 try 只会把真实的编程错误（比如传错路径类型）也吞掉。
+     */
+    private fun writeAppPrivateFile(relativePath: String, content: String): Boolean =
+        AtomicTextFile.write(File(appContext.filesDir, relativePath), content)
 
     private companion object {
         /**
@@ -519,4 +666,25 @@ sealed interface CredentialStoreResult {
 
     /** 打不开，但可能只是暂时的（空间不足、文件被占用、原生库没加载上等） */
     data class Retryable(val reason: String) : CredentialStoreResult
+}
+
+/**
+ * 取 dsh 集成会话的结果。
+ *
+ * ⚠️ 刻意用 sealed 而不是返回 `null` —— 与 [CredentialStoreResult] 同一个理由：
+ *    `null` 只说"没有"，说不出**为什么没有**，于是界面只能显示"不可用"，
+ *    而用户无从知道该先去做什么。
+ *
+ *    [Unavailable] 的 `reason` 必须点名**用户要做的那个动作**
+ *    （"先打开一次「API Key」页"），而不是"依赖未就绪"这种我们内部的说法。
+ *
+ * ⚠️ 注意 [Ready] 只代表**会话建起来了**，不代表配置已送达 ——
+ *    后者看 `DshGatewayStartResult.Running.delivery`。
+ *    这与"网关起来了 ≠ 配置送达了"是同一条分层原则。
+ */
+sealed interface DshSessionResult {
+
+    data class Ready(val session: DshGatewaySession) : DshSessionResult
+
+    data class Unavailable(val reason: String) : DshSessionResult
 }

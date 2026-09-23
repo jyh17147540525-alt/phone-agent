@@ -7,6 +7,7 @@ import com.pocketagent.provider.gateway.GatewayContext
 import com.pocketagent.provider.gateway.GatewayCore
 import com.pocketagent.provider.gateway.GatewayFailure
 import com.pocketagent.provider.gateway.Consumer
+import com.pocketagent.provider.gateway.GatewayEndpoint
 import com.pocketagent.provider.gateway.dsh.DshConfigPatch
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -117,11 +118,11 @@ class HttpGatewayServer(
 
     /** 日志出口。刻意不用 Timber —— 它不在离线验证器的 classpath 里。 */
     private val log: (String) -> Unit = {},
-) {
+) : GatewayEndpoint {
 
     /** 本次启动的 token。**每次 start 重新生成**（加固第 3 条）。 */
     @Volatile
-    var token: String = ""
+    override var token: String = ""
         private set
 
     /** 实际监听的端口。`start` 之后才有效。 */
@@ -130,7 +131,7 @@ class HttpGatewayServer(
         private set
 
     /** baseUrl，供 dsh 配置使用（形如 `http://127.0.0.1:12345/v1`） */
-    val baseUrl: String get() = "http://127.0.0.1:$port/v1"
+    override val baseUrl: String get() = "http://127.0.0.1:$port/v1"
 
     @Volatile
     private var serverSocket: ServerSocket? = null
@@ -159,7 +160,7 @@ class HttpGatewayServer(
      *
      * @return 是否启动成功
      */
-    fun start(): Boolean {
+    override fun start(): Boolean {
         if (!running.compareAndSet(false, true)) {
             log("网关已在运行，忽略重复 start")
             return true
@@ -204,7 +205,7 @@ class HttpGatewayServer(
      *    只取消 scope 则 accept 阻塞在 `accept()` 上不响应取消
      *    （它是阻塞 IO，不是挂起点）。
      */
-    fun stop() {
+    override fun stop() {
         if (!running.compareAndSet(true, false)) return
 
         // 先取消 scope（含所有在途请求）

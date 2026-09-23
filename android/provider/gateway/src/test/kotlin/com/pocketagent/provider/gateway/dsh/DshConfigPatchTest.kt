@@ -624,4 +624,62 @@ class DshConfigPatchTest {
         assertEquals("MY_LOCAL_TOKEN", settingsRef)
         assertEquals(settingsRef, credRef)
     }
+
+    // ─────────────────────────────────────────────────────────────
+    //  credentialsDocument —— 目标文件**不存在**时的新建路径
+    // ─────────────────────────────────────────────────────────────
+
+    @Test
+    fun `全新凭据文档带 version 与 refs 两个顶格键`() {
+        val lines = patch.credentialsDocument().lines()
+
+        assertEquals("version: 1", lines[0])
+        assertEquals("refs:", lines[1])
+        assertTrue(
+            "凭据行必须缩进在 refs 之下，否则它是另一个顶格键而不是 refs 的成员",
+            lines[2].startsWith("  "),
+        )
+    }
+
+    @Test
+    fun `全新凭据文档能被自己的合并逻辑接住`() {
+        // ═══════════════════════════════════════════════════════════
+        //  ★★ 这条是 credentialsDocument 存在的意义所在
+        // ═══════════════════════════════════════════════════════════
+        //
+        // 新建出来的文档必须能被**下一次 start** 的合并路径
+        // （mergeIntoCredentialsYaml）正常处理 —— 否则第二次启动就会
+        // 追加一条**重复键**，而 YAML 重复键的语义取决于解析器
+        // （"后者胜"或直接报错，两种都糟）。
+        //
+        // 这条测试同时钉住两件事：新建的文档结构**认识**，
+        // 以及"新建 → 合并"这条路径**闭合**。
+        val first = patch.credentialsDocument()
+        val second = patch.copy(token = "rotated-token-xyz").mergeIntoCredentialsYaml(first)
+
+        assertNotNull("新建文档必须能被合并，返回 null 就说明结构自己都不认识", second)
+
+        assertTrue("轮换后的 token 应出现", second!!.contains("rotated-token-xyz"))
+        assertFalse("轮换后旧 token 必须消失", second.contains(patch.token))
+
+        val keyCount = second.lines().count { it.contains(DshConfigPatch.DEFAULT_CREDENTIAL_REF) }
+        assertEquals("同名键只能有一行", 1, keyCount)
+    }
+
+    @Test
+    fun `全新凭据文档里不出现任何像真实 API Key 的值`() {
+        val doc = patch.credentialsDocument()
+
+        assertFalse(
+            "凭据文件里只该有本地 token，不该有任何 sk- 形态的串",
+            Regex("sk-[A-Za-z0-9]{8,}").containsMatchIn(doc),
+        )
+    }
+
+    @Test
+    fun `全新凭据文档是幂等的`() {
+        // 同一份 patch 生成两次必须逐字相同 —— 否则"用户多点一次按钮"
+        // 会让文件内容发生变化，而变更无从解释。
+        assertEquals(patch.credentialsDocument(), patch.credentialsDocument())
+    }
 }

@@ -106,10 +106,11 @@ dependencies {
     implementation(project(":provider:tts-openai"))   // 语音合成（OpenAI /audio/speech 协议）
     implementation(project(":keymgmt"))               // API Key 的存储 / 校验 / 取用
     implementation(project(":modelrouter"))           // 模型配置仓储契约 + 难度路由 + 配置体检
+    implementation(project(":core:network"))          // 日志脱敏（网关错误信息出站前的最后一道）
+    implementation(project(":provider:gateway"))      // loopback 网关：dsh 的模型出口
 
     // 以下随对应模块落地启用：
-    // implementation(project(":core:common"))
-    // implementation(project(":core:network"))
+    implementation(project(":core:common"))           // 原子写文本文件（配置投递用）
     // implementation(project(":provider:anthropic"))
     // implementation(project(":provider:gemini"))
     // implementation(project(":provider:local"))

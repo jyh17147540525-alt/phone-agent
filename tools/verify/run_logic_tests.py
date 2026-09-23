@@ -128,6 +128,11 @@ LIBRARY_JARS = [
 #   这两个模块的单测由 Gradle 跑（已实测通过）：
 #     ./gradlew :core:database:testDebugUnitTest :keymgmt:testDebugUnitTest
 MODULES = [
+    # 通用纯逻辑。目前只有「原子写文本文件」——
+    # 它只有几十行，但它是**唯一**挡在"半截配置文件"前面的东西，
+    # 而那种故障的表现是"没有报错、只是 dsh 行为诡异"。
+    # 放 `:app` 就只能靠真机看出来，所以它必须住在这个纯 Kotlin 模块里。
+    "android/core/common",
     "android/provider/api",
     "android/provider/openai-compat",
     "android/core/network",

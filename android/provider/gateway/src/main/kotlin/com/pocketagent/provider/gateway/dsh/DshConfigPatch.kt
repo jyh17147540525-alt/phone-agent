@@ -177,6 +177,35 @@ data class DshConfigPatch(
      */
     fun credentialEntry(): String = "  ${yamlScalar(credentialRef)}: ${yamlScalar(token)}"
 
+    /**
+     * 一份**全新的**最小凭据文档 —— 只在目标文件**不存在**时用。
+     *
+     * ═══════════════════════════════════════════════════════════
+     *  ⚠️ 它与 [mergeIntoCredentialsYaml] 是**互补**的，不是替代
+     * ═══════════════════════════════════════════════════════════
+     *
+     * [mergeIntoCredentialsYaml] 在找不到 `refs:` 时返回 `null`，理由是
+     * **"我不处理我不理解的既有文件"** —— 那份文件里有用户的真 Key，
+     * 猜错结构会毁掉它。
+     *
+     * 但**文件不存在时没有"不理解"的对象**：那里没有任何东西可毁。
+     * 所以这时可以、也应该生成一份新的。少了这一条，
+     * 首次接入就永远拿不到凭据文件，而 `apiKeyEnv` 指向一个不存在的凭据
+     * → dsh 每请求报 `MISSING_CREDENTIAL` → 用户去查"token 是不是过期了"。
+     *
+     * ⚠️ **只允许对"我们自己的落点"用这个方法**。写进 dsh 真实配置目录
+     *    的 sink 必须**禁止新建**凭据文件（见 `DshConfigSink.mayCreateCredentialsFile`）——
+     *    因为真实的 `.credentials.yaml` 可能还要求 `records:` 等我们没见过的段，
+     *    凭空造一份可能让 dsh 直接读不动配置。
+     *
+     * `version: 1` 取自真机上那份文件（2026-09-22 实地读取）。
+     */
+    fun credentialsDocument(): String = buildString {
+        append("version: 1\n")
+        append("refs:\n")
+        append(credentialEntry()).append('\n')
+    }
+
     // ─────────────────────────────────────────────────────────────
     //  合并：把上面的片段插进既有文档
     // ─────────────────────────────────────────────────────────────
