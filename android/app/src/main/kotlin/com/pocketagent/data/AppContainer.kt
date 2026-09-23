@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import com.pocketagent.assistant.HostPermissionReader
 import com.pocketagent.core.common.AtomicTextFile
 import com.pocketagent.core.crypto.CryptoManager
 import com.pocketagent.core.database.DatabaseKeyProvider
@@ -246,6 +247,15 @@ class AppContainer(context: Context) {
     val subscriptions = SubscriptionRepository(pluginSourceStore, http, json)
 
     val installer = PluginInstaller(appContext, http, json)
+
+    /**
+     * 读宿主权限的真实状态（无障碍 / 悬浮窗 / 通知 / 截图）。
+     *
+     * ⚠️ 它**不做判断** —— "该显示什么状态、该给什么按钮"全在 `:core:common`
+     *    的 `HostPermissions` 里（纯 Kotlin、有测试）。判断一旦散到 Android 侧，
+     *    离线测试就够不着了，而这一层的错（用错 API、读错字段）恰恰最静默。
+     */
+    val hostPermissionReader = HostPermissionReader(appContext)
 
     // ═══════════════════════════════════════════════════════════════
     //  API Key 管理

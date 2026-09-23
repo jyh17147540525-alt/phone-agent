@@ -2,6 +2,9 @@ package com.pocketagent.ui.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.pocketagent.core.common.permission.HostPermissions
+import com.pocketagent.core.common.permission.HostSignals
+import com.pocketagent.core.common.permission.PermissionSummary
 import com.pocketagent.data.CredentialStoreResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,6 +32,9 @@ import kotlinx.coroutines.launch
  */
 class SettingsViewModel(
     openStore: suspend () -> CredentialStoreResult,
+    // ⚠️ 必须是 `private val` 而不是裸参数：裸的构造参数**只在属性初始化器和
+    //    `init` 块里可见**，成员函数里引用不到（[refreshPermissions] 就要用）。
+    private val readPermissions: () -> HostSignals,
 ) : ViewModel() {
 
     /**
@@ -52,6 +58,32 @@ class SettingsViewModel(
 
     private val _keyStatus = MutableStateFlow<KeyStatus>(KeyStatus.Loading)
     val keyStatus: StateFlow<KeyStatus> = _keyStatus.asStateFlow()
+
+    /**
+     * 宿主权限汇总，给「权限状态」那一行的徽章用。
+     *
+     * ⚠️ 与 [KeyStatus] 是同一类问题：徽章原先写死成"未实现"，
+     *    而它其实**可以**查 —— 一个说错话的界面比一个不说这话的界面更糟。
+     *
+     * 构造时同步读一次（只是一次系统查询），让第一帧就说真话。
+     */
+    private val _permissionSummary: MutableStateFlow<PermissionSummary?> =
+        MutableStateFlow(summarizePermissions())
+    val permissionSummary: StateFlow<PermissionSummary?> = _permissionSummary.asStateFlow()
+
+    /**
+     * 重读宿主权限。
+     *
+     * ⚠️ 必须由界面在 `ON_RESUME` 时调用：用户从系统设置开完权限回来，
+     *    徽章还显示旧值的话，他会以为"开了也没用"，然后再去开一遍 ——
+     *    而这个失败**没有任何东西会报错**。
+     */
+    fun refreshPermissions() {
+        _permissionSummary.value = summarizePermissions()
+    }
+
+    private fun summarizePermissions(): PermissionSummary =
+        HostPermissions.summarize(HostPermissions.verdicts(readPermissions()))
 
     init {
         viewModelScope.launch {

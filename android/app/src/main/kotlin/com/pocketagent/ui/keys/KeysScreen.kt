@@ -120,7 +120,7 @@ fun KeysScreen(
                 title = "暂时打不开加密存储",
                 reason = store.reason,
                 hint = "这通常只是暂时的问题。先重试一次 —— " +
-                    "**只有在重试无效时才应该考虑重建**，因为重建会清掉已保存的 Key。",
+                    "只有在重试无效时才应该考虑重建，因为重建会清掉已保存的 Key。",
                 onRetry = viewModel::open,
                 onReset = viewModel::resetStore,
             )

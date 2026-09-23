@@ -16,6 +16,8 @@ import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import com.pocketagent.core.common.permission.HostPermissions
+import com.pocketagent.core.common.permission.PermissionSummary
 import com.pocketagent.ui.design.PaBadgeTone
 import com.pocketagent.ui.design.PaListDivider
 import com.pocketagent.ui.design.PaListGroup
@@ -55,6 +57,13 @@ import com.pocketagent.ui.design.PaSpace
 fun SettingsScreen(
     modifier: Modifier = Modifier,
     keyStatus: SettingsViewModel.KeyStatus = SettingsViewModel.KeyStatus.Loading,
+    /**
+     * 宿主权限汇总。
+     *
+     * ⚠️ `null` = **还没读到**，与「全都没开」是两回事。
+     *    这时**不画徽章** —— 画一个「0 项待开启」会让用户以为一切正常。
+     */
+    permissionSummary: PermissionSummary? = null,
     onOpenKeys: (() -> Unit)? = null,
     onOpenModels: (() -> Unit)? = null,
     onOpenDsh: (() -> Unit)? = null,
@@ -63,6 +72,18 @@ fun SettingsScreen(
     onOpenPermissions: (() -> Unit)? = null,
 ) {
     val (keyBadge, keyTone) = keyBadgeFor(keyStatus)
+
+    // 权限徽章：没读到就留空（见参数注释）。
+    val permissionBadge = permissionSummary?.let(HostPermissions::badgeText)
+    val permissionTone = when {
+        permissionSummary == null -> PaBadgeTone.Neutral
+        // 有用户能处理的 → 警示色，那是他该做的事
+        permissionSummary.actionable > 0 -> PaBadgeTone.Warning
+        // 用户做完了、只是应用还没做 → 中性色。**不能给 Success**：
+        // 那等于告诉用户"全都好了"，而截图其实还拿不到。
+        permissionSummary.appSidePending > 0 -> PaBadgeTone.Neutral
+        else -> PaBadgeTone.Success
+    }
 
     PaScreen(title = "设置", modifier = modifier) {
         LazyColumn(
@@ -143,17 +164,15 @@ fun SettingsScreen(
                     PaListRow(
                         icon = Icons.Default.Shield,
                         title = "权限状态",
-                        subtitle = "无障碍、截图、悬浮窗",
-                        // ⚠️ 原来这里是 `"待检查"` —— 那是一句**承诺**，而没有任何
-                        //    代码在检查它。用户读到"待检查"会以为应用会自己查、
-                        //    或者点进去就能看到，而两者都不成立（`onClick` 是 null，
-                        //    检查逻辑也不存在）。
-                        //
-                        //    一个说错话的界面比一个不说这话的界面更糟 ——
-                        //    见 SettingsViewModel 的类注释：用户不会怀疑文案，
-                        //    他会怀疑自己。所以这里如实说"未实现"。
-                        badge = "未实现",
-                        badgeTone = PaBadgeTone.Neutral,
+                        subtitle = "无障碍、悬浮窗、通知、截图",
+                        // ⚠️ 这里先后经历过两句假话：
+                        //    ① 最早是写死的 `"待检查"` —— 一句**承诺**，
+                        //       而没有任何代码在检查它；
+                        //    ② 后来改成 `"未实现"` —— 不再骗人，但它也**不是**事实：
+                        //       无障碍和悬浮窗其实都能查。
+                        //    现在读的是真状态（见 HostPermissions）。
+                        badge = permissionBadge,
+                        badgeTone = permissionTone,
                         onClick = onOpenPermissions,
                     )
                 }

@@ -22,6 +22,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -46,6 +48,8 @@ import com.pocketagent.ui.market.MarketScreen
 import com.pocketagent.ui.market.MarketViewModel
 import com.pocketagent.ui.models.ModelsScreen
 import com.pocketagent.ui.models.ModelsViewModel
+import com.pocketagent.ui.permissions.PermissionsScreen
+import com.pocketagent.ui.permissions.PermissionsViewModel
 import com.pocketagent.ui.plugins.InstalledPluginsViewModel
 import com.pocketagent.ui.plugins.PluginsScreen
 import com.pocketagent.ui.settings.SettingsScreen
@@ -87,6 +91,7 @@ object Routes {
     const val KEYS = "keys"
     const val MODELS = "models"
     const val DSH = "dsh"
+    const val PERMISSIONS = "permissions"
 }
 
 /**
@@ -123,7 +128,10 @@ private val TABS = listOf(
         route = Routes.SETTINGS,
         label = "设置",
         icon = Icons.Default.Tune,
-        owns = setOf(Routes.SETTINGS, Routes.SOURCES, Routes.KEYS, Routes.MODELS, Routes.DSH),
+        owns = setOf(
+            Routes.SETTINGS, Routes.SOURCES, Routes.KEYS,
+            Routes.MODELS, Routes.DSH, Routes.PERMISSIONS,
+        ),
     ),
 )
 
@@ -235,23 +243,29 @@ fun AppShell(container: AppContainer) {
                     val vm: SettingsViewModel = viewModel(
                         factory = viewModelFactory {
                             initializer {
-                                SettingsViewModel(openStore = container::openCredentialStore)
+                                SettingsViewModel(
+                                    openStore = container::openCredentialStore,
+                                    readPermissions = container.hostPermissionReader::read,
+                                )
                             }
                         }
                     )
                     val keyStatus by vm.keyStatus.collectAsStateWithLifecycle()
+                    val permissionSummary by vm.permissionSummary.collectAsStateWithLifecycle()
+
+                    // ⚠️ 必须挂在 `ON_RESUME`：用户点进系统设置开完权限再回来，
+                    //    徽章若显示旧值，他会以为"开了也没用"，然后再去开一遍。
+                    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshPermissions() }
 
                     SettingsScreen(
                         keyStatus = keyStatus,
-                        // ⚠️ 权限页**尚未实现**，传 null。
-                        //    传 null 的效果是那一行右侧不画箭头 —— 用户一眼就知道进不去。
-                        //    绝不能传 `{}`：箭头照画、点了没反应，用户会认为应用坏了。
                         onOpenKeys = { navController.navigate(Routes.KEYS) },
                         onOpenModels = { navController.navigate(Routes.MODELS) },
                         onOpenDsh = { navController.navigate(Routes.DSH) },
                         onOpenSources = { navController.navigate(Routes.SOURCES) },
                         onOpenImport = { navController.navigate(Routes.IMPORT) },
-                        onOpenPermissions = null,
+                        permissionSummary = permissionSummary,
+                        onOpenPermissions = { navController.navigate(Routes.PERMISSIONS) },
                     )
                 }
 
@@ -263,6 +277,20 @@ fun AppShell(container: AppContainer) {
                 // ⚠️ 新页面一律用 ui/design 下的组件，**不要**再引入 Material3 的
                 //    Scaffold / TopAppBar / Card：它们自带不透明背景，会盖住极光，
                 //    也会破坏"背景静止、只有内容在动"的转场观感。
+
+                composable(Routes.PERMISSIONS) {
+                    val vm: PermissionsViewModel = viewModel(
+                        factory = viewModelFactory {
+                            initializer {
+                                PermissionsViewModel(container.hostPermissionReader)
+                            }
+                        }
+                    )
+                    PermissionsScreen(
+                        viewModel = vm,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
 
                 composable(Routes.MARKET) {
                     val vm: MarketViewModel = viewModel(
