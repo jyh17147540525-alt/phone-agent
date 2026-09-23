@@ -509,8 +509,16 @@ enum class ConfirmReason {
      *
      * 它由 `:filelogic` 的 `FileAccessDecider` 产出，经由
      * [CapabilityRunner] 的 `ChannelResult.NeedsConfirmation` 冒泡上来，
-     * 再由 [CapabilityRuntime] 包成 [CapabilityVerdict.RequireConfirmation] ——
-     * 这样界面层**不需要知道有两种确认**，它照旧弹框、回填、重新裁决。
+     * 再由 [CapabilityRuntime] 包成 [CapabilityVerdict.RequireConfirmation]。
+     *
+     * ★★ 界面层**必须**按本字段分叉：答复要回填到
+     *    [CapabilityCall.operationConfirmedByUser]（本原因），
+     *    而不是 [CapabilityCall.confirmedByUser]（[GUARDED_CAPABILITY] 那个）。
+     *
+     *    ⚠️ 这里曾经写着"界面层不需要知道有两种确认，它照旧弹框、回填、
+     *       重新裁决" —— 而界面层当时只回填了 `confirmedByUser`，
+     *       于是这一闸被上一闸的答复**顺带答掉**，永远不弹。
+     *       2026-09-23 真机实证。**那句断言本身就是 bug 的一半。**
      */
     OPERATION_AFFECTS_FILES,
 }

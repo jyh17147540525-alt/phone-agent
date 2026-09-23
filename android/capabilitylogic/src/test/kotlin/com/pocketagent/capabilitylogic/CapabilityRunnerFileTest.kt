@@ -382,7 +382,7 @@ class CapabilityRunnerFileTest {
             },
         )
 
-        val result = runner(file).run(intent(FileOp.WRITE, content = "新内容"), confirmedByUser = true)
+        val result = runner(file).run(intent(FileOp.WRITE, content = "新内容"), operationConfirmedByUser = true)
 
         assertTrue("实际是 $result", result is ChannelResult.Succeeded)
         assertEquals("新内容", file.written)
@@ -434,7 +434,7 @@ class CapabilityRunnerFileTest {
             },
         )
 
-        val result = runner(file).run(intent(FileOp.WRITE, content = "新内容"), confirmedByUser = true)
+        val result = runner(file).run(intent(FileOp.WRITE, content = "新内容"), operationConfirmedByUser = true)
 
         assertTrue("状态变了就该停下，实际是 $result", result is ChannelResult.Failed)
         assertEquals("绝不能动手", 0, file.writeCount)

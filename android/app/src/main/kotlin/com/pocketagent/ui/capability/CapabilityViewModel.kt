@@ -20,6 +20,7 @@ import com.pocketagent.capabilitylogic.CapabilityRisk
 import com.pocketagent.capabilitylogic.CapabilityRunner
 import com.pocketagent.capabilitylogic.CapabilityRuntime
 import com.pocketagent.capabilitylogic.CapabilityVerdict
+import com.pocketagent.capabilitylogic.ConfirmReason
 import com.pocketagent.filelogic.FileScope
 import com.pocketagent.filelogic.ScopeRoot
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -191,13 +192,39 @@ class CapabilityViewModel(
      *    把裁决结果缓存下来、确认后直接执行，等于把"确认"变成提前返回的理由 ——
      *    正好绕过了 `CapabilityGuard` 要防的东西（用户确认的是他看到的那个操作，
      *    不是这个函数收到的那个操作）。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★★ 回填到**哪一个**字段，取决于用户刚回答的是**哪一闸**
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 底下有两个闸，问的是两件不同的事：
+     *
+     * | `pending.reason` | 问的是什么 | 回填到 |
+     * |---|---|---|
+     * | `GUARDED_CAPABILITY` | 你允许这个能力执行吗 | `confirmedByUser` |
+     * | `OPERATION_AFFECTS_FILES` | 这个文件会被覆盖/删除，你确定吗 | `operationConfirmedByUser` |
+     *
+     * ⚠️ 这里曾经**无脑回填 `confirmedByUser`** —— 于是用户点掉能力闸之后，
+     *    文件闸看到 `confirmedByUser = true` 就静默放行，
+     *    「这个文件已存在、原内容会被整体替换」那句话**从来没显示过**。
+     *    2026-09-23 真机实证：覆盖 `hello.txt` 时它一声不响就被替换了。
+     *
+     * ⚠️ 两个字段**都不清空**（`copy` 只覆盖传进去的那个）：用户可能先答能力闸、
+     *    再答文件闸，第二次回答时第一次的答复必须还在 ——
+     *    否则重新裁决会在能力闸上**又停下来一次**，用户看到同一个框弹两遍。
      */
     fun confirm() {
         val pending = _ui.value.confirm ?: return
         val call = _ui.value.lastCall ?: return
 
+        val answered = if (pending.reason == ConfirmReason.OPERATION_AFFECTS_FILES) {
+            call.copy(operationConfirmedByUser = true)
+        } else {
+            call.copy(confirmedByUser = true)
+        }
+
         // 重新走一遍完整裁决：所有前置判定（硬拒绝、来源、参数、规划后校验）都会再跑。
-        execute(call.copy(confirmedByUser = true), keepPending = pending)
+        execute(answered, keepPending = pending)
     }
 
     /**
@@ -301,10 +328,32 @@ class CapabilityViewModel(
                 )
             }
 
-            // `keepPending` 只在"确认"这条路径上非空；它的用途是让
-            // "确认后又被拦下"这种情况在审计里读得出来（见 CapabilityRuntime）。
-            require(keepPending == null || outcome !is CapabilityOutcome.NeedsConfirmation) {
-                "确认之后不该再要求确认一次 —— 那说明确认标志没有生效"
+            // `keepPending` 只在"确认"这条路径上非空。
+            //
+            // ══════════════════════════════════════════════════════════
+            //  ★★ 判据是「**同一闸**又问了同一句话」，不是"又问了"
+            // ══════════════════════════════════════════════════════════
+            //
+            // 这条断言原本写的是"确认之后不该再要求确认一次"。它想抓的
+            // 是一类很具体的坏法：确认标志没生效 → 用户答完又弹同一个框 →
+            // 反复点、永远执行不了。**那个意图是对的。**
+            //
+            // ⚠️ 但底下有**两个**闸（见 [ConfirmReason]），所以"又问了"
+            //    有两种可能：
+            //      · 同一闸又问了同一句话 → 标志没生效，**是 bug**，要炸
+            //      · 上一闸答完、轮到下一闸 → **正是设计要的行为**
+            //    原判据把两者当成一种，于是本轮修好双闸之后，
+            //    第一次真机验证就撞在这条断言上（`IllegalArgumentException`
+            //    直接闪退）。**它守的是对的，只是守宽了。**
+            //
+            // ⚠️ 所以必须比 `reason` —— 它正是"问的是哪一句话"的标识。
+            require(
+                keepPending == null ||
+                    outcome !is CapabilityOutcome.NeedsConfirmation ||
+                    outcome.verdict.reason != keepPending.reason,
+            ) {
+                "同一闸确认之后不该再问一次（reason=${keepPending?.reason}）—— " +
+                    "那说明这个闸的确认标志没有生效"
             }
         }
     }

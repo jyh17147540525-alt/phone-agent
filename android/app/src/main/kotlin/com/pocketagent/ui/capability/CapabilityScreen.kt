@@ -40,6 +40,7 @@ import com.pocketagent.capabilitylogic.CapabilityMessages
 import com.pocketagent.capabilitylogic.CapabilityOutcome
 import com.pocketagent.capabilitylogic.CapabilityOutcomeTone
 import com.pocketagent.capabilitylogic.CapabilityRisk
+import com.pocketagent.capabilitylogic.ConfirmReason
 import com.pocketagent.capabilitylogic.NextStep
 import com.pocketagent.capabilitylogic.ParamSpec
 import com.pocketagent.filelogic.ScopeRoot
@@ -272,6 +273,7 @@ fun CapabilityScreen(
 
     ui.confirm?.let { pending ->
         ConfirmDialog(
+            reason = pending.reason,
             message = pending.userMessage,
             onConfirm = viewModel::confirm,
             onDismiss = viewModel::dismissConfirm,
@@ -794,20 +796,39 @@ private fun placeholderOf(spec: ParamSpec): String = when (spec) {
  * ⚠️ 文案来自判定层（`RequireConfirmation.userMessage`），里面带着
  *    **这一次具体要执行的那条命令**。不要在这里另写一句 ——
  *    用户确认的是他看到的那个操作，不是"某个叫这个名字的能力"。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  ★★ 标题与按钮必须按 [reason] 分叉
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * 底下有**两个**闸（见 [ConfirmReason]），而它们问的是两件不同的事。
+ * 如果两个框的标题和按钮都用同一套字，用户在屏幕上看到的就是"同一个框弹了两次" ——
+ * 而"看起来是同一个"正是他学会"看见就点同意"的起点。那时确认门就白设了。
+ *
+ * 所以这里让第二个框在**第一眼**上就不一样：它问的是那个文件，不是这个动作。
+ *
+ * ⚠️ 只有两个值，所以写成 `if` 而不是 `when` —— 但**不要**给它加
+ *    `else ->` 兜底：将来多一种确认原因时，兜底会让新那一闸
+ *    静默地沿用"执行"这套字，而那正是这里要避免的。
  */
 @Composable
 private fun ConfirmDialog(
+    reason: ConfirmReason,
     message: String,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    // 能力闸：问"你允许做这类事吗" —— 所以是「动作」与「执行」。
+    // 文件闸：问"这个文件会被覆盖/删除/移动，你确定吗" —— 所以是「文件」与「确认」。
+    val asksAboutFile = reason == ConfirmReason.OPERATION_AFFECTS_FILES
+
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = PaColor.Surface,
         shape = RoundedCornerShape(PaRadius.l),
         title = {
             Text(
-                text = "要执行这个动作吗？",
+                text = if (asksAboutFile) "要动这个文件吗？" else "要执行这个动作吗？",
                 style = PaType.headline,
                 color = PaColor.TextPrimary,
             )
@@ -823,7 +844,11 @@ private fun ConfirmDialog(
         },
         confirmButton = {
             TextButton(onClick = onConfirm) {
-                Text(text = "执行", style = PaType.label, color = PaColor.Accent)
+                Text(
+                    text = if (asksAboutFile) "确认" else "执行",
+                    style = PaType.label,
+                    color = PaColor.Accent,
+                )
             }
         },
         dismissButton = {

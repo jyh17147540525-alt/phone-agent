@@ -365,31 +365,49 @@ class CapabilityRunner(
      *
      * ⚠️ 调用方**必须**只在 [CapabilityVerdict.Allowed] 上调用它。
      *    [CapabilityVerdict.RequireConfirmation] 要先拿用户答复回填
-     *    [CapabilityCall.confirmedByUser]、**重新裁决一次**，再执行 ——
-     *    见那个类的注释。
+     *    [CapabilityCall.confirmedByUser] 或 [CapabilityCall.operationConfirmedByUser]、
+     *    **重新裁决一次**，再执行 —— 见那个类的注释。
      */
     suspend fun run(
         execution: PlannedExecution,
 
         /**
-         * 用户是否已经就**这一次执行**点过确认。
+         * 用户是否已经就**这一次要动的那个文件**点过确认。
          *
-         * ⚠️ 它同时服务两个闸：能力放行（[CapabilityVerdict.RequireConfirmation]）
-         *    与文件操作确认（[ChannelResult.NeedsConfirmation]）。
+         * ═══════════════════════════════════════════════════════════
+         *  ⚠️⚠️ 它**只**服务文件闸，不服务能力闸
+         * ═══════════════════════════════════════════════════════════
          *
-         *    共用一个标志是**刻意的** —— 用户点的那一下确认框里写了要动哪个文件
-         *    （见 [CommandPlanner] 的 fileSummary），所以他确认的确实是这件事。
-         *    再加一个平行标志的后果是：两个标志迟早不同步，而不同步的方向
-         *    必然是**某一个闸被绕过**。
+         * 这里曾经是**一个** `confirmedByUser`，同时服务两个闸
+         * （能力放行与文件操作确认），并且注释里写了一条理由为它辩护：
+         * 「用户点的那一下确认框里写了要动哪个文件（见 [CommandPlanner] 的
+         * `fileSummary`），所以他确认的确实是这件事。」
+         *
+         * ★ 2026-09-23 真机实证，**那条理由不成立**：
+         *   `fileSummary` 产出的是「写入 .../hello.txt（20 字）」——
+         *   它说了**动哪个文件**，但**没说"这个文件现在在不在"**。
+         *
+         *   ⚠️ 精确地说：能力闸的文案里**确实有**一句风险提示，但它是
+         *      **条件式**的、且来自静态的 `Capability.summary`
+         *      （"文件**已经存在时**，它的原内容会被替换掉"）——
+         *      它说的是"这类操作有覆盖风险"，**不是"这一次会覆盖"**。
+         *
+         *   ⇒ 知道"动哪个文件" + "这类操作可能有风险"
+         *     ≠ 知道"那个文件的内容**这一次真的会没**"。
+         *     前者是**目标与通则**，后者是**这一次的事实**。
+         *     确认门要挡的是后者，而只有文件闸说得出后者。
+         *
+         * 合并的后果不是"少问一次"，而是**第二句话永远说不出来**：
+         * 用户点掉能力闸 ⇒ 这个标志变 true ⇒ 文件闸静默放行。
          *
          * ⚠️ 默认值 false 是**安全侧**：忘了传的后果是"多问一次"，
-         *    不是"没问就做了"。
+         *    不是"没问就覆盖了"。
          */
-        confirmedByUser: Boolean = false,
+        operationConfirmedByUser: Boolean = false,
     ): ChannelResult = when (execution) {
         is PlannedExecution.SettingWrite -> runSetting(execution)
         is PlannedExecution.ShellArgv -> runShell(execution)
-        is PlannedExecution.FileIntent -> runFile(execution, confirmedByUser)
+        is PlannedExecution.FileIntent -> runFile(execution, operationConfirmedByUser)
     }
 
     private suspend fun runSetting(execution: PlannedExecution.SettingWrite): ChannelResult {
@@ -440,7 +458,7 @@ class CapabilityRunner(
      */
     private suspend fun runFile(
         intent: PlannedExecution.FileIntent,
-        confirmedByUser: Boolean,
+        operationConfirmedByUser: Boolean,
     ): ChannelResult {
         val channel = files ?: return ChannelResult.Unavailable(
             reason = ChannelUnavailableReason.PORT_NOT_CONFIGURED,
@@ -521,7 +539,7 @@ class CapabilityRunner(
             descendantCount = descendantCount,
 
             destinationPath = intent.destinationPath,
-            confirmedByUser = confirmedByUser,
+            confirmedByUser = operationConfirmedByUser,
         )
 
         return when (val decision = FileAccessDecider(scope).decide(request)) {

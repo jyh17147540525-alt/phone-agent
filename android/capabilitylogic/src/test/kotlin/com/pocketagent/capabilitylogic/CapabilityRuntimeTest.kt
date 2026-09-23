@@ -1,5 +1,13 @@
 package com.pocketagent.capabilitylogic
 
+import com.pocketagent.filelogic.ChannelResult as FileChannelResult
+import com.pocketagent.filelogic.DirEntry
+import com.pocketagent.filelogic.EntryStat
+import com.pocketagent.filelogic.FileChannel
+import com.pocketagent.filelogic.FileChannelKind
+import com.pocketagent.filelogic.FileReadResult
+import com.pocketagent.filelogic.FileScope
+import com.pocketagent.filelogic.ScopeRoot
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -74,17 +82,77 @@ class CapabilityRuntimeTest {
         }
     }
 
+    /**
+     * 文件通道的桩 —— **只为文件闸准备**，所以它只回答"这个文件在不在、多大"。
+     *
+     * ⚠️ 它刻意**不做任何判断**：桩里一旦出现业务 `if`，测的就是桩而不是被测对象。
+     */
+    private class ExistingFile(
+        private val exists: Boolean = true,
+        private val sizeBytes: Long = 22,
+    ) : FileChannel {
+
+        override val kind: FileChannelKind = FileChannelKind.SAF
+
+        override fun isAvailable(): Boolean = true
+
+        override fun priority(): Int = 1
+
+        var writeCount = 0
+
+        override suspend fun stat(root: ScopeRoot, relativePath: String) =
+            FileChannelResult.Ok(
+                EntryStat(exists = exists, isDirectory = false, sizeBytes = sizeBytes),
+            )
+
+        override suspend fun list(root: ScopeRoot, relativePath: String) =
+            FileChannelResult.Ok(emptyList<DirEntry>())
+
+        override suspend fun read(
+            root: ScopeRoot,
+            relativePath: String,
+            maxBytes: Int,
+        ) = FileChannelResult.Ok(FileReadResult.Text(""))
+
+        override suspend fun write(
+            root: ScopeRoot,
+            relativePath: String,
+            content: String,
+        ): FileChannelResult<Unit> {
+            writeCount++
+            return FileChannelResult.Ok(Unit)
+        }
+
+        override suspend fun delete(root: ScopeRoot, relativePath: String) =
+            FileChannelResult.Ok(Unit)
+
+        override suspend fun move(
+            root: ScopeRoot,
+            fromRelativePath: String,
+            toRelativePath: String,
+        ) = FileChannelResult.Ok(Unit)
+    }
+
     /** 默认全部放行 —— 把"放行"这一维从大多数测试里消掉。 */
     private fun runtime(
         settings: SettingsAccess? = null,
         shell: ShellRunner? = null,
+
+        /** 接上它才会走到文件闸那一段。 */
+        files: FileChannel? = null,
+        fileScope: FileScope = FileScope(),
         isGranted: (Capability) -> Boolean = { true },
         now: Long = FIXED_NOW,
     ): Pair<CapabilityRuntime, CapabilityAuditLog> {
         val log = CapabilityAuditLog(sink = { trace += "audit" })
         val runtime = CapabilityRuntime(
             guard = CapabilityGuard(catalog, isGranted),
-            runner = CapabilityRunner(settings = settings, shell = shell),
+            runner = CapabilityRunner(
+                settings = settings,
+                shell = shell,
+                files = files,
+                fileScope = { fileScope },
+            ),
             auditLog = log,
             clock = { now },
         )
@@ -342,6 +410,91 @@ class CapabilityRuntimeTest {
         runtime.execute(brightness())
 
         assertEquals(1_234_567_890L, log.events().single().timestamp)
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  ★★ 两个确认闸必须**各自**被答一次
+    // ══════════════════════════════════════════════════════════
+
+    private val docsRoot = ScopeRoot(
+        id = "docs",
+        displayName = "文档",
+        path = "/storage/emulated/0/Documents",
+        token = "content://com.android.externalstorage.documents/tree/primary%3ADocuments",
+    )
+
+    private val grantedDocs = FileScope(roots = listOf(docsRoot))
+
+    private fun fileWriteCall(
+        capabilityConfirmed: Boolean = false,
+        operationConfirmed: Boolean = false,
+    ) = CapabilityCall(
+        "file.write",
+        mapOf(
+            "path" to "/storage/emulated/0/Documents/a.txt",
+            "content" to "新内容",
+        ),
+        confirmedByUser = capabilityConfirmed,
+        operationConfirmedByUser = operationConfirmed,
+    )
+
+    @Test
+    fun `能力闸的答复不能顺带答掉文件闸`() = runTest {
+        // ★★ 这条钉的是 2026-09-23 真机上抓到的一个 bug。
+        //
+        //    两个闸问的是两个不同的问题：
+        //      · 能力闸：你允许这个能力执行吗       → confirmedByUser
+        //      · 文件闸：这个文件会被覆盖，你确定吗 → operationConfirmedByUser
+        //
+        //    曾经两者共用**一个**字段 ⇒ 用户点掉能力闸之后，文件闸看到
+        //    confirmedByUser = true 就静默放行 —— 于是
+        //    「a.txt 已经存在（22 B）。继续写入会把它的原有内容整体替换掉，
+        //      而且没法撤销」这句话**从来没显示过**。
+        //    真机上表现为：覆盖 hello.txt 时它一声不响就被替换了。
+        //
+        //    ⚠️ 它不抛异常、不返回失败，只是**少问了一句** ——
+        //       所以只能靠这条测试钉住。
+        val file = ExistingFile()
+        val (runtime, _) = runtime(files = file, fileScope = grantedDocs)
+
+        val outcome = runtime.execute(fileWriteCall(capabilityConfirmed = true))
+
+        val needs = outcome as? CapabilityOutcome.NeedsConfirmation
+            ?: throw AssertionError("文件闸必须「单独」再问一次，实际是 $outcome")
+        assertEquals(
+            "冒泡上来的原因码必须是文件闸那个 —— 界面层靠它决定回填哪个字段",
+            ConfirmReason.OPERATION_AFFECTS_FILES,
+            needs.verdict.reason,
+        )
+        assertEquals("问的时候一个字都不能写", 0, file.writeCount)
+    }
+
+    @Test
+    fun `两个闸都答过之后才真的写进去`() = runTest {
+        // ⚠️ 反向。少了这条，"两个闸都答过反而写不进去"这种坏法没有观察点。
+        val file = ExistingFile()
+        val (runtime, _) = runtime(files = file, fileScope = grantedDocs)
+
+        val outcome = runtime.execute(
+            fileWriteCall(capabilityConfirmed = true, operationConfirmed = true),
+        )
+
+        assertTrue("实际是 $outcome", outcome is CapabilityOutcome.Executed)
+        assertEquals(1, file.writeCount)
+    }
+
+    @Test
+    fun `文件不存在时只有能力闸要答`() = runTest {
+        // ⚠️ 反向的反向：**没有覆盖风险就不该多问一次**。
+        //    否则"帮我建个笔记"这种最常见的请求会变成两次交互，
+        //    而第二次交互里用户什么新信息都没得到。
+        val file = ExistingFile(exists = false)
+        val (runtime, _) = runtime(files = file, fileScope = grantedDocs)
+
+        val outcome = runtime.execute(fileWriteCall(capabilityConfirmed = true))
+
+        assertTrue("实际是 $outcome", outcome is CapabilityOutcome.Executed)
+        assertEquals(1, file.writeCount)
     }
 
     private companion object {

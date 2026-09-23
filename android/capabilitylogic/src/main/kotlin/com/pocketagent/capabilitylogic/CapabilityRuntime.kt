@@ -89,10 +89,19 @@ class CapabilityRuntime(
             is CapabilityVerdict.RequireConfirmation -> CapabilityOutcome.NeedsConfirmation(verdict)
 
             is CapabilityVerdict.Allowed -> {
-                // ⚠️ 把 `confirmedByUser` 传下去 —— 文件裁决也要看它。
-                //    漏传的后果是**文件确认永远过不去**（每次都重新要求确认），
-                //    而那种现象看起来像"点了确定没反应"。
-                val result = runner.run(verdict.execution, call.confirmedByUser)
+                // ★★ 传下去的是 `operationConfirmedByUser`，**不是** `confirmedByUser`。
+                //
+                //    ⚠️ 这一处曾经传错，而它是本轮最难发现的一个 bug：
+                //       `confirmedByUser` 答的是"你允许这个能力执行吗"（能力闸），
+                //       而文件裁决问的是"这个文件会被覆盖，你确定吗"（文件闸）。
+                //       把前者传下去 ⇒ 用户点掉能力闸之后，文件闸**静默通过**，
+                //       于是"原内容会被整体替换掉"这句话从来没机会显示。
+                //
+                //    ⚠️ 反过来"忘了传"也不行 —— 那会让文件闸**每次都重新问**，
+                //       现象是"点了确定没反应"（因为下一轮又回到同一个确认）。
+                //       两个方向都会坏，只是坏法不同：一个是问了没问成，
+                //       一个是**没问就做了**。
+                val result = runner.run(verdict.execution, call.operationConfirmedByUser)
 
                 // ★ 注意这里的形状：**每个分支各自产出结论**，没有"落到最后一行"
                 //    的隐含路径。
@@ -131,9 +140,17 @@ class CapabilityRuntime(
                     // ★ 这一次**没有执行** —— 文件裁决说"要用户先确认"。
                     //
                     // ⚠️ 包成 [CapabilityVerdict.RequireConfirmation] 而不是新的
-                    //    顶层结局，是为了让**界面层不需要知道有两种确认** ——
-                    //    它照旧弹框、回填 `confirmedByUser`、重新走一遍 `execute()`。
-                    //    这次回来时 `confirmedByUser = true`，文件裁决那一闸就会放行。
+                    //    顶层结局，是为了让界面层**照旧弹框、重新走一遍 `execute()`** ——
+                    //    它不需要知道底下有几套执行通道。
+                    //
+                    // ★★ 但界面层**必须知道这是哪一闸**，因为两闸的答复要回填到
+                    //    两个**不同**的字段（见 [ConfirmReason]）。判据就是这里给的
+                    //    `reason`：`OPERATION_AFFECTS_FILES` ⇒ 回填
+                    //    `operationConfirmedByUser`；否则 ⇒ 回填 `confirmedByUser`。
+                    //
+                    //    ⚠️ 这段注释曾经写着"界面层不需要知道有两种确认"，而界面层
+                    //       当时确实只回填了 `confirmedByUser` —— 于是文件闸被顺带
+                    //       答掉。**那句话本身就是 bug 的一部分。**
                     is ChannelResult.NeedsConfirmation -> CapabilityOutcome.NeedsConfirmation(
                         CapabilityVerdict.RequireConfirmation(
                             capability = verdict.capability,
