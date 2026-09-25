@@ -137,13 +137,25 @@ include(":update")            // 应用内自更新、哈希校验
 include(":channel")           // 渠道号与隐私友好统计
 include(":onboarding")        // 分机型权限引导向导与自检
 
-// ── 虚拟屏（v3.0 引入，2026-09-22 已否决）──────────────────
-// ⚠️ P0-3 实测：副屏能建、能注入，但**启不了第三方 App**。
-//    决定性证据：`uid=2000`(shell) 也被 SafeActivityOptions.checkPermissions 拒，
-//    而 Shizuku 同为 uid 2000 → 拿不到更高权限。**这条路已被证伪。**
-// 模块保留但不再前进，仅作为历史记录与复活可能（瓶颈只剩"启动"一环）。
-// 四级降级链改为：~~虚拟屏~~ → 小窗(freeform) → 全屏接管 → 手动引导。
-include(":display")           // ⚠️ 已否决，勿在此模块投入
+// ── 虚拟屏（v3.0 引入）──────────────────────────────────────
+// ⚠️ 2026-09-25 状态修正：本模块此前的「已否决」结论**已被后续实验部分推翻**。
+//
+//    原否决理由（"副屏能建、能注入，但**启不了第三方 App**；shell uid=2000 也被
+//    SafeActivityOptions.checkPermissions 拒"）**与后来的实测不符** ——
+//    用 `app_process` + shell 特权**确实把第三方 App 启到了虚拟屏上**
+//    （微信 / 系统设置 / 小米账号 均实测落屏），
+//    且 `am display move-stack <taskId> <displayId>` 能把**已在运行**的第三方 App
+//    搬到虚拟屏（只搬 RootTask、不启动 Activity ⇒ 绕开启动墙）。
+//
+//    ⇒ 真正的瓶颈**不是「启动」**，而是「读屏」与「不打扰用户」的取舍，外加隐私红线。
+//
+// ⚠️ 本模块接口（VirtualDisplayManager.kt）基于**旧的 overlay 路线**设计，
+//    与现行 VDM 路线（`createVirtualDisplay` + 自带 `ImageReader` 消费面）
+//    **不是同一套机制** —— 实现时**不要照抄接口里的命令**（如 `overlay_display_devices`
+//    与 `screencap -d`，后者在 VDM 路线下由消费面取代）。
+//
+// ★ 现行结论 / flags 表 / 未解问题：`docs/无感虚拟屏方案存档与交接-v1.0.md`
+include(":display")           // ⚠️ 视为「历史设计稿」；实现前必读交接文档
 include(":display:preview")   // ⚠️ 同上
 
 // ── 开源协作（v3.0 新增）──────────────────────────────────
