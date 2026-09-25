@@ -74,6 +74,30 @@ PURE_KOTLIN = {
     #   · 确认标志被提前消费   → "用户确认过"变成绕过一切的后门
     #   没有一条抛异常，没有一条在真机上"一眼看出来"。唯一抓手是确定性离线测试。
     "capabilitylogic",
+    # ── v4.0 AI 手机助理（2026-09-26）──────────────────────────────
+    # 人格模型 / 微调算法 / 变更账本 / 反漂移。
+    #
+    # ★ 为什么必须离线可测：判错的后果**全是静默的** ——
+    #   · 微调不生效       → 用户以为人格变了，其实没变（「ta 为我做出了改变」完全落空）
+    #   · 白名单漏一个字段 → 安全边界被击穿，且**不抛异常**（一句「以后你替我付款」就够了）
+    #   · 反漂移阈值算错   → 助理慢慢变成另一个 AI，用户说不出哪里不对，只是不再信任
+    #   没有一条抛异常，没有一条在真机上「一眼看出来」。
+    "personalogic",
+    # L0–L3 分层记忆 / 上下文卸载 / 任务画布（移植 TencentDB Agent Memory 的纯逻辑部分）。
+    #
+    # ★ 为什么必须离线可测：
+    #   · L1 提取漏一类     → 该记住的偏好没记住，用户只觉得「你怎么又忘了」
+    #   · 卸载顺序颠倒      → PrivacyFilter 跑在卸载之后 = 隐私**已经落盘**，且无人知道
+    #   · 画布序列化丢字段  → 上下文里少一段结构，任务跑偏但每一步都「成功」
+    # ⚠️ 这一层**不得自行发网络**（蒸馏走注入的 MemoryLlmPort），否则它进不了本验证器。
+    "memorylogic",
+    # 语音会话状态机 / 打断判定 / 延迟预算。
+    #
+    # ★ 为什么必须离线可测：
+    #   · 打断漏掉「取消在途请求」→ 助理停了，但 token 还在烧（用户看不见）
+    #   · 延迟预算超了           → 只是「感觉有点慢」，没有任何报错
+    #   · 状态机漏 INTERRUPTED   → 通话中偶尔卡死，复现全靠运气
+    "voicelogic",
 }
 
 # Android Library 模块 → 该模块需要额外依赖的库别名
@@ -191,6 +215,25 @@ ANDROID_LIB = {
         "kotlinx.serialization.json", "okhttp", "timber",
     ],
     "contribute": [
+        "androidx.core.ktx", "kotlinx.coroutines.android",
+        "kotlinx.serialization.json", "timber",
+    ],
+    # ── v4.0 AI 手机助理（2026-09-26）──────────────────────────────
+    # 助理编排：人格 + 记忆 + 对话循环。
+    # ⚠️ 它**不直接碰 Provider** —— 一切模型调用过 :provider:gateway
+    #    （路由 → 熔断 → 解密 → 转发 → 计量）。
+    "assistant": [
+        "androidx.core.ktx", "kotlinx.coroutines.android",
+        "kotlinx.serialization.json", "timber",
+    ],
+    # 音频采集 / 播放 / VAD 的 Android 实现。
+    # ⚠️ 状态机与打断判定在 :voicelogic —— 这里只做"把端口接到系统 API 上"。
+    "voice": [
+        "androidx.core.ktx", "kotlinx.coroutines.android", "timber",
+    ],
+    # TTS 封装层：能力探测 + **显式**降级链 + 统一接口。具体厂商适配器在 :provider:*。
+    # ⚠️ 降级必须显式可观测 —— 静默丢参数正是本项目头号 bug 形态「安静地少做一件事」。
+    "tts": [
         "androidx.core.ktx", "kotlinx.coroutines.android",
         "kotlinx.serialization.json", "timber",
     ],
