@@ -1,0 +1,1206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PocketAgent → AI 手机助理：架构重设计 v1.0</title>
+<style>
+:root {
+  --bg: #14161a;
+  --bg-soft: #1a1d22;
+  --panel: #1e2228;
+  --panel-2: #23272f;
+  --border: #2e343d;
+  --text: #e6e9ee;
+  --text-dim: #9aa4b2;
+  --text-faint: #6b7684;
+  --accent: #6ea8fe;
+  --accent-2: #7ee0c0;
+  --warn: #f0b429;
+  --danger: #f2685c;
+  --ok: #57c98a;
+  --code-bg: #15181d;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+               "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans SC", sans-serif;
+  font-size: 15.5px;
+  line-height: 1.85;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { display: flex; max-width: 1500px; margin: 0 auto; }
+aside {
+  width: 300px; flex: 0 0 300px;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  padding: 28px 18px 60px 28px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-soft);
+  font-size: 13.5px;
+}
+aside .brand {
+  font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--text-faint); margin-bottom: 4px;
+}
+aside .title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 20px; line-height: 1.5; }
+aside ul { list-style: none; padding-left: 0; margin: 0; }
+aside ul ul { padding-left: 14px; margin-top: 4px; }
+aside li { margin: 2px 0; }
+aside a {
+  color: var(--text-dim); text-decoration: none; display: block;
+  padding: 4px 8px; border-radius: 6px; border-left: 2px solid transparent;
+  transition: .15s;
+}
+aside a:hover { color: var(--text); background: var(--panel-2); border-left-color: var(--accent); }
+main { flex: 1; min-width: 0; padding: 44px 56px 120px; max-width: 1080px; }
+
+h1 {
+  font-size: 30px; line-height: 1.35; margin: 0 0 8px; font-weight: 800;
+  letter-spacing: -.01em;
+}
+h2 {
+  font-size: 22px; margin: 56px 0 18px; padding-bottom: 10px;
+  border-bottom: 1px solid var(--border); font-weight: 700; scroll-margin-top: 20px;
+}
+h3 { font-size: 17.5px; margin: 34px 0 12px; font-weight: 700; color: #dfe5ee; scroll-margin-top: 20px; }
+h4 { font-size: 15.5px; margin: 24px 0 10px; font-weight: 700; color: var(--text-dim); }
+p { margin: 12px 0; }
+a { color: var(--accent); }
+strong { color: #fff; font-weight: 700; }
+hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+blockquote {
+  margin: 18px 0; padding: 14px 20px;
+  background: linear-gradient(90deg, rgba(110,168,254,.10), rgba(110,168,254,.02));
+  border-left: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0; color: #cfd6e0;
+}
+blockquote p { margin: 6px 0; }
+
+ul, ol { padding-left: 24px; margin: 12px 0; }
+li { margin: 5px 0; }
+li > ul, li > ol { margin: 5px 0; }
+
+.tw { overflow-x: auto; margin: 18px 0; border: 1px solid var(--border); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--panel); }
+th, td { padding: 9px 14px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { background: var(--panel-2); font-weight: 700; color: #fff; white-space: nowrap; font-size: 13.5px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: rgba(110,168,254,.045); }
+
+code {
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+  font-size: 13px; background: var(--code-bg); padding: 2px 6px;
+  border-radius: 5px; color: #8fd3ff; border: 1px solid var(--border);
+}
+pre {
+  background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px;
+  padding: 18px 20px; overflow-x: auto; margin: 18px 0;
+  font-size: 12.8px; line-height: 1.65;
+}
+pre code {
+  background: none; border: none; padding: 0; color: #cfd8e3;
+  white-space: pre; font-family: "JetBrains Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+}
+.codehilite { background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; margin: 18px 0; }
+.codehilite pre { border: none; margin: 0; background: none; }
+.codehilite .k, .codehilite .kd, .codehilite .kn { color: #ff7b9c; }
+.codehilite .s, .codehilite .s1, .codehilite .s2 { color: #7ee0c0; }
+.codehilite .c1, .codehilite .cm { color: #5f6b7a; font-style: italic; }
+.codehilite .n, .codehilite .nf, .codehilite .nc { color: #8fd3ff; }
+.codehilite .m, .codehilite .mi { color: #f0b429; }
+
+@media (max-width: 1000px) {
+  aside { display: none; }
+  main { padding: 28px 20px 80px; }
+  body { font-size: 15px; }
+  h1 { font-size: 24px; }
+  h2 { font-size: 19px; }
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: #333a45; border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: #414a58; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <aside>
+    <div class="brand">Project Plan</div>
+    <div class="title">PocketAgent → AI 手机助理：架构重设计 v1.0</div>
+    <div class="toc">
+<ul>
+<li><a href="#0">§0 一页纸结论</a></li>
+<li><a href="#1">§1 方向变更</a><ul>
+<li><a href="#11">1.1 定位对比</a></li>
+<li><a href="#12-2026-09-26">1.2 已拍板决策（2026-09-26）</a></li>
+</ul>
+</li>
+<li><a href="#2">§2 现状盘点与差距</a><ul>
+<li><a href="#21-2026-09-26">2.1 现状（截至 2026-09-26）</a></li>
+<li><a href="#22">2.2 差距矩阵</a></li>
+<li><a href="#23-3">2.3 ★ 一个必须说清的区分：③ 的两半</a></li>
+</ul>
+</li>
+<li><a href="#3">§3 新架构总览</a></li>
+<li><a href="#4">§4 五个需求的落地方案</a><ul>
+<li><a href="#41-1">4.1 需求①：男 / 女两种内置形象</a></li>
+<li><a href="#42-2">4.2 需求②：角色设定与微调 ★ 算法核心</a></li>
+<li><a href="#43-3-token-tencentdb-agent-memory">4.3 需求③：保护用户 token = 移植 TencentDB Agent Memory</a></li>
+<li><a href="#44-4tts">4.4 需求④：TTS 服务封装</a></li>
+<li><a href="#45-5">4.5 需求⑤：打电话模式</a></li>
+</ul>
+</li>
+<li><a href="#5">§5 新增模块清单与登记点</a><ul>
+<li><a href="#51">5.1 新增模块</a></li>
+<li><a href="#52">5.2 四个登记点（本项目约定）</a></li>
+</ul>
+</li>
+<li><a href="#6">§6 关键接口草案</a></li>
+<li><a href="#7">§7 分阶段路线图</a></li>
+<li><a href="#8">§8 风险、红线与未决</a><ul>
+<li><a href="#81">8.1 风险表</a></li>
+<li><a href="#82">8.2 红线（不可越）</a></li>
+<li><a href="#83">8.3 未决（需后续拍板）</a></li>
+</ul>
+</li>
+<li><a href="#atencentdb-agent-memory">附录 A：TencentDB Agent Memory 原始设计摘要</a></li>
+<li><a href="#b">附录 B：与既有架构原则的对照</a></li>
+</ul>
+</div>
+
+  </aside>
+  <main>
+<h1 id="pocketagent-ai-v10">PocketAgent → AI 手机助理：架构重设计 v1.0</h1>
+<blockquote>
+<p>状态：<strong>设计稿，待评审</strong>
+日期：2026-09-26
+前置文档：<code>docs/无感虚拟屏方案存档与交接-v1.0.md</code>
+决策来源：用户 2026-09-26 口头拍板（见 §1.2）</p>
+</blockquote>
+<hr />
+<h2 id="0">§0 一页纸结论</h2>
+<p><strong>一句话</strong>：从「能替你点屏幕的 agent 工具」变成「认识你、会用你的手机、能打电话的助理」。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>结论</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>净新增模块</td>
+<td><strong>3 个纯 Kotlin</strong>（<code>:personalogic</code> <code>:memorylogic</code> <code>:voicelogic</code>）+ <strong>3 个 Android 库</strong>（<code>:assistant</code> <code>:voice</code> <code>:tts</code>）</td>
+</tr>
+<tr>
+<td>删除模块</td>
+<td><strong>零</strong>。现有 39 个模块全部保留，角色从「主角」降为「手脚」</td>
+</tr>
+<tr>
+<td>复用空壳</td>
+<td><code>:memory</code>（已有 build 文件 + 已在 <code>ROOM_MODULES</code>，零源码）</td>
+</tr>
+<tr>
+<td>唯一硬依赖</td>
+<td><code>:provider:gateway</code>（已有）—— 助理的一切模型调用必须过它</td>
+</tr>
+<tr>
+<td>最大技术风险</td>
+<td>人格微调是<strong>感知问题</strong>，不是记忆问题（详见 §4.2）</td>
+</tr>
+<tr>
+<td>最大安全风险</td>
+<td>微调可能击穿安全边界（详见 §4.2 骨骼/血肉分离）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>三条不可违反的新不变量</strong>（改动需评审）：</p>
+<ol>
+<li><strong>助理层不直接碰 Provider</strong> —— 一切模型调用过 <code>GatewayCore</code>（路由 → 熔断 → 解密 → 转发 → 计量）。</li>
+<li><strong>记忆层不直接碰网络</strong> —— 只读写本地；需要 LLM 蒸馏时通过<strong>注入的端口</strong>回调，不自己发请求。</li>
+<li><strong>人格层不能碰安全边界</strong> —— <code>SafetyBones</code> 之外的字段才可微调，且白名单<strong>硬拒绝</strong>而非忽略。</li>
+</ol>
+<hr />
+<h2 id="1">§1 方向变更</h2>
+<h3 id="11">1.1 定位对比</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th></th>
+<th>旧定位（v3.0）</th>
+<th>新定位（v4.0）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>用户心智</td>
+<td>「一个能自动点 App 的工具」</td>
+<td>「一个认识我的助理」</td>
+</tr>
+<tr>
+<td>主入口</td>
+<td>悬浮球 → 发任务</td>
+<td>对话 / 通话</td>
+</tr>
+<tr>
+<td>有无状态</td>
+<td>无状态（任务结束即结束）</td>
+<td><strong>有状态</strong>（人格 + 记忆跨会话累积）</td>
+</tr>
+<tr>
+<td>输出形态</td>
+<td>屏幕上的一次操作</td>
+<td>说的话 + 做的事</td>
+</tr>
+<tr>
+<td>成功判据</td>
+<td>任务办成了</td>
+<td>任务办成了<strong>且用户觉得「ta 懂我」</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p>★ <strong>这不是推翻，是加一层。</strong> 旧定位里的全部能力（读屏、点击、插件、网关、虚拟屏、第 0 档能力）在新定位里依然要，只是<strong>从「被用户直接调用」变成「被助理调用」</strong>。这正是用户已拍板的「全保留，作助理的手脚」。</p>
+<h3 id="12-2026-09-26">1.2 已拍板决策（2026-09-26）</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>决策</th>
+<th>选项</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>D-AS-1</td>
+<td>腾讯开源项目 = <strong>TencentDB Agent Memory</strong>，移植形态 = <strong>Kotlin 重写</strong></td>
+<td>是它 · Kotlin 移植</td>
+</tr>
+<tr>
+<td>D-AS-2</td>
+<td>实时语音路线 = <strong>混合</strong>（默认级联，检测到 Realtime 支持时升级）</td>
+<td>混合：默认级联可升级</td>
+</tr>
+<tr>
+<td>D-AS-3</td>
+<td>现有 39 模块 = <strong>全保留</strong>，降为助理的执行器</td>
+<td>全保留，作助理的手脚</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="2">§2 现状盘点与差距</h2>
+<h3 id="21-2026-09-26">2.1 现状（截至 2026-09-26）</h3>
+<ul>
+<li><strong>39 模块</strong>（23 个有代码）· <strong>201 个源文件</strong> · <strong>离线单测 1339 / 0 failed</strong></li>
+<li><strong>能</strong>：插件装/卸 · 订阅源 · 校验 API Key · 多模型档位 · dsh 配置草稿 · 权限真实状态 · <strong>第 0 档文件能力（真机通过）</strong></li>
+<li><strong>不能</strong>：读屏/点击代码未实现 · <code>:agent</code> 未接 <code>GatewayCore</code> · <strong>无模块真正用 TTS 说话</strong></li>
+<li>阶段：S1–S4 ✅ · <strong>S5–S9 ❌ 未开始</strong></li>
+</ul>
+<h3 id="22">2.2 差距矩阵</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>新需求</th>
+<th>现状</th>
+<th>差距性质</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>① 男/女两种内置形象</td>
+<td><strong>无</strong></td>
+<td>全新</td>
+</tr>
+<tr>
+<td>② 角色设定 + 对话中微调</td>
+<td><strong>无</strong></td>
+<td>全新，<strong>且是算法核心</strong></td>
+</tr>
+<tr>
+<td>③ 保护用户 token</td>
+<td>有 <code>AgentBudget</code> / <code>BudgetGuard</code>（<strong>被动熔断</strong>）</td>
+<td>缺<strong>主动降耗</strong>（分层记忆 + 上下文卸载）</td>
+</tr>
+<tr>
+<td>④ TTS 服务封装</td>
+<td>有 <code>:provider:tts-openai</code>（<strong>单一厂商适配器</strong>）</td>
+<td>缺<strong>多厂商封装层</strong> + 能力探测 + 降级链</td>
+</tr>
+<tr>
+<td>⑤ 打电话模式</td>
+<td><strong>无</strong></td>
+<td>全新</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="23-3">2.3 ★ 一个必须说清的区分：③ 的两半</h3>
+<p><code>AgentBudget</code> 与 Agent Memory <strong>不是同一件事，也不互相替代</strong>：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th></th>
+<th><code>AgentBudget</code>（已有）</th>
+<th>Agent Memory（要移植）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>机制</td>
+<td><strong>被动熔断</strong>：超预算就停</td>
+<td><strong>主动降耗</strong>：少花</td>
+</tr>
+<tr>
+<td>防的是</td>
+<td>任务<strong>跑飞</strong>（无限循环、重复调用）</td>
+<td>任务<strong>跑贵</strong>（上下文线性膨胀）</td>
+</tr>
+<tr>
+<td>触发时机</td>
+<td>事后（已花掉一部分）</td>
+<td>事前（根本不塞进上下文）</td>
+</tr>
+<tr>
+<td>用户感受</td>
+<td>「任务莫名中止」</td>
+<td>「没感觉，就是便宜了」</td>
+</tr>
+</tbody>
+</table></div>
+<p>⇒ <strong>两者都要，且都必须从第一版就位。</strong> 横切组件「最后统一加」会漏 —— 这是 <code>AgentBudget</code> 已经付过学费的教训。</p>
+<hr />
+<h2 id="3">§3 新架构总览</h2>
+<div class="codehilite"><pre><span></span><code>┌───────────────────────────────────────────────────────────────┐
+│ L5 交互层  Interaction                                          │
+│   通话界面（全屏）  ·  聊天界面  ·  悬浮球（保留，降为辅助入口）    │
+├───────────────────────────────────────────────────────────────┤
+│ L4 助理层  Assistant                          ★ 全新            │
+│   PersonaEngine（人格/性别/角色设定）                            │
+│   PersonaTuner（微调 → 产生「ta 为我做出了改变」）  ★算法核心     │
+│   DialogueOrchestrator（对话编排 / 工具调用决策）                 │
+│   VoiceSession（实时语音会话，可打断）                           │
+├───────────────────────────────────────────────────────────────┤
+│ L3 记忆层  Memory                    ★ 移植腾讯 Agent Memory    │
+│   L0 原始对话  →  L1 原子记忆  →  L2 场景归纳  →  L3 用户画像     │
+│   ContextOffloader（上下文卸载 → SAF）                           │
+│   TaskCanvas（任务画布，仅画布进上下文）                          │
+├───────────────────────────────────────────────────────────────┤
+│ L2 推理层  Inference（已有，微增）                               │
+│   :provider:gateway（路由→熔断→解密→转发→计量）  ★唯一出口        │
+│   :modelrouter（本地启发式调度）                                 │
+│   :provider:*（openai-compat / anthropic / gemini / local）      │
+│   TtsFacade（★新增：封装用户导入的 TTS + 能力探测 + 降级链）       │
+├───────────────────────────────────────────────────────────────┤
+│ L1 能力层  Capability（已有，降为「手脚」）                       │
+│   :perception  :action  :agent  :agentlogic                     │
+│   :capabilitylogic  :capability  :filelogic                     │
+│   :display（虚拟屏）  :overlay  :overlaylogic  :safety           │
+│   :plugin:{api,runtime,rules,script,store,devtools}             │
+├───────────────────────────────────────────────────────────────┤
+│ L0 基础层  Foundation（已有）                                    │
+│   :core:{common,crypto,database,network}  :keymgmt              │
+│   :channel  :update  :onboarding  :github  :contribute          │
+└───────────────────────────────────────────────────────────────┘
+</code></pre></div>
+
+<p><strong>数据流（一次「打电话」的完整链路）</strong>：</p>
+<div class="codehilite"><pre><span></span><code>用户说话
+  → VadGate（本地，判停 + 判打断）
+  → AsrPort（流式 ASR）
+  → DialogueOrchestrator
+      ├─ 向 MemoryPort 取上下文（L1 摘要 + L2 场景 + L3 画像，非全量 L0）
+      ├─ 向 PersonaEngine 取当前人格（含已生效的 PersonaDelta）
+      ├─ 组装 prompt
+      └─ 调 GatewayCore（路由→熔断→解密→转发→计量）
+  → 流式 LLM 输出
+      ├─ EmotionTagger 提取情绪标签
+      └─ TtsFacade.synthesize(text, style)（能力探测 → 降级链）
+  → 播放（可被 BargeInController 立即打断）
+  → 本轮结束：Turn 落 L0，异步触发 L1 提取
+</code></pre></div>
+
+<hr />
+<h2 id="4">§4 五个需求的落地方案</h2>
+<h3 id="41-1">4.1 需求①：男 / 女两种内置形象</h3>
+<p><strong>设计</strong>：<code>PersonaPreset</code> —— 两个内置模板（男声助理 / 女声助理），每个含：</p>
+<ul>
+<li>称谓习惯（怎么称呼用户）</li>
+<li>语气轴默认值（见 §4.2）</li>
+<li>话术种子（若干条示例，用于 few-shot 锚定风格）</li>
+<li>音色<strong>参数建议</strong>（如「建议基频偏移 −2 半音、语速 0.95×」）</li>
+<li>可选头像</li>
+</ul>
+<p><strong>★★ 关键区分：「性别」是人格模板，不是音色。</strong></p>
+<p>音色来自<strong>用户导入的 TTS</strong>（需求④）。两者可能不一致 —— 用户选了「女声形象」，导入的却是男声音色。</p>
+<p>⇒ <strong>UI 必须诚实提示：「当前音色与你选的形象不一致」</strong>，而不是静默。</p>
+<p>理由：这正是本项目头号 bug 形态「安静地少做一件事」—— 用户以为选了女声就得到女声，实际不是，且没有任何提示。</p>
+<hr />
+<h3 id="42-2">4.2 需求②：角色设定与微调 ★ 算法核心</h3>
+<p>用户原话：「在交流过程中对该角色设定进行微调，让用户产生『ta 为我做出了改变』的体验，<strong>该微调对算法要求较高</strong>」。</p>
+<h4 id="421">4.2.1 核心洞察</h4>
+<blockquote>
+<p><strong>微调不是记忆问题，是感知问题。用户看不见的调整，等于没调整。</strong></p>
+</blockquote>
+<p>所以设计目标不是「把偏好存下来」（那是记忆层的事），而是「<strong>让改变可见</strong>」。一个把用户偏好完美存进数据库、但从不表现出来的助理，需求②<strong>完全落空</strong>。</p>
+<h4 id="422">4.2.2 四个机制</h4>
+<p><strong>(1) 骨骼 / 血肉分离 —— 安全前提</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th></th>
+<th>内容</th>
+<th>可否微调</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>骨骼</strong></td>
+<td>安全边界、诚实、拒绝支付、不代解锁、隐私红线</td>
+<td><strong>永不可微调</strong></td>
+</tr>
+<tr>
+<td><strong>血肉</strong></td>
+<td>称呼、语气、长度、幽默度、主动度、正式度、emoji、方言</td>
+<td>白名单内可微调</td>
+</tr>
+</tbody>
+</table></div>
+<p>实现：<code>PersonaField</code> 枚举即白名单。<code>PersonaTuner.tune()</code> 对<strong>不在白名单的字段硬拒绝并记审计</strong>（不是静默忽略）。</p>
+<p>★ 没有这条，用户一句「以后你替我付款」就击穿了架构原则 4（主动放弃支付环节）。而且因为它是「自然语言指令」，看起来完全合理 —— 这是最危险的一类攻击。</p>
+<p><strong>(2) 三源触发 + 置信度门</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>触发源</th>
+<th>例子</th>
+<th>初始置信度</th>
+<th>生效方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>显式指令</strong></td>
+<td>「以后叫我老张」「别用感叹号」</td>
+<td>1.0</td>
+<td><strong>立即生效</strong></td>
+</tr>
+<tr>
+<td><strong>隐式反馈</strong></td>
+<td>用户打断 / 重说 / 负面情绪词 / 回复显著变短</td>
+<td>&lt; 1.0</td>
+<td>进<strong>候选区</strong></td>
+</tr>
+<tr>
+<td><strong>行为统计</strong></td>
+<td>总在 23:00 后要求简短</td>
+<td>&lt; 1.0</td>
+<td>时间条件化偏好</td>
+</tr>
+</tbody>
+</table></div>
+<p>候选区需 <strong>N 次一致证据</strong>才升为 <code>ACTIVE</code>。目的：防止「被一句话改坏」。</p>
+<p><strong>(3) 变更账本（Change Ledger）—— 让改变可见 ★★</strong></p>
+<p>每次微调落一条 <code>PersonaDelta</code>（字段 / 旧值 / 新值 / 触发证据 / 置信度 / 状态 / 时间）。</p>
+<p>并且：<strong>助理被允许在对话中自然地引用它。</strong></p>
+<blockquote>
+<p>「你上次说我讲废话，我现在尽量一句说完。」</p>
+</blockquote>
+<p>★ 这是「ta 为我做出了改变」体验的<strong>唯一可靠来源</strong> —— 因为它是<strong>可被说出口的</strong>。数据库里的一行记录不构成体验，一句「我记得你不喜欢这样」才构成。</p>
+<p><strong>没有变更账本 = 需求②必然落空。</strong></p>
+<p><strong>(4) 反漂移锚定 —— 用户掌控感的来源</strong></p>
+<p>人格会随微调累积漂移。定期计算当前 <code>PersonaSpec</code> 与<strong>基线</strong>的人格距离；超阈值则主动询问：</p>
+<blockquote>
+<p>「我好像变得不像我了，要回到最初吗？」</p>
+</blockquote>
+<p>★ 这条同时提供<strong>双向</strong>掌控感：能变，<strong>也能变回去</strong>。「ta 为我做出了改变」的另一面是「我说了算」。</p>
+<h4 id="423">4.2.3 数据结构</h4>
+<div class="codehilite"><pre><span></span><code><span class="cm">/** 人格骨骼：永不可微调。任何试图修改的调用都必须被硬拒绝并记审计。 */</span>
+<span class="kd">data</span><span class="w"> </span><span class="kd">class</span><span class="w"> </span><span class="nc">SafetyBones</span><span class="p">(</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">refusePayment</span><span class="p">:</span><span class="w"> </span><span class="kt">Boolean</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w">      </span><span class="c1">// 架构原则 4</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">refuseUnlock</span><span class="p">:</span><span class="w"> </span><span class="kt">Boolean</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">honesty</span><span class="p">:</span><span class="w"> </span><span class="kt">Boolean</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">privacyRedline</span><span class="p">:</span><span class="w"> </span><span class="kt">Boolean</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="cm">/** 语气轴：血肉。每根轴 0..100，可微调。 */</span>
+<span class="kd">data</span><span class="w"> </span><span class="kd">class</span><span class="w"> </span><span class="nc">ToneAxes</span><span class="p">(</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">warmth</span><span class="p">:</span><span class="w"> </span><span class="kt">Int</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">60</span><span class="p">,</span><span class="w">        </span><span class="c1">// 温度</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">brevity</span><span class="p">:</span><span class="w"> </span><span class="kt">Int</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">50</span><span class="p">,</span><span class="w">       </span><span class="c1">// 简洁</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">humor</span><span class="p">:</span><span class="w"> </span><span class="kt">Int</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">30</span><span class="p">,</span><span class="w">         </span><span class="c1">// 幽默</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">proactivity</span><span class="p">:</span><span class="w"> </span><span class="kt">Int</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">40</span><span class="p">,</span><span class="w">   </span><span class="c1">// 主动程度</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">formality</span><span class="p">:</span><span class="w"> </span><span class="kt">Int</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">30</span><span class="p">,</span><span class="w">     </span><span class="c1">// 正式度</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">emoji</span><span class="p">:</span><span class="w"> </span><span class="kt">Int</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">20</span><span class="p">,</span><span class="w">         </span><span class="c1">// 表情</span>
+<span class="p">)</span>
+
+<span class="cm">/** 人格白名单字段。★ 不在此枚举内的一律不可微调。 */</span>
+<span class="kd">enum</span><span class="w"> </span><span class="kd">class</span><span class="w"> </span><span class="nc">PersonaField</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">ADDRESS_STYLE</span><span class="p">,</span><span class="w">   </span><span class="c1">// 怎么称呼用户</span>
+<span class="w">    </span><span class="n">TONE_WARMTH</span><span class="p">,</span><span class="w"> </span><span class="n">TONE_BREVITY</span><span class="p">,</span><span class="w"> </span><span class="n">TONE_HUMOR</span><span class="p">,</span>
+<span class="w">    </span><span class="n">TONE_PROACTIVITY</span><span class="p">,</span><span class="w"> </span><span class="n">TONE_FORMALITY</span><span class="p">,</span><span class="w"> </span><span class="n">TONE_EMOJI</span><span class="p">,</span>
+<span class="w">    </span><span class="n">DIALECT</span><span class="p">,</span><span class="w">         </span><span class="c1">// 方言/口癖</span>
+<span class="w">    </span><span class="n">CATCHPHRASE</span><span class="p">,</span><span class="w">     </span><span class="c1">// 口头禅</span>
+<span class="w">    </span><span class="c1">// 注意：此处**没有**任何与安全边界相关的字段</span>
+<span class="p">}</span>
+
+<span class="kd">enum</span><span class="w"> </span><span class="kd">class</span><span class="w"> </span><span class="nc">DeltaSource</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">EXPLICIT</span><span class="p">,</span><span class="w"> </span><span class="n">IMPLICIT</span><span class="p">,</span><span class="w"> </span><span class="n">BEHAVIORAL</span><span class="w"> </span><span class="p">}</span>
+<span class="kd">enum</span><span class="w"> </span><span class="kd">class</span><span class="w"> </span><span class="nc">DeltaState</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">CANDIDATE</span><span class="p">,</span><span class="w"> </span><span class="n">ACTIVE</span><span class="p">,</span><span class="w"> </span><span class="n">ROLLED_BACK</span><span class="w"> </span><span class="p">}</span>
+
+<span class="kd">data</span><span class="w"> </span><span class="kd">class</span><span class="w"> </span><span class="nc">PersonaDelta</span><span class="p">(</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">id</span><span class="p">:</span><span class="w"> </span><span class="kt">String</span><span class="p">,</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">field</span><span class="p">:</span><span class="w"> </span><span class="n">PersonaField</span><span class="p">,</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">oldValue</span><span class="p">:</span><span class="w"> </span><span class="kt">String</span><span class="p">,</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">newValue</span><span class="p">:</span><span class="w"> </span><span class="kt">String</span><span class="p">,</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">source</span><span class="p">:</span><span class="w"> </span><span class="n">DeltaSource</span><span class="p">,</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">evidence</span><span class="p">:</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="kt">String</span><span class="o">&gt;</span><span class="p">,</span><span class="w">   </span><span class="c1">// 触发证据，可溯源（用户能问「你为什么变了」）</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">confidence</span><span class="p">:</span><span class="w"> </span><span class="kt">Double</span><span class="p">,</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">state</span><span class="p">:</span><span class="w"> </span><span class="n">DeltaState</span><span class="p">,</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">createdAt</span><span class="p">:</span><span class="w"> </span><span class="kt">Long</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="kd">data</span><span class="w"> </span><span class="kd">class</span><span class="w"> </span><span class="nc">PersonaSpec</span><span class="p">(</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">presetId</span><span class="p">:</span><span class="w"> </span><span class="kt">String</span><span class="p">,</span><span class="w">         </span><span class="c1">// 内置男/女模板</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">displayName</span><span class="p">:</span><span class="w"> </span><span class="kt">String</span><span class="p">,</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">addressStyle</span><span class="p">:</span><span class="w"> </span><span class="kt">String</span><span class="p">,</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">tone</span><span class="p">:</span><span class="w"> </span><span class="n">ToneAxes</span><span class="p">,</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">bones</span><span class="p">:</span><span class="w"> </span><span class="n">SafetyBones</span><span class="p">,</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">baseline</span><span class="p">:</span><span class="w"> </span><span class="n">ToneAxes</span><span class="p">,</span><span class="w">       </span><span class="c1">// ★ 反漂移锚点</span>
+<span class="p">)</span>
+</code></pre></div>
+
+<h4 id="424">4.2.4 验收（必须能离线断言）</h4>
+<ul>
+<li>试图 <code>tune(SAFETY_BONES, ...)</code> → <strong>抛异常 + 落审计</strong>（不是静默返回）</li>
+<li>单条隐式反馈 → 停留在 <code>CANDIDATE</code>，<strong>不生效</strong></li>
+<li>连续 N 条一致隐式反馈 → 升 <code>ACTIVE</code>，且<strong>产生一条可引用的 <code>PersonaDelta</code></strong></li>
+<li>回滚一条 <code>ACTIVE</code> delta → 人格精确回到前值</li>
+<li>人格距离超阈值 → 触发锚定询问</li>
+</ul>
+<hr />
+<h3 id="43-3-token-tencentdb-agent-memory">4.3 需求③：保护用户 token = 移植 TencentDB Agent Memory</h3>
+<p><strong>来源</strong>：<code>github.com/TencentCloud/TencentDB-Agent-Memory</code>（官方文写作 <code>Tencent/TencentDB-Agent-Memory</code>），<strong>MIT 协议</strong>，npm 包 <code>@tencentdb-agent-memory/memory-tencentdb</code>。</p>
+<p><strong>原始实测数据</strong>（腾讯官方文，2026-05-14）：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>记忆类型</th>
+<th>Benchmark</th>
+<th>原成功率</th>
+<th>加插件后</th>
+<th>相对提升</th>
+<th>Token 消耗</th>
+<th>加插件后</th>
+<th>相对变化</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>短期</td>
+<td>WideSearch</td>
+<td>33%</td>
+<td>50%</td>
+<td>+51.52%</td>
+<td>221.31M</td>
+<td>85.64M</td>
+<td><strong>−61.38%</strong></td>
+</tr>
+<tr>
+<td>短期</td>
+<td>SWE-bench</td>
+<td>58.40%</td>
+<td>64.20%</td>
+<td>+9.93%</td>
+<td>3474.1M</td>
+<td>2375.4M</td>
+<td>−33.09%</td>
+</tr>
+<tr>
+<td>短期</td>
+<td>AA-LCR</td>
+<td>44.00%</td>
+<td>47.50%</td>
+<td>+7.95%</td>
+<td>112.0M</td>
+<td>77.3M</td>
+<td>−30.98%</td>
+</tr>
+<tr>
+<td><strong>长期</strong></td>
+<td><strong>PersonaMem</strong></td>
+<td><strong>48%</strong></td>
+<td><strong>76%</strong></td>
+<td><strong>+59%</strong></td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+</tr>
+</tbody>
+</table></div>
+<p>★ 注意最后一行：<strong>长期记忆 / 用户画像是「人格微调」的直接证据源</strong>。这就是为什么「保护 token」和「角色微调」指向同一个项目。</p>
+<h4 id="431">4.3.1 移植映射表</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>腾讯原设计</th>
+<th>本项目 Kotlin 落点</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>L0 原始对话层</strong>（全量保留每一轮）</td>
+<td><code>:memorylogic</code> <code>TurnLog</code></td>
+<td>落 Room（<code>:memory</code> 已在 <code>ROOM_MODULES</code>）</td>
+</tr>
+<tr>
+<td><strong>L1 原子记忆层</strong>（自动提取事实/偏好/约束/阶段结论）</td>
+<td><code>:memorylogic</code> <code>AtomExtractor</code></td>
+<td>四类原子</td>
+</tr>
+<tr>
+<td><strong>L2 场景归纳层</strong>（按任务自动聚合）</td>
+<td><code>:memorylogic</code> <code>SceneAggregator</code></td>
+<td>按 task 聚合</td>
+</tr>
+<tr>
+<td><strong>L3 用户画像层</strong>（持续蒸馏稳定画像）</td>
+<td><code>:memorylogic</code> <code>ProfileDistiller</code></td>
+<td>★ <strong>输出直接喂给 <code>:personalogic</code></strong></td>
+</tr>
+<tr>
+<td><strong>上下文卸载</strong>（原始结果搬到外部文件）</td>
+<td><code>:memorylogic</code> <code>ContextOffloader</code></td>
+<td>★ 卸载目标 = <strong>SAF 目录</strong></td>
+</tr>
+<tr>
+<td><strong>Mermaid 任务画布</strong>（任务结构折叠）</td>
+<td><code>:memorylogic</code> <code>TaskCanvas</code></td>
+<td>仅画布进上下文</td>
+</tr>
+<tr>
+<td><strong>异构存储 + 全链路可溯源</strong></td>
+<td><code>:memory</code> Room + SAF 文件</td>
+<td>每条记忆可回溯到源 Turn</td>
+</tr>
+<tr>
+<td>层间管道（提取→聚合→蒸馏）</td>
+<td>三个 <code>*Port</code> 接口</td>
+<td>每层可独立替换</td>
+</tr>
+</tbody>
+</table></div>
+<h4 id="432">4.3.2 ★ 三条移植要点</h4>
+<p><strong>① L3 是「保护 token」与「人格微调」的交汇点。</strong></p>
+<div class="codehilite"><pre><span></span><code>L0 原始对话 → L1 原子记忆（含「偏好」类）→ L2 场景归纳 → L3 用户画像
+                                                              ↓
+                                                   PersonaTuner 的证据源
+</code></pre></div>
+
+<p>⇒ <strong>不要把它拆成两个模块做。</strong> 否则会得到两套互相不知道的用户模型：一套用来省 token，一套用来调人格，且它们对「用户是谁」的判断会逐渐分歧。</p>
+<p><strong>② 上下文卸载的落点是 SAF，不是 App 私有目录。</strong></p>
+<p>理由：用户<strong>可见、可删、可审计</strong>；且项目已有<strong>真机验证过的 SAF 全链路</strong>（第 0 档文件能力）。</p>
+<p>代价：SAF 写文件比私有目录慢 → 必须异步 + 批量 + 可重试。</p>
+<p><strong>③ 卸载前必须过 <code>PrivacyFilter</code>（<code>6822983</code>）。</strong></p>
+<p>原始工具结果里可能是用户真实隐私 —— 虚拟屏实验中就<strong>实际撞见过用户真实微信聊天列表</strong>。隐私过滤必须在卸载<strong>之前</strong>，不是之后（卸载后再过滤 = 隐私已经落到磁盘上了）。</p>
+<h4 id="433-agentbudget">4.3.3 与既有 <code>AgentBudget</code> 的关系</h4>
+<p>见 §2.3。<strong>互补，不替代，两者都要。</strong></p>
+<hr />
+<h3 id="44-4tts">4.4 需求④：TTS 服务封装</h3>
+<p><strong>现状</strong>：<code>:provider:tts-openai</code> 是<strong>一个厂商适配器</strong>，不是封装层。</p>
+<p><strong>设计</strong>：<code>TtsFacade</code> 三层职责</p>
+<ol>
+<li><strong>能力探测</strong>：问适配器「你支持哪些参数」——emotion? speed? pitch? SSML? 流式?</li>
+<li><strong>降级链</strong>：<code>emotion 参数</code> → <code>SSML 韵律</code> → <code>纯文本 + 语速/音高偏移</code> → <code>纯文本</code></li>
+<li><strong>统一接口</strong>：</li>
+</ol>
+<div class="codehilite"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nc">TtsAdapter</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/** 能力声明。★ 必须是显式声明，不能靠「试一下看会不会失败」。 */</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">capabilities</span><span class="p">:</span><span class="w"> </span><span class="n">TtsCapabilities</span>
+<span class="w">    </span><span class="kd">fun</span><span class="w"> </span><span class="nf">synthesize</span><span class="p">(</span><span class="n">text</span><span class="p">:</span><span class="w"> </span><span class="kt">String</span><span class="p">,</span><span class="w"> </span><span class="n">style</span><span class="p">:</span><span class="w"> </span><span class="n">VoiceStyle</span><span class="p">):</span><span class="w"> </span><span class="n">Flow</span><span class="o">&lt;</span><span class="n">AudioChunk</span><span class="o">&gt;</span>
+<span class="p">}</span>
+
+<span class="kd">data</span><span class="w"> </span><span class="kd">class</span><span class="w"> </span><span class="nc">TtsCapabilities</span><span class="p">(</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">emotion</span><span class="p">:</span><span class="w"> </span><span class="kt">Boolean</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">ssml</span><span class="p">:</span><span class="w"> </span><span class="kt">Boolean</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">speed</span><span class="p">:</span><span class="w"> </span><span class="kt">Boolean</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">pitch</span><span class="p">:</span><span class="w"> </span><span class="kt">Boolean</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">streaming</span><span class="p">:</span><span class="w"> </span><span class="kt">Boolean</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="kd">interface</span><span class="w"> </span><span class="nc">TtsFacade</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/** ★ 返回实际使用了哪一级降级，供 UI 诚实展示 */</span>
+<span class="w">    </span><span class="kd">fun</span><span class="w"> </span><span class="nf">synthesize</span><span class="p">(</span><span class="n">text</span><span class="p">:</span><span class="w"> </span><span class="kt">String</span><span class="p">,</span><span class="w"> </span><span class="n">style</span><span class="p">:</span><span class="w"> </span><span class="n">VoiceStyle</span><span class="p">):</span><span class="w"> </span><span class="n">Flow</span><span class="o">&lt;</span><span class="n">TtsChunk</span><span class="o">&gt;</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p><strong>★ 为什么必须有降级链</strong>：用户导入的 TTS 千差万别，且<strong>能力未知</strong>。如果只按最全的接口写，遇到能力弱的适配器就会<strong>静默丢参数</strong> —— 正是「安静地少做一件事」的 bug 形态。降级必须<strong>显式且可观测</strong>。</p>
+<hr />
+<h3 id="45-5">4.5 需求⑤：打电话模式</h3>
+<p>用户要求：<strong>响应速度快、具备情感表达、可打断</strong>。</p>
+<h4 id="451">4.5.1 状态机</h4>
+<div class="codehilite"><pre><span></span><code>IDLE ──开始通话──→ LISTENING ──VAD 判停──→ THINKING ──首 token──→ SPEAKING
+  ↑                    ↑                                            │
+  │                    └────── 用户开口（BargeIn）───────────────────┘
+  │                                    ↓
+  └──结束通话──── INTERRUPTED ──清空播放队列 + 取消在途请求──→ LISTENING
+</code></pre></div>
+
+<p><strong>★ 「可打断」必须从第一版长在状态机里。</strong></p>
+<p>理由同 <code>AgentBudget</code>：横切关注点事后统一加必漏。具体后果 —— 如果第一版没有 <code>INTERRUPTED</code> 态，后面加会改<strong>所有</strong>调用点，且极易漏掉「取消在途 LLM 请求」这一半（表现：助理停了，但 token 还在烧）。</p>
+<h4 id="452">4.5.2 延迟预算（「响应快」的量化抓手）</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>环节</th>
+<th>预算</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>VAD 判停</td>
+<td>~300ms</td>
+</tr>
+<tr>
+<td>ASR 流式首字</td>
+<td>~200ms</td>
+</tr>
+<tr>
+<td>LLM 首 token</td>
+<td>~200ms</td>
+</tr>
+<tr>
+<td>TTS 首包</td>
+<td>~100ms</td>
+</tr>
+<tr>
+<td><strong>合计（目标）</strong></td>
+<td><strong>≤ 800ms</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p>⇒ <strong>全链路必须流式。任一段非流式就会超预算。</strong></p>
+<p>⇒ 这条要<strong>写进 <code>:voicelogic</code> 的离线测试</strong>：给定各段模拟延迟，断言总延迟 ≤ 800ms。超预算要能被测试抓到，而不是等到真机上「感觉有点慢」。</p>
+<h4 id="453">4.5.3 组件</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>组件</th>
+<th>职责</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>VadGate</code></td>
+<td>本地 VAD：判「说完了没」+ 判「用户开口了」（→ 打断信号）</td>
+</tr>
+<tr>
+<td><code>AsrPort</code></td>
+<td>流式 ASR，可插拔；Realtime 路线时绕过</td>
+</tr>
+<tr>
+<td><code>VoiceSessionOrchestrator</code></td>
+<td>状态机 + 延迟预算</td>
+</tr>
+<tr>
+<td><code>BargeInController</code></td>
+<td>打断：立即停播 + <strong>取消在途请求</strong> + 清空 TTS 队列</td>
+</tr>
+<tr>
+<td><code>EmotionTagger</code></td>
+<td>从 LLM 流式输出提取情绪标签 → 映射到 <code>VoiceStyle</code></td>
+</tr>
+</tbody>
+</table></div>
+<h4 id="454-d-as-2">4.5.4 混合路线（D-AS-2）的落地</h4>
+<ul>
+<li><strong>默认</strong>：级联（ASR → LLM → TTS）</li>
+<li><strong>升级</strong>：检测到 Provider 支持 Realtime API → 自动切换到端到端语音</li>
+<li>★ <strong>升级判据必须显式</strong>（来自能力探测结果），<strong>不能靠「试一下看会不会失败」</strong> —— 后者会在真机上表现为「偶尔卡一下」，极难排查</li>
+</ul>
+<hr />
+<h2 id="5">§5 新增模块清单与登记点</h2>
+<h3 id="51">5.1 新增模块</h3>
+<p><strong>纯 Kotlin（零 Android 依赖，进离线验证器）</strong>：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>模块</th>
+<th>职责</th>
+<th>为什么必须离线可测</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>:personalogic</code></td>
+<td>人格模型 / 微调算法 / 变更账本 / 反漂移</td>
+<td>★ 判错后果<strong>全是静默的</strong>：微调不生效 = 用户以为变了其实没变；白名单漏一个字段 = 安全边界被击穿且无异常</td>
+</tr>
+<tr>
+<td><code>:memorylogic</code></td>
+<td>L0–L3 分层记忆 / 上下文卸载 / 任务画布</td>
+<td>★ 判错后果<strong>全是静默的</strong>：提取漏一类 = 该记的没记；卸载漏过隐私 = 隐私已落盘且无人知道</td>
+</tr>
+<tr>
+<td><code>:voicelogic</code></td>
+<td>语音会话状态机 / 打断判定 / 延迟预算</td>
+<td>★ 判错后果<strong>全是静默的</strong>：延迟预算超了只是「感觉慢」；打断漏取消在途请求 = 白烧 token</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Android 库</strong>：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>模块</th>
+<th>职责</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>:assistant</code></td>
+<td>助理编排：<code>DialogueOrchestrator</code>、<code>PersonaEngine</code> 的 Android 侧</td>
+</tr>
+<tr>
+<td><code>:voice</code></td>
+<td>音频采集 / 播放 / VAD 的 Android 实现</td>
+</tr>
+<tr>
+<td><code>:tts</code></td>
+<td><code>TtsFacade</code> + 适配器注册表</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>复用现有</strong>：</p>
+<ul>
+<li><code>:memory</code> —— 已有 build 文件、已在 <code>ROOM_MODULES</code>、<strong>零源码</strong> → 承载 Room 落库</li>
+<li><code>:provider:tts-openai</code> —— 作为 <code>TtsFacade</code> 的<strong>第一个适配器</strong></li>
+</ul>
+<h3 id="52">5.2 四个登记点（本项目约定）</h3>
+<p>新增模块必须在<strong>四处</strong>同时登记，缺一不可：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>位置</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>android/settings.gradle.kts</code></td>
+<td><code>include(":xxx")</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>android/gen_module_build_files.py</code> → <code>PURE_KOTLIN</code></td>
+<td>纯 Kotlin 模块集合</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>android/gen_module_build_files.py</code> → <code>ANDROID_LIB</code></td>
+<td>Android 库 → 依赖别名列表</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>android/gen_module_build_files.py</code> → <code>PROJECT_DEPS</code></td>
+<td>模块间依赖</td>
+</tr>
+</tbody>
+</table></div>
+<p>视需要还要登记：<code>NEEDS_HILT</code> / <code>NEEDS_SERIALIZATION</code> / <code>API_DEPS</code> / <code>EXTRA_TEST_DEPS</code> / <code>ROOM_MODULES</code>。</p>
+<p><strong>★ 补登陷阱（已付学费）</strong>：往 <code>PURE_KOTLIN</code> 加模块时，必须同时确认 <code>--check</code> 的<strong>总数在涨</strong>。</p>
+<p><code>filelogic</code> 曾经因为漏登记，生成器<strong>从不检查它</strong>，而 <code>--check</code> 照样报「全部 34 个模块一致」。</p>
+<blockquote>
+<p><strong>一个漏掉模块的检查，同样是假的</strong> —— 只是它不报红，所以更不容易被发现。</p>
+</blockquote>
+<hr />
+<h2 id="6">§6 关键接口草案</h2>
+<div class="codehilite"><pre><span></span><code><span class="c1">// ── 记忆层（:memorylogic）────────────────────────────────────</span>
+<span class="kd">interface</span><span class="w"> </span><span class="nc">MemoryPort</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">suspend</span><span class="w"> </span><span class="kd">fun</span><span class="w"> </span><span class="nf">appendTurn</span><span class="p">(</span><span class="n">turn</span><span class="p">:</span><span class="w"> </span><span class="n">Turn</span><span class="p">):</span><span class="w"> </span><span class="kt">Unit</span><span class="w">                       </span><span class="c1">// L0</span>
+<span class="w">    </span><span class="kd">suspend</span><span class="w"> </span><span class="kd">fun</span><span class="w"> </span><span class="nf">extractAtoms</span><span class="p">(</span><span class="n">turns</span><span class="p">:</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Turn</span><span class="o">&gt;</span><span class="p">):</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Atom</span><span class="o">&gt;</span><span class="w">        </span><span class="c1">// L1</span>
+<span class="w">    </span><span class="kd">suspend</span><span class="w"> </span><span class="kd">fun</span><span class="w"> </span><span class="nf">aggregate</span><span class="p">(</span><span class="n">atoms</span><span class="p">:</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Atom</span><span class="o">&gt;</span><span class="p">):</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Scene</span><span class="o">&gt;</span><span class="w">          </span><span class="c1">// L2</span>
+<span class="w">    </span><span class="kd">suspend</span><span class="w"> </span><span class="kd">fun</span><span class="w"> </span><span class="nf">distill</span><span class="p">(</span><span class="n">scenes</span><span class="p">:</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Scene</span><span class="o">&gt;</span><span class="p">):</span><span class="w"> </span><span class="n">UserProfile</span><span class="w">          </span><span class="c1">// L3</span>
+<span class="w">    </span><span class="cm">/** 卸载原始内容，返回可恢复的引用（落 SAF） */</span>
+<span class="w">    </span><span class="kd">suspend</span><span class="w"> </span><span class="kd">fun</span><span class="w"> </span><span class="nf">offload</span><span class="p">(</span><span class="n">payload</span><span class="p">:</span><span class="w"> </span><span class="n">OffloadPayload</span><span class="p">):</span><span class="w"> </span><span class="n">OffloadRef</span>
+<span class="w">    </span><span class="kd">suspend</span><span class="w"> </span><span class="kd">fun</span><span class="w"> </span><span class="nf">recall</span><span class="p">(</span><span class="n">ref</span><span class="p">:</span><span class="w"> </span><span class="n">OffloadRef</span><span class="p">):</span><span class="w"> </span><span class="n">OffloadPayload</span>
+<span class="w">    </span><span class="cm">/** 组装进 prompt 的上下文（只含摘要 + 索引，非全量） */</span>
+<span class="w">    </span><span class="kd">suspend</span><span class="w"> </span><span class="kd">fun</span><span class="w"> </span><span class="nf">buildContext</span><span class="p">(</span><span class="n">query</span><span class="p">:</span><span class="w"> </span><span class="kt">String</span><span class="p">,</span><span class="w"> </span><span class="n">budget</span><span class="p">:</span><span class="w"> </span><span class="kt">Int</span><span class="p">):</span><span class="w"> </span><span class="n">MemoryContext</span>
+<span class="p">}</span>
+
+<span class="cm">/** 记忆层需要 LLM 时**不自己发请求**，通过此端口回调（不变量 2）。 */</span>
+<span class="kd">interface</span><span class="w"> </span><span class="nc">MemoryLlmPort</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">suspend</span><span class="w"> </span><span class="kd">fun</span><span class="w"> </span><span class="nf">complete</span><span class="p">(</span><span class="n">prompt</span><span class="p">:</span><span class="w"> </span><span class="kt">String</span><span class="p">,</span><span class="w"> </span><span class="n">purpose</span><span class="p">:</span><span class="w"> </span><span class="n">Purpose</span><span class="p">):</span><span class="w"> </span><span class="kt">String</span>
+<span class="p">}</span>
+
+<span class="c1">// ── 人格层（:personalogic）──────────────────────────────────</span>
+<span class="kd">interface</span><span class="w"> </span><span class="nc">PersonaTuner</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/** ★ 白名单外字段硬拒绝（抛异常 + 审计），不静默忽略 */</span>
+<span class="w">    </span><span class="kd">suspend</span><span class="w"> </span><span class="kd">fun</span><span class="w"> </span><span class="nf">tune</span><span class="p">(</span><span class="n">delta</span><span class="p">:</span><span class="w"> </span><span class="n">PersonaDelta</span><span class="p">):</span><span class="w"> </span><span class="n">TuneResult</span>
+<span class="w">    </span><span class="kd">suspend</span><span class="w"> </span><span class="kd">fun</span><span class="w"> </span><span class="nf">rollback</span><span class="p">(</span><span class="n">deltaId</span><span class="p">:</span><span class="w"> </span><span class="kt">String</span><span class="p">):</span><span class="w"> </span><span class="n">TuneResult</span>
+<span class="w">    </span><span class="cm">/** 反漂移：与基线的距离超阈值则返回锚定建议 */</span>
+<span class="w">    </span><span class="kd">fun</span><span class="w"> </span><span class="nf">driftCheck</span><span class="p">(</span><span class="n">spec</span><span class="p">:</span><span class="w"> </span><span class="n">PersonaSpec</span><span class="p">):</span><span class="w"> </span><span class="n">DriftReport</span>
+<span class="w">    </span><span class="cm">/** 可供助理在对话中自然引用的变更摘要 */</span>
+<span class="w">    </span><span class="kd">fun</span><span class="w"> </span><span class="nf">recentChanges</span><span class="p">(</span><span class="n">n</span><span class="p">:</span><span class="w"> </span><span class="kt">Int</span><span class="p">):</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">PersonaDelta</span><span class="o">&gt;</span>
+<span class="p">}</span>
+
+<span class="c1">// ── 语音层（:voicelogic / :voice）────────────────────────────</span>
+<span class="kd">interface</span><span class="w"> </span><span class="nc">VoiceSession</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">state</span><span class="p">:</span><span class="w"> </span><span class="n">StateFlow</span><span class="o">&lt;</span><span class="n">VoiceState</span><span class="o">&gt;</span>
+<span class="w">    </span><span class="kd">suspend</span><span class="w"> </span><span class="kd">fun</span><span class="w"> </span><span class="nf">start</span><span class="p">():</span><span class="w"> </span><span class="kt">Unit</span>
+<span class="w">    </span><span class="cm">/** 用户开口 → 立即停播 + 取消在途请求 + 清空队列 */</span>
+<span class="w">    </span><span class="kd">suspend</span><span class="w"> </span><span class="kd">fun</span><span class="w"> </span><span class="nf">bargeIn</span><span class="p">():</span><span class="w"> </span><span class="kt">Unit</span>
+<span class="w">    </span><span class="kd">suspend</span><span class="w"> </span><span class="kd">fun</span><span class="w"> </span><span class="nf">stop</span><span class="p">():</span><span class="w"> </span><span class="kt">Unit</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<hr />
+<h2 id="7">§7 分阶段路线图</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>内容</th>
+<th>可验收产物</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>P0</strong></td>
+<td>架构冻结 + 6 个模块骨架登记，全部编译通过</td>
+<td><code>--check</code> 总数 +6；离线验证器通过</td>
+</tr>
+<tr>
+<td><strong>P1</strong></td>
+<td><code>:personalogic</code> 纯逻辑 + 离线测试（<strong>无 UI、无 LLM</strong>，用 fixture）</td>
+<td>§4.2.4 五条验收全绿</td>
+</tr>
+<tr>
+<td><strong>P2</strong></td>
+<td><code>:memorylogic</code> L0/L1 + 卸载到 SAF（离线测）</td>
+<td>卸载→恢复往返一致；隐私过滤在卸载前</td>
+</tr>
+<tr>
+<td><strong>P3</strong></td>
+<td><code>:assistant</code> 接线：<code>DialogueOrchestrator</code> 过 <code>GatewayCore</code> + 聊天 UI</td>
+<td>真机跑通一次多轮对话</td>
+</tr>
+<tr>
+<td><strong>P4</strong></td>
+<td><code>:tts</code> + <code>:voice</code>（级联路线）+ 通话 UI</td>
+<td>真机跑通一次可打断通话</td>
+</tr>
+<tr>
+<td><strong>P5</strong></td>
+<td>L2/L3 蒸馏 + <code>PersonaTuner</code> 联动 ★ 算法核心</td>
+<td>「ta 为我做出了改变」可被用户说出</td>
+</tr>
+<tr>
+<td><strong>P6</strong></td>
+<td>Realtime 升级通道</td>
+<td>能力探测 → 显式升级，不靠试错</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>★ 顺序理由</strong>：</p>
+<ul>
+<li><code>PersonaTuner</code>（P5）依赖 L3 画像 → 必须排在 <code>:memorylogic</code>（P2）之后</li>
+<li>但 <code>:personalogic</code>（P1）可以先做，因为它的算法<strong>不依赖真实数据</strong>（fixture 足够）</li>
+<li><code>:voicelogic</code> 的延迟预算与打断状态机必须在 P4 <strong>第一版</strong>就位（横切关注点）</li>
+</ul>
+<hr />
+<h2 id="8">§8 风险、红线与未决</h2>
+<h3 id="81">8.1 风险表</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>风险</th>
+<th>影响</th>
+<th>对策</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>人格微调<strong>被用户感知不到</strong></td>
+<td>需求②完全落空</td>
+<td>变更账本 + 允许助理引用（§4.2.2-3）</td>
+</tr>
+<tr>
+<td>微调漂移成「另一个 AI」</td>
+<td>用户失去信任</td>
+<td>反漂移锚定 + 可回滚</td>
+</tr>
+<tr>
+<td>微调<strong>击穿安全边界</strong></td>
+<td>架构原则 4 归零</td>
+<td>白名单 + 硬拒绝 + 审计</td>
+</tr>
+<tr>
+<td>卸载的隐私内容落到磁盘</td>
+<td>隐私红线</td>
+<td>卸载<strong>前</strong>过 <code>PrivacyFilter</code></td>
+</tr>
+<tr>
+<td>级联延迟超 800ms</td>
+<td>需求⑤落空</td>
+<td>全链路流式 + 离线延迟断言</td>
+</tr>
+<tr>
+<td>TTS 能力未知导致静默丢参数</td>
+<td>「安静地少做一件事」</td>
+<td>能力探测 + 降级链 + 不一致时提示</td>
+</tr>
+<tr>
+<td>移植变成「抄接口不抄语义」</td>
+<td>得到空壳</td>
+<td>验收以<strong>行为</strong>为准，不以接口</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="82">8.2 红线（不可越）</h3>
+<ol>
+<li><strong><code>SafetyBones</code> 永不可微调</strong> —— 包括但不限于：代支付、代解锁、隐私红线、诚实</li>
+<li><strong>卸载前必须过 <code>PrivacyFilter</code></strong> —— 顺序不可颠倒</li>
+<li><strong>助理的一切模型调用必须过 <code>GatewayCore</code></strong> —— 不得绕过计量</li>
+<li><strong>记忆层不得自行发网络请求</strong> —— 必须走注入的 <code>MemoryLlmPort</code></li>
+</ol>
+<h3 id="83">8.3 未决（需后续拍板）</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>问题</th>
+<th>影响面</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>U-1</td>
+<td>助理的<strong>主入口</strong>形态：全屏通话 / 聊天页 / 悬浮球，哪个为主？</td>
+<td>L5 交互层设计</td>
+</tr>
+<tr>
+<td>U-2</td>
+<td>记忆的<strong>默认保留期</strong>与用户可删除粒度</td>
+<td>隐私 + 存储</td>
+</tr>
+<tr>
+<td>U-3</td>
+<td>L2/L3 蒸馏用哪个<strong>模型档位</strong>（成本 vs 质量）</td>
+<td>成本</td>
+</tr>
+<tr>
+<td>U-4</td>
+<td>是否做<strong>语音唤醒词</strong>（涉及常驻麦克风权限）</td>
+<td>权限 + 功耗</td>
+</tr>
+<tr>
+<td>U-5</td>
+<td>人格微调的<strong>候选区阈值 N</strong>（几次一致证据才升级）</td>
+<td>需求②手感</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="atencentdb-agent-memory">附录 A：TencentDB Agent Memory 原始设计摘要</h2>
+<p><strong>来源</strong>：腾讯云开发者社区《TencentDB Agent Memory 正式开源：让 Agent 沉淀经验，让人专注创造》（2026-05-14）</p>
+<p><strong>分层记忆（L0–L3）</strong>：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>层</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L0 原始对话层</td>
+<td>全量保留每一轮交互</td>
+</tr>
+<tr>
+<td>L1 原子记忆层</td>
+<td>自动提取<strong>事实、偏好、约束、阶段结论</strong></td>
+</tr>
+<tr>
+<td>L2 场景归纳层</td>
+<td>按任务自动聚合</td>
+</tr>
+<tr>
+<td>L3 用户画像层</td>
+<td>持续蒸馏出稳定的长期画像</td>
+</tr>
+</tbody>
+</table></div>
+<p>层间管道：<strong>提取 → 聚合 → 蒸馏</strong>。每层可独立升级或替换。</p>
+<p><strong>解决的三类问题</strong>（官方原话）：</p>
+<ul>
+<li><strong>跨会话断裂</strong>：昨天反复确认的代码规范，今天新开会话又全忘了</li>
+<li><strong>事实与偏好混淆</strong>：用户说过「我用 TypeScript」和「帮我查一下天气」，价值完全不同，却被同等对待</li>
+<li><strong>上下文膨胀</strong>：任务越长，堆进上下文的历史信息越多，Token 消耗持续攀升，模型注意力也在衰减</li>
+</ul>
+<p><strong>两项关键技术</strong>：</p>
+<ul>
+<li><strong>上下文卸载</strong>：把原始工具结果搬到外部文件，上下文里只保留摘要和索引</li>
+<li><strong>Mermaid 无限画布</strong>：把任务结构折叠成可导航的画布</li>
+</ul>
+<p><strong>其他</strong>：异构存储 + 全链路可溯源；支持 OpenClaw / Hermes Gateway；Docker 镜像支持 <code>linux/amd64</code> 与 <code>linux/arm64</code>；MIT 协议。</p>
+<p><strong>⚠️ 版本说明</strong>：仓库默认分支为 <code>feat/server_team</code>，其 description 描述的是 <strong>v2.0「团队级记忆中枢」</strong>方向（Chat Memory / Skill / LLM-Wiki / Code-Graph 四类资产），与本文引用的 <strong>v1.x「分层记忆引擎」（L0–L3）</strong>不完全相同。移植以 <strong>v1.x 的 L0–L3 + 上下文卸载</strong>为准 —— 那才是对应「保护 token + 用户画像」的部分。</p>
+<hr />
+<h2 id="b">附录 B：与既有架构原则的对照</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>既有原则</th>
+<th>本方案如何遵守</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1. 不建自有后端</td>
+<td>记忆层只读写本地；卸载落 SAF；蒸馏走注入端口</td>
+</tr>
+<tr>
+<td>2. 执行层多通道抽象</td>
+<td>不变。<code>:perception</code> / <code>:action</code> 等降为助理调用的执行器</td>
+</tr>
+<tr>
+<td>3. 感知层不依赖无障碍树</td>
+<td>不变</td>
+</tr>
+<tr>
+<td>4. 主动放弃支付环节</td>
+<td><strong>由 <code>SafetyBones.refusePayment</code> 在人格层再钉一道</strong></td>
+</tr>
+<tr>
+<td>5. 手动引导是正式形态</td>
+<td>不变；助理可在引导模式下用语音解释每一步</td>
+</tr>
+<tr>
+<td>6. domain 层零 Android 依赖</td>
+<td>新增 3 个 <code>*logic</code> 模块全部零 Android 依赖</td>
+</tr>
+<tr>
+<td>7. Key 永不落明文</td>
+<td>不变；<code>GatewayCore</code> 仍是唯一出口</td>
+</tr>
+<tr>
+<td>8. 插件边界（本体给能力，插件给意图）</td>
+<td>不变；助理调用能力同样经 <code>PluginHost</code> 代理</td>
+</tr>
+<tr>
+<td>9. 凭据运行时注入</td>
+<td>不变</td>
+</tr>
+<tr>
+<td>10. <code>ModelRouteCoordinator</code> 不缓存</td>
+<td>不变；人格不影响路由决策</td>
+</tr>
+</tbody>
+</table></div>
+  </main>
+</div>
+</body>
+</html>
