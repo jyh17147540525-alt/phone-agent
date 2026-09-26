@@ -26,10 +26,14 @@ android/
 │
 ├── provider/                        ── 模型接入层
 │   ├── api/                         LlmProvider 抽象与数据模型（零依赖）
-│   ├── openai-compat/               OpenAI 及兼容厂商（覆盖 8+ 家）
+│   ├── openai-compat/               OpenAI 及兼容厂商（覆盖 11 家）
 │   ├── anthropic/                   Claude Messages API
 │   ├── gemini/                      Gemini generateContent
-│   └── local/                       Ollama / LM Studio / llama.cpp
+│   ├── local/                       Ollama / LM Studio / llama.cpp
+│   ├── tts-openai/                  语音合成（裸音频字节，与对话协议分开）
+│   └── gateway/                     ★ 网关核心（纯 Kotlin）：路由 / 熔断 / 解密 / 转发 / 计量
+│
+├── modelrouter/                     多模型调度：按任务难度在已配置模型间派发（纯 Kotlin）
 │
 ├── perception/                      ── 感知层
 │   无障碍树读取、MediaProjection 截图、OCR、ScreenSnapshot 统一结构
@@ -38,16 +42,22 @@ android/
 │   ActionExecutor 抽象 + A11y / Shizuku / IME / OverlayPrompt 四通道实现
 │
 ├── agent/                           ── 决策层
-│   AgentOrchestrator（规划）+ Grounder（定位）+ Verifier（校验）+ Memory
+│   AgentOrchestrator（规划）+ Grounder（定位）+ Verifier（校验）
+│
+├── agentlogic/                      Agent 循环纯逻辑（纯 Kotlin）：预算 / 状态机 / 感知档位 / 检查点
+├── overlaylogic/                    悬浮球交互纯逻辑（纯 Kotlin）：状态机 / 贴边几何 / 急停语义
+├── filelogic/                       文件沙箱纯逻辑（纯 Kotlin）：范围 / 归一化 / 穿越防护 / 裁决 / 审计
+├── capabilitylogic/                 第 0 档能力纯逻辑（纯 Kotlin）：声明 / 硬拒绝清单 / 校验 / 裁决
+│
+├── capability/                      第 0 档能力的 Android 侧通道（T0-A 设置读写）
 │
 ├── safety/                          ── 安全护栏
-│   敏感页面拦截、危险动作二次确认、自动化策略注册（SAEP 兼容）
+│   敏感页面拦截、危险动作二次确认、自动化策略注册
 │
 ├── keymgmt/                         ── BYOK 体系
-│   Key 导入、校验、健康检测、用量统计、预算熔断、模型路由
+│   Key 导入、校验、健康检测、用量统计（Keystore + SQLCipher）
 │
-├── memory/                          ── 记忆系统
-│   三层记忆（短期轨迹 / 中期摘要 / 长期偏好）+ UI 图谱缓存
+├── memory/                          ── 记忆系统的 Room 落库（算法在 :memorylogic）
 │
 ├── overlay/                         ── 悬浮交互
 │   悬浮球、执行过程可视化、结果卡片
@@ -61,17 +71,29 @@ android/
 │   └── devtools/                    快照审查、规则编辑器、测试台
 │
 ├── display/                         ── 虚拟屏
-│   虚拟屏创建/销毁、启动 App、可用性检测
+│   ⚠️ 接口基于**已废弃的 overlay 路线**设计，实现前必读
+│      `docs/无感虚拟屏方案存档与交接-v1.0.md`
 │   └── preview/                     副屏预览悬浮窗 + 坐标映射
 │
 ├── update/                          ── 应用内自更新、哈希校验
 ├── channel/                         ── 渠道号与隐私友好统计
 ├── onboarding/                      ── 分机型权限引导向导与自检
 ├── github/                          ── GitHub Device Flow / BYO Token、上报通道
-└── contribute/                      ── 规则与插件贡献流程（生成 PR、内容预览）
+├── contribute/                      ── 规则与插件贡献流程（生成 PR、内容预览）
+│
+│   ── v4.0 AI 手机助理（2026-09-26，设计稿待评审；目前只有骨架，尚无源码）
+├── personalogic/                    ★ 人格模型 / 微调算法 / 变更账本 / 反漂移（纯 Kotlin）
+├── memorylogic/                     ★ L0–L3 分层记忆 / 上下文卸载 / 任务画布（纯 Kotlin）
+├── voicelogic/                      ★ 语音会话状态机 / 打断判定 / 延迟预算（纯 Kotlin）
+├── assistant/                       ★ 助理编排（人格 + 记忆 + 对话循环）
+├── voice/                           ★ 音频采集 / 播放 / VAD 的 Android 实现
+└── tts/                             ★ TTS 封装层：能力探测 + 显式降级链
 ```
 
-共 36 个模块。
+共 **44** 个模块（口径 = `settings.gradle.kts` 里 `include()` 的条数）。
+
+> ⚠️ **这棵树是手写的，会滞后** —— 权威来源永远是 [`settings.gradle.kts`](settings.gradle.kts)，
+> 依赖声明的权威判据是 `python tools/verify/check_module_deps.py android`。
 
 ## 依赖方向（硬约束）
 

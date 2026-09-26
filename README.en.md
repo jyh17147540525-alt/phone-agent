@@ -18,7 +18,7 @@ but the agent loop — the part where the AI actually "does things for you" — 
 Done:
 
 - ✅ Full project designs (v1.0 / v2.0 / v3.0) and an M0 technical validation handbook (18 experiments)
-- ✅ Project skeleton (36 Gradle modules, 138 Kotlin source files, ~40k lines)
+- ✅ Project skeleton (44 Gradle modules, 201 Kotlin source files, ~61k lines)
 - ✅ Provider layer (OpenAI-compatible protocol, 11 vendors covered) + text-to-speech (TTS)
 - ✅ Safety guardrails (sensitive screens / sensitive widgets / dangerous actions / rate limiting + audit)
 - ✅ **Plugin system** — contract, three-tier classification, capability allowlist, forbidden-prefix blocking
@@ -43,7 +43,7 @@ Done:
   upload path**: hard veto on sensitive pages, unconditional rejection of plugin screenshots,
   conservative drop when system-UI regions are unknown, redaction plans for input fields and
   message lists, and forged-marker detection
-- ✅ **925 offline unit tests passing** (including 44 real-socket integration tests)
+- ✅ **1339 offline unit tests passing** (including 44 real-socket integration tests)
 - ✅ **Release-readiness checker** (`check_release_readiness.py`, 10 rule groups R1–R10 + 20 self-tests)
 - ✅ **All five P0 on-device experiments reached conclusions** (see "M0 on-device results" below)
 - ✅ **A debug APK that builds**
@@ -170,7 +170,7 @@ These are written up in the [design docs](docs/) and they constrain every line o
 └──────────────────────────────────────────────────────────┘
 ```
 
-36 modules in total — see [`android/README.en.md`](android/README.en.md) and the [design docs](docs/) (currently Chinese only).
+44 modules in total — see [`android/README.en.md`](android/README.en.md) and the [design docs](docs/) (currently Chinese only).
 
 ### Three-tier plugin system
 
@@ -473,7 +473,7 @@ modules, and reconciles that against the declared `project(":...")` entries. It 
 build-feedback loop into two seconds.
 
 **`check_version_catalog.py`** — Gradle version-catalog accessors (`libs.androidx.core.ktx`) are
-resolved at **configuration time**. A typo in any of the 36 modules fails configuration, and the error
+resolved at **configuration time**. A typo in any of the 44 modules fails configuration, and the error
 points at a module you are not even using. This script reconciles all 31 `build.gradle.kts` files
 before the build runs.
 

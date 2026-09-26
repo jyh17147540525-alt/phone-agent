@@ -27,52 +27,75 @@ android/
 │
 ├── provider/                        ── model access layer
 │   ├── api/                         LlmProvider abstraction and data models (zero deps)
-│   ├── openai-compat/               OpenAI and compatible vendors (8+ covered)
+│   ├── openai-compat/               OpenAI and compatible vendors (11 covered)
 │   ├── anthropic/                   Claude Messages API
 │   ├── gemini/                      Gemini generateContent
-│   └── local/                       Ollama / LM Studio / llama.cpp
+│   ├── local/                       Ollama / LM Studio / llama.cpp
+│   ├── tts-openai/                  speech synthesis (raw audio bytes, separate from chat)
+│   └── gateway/                     ★ gateway core (pure Kotlin): route / budget / decrypt / relay / meter
+│
+├── modelrouter/                     multi-model routing by task difficulty (pure Kotlin)
 │
 ├── perception/                      ── perception layer
-│   accessibility tree reading, MediaProjection capture, OCR, unified ScreenSnapshot
+│   accessibility tree, MediaProjection screenshots, OCR, unified ScreenSnapshot
 │
 ├── action/                          ── action layer (multi-channel)
-│   ActionExecutor abstraction + A11y / Shizuku / IME / OverlayPrompt implementations
+│   ActionExecutor plus A11y / Shizuku / IME / OverlayPrompt channels
 │
 ├── agent/                           ── decision layer
-│   AgentOrchestrator (planning) + Grounder (locating) + Verifier (checking) + Memory
+│   AgentOrchestrator (planning) + Grounder (locating) + Verifier (checking)
+│
+├── agentlogic/                      agent-loop logic (pure Kotlin): budget / state machine / ladder / checkpoint
+├── overlaylogic/                    floating-ball logic (pure Kotlin): state machine / edge snapping / stop
+├── filelogic/                       file sandbox logic (pure Kotlin): scope / normalize / traversal / verdict
+├── capabilitylogic/                 tier-0 capability logic (pure Kotlin): catalog / deny-list / verdict
+│
+├── capability/                      Android-side channel for tier-0 capabilities (T0-A settings r/w)
 │
 ├── safety/                          ── safety guardrails
-│   sensitive-screen blocking, dangerous-action confirmation, automation policy registration
+│   sensitive-page interception, dangerous-action confirmation, policy registry
 │
-├── keymgmt/                         ── BYOK system
-│   key import, validation, health checks, usage stats, budget circuit breaker, model routing
+├── keymgmt/                         ── BYOK
+│   key import, validation, health checks, usage metering (Keystore + SQLCipher)
 │
-├── memory/                          ── memory system
-│   three-tier memory (short-term trace / mid-term summary / long-term preference) + UI graph cache
+├── memory/                          ── Room persistence for memory (algorithms live in :memorylogic)
 │
-├── overlay/                         ── floating interaction
-│   floating ball, execution visualization, result cards
+├── overlay/                         ── floating overlay
+│   floating ball, execution visualisation, result cards
 │
-├── plugin/                          ── plugin system (six modules)
-│   ├── api/                         plugin contract, capability definitions, Manifest — zero Android deps
+├── plugin/                          ── plugin system (6 modules)
+│   ├── api/                         plugin contract, capabilities, manifest — zero Android deps
 │   ├── runtime/                     loader, lifecycle, capability proxy, sandbox
-│   ├── rules/                       L1 rule packs: selector engine, matcher, action execution
+│   ├── rules/                       L1 rule packs: selector engine, matchers, actions
 │   ├── script/                      L2 JS sandbox runtime
-│   ├── store/                       plugin store: listing, subscription sources, import/export, conflict detection
+│   ├── store/                       plugin page: list, feeds, import/export, conflict detection
 │   └── devtools/                    snapshot inspector, rule editor, test bench
 │
 ├── display/                         ── virtual display
-│   virtual display creation/destruction, app launching, availability checks
+│   ⚠️ interfaces target the **abandoned overlay route**; read
+│      `docs/无感虚拟屏方案存档与交接-v1.0.md` before implementing
 │   └── preview/                     secondary-display preview overlay + coordinate mapping
 │
 ├── update/                          ── in-app self-update, hash verification
-├── channel/                         ── channel identifiers and privacy-friendly analytics
-├── onboarding/                      ── per-ROM permission guidance wizard and self-check
+├── channel/                         ── channel id and privacy-friendly analytics
+├── onboarding/                      ── per-device permission wizard and self-check
 ├── github/                          ── GitHub Device Flow / BYO token, reporting channel
-└── contribute/                      ── rule and plugin contribution flow (PR generation, content preview)
+├── contribute/                      ── rule and plugin contribution flow (PR generation, preview)
+│
+│   ── v4.0 AI phone assistant (2026-09-26, design draft under review; skeleton only)
+├── personalogic/                    ★ persona model / tuning / change ledger / anti-drift (pure Kotlin)
+├── memorylogic/                     ★ L0–L3 layered memory / context offloading / task canvas (pure Kotlin)
+├── voicelogic/                      ★ voice session state machine / barge-in / latency budget (pure Kotlin)
+├── assistant/                       ★ assistant orchestration (persona + memory + dialogue loop)
+├── voice/                           ★ audio capture / playback / VAD on Android
+└── tts/                             ★ TTS facade: capability probing + explicit fallback chain
 ```
 
-30 modules in total.
+**44** modules in total (counted from `include()` in [`settings.gradle.kts`](settings.gradle.kts)).
+
+> ⚠️ **This tree is hand-written and will lag.** The authoritative source is always
+> [`settings.gradle.kts`](settings.gradle.kts); for dependency declarations it is
+> `python tools/verify/check_module_deps.py android`.
 
 ## Dependency direction (hard constraint)
 
