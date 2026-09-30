@@ -281,6 +281,107 @@ data class PersonaSpec(
 - 回滚一条 `ACTIVE` delta → 人格精确回到前值
 - 人格距离超阈值 → 触发锚定询问
 
+#### 4.2.5 P1 落地决策（2026-09-30 实现回写）
+
+`:personalogic` 已落地：12 个源文件 + 6 个测试类。离线验证器 `OK (1431 tests)`（较基线 +92）。
+实现过程中定死了以下几件事，后续阶段按此为准。
+
+**(1) 内核是同步的，不是 `suspend`**
+
+§6 草案里的 `suspend fun tune` 落地为**同步方法**，另提供
+`fun PersonaTuner.asSuspend(): SuspendPersonaTuner` 适配协程 / Room 事务语境。
+
+理由：本模块**零 IO、零 Android 依赖**（账本持久化归 `:memory`，模型调用归 `:provider/gateway`）。
+做成 `suspend` 会让"这个函数会不会发网络请求"变成一个需要读实现才能回答的问题；
+同时会逼离线测试引入 `kotlinx-coroutines-test`（`:personalogic` 的 build 文件里没有它，加它要动生成器脚本）。
+
+**时间由调用方传入**：写操作一律显式 `now: Long`，内核内部不读时钟 ——
+「时间条件化偏好」必须能被离线测试钉住，且一条变更的 `createdAt` 必须是**调用时刻**
+而非处理时刻（排队的变更会因此乱序）。
+
+**(2) 拒绝走异常，不走进 `TuneResult`**
+
+`TuneResult` 只有 5 个分支：`Applied` / `CandidateRecorded` / `AlreadyAtValue` /
+`RolledBack` / `AlreadyRolledBack`。被拒绝**不在其中** —— 抛 `PersonaRejectionException`，
+且**先落审计再抛**（收口在 `rejectWithAudit`，两步不可能只做一半）。
+
+原因：拒绝意味着调用方写错了、或发起了一次攻击。返回结果值的话 `when` 未必穷尽，
+漏掉分支的表现就是「拒绝被当成成功继续往下走」。
+
+原因码**四个**（比 §4.2.4 的三种多一个）：
+
+| 码 | 含义 |
+|---|---|
+| `PROTECTED_BONES` | 试图改安全骨骼 |
+| `NOT_WHITELISTED` | 字段名不在白名单 |
+| `INVALID_VALUE` | 值不合法（轴越界 / 非数字） |
+| `INVALID_EVIDENCE` | 证据为空、信号名未知、或非行为统计却带了时间条件 |
+
+★ `INVALID_EVIDENCE` 与 `INVALID_VALUE` 必须分开：前者是**调用方的实现问题**（改代码），
+后者是**用户表达的内容问题**（重新问用户）。修复动作完全不同。
+
+**(3) 数值口径（已定，不再有"手感"空间）**
+
+| 项 | 值 |
+|---|---|
+| 隐式信号初始置信度 | 主动纠正 .60 / 重说 .55 / 打断 .45 / 负面情绪 .35 / 回复变短 .30 |
+| 行为统计折扣 | ×0.8 |
+| 多证据合并 | **概率或** `c = 1 − Π(1−cᵢ)`，**不是求和**（求和会被 `coerceAtMost(1)` 夹成"攒三条必过"） |
+| 升级条件 | 条数 ≥ N **且** 合并置信度 ≥ 0.7 |
+| N（隐式 / 行为） | **3 / 5** —— **U-5 结案** |
+| 距离权重 | 简洁 · 主动程度 = 1.5；温度 · 幽默 = 1.0；正式度 · 表情 = 0.5 |
+| 距离公式 | `Σ wᵢ·\|当前ᵢ − 基线ᵢ\| / Σ(wᵢ·100) + 文本惩罚` |
+| 文本惩罚 | 每条 0.06，封顶 0.18 |
+| 锚定触发 | 距离 ≥ **0.15** **且** 已生效 delta ≥ **2** 条 |
+
+★ 全部信号置信度必须 < 0.7，这是「防止被一句话改坏」的地基。测试逐条断言这条**性质**
+（`单条隐式信号的置信度一定低于阈`），而不是只断言某一个信号的数值。
+
+★ 锚定的「**且 ≥2 条**」是纯距离口径的补丁：用户明确说「以后主动一点」就能把距离推过 0.15，
+这时去问「我好像变得不像我了」显得它**没在听**。两条以上的**累积**偏移才是失控感的真正来源。
+
+**(4) 结构性的隔离（靠类型，不靠约定）**
+
+| 不变量 | 落地方式 |
+|---|---|
+| 骨骼永不可微调 | `PersonaField` 枚举里**根本没有**安全字段；`PersonaSpec` 构造私有，唯一入口 `derive()` 只从预设取 `bones`；重建函数的签名里**不出现** `bones` / `baseline` |
+| 候选不得被当成既成事实引用 | `recentChanges()` **只返回 ACTIVE**；`PersonaSpec.applying` 断言 `isActive()` |
+| 候选桶不跨值合并 | 分桶键 = `(字段, 归一后的新值)`；同字段出现不同候选值时**旧链整条作废**（**删除**而非改状态 —— 候选从未生效，没有需要保留的历史） |
+| 回滚可精确复原 | 回放式实现：当前人格 = `derive(预设, 账本)`。回滚**原地改状态**，不追加反向 delta —— 历史应当是"这一条被撤销了"，不是"又发生了一次相反的变更" |
+
+**(5) 一处刻意的例外：越界值的两条路径**
+
+- `tune()` 入参越界 → **拒绝**（`INVALID_VALUE`）。钳制会让"用户说了 200"在日志里变成一条成功的 "100"。
+- 账本回放（外部历史数据）越界 → **钳制**（`ToneAxes.coerce`）。历史数据越界只可能来自更早版本的更松校验，**没有可以追问的对象**；抛异常会让整个助理起不来（那才是真正的「安静地做不了任何事」）。
+
+两个入口两种策略，**不可互换**。
+
+**(6) `driftCheck` 是纯查询，不记审计**
+
+§6 草案的签名里没有 `now`，实现据此定为**无副作用**：锚定询问是助理看到 `needsAnchoring`
+之后主动发起的行为，该由发起方记。查询本身产生副作用的话，"看一眼漂移情况"和"已经问了用户"就无法区分。
+
+**(7) §4.2.4 验收 → 测试映射**
+
+| 验收 | 测试类 |
+|---|---|
+| `tune(骨骼)` → 抛异常 + 落审计 | `PersonaWhitelistTest` |
+| 单条隐式反馈停在 `CANDIDATE` | `PersonaDeltaLedgerTest` |
+| 连续 N 条一致 → `ACTIVE` + 可引用的 `PersonaDelta` | `PersonaDeltaLedgerTest` |
+| 回滚 `ACTIVE` → 精确回到前值 | `PersonaRollbackTest` |
+| 距离超阈 → 触发锚定询问 | `PersonaDriftTest` |
+
+另有两类不来自 §4.2.4 但同等关键：`PersonaCandidateGateTest`（合并公式与门槛）、
+`PersonaPresetsTest`（音色与形象一致性提示，需求①）。
+
+**(8) §4.2.3 之外新增的数据结构**
+
+- `ValueKind { TEXT, AXIS }` —— 决定字段值如何归一
+- `PersonaFieldRef { Whitelisted / Bones / Unknown }` —— **三态**。「骨骼」与「未知」必须分开：合并会让一次**攻击尝试**和一次**没听清**长得一模一样
+- `EvidenceSignal` —— 证据信号表（见 (3)），支持 `信号名@时间条件`；时间条件**只做合法性校验、不参与打分**，且只有行为统计能带
+- `PersonaSpec` 补 `dialect` / `catchphrase` 字段 —— §4.2.3 草案漏了，不补的话这两类微调会**落库了但读不出来**
+- `VoiceHint` / `VoiceGender` / `PresetGender` —— 音色**建议**、音色**性别**、模板**性别**三者分开
+
 ---
 
 ### 4.3 需求③：保护用户 token = 移植 TencentDB Agent Memory
@@ -336,6 +437,80 @@ L0 原始对话 → L1 原子记忆（含「偏好」类）→ L2 场景归纳 �
 #### 4.3.3 与既有 `AgentBudget` 的关系
 
 见 §2.3。**互补，不替代，两者都要。**
+
+#### 4.3.4 P2 落地决策（2026-09-30 实现回写）
+
+`:memorylogic` 的 **L0/L1 + 上下文卸载（纯逻辑部分）** 已落地：8 个源文件 + 4 个测试类（55 条断言）。
+离线验证器 `OK (1486 tests)`（较 P1 基线 +55）。
+L2/L3 蒸馏与 `TaskCanvas` **不在本阶段**（归 P5）。
+
+**(1) 内核同步，时间由调用方传入**
+
+同 §4.2.5-1：本模块**零 IO、零 Android 依赖** —— 卸载落盘走注入的 `OffloadBlobStore` 端口，
+蒸馏走注入的 `MemoryLlmPort`。涉及时间的入口一律显式 `now: Long`，内核不读时钟。
+
+★ 入口参数**没有默认值**：`AtomExtractor.extract(turns, known, now)` 三参必填。
+一次忘记传 `known` 就会把「重复提取」静默变成「新增」。
+
+**(2) ★★ 红线 §8.2-2「卸载前必须过 `PrivacyFilter`」靠类型钉死，不靠约定**
+
+若只写成一句注释 + 一次调用，某天有人为「补一个漏掉的分支」在别处直接 `store.write(...)`，
+红线就没了。本阶段的落地方式：
+
+| 手段 | 效果 |
+|---|---|
+| `OffloadPayload` **构造函数私有**，唯一工厂 `cleared()` 是 `internal` | 模块外造不出「已过卡」的载荷 |
+| `OffloadBlobStore.write(payload: OffloadPayload)` | 「不关卡直接写」在模块外**编译不过** |
+| `offload()` 第一步就是 `gate.review(...)` | 关卡之前没有任何写操作 |
+| `PrivacyGate` 做成 `fun interface` **端口**（不直接用 `PrivacyFilter` 实例） | 卸载路径的顺序**可离线观测**；生产接线只有一条 `PrivacyFilter.asPrivacyGate()` |
+
+验收测试 `OffloadPrivacyOrderTest` 用**记账型**关卡 + 记账型 store 断言调用序列恰为
+`["review", "write"]`，并覆盖四条真 `PrivacyFilter` 分支（系统 UI 未知则拒截图 / 文本路径带出
+`mask` / 敏感页一票否决 / 插件截图拒绝）与「否决后一个字节都不写」。
+
+**(3) 为什么 `:memorylogic` 依赖 `:agentlogic`（模块图本阶段唯一新增边）**
+
+`PrivacyFilter` / `UploadRequest` / `FilterOutcome` / `RedactionPlan` 都住在 `:agentlogic`。
+在记忆层复制一份隐私语义，会得到**两套互相不知道的用户模型**（§4.3.2-① 警告的同一种病）。
+方向不能反过来（`:agentlogic` 对记忆分层一无所知）。两者都是纯 Kotlin、都在
+`PURE_KOTLIN` + `MODULES` 表内，故不损害离线可测性。
+
+⚠️ `implementation` **不传递**：将来 `:memory` / `:assistant` 若在**公开签名**里用到
+`PrivacyFilter` / `UploadRequest`，必须自己再声明 `:agentlogic`（`check_module_deps.py` 会报）。
+
+**(4) 引用 id 由**内容**派生，不含时间**
+
+`OffloadRef.idOf(kind, taskId, body)` —— 刻意**不**拿编码后的文本去算。
+编码外壳里带 `at`（卸载时刻），用它算 id 会让同一份内容在两次重试里落到两个文件，
+「重复卸载幂等」当场失效，用户存储里堆出一串一模一样的大文件。
+**时间属于引用的元数据，不属于它的身份。**
+（本条是离线测试 `相同内容重复卸载落到同一个文件且引用 id 相同` 当场抓出的实现缺陷。）
+
+**(5) 恢复三分支 + 往返闭合**
+
+`RecallOutcome` = `Restored` / `Missing` / `Corrupted`，缺一支都会变成「静默地少做一件事」。
+`recall()` 除对指纹外，还要**解码后再重编码一次**，确认与读到的文本逐字节相同（往返闭合）——
+它挡的是最坏的一种失败：内容「成功」恢复了，却不是当初那一份。
+
+**(6) §4.3.1 映射表里本阶段已落 / 未落**
+
+| 腾讯层 | 落点 | 状态 |
+|---|---|---|
+| L0 原始对话 | `TurnLog` / `Turn` / `TurnRole` | ✅ 本阶段 |
+| L1 原子记忆 | `Atom` / `AtomKind` / `AtomExtractor`（四类原子） | ✅ 本阶段 |
+| 上下文卸载 | `ContextOffloader` / `OffloadCodec` / `OffloadPolicy`（SAF 契约） | ✅ 本阶段 |
+| L2 场景归纳 | `SceneAggregator` | ⏳ P5 |
+| L3 用户画像 | `ProfileDistiller` → `:personalogic` | ⏳ P5 |
+| 任务画布 | `TaskCanvas` | ⏳ P5 |
+
+**(7) §4.3.2-③ 验收 → 测试映射**
+
+| 验收 | 测试类 |
+|---|---|
+| 卸载 → 恢复**往返内容一致**（+ 幂等 / 路径 / 指纹 / 三分支 / 阈值） | `OffloadRoundTripTest` |
+| `PrivacyFilter` **必须在卸载前被调用**（顺序不可颠倒） | `OffloadPrivacyOrderTest` |
+| L0 轮次基础（顺序 / 幂等 / 字节口径 / 按会话 / 超阈筛选） | `TurnLogTest` |
+| L1 提取（四类 / 丢弃原因 / 合并 / 确定性 id / 提示词） | `AtomExtractorTest` |
 
 ---
 
@@ -563,7 +738,7 @@ interface VoiceSession {
 | U-2 | 记忆的**默认保留期**与用户可删除粒度 | 隐私 + 存储 |
 | U-3 | L2/L3 蒸馏用哪个**模型档位**（成本 vs 质量） | 成本 |
 | U-4 | 是否做**语音唤醒词**（涉及常驻麦克风权限） | 权限 + 功耗 |
-| U-5 | 人格微调的**候选区阈值 N**（几次一致证据才升级） | 需求②手感 |
+| U-5 | ~~人格微调的**候选区阈值 N**~~ **已拍板（2026-09-30，见 §4.2.5）**：隐式 3 条、行为 5 条，阈值 0.7 | 需求②手感 |
 
 ---
 

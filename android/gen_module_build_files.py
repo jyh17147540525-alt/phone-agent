@@ -341,6 +341,29 @@ PROJECT_DEPS = {
     #    都要回来改网关的 build 文件与 when 分支，而漏改的表现是
     #    "这家厂商怎么都配不上"（不报错，只是永远路由不到）。
     "provider/gateway": [":provider:api", ":modelrouter"],
+    # v4.0 记忆层（`:memorylogic`）要用 `:agentlogic` 的 `PrivacyFilter`。
+    #
+    # ⚠️ 这条边存在只有一个理由，而且是红线级的：**卸载前必须过 `PrivacyFilter`**
+    #    （架构文档 §8.2-2，顺序不可颠倒）。上下文卸载会把工具原始结果、
+    #    截图说明这类内容搬到外部文件里，而在虚拟屏实验中**真的撞见过用户
+    #    真实的微信聊天列表** —— 过滤一旦放到落盘之后，隐私就已经在磁盘上了，
+    #    且没有任何一处会报错。
+    #
+    # ★ 实现上没有退化成"记得调一次"，而是把顺序做进类型：
+    #    `OffloadBlobStore.write()` 只接受 `OffloadPayload`，而它的构造函数是
+    #    **私有**的，唯一的工厂只在 `ContextOffloader.offload()` 里、且在任何
+    #    写入之前调用。于是"不过关卡直接写"在模块外**编译不过**。
+    #
+    # ⚠️ 方向不能反过来：`:agentlogic` 是 agent 循环的纯逻辑（预算 / 状态机 /
+    #    感知档位 / 隐私关卡），它对"记忆"一无所知，反过来依赖会让一个
+    #    "只管循环"的模块突然知道 L0/L1 的分层 —— 而那正是它保持可测的原因。
+    #    两个模块都是纯 Kotlin（都在 PURE_KOTLIN 里），所以这条边**不损害**
+    #    离线可测性：验证器把两者放进同一次编译，跨模块引用照常解析。
+    #
+    # ⚠️ `implementation` 不传递：将来 `:memory` / `:assistant` 若在公开签名里
+    #    用到 `PrivacyFilter` / `UploadRequest`，必须**自己**再声明一次
+    #    `:agentlogic`（同 `:capability` 与 `:filelogic` 那条注释）。
+    "memorylogic": [":agentlogic"],
 }
 
 # 哪些模块的**公开 API 暴露了某个库的类型** —— 这些必须是 `api` 而不是 `implementation`。
