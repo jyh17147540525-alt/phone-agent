@@ -20,8 +20,17 @@ android {
         applicationId = "com.pocketagent"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 1
-        versionName = "0.1.0-m0"
+        // ⚠️ 这两个数字**每次发版必须手动改**。
+        //
+        //    之前它们从项目开始就没动过（一直是 1 / "0.1.0-m0"），
+        //    后果是：**从版本号分不出新旧**，只能靠 `lastUpdateTime` ——
+        //    而 `lastUpdateTime` 连"重装了同一个包"都分不出来
+        //    （实测：装了个内容完全没变的包，它也照样更新）。
+        //
+        //    ⇒ 判据要么是能区分构建的版本号，要么是查 dex 内容。
+        //      版本号是给人看的那一个。
+        versionCode = 2
+        versionName = "0.1.0-m1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

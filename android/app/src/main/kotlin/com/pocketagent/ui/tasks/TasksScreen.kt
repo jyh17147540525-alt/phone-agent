@@ -38,6 +38,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import com.pocketagent.provider.api.ChatMessage
+import timber.log.Timber
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -246,8 +247,13 @@ private fun TaskCard(
 
         // 中止/失败时的原因说明。把"为什么停"讲清楚 ——
         // 用户不会因为被中止而生气，只会因为不知道为什么被中止而生气
+        //
+        // ⚠️ 2026-10-02 修：这里原本**只判断了 `Aborted`**，而注释写的是
+        //    "中止/失败"。于是失败时用户只看到"失败"两个字、看不到原因 ——
+        //    注释与实现的差额，正好落在用户身上。
+        //    **凡是要显示"为什么"的地方，条件必须覆盖所有终止态。**
         AnimatedVisibility(
-            visible = task.state == TaskState.Aborted,
+            visible = task.state == TaskState.Aborted || task.state == TaskState.Failed,
             enter = expandVertically(animationSpec = PaMotion.standard()) + fadeIn(),
             exit = shrinkVertically(animationSpec = PaMotion.standard()) + fadeOut(),
         ) {
@@ -540,20 +546,28 @@ class TasksViewModel(
                     it.copy(state = TaskState.Done, step = 1, note = result.text, perceptionTier = 0)
                 }
 
-                is ChatResult.NoCredential -> update(taskId) {
-                    it.copy(
-                        state = TaskState.Failed,
-                        note = "还没有可用的 API Key。请到「模型」页面添加一个。",
-                        abortReason = "未配置 Key",
-                    )
+                is ChatResult.NoCredential -> {
+                    Timber.w("对话失败：没有可用的默认凭据")
+                    update(taskId) {
+                        it.copy(
+                            state = TaskState.Failed,
+                            note = NO_KEY_HINT,
+                            // ★ abortReason 要写**完整原因**，不是"未配置 Key"这种简写 ——
+                            //   它是用户唯一能看到的那行字（note 在 Running 块里，失败时不显示）
+                            abortReason = NO_KEY_HINT,
+                        )
+                    }
                 }
 
-                is ChatResult.Failed -> update(taskId) {
-                    it.copy(
-                        state = TaskState.Failed,
-                        note = result.reason,
-                        abortReason = "调用失败",
-                    )
+                is ChatResult.Failed -> {
+                    Timber.w("对话失败：%s", result.reason)
+                    update(taskId) {
+                        it.copy(
+                            state = TaskState.Failed,
+                            note = result.reason,
+                            abortReason = result.reason,
+                        )
+                    }
                 }
             }
         }.apply { isDaemon = true }.start()
@@ -577,5 +591,9 @@ class TasksViewModel(
             "你是一个手机上的助理。当前版本你**只能对话**，还不能操作手机" +
                 "（不能读屏、不能点击、不能读写文件）。" +
                 "如果用户要求你操作手机，请如实说明你现在做不到，并说明这还在开发中。"
+
+        /** 没有 Key 时给用户看的那句话。**note 与 abortReason 共用一份**，避免两处文案漂移。 */
+        const val NO_KEY_HINT: String =
+            "还没有可用的 API Key。请到「模型」页面添加一个，再回来试。"
     }
 }
