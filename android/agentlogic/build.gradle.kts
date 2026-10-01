@@ -17,6 +17,8 @@ kotlin {
 }
 
 dependencies {
+    implementation(project(":filelogic"))
+
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
 

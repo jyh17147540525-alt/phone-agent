@@ -293,6 +293,19 @@ PROJECT_DEPS = {
     #
     #    方向也不能反过来：`:filelogic` 一旦依赖本模块，它就从纯判定层变成了
     #    "知道能力目录"的东西，而它的全部价值正在于**只认识路径与范围**。
+    # ★ 办公 agent 循环（`:agentlogic`）要用 `:filelogic` 的工作区模型与工具集。
+    #
+    #   ⚠️ 方向是 agentlogic → filelogic，**不能反过来** ——
+    #      `:filelogic` 的全部价值在于"只认识路径与范围"；
+    #      让它知道 agent 循环，它就从纯判定层变成了编排层。
+    #
+    #   两者都是 PURE_KOTLIN（零 Android 依赖），所以这条边**不损害离线可测性**。
+    #
+    #   ★ 为什么循环放在 `:agentlogic` 而不是 `:filelogic`：
+    #     `AgentBudget` 与 `TaskStateMachine` 都在这里，而项目有一条既有约束 ——
+    #     **横切组件（预算/状态机/隐私过滤）必须从循环第一版就长在里面，
+    #     不能"最后统一加"**。放在同模块是遵守那条约束最省事的方式。
+    "agentlogic": [":filelogic"],
     "capabilitylogic": [":core:common", ":filelogic"],
     # 数据库需要 Keystore 提供 SQLCipher 口令（口令本身也用主密钥加密后落盘）
     "core/database": [":core:crypto"],
