@@ -16,6 +16,7 @@
     android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows|flagReportViewIds|flagIncludeNotImportantViews"
     android:canPerformGestures="true"
     android:canRetrieveWindowContent="true"
+    android:canTakeScreenshot="true"
     android:description="@string/accessibility_service_description"
     android:notificationTimeout="100"
     android:summary="@string/accessibility_service_summary" />
@@ -36,11 +37,28 @@
 <!--
   说明：
   - canPerformGestures=true          允许 dispatchGesture 执行点击/滑动（通道 A 的核心）
+  - canRetrieveWindowContent=true    允许读无障碍树 —— 感知层的**主通道**
+  - canTakeScreenshot=true           允许 takeScreenshot() 截屏 —— 感知层的**兜底通道**
   - flagReportViewIds                允许读取 viewIdResourceName，用于稳定元素定位与 UI 图谱缓存
   - flagRetrieveInteractiveWindows   允许多窗口场景（分屏、悬浮窗）下的节点读取
   - flagIncludeNotImportantViews     包含未标记 importantForAccessibility 的节点，
                                      对自绘 UI 的覆盖率提升明显（代价是节点数变多）
   - notificationTimeout=100ms        事件节流，避免高频回调导致耗电
+
+  ★ canTakeScreenshot 是 2026-10-01 补上的，理由：
+    在此之前真机实测 `capabilities=33`（= RETRIEVE_WINDOW_CONTENT | PERFORM_GESTURES），
+    **截图位（128）没有置位** —— 也就是说"无障碍树读不到内容时的兜底手段"
+    在**配置层面**就不存在。界面上那一栏写着"尚未实现"，是如实描述。
+
+    补上后 capabilities 应为 33 + 128 = **161**。判据（权威）：
+        adb shell dumpsys accessibility | grep -o "capabilities=[0-9]*"
+    ⚠️ 别看 `settings get secure enabled_accessibility_services` ——
+       它只说明"配置里写了"，不代表服务真的 bound。
+
+  ⚠️ 截图能力一旦置位，**帧里就是用户真实的屏幕内容**。
+    虚拟屏实验已经撞过这条红线（帧里是用户真实的微信聊天列表）。
+    ⇒ `PrivacyFilter` 必须在**任何**取帧路径之前就位，且帧内容要分级
+      （聊天 / 支付 / 验证码 → 直接丢弃）。这是 `:perception` 接线前的硬前提。
 
   不做的事：
   - 不监听 typeViewTextChanged（涉及输入内容，隐私风险高，且非必要）
