@@ -11,6 +11,9 @@ import com.pocketagent.data.AppContainer
 import com.pocketagent.ui.shell.AppShell
 import com.pocketagent.ui.theme.PocketAgentTheme
 import timber.log.Timber
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * 应用入口。
@@ -64,6 +67,18 @@ class MainActivity : ComponentActivity() {
         )
 
         super.onCreate(savedInstanceState)
+
+        // ⚠️ 无障碍通道自检（**只读**：读树 + 截图，不操作屏幕）。
+        //
+        // 为什么要延迟：无障碍服务的绑定是**异步**的，在 onCreate 里
+        // 立刻跑会稳定拿到 `instance = null`，而那个结果看起来像
+        // "无障碍能力不可用" —— 一个由时序造成的假阴性。
+        //
+        // 结果全部写 logcat，看：`adb logcat -s PocketAgent`
+        lifecycleScope.launch {
+            delay(1_500)
+            com.pocketagent.assistant.A11ySelfCheck.run()
+        }
 
         val container = (application as PocketAgentApp).container
 
