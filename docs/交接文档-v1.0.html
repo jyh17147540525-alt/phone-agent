@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PocketAgent 交接文档 v1.0</title>
+<style>
+:root {
+  --bg: #14161a;
+  --bg-soft: #1a1d22;
+  --panel: #1e2228;
+  --panel-2: #23272f;
+  --border: #2e343d;
+  --text: #e6e9ee;
+  --text-dim: #9aa4b2;
+  --text-faint: #6b7684;
+  --accent: #6ea8fe;
+  --accent-2: #7ee0c0;
+  --warn: #f0b429;
+  --danger: #f2685c;
+  --ok: #57c98a;
+  --code-bg: #15181d;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+               "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans SC", sans-serif;
+  font-size: 15.5px;
+  line-height: 1.85;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { display: flex; max-width: 1500px; margin: 0 auto; }
+aside {
+  width: 300px; flex: 0 0 300px;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  padding: 28px 18px 60px 28px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-soft);
+  font-size: 13.5px;
+}
+aside .brand {
+  font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--text-faint); margin-bottom: 4px;
+}
+aside .title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 20px; line-height: 1.5; }
+aside ul { list-style: none; padding-left: 0; margin: 0; }
+aside ul ul { padding-left: 14px; margin-top: 4px; }
+aside li { margin: 2px 0; }
+aside a {
+  color: var(--text-dim); text-decoration: none; display: block;
+  padding: 4px 8px; border-radius: 6px; border-left: 2px solid transparent;
+  transition: .15s;
+}
+aside a:hover { color: var(--text); background: var(--panel-2); border-left-color: var(--accent); }
+main { flex: 1; min-width: 0; padding: 44px 56px 120px; max-width: 1080px; }
+
+h1 {
+  font-size: 30px; line-height: 1.35; margin: 0 0 8px; font-weight: 800;
+  letter-spacing: -.01em;
+}
+h2 {
+  font-size: 22px; margin: 56px 0 18px; padding-bottom: 10px;
+  border-bottom: 1px solid var(--border); font-weight: 700; scroll-margin-top: 20px;
+}
+h3 { font-size: 17.5px; margin: 34px 0 12px; font-weight: 700; color: #dfe5ee; scroll-margin-top: 20px; }
+h4 { font-size: 15.5px; margin: 24px 0 10px; font-weight: 700; color: var(--text-dim); }
+p { margin: 12px 0; }
+a { color: var(--accent); }
+strong { color: #fff; font-weight: 700; }
+hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+blockquote {
+  margin: 18px 0; padding: 14px 20px;
+  background: linear-gradient(90deg, rgba(110,168,254,.10), rgba(110,168,254,.02));
+  border-left: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0; color: #cfd6e0;
+}
+blockquote p { margin: 6px 0; }
+
+ul, ol { padding-left: 24px; margin: 12px 0; }
+li { margin: 5px 0; }
+li > ul, li > ol { margin: 5px 0; }
+
+.tw { overflow-x: auto; margin: 18px 0; border: 1px solid var(--border); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--panel); }
+th, td { padding: 9px 14px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { background: var(--panel-2); font-weight: 700; color: #fff; white-space: nowrap; font-size: 13.5px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: rgba(110,168,254,.045); }
+
+code {
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+  font-size: 13px; background: var(--code-bg); padding: 2px 6px;
+  border-radius: 5px; color: #8fd3ff; border: 1px solid var(--border);
+}
+pre {
+  background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px;
+  padding: 18px 20px; overflow-x: auto; margin: 18px 0;
+  font-size: 12.8px; line-height: 1.65;
+}
+pre code {
+  background: none; border: none; padding: 0; color: #cfd8e3;
+  white-space: pre; font-family: "JetBrains Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+}
+.codehilite { background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; margin: 18px 0; }
+.codehilite pre { border: none; margin: 0; background: none; }
+.codehilite .k, .codehilite .kd, .codehilite .kn { color: #ff7b9c; }
+.codehilite .s, .codehilite .s1, .codehilite .s2 { color: #7ee0c0; }
+.codehilite .c1, .codehilite .cm { color: #5f6b7a; font-style: italic; }
+.codehilite .n, .codehilite .nf, .codehilite .nc { color: #8fd3ff; }
+.codehilite .m, .codehilite .mi { color: #f0b429; }
+
+@media (max-width: 1000px) {
+  aside { display: none; }
+  main { padding: 28px 20px 80px; }
+  body { font-size: 15px; }
+  h1 { font-size: 24px; }
+  h2 { font-size: 19px; }
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: #333a45; border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: #414a58; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <aside>
+    <div class="brand">Project Plan</div>
+    <div class="title">PocketAgent 交接文档 v1.0</div>
+    <div class="toc">
+<ul>
+<li><a href="#0">§0 三十秒上手</a></li>
+<li><a href="#1">§1 先跑起来</a><ul>
+<li><a href="#11">1.1 环境要求</a></li>
+<li><a href="#12">1.2 三条命令（按顺序跑）</a></li>
+<li><a href="#13">1.3 完整构建</a></li>
+<li><a href="#14">1.4 已知环境坑</a></li>
+</ul>
+</li>
+<li><a href="#2">§2 阅读顺序</a></li>
+<li><a href="#3">§3 为什么长成这样</a><ul>
+<li><a href="#31">3.1 十条架构原则（改动需评审）</a></li>
+<li><a href="#32">3.2 三个最容易被质疑的取舍</a></li>
+</ul>
+</li>
+<li><a href="#4">§4 ★ 埋着的雷</a><ul>
+<li><a href="#41-bug">4.1 头号 bug 形态：「安静地少做一件事」</a></li>
+<li><a href="#42">4.2 静默失败清单（不抛异常、真机上"一眼看不出来"）</a></li>
+<li><a href="#43">4.3 已踩过的坑（工具与平台）</a></li>
+<li><a href="#44">4.4 检查器的「假绿」陷阱 ★★</a></li>
+</ul>
+</li>
+<li><a href="#5">§5 当前进度</a><ul>
+<li><a href="#51">5.1 已完成</a></li>
+<li><a href="#52-20">5.2 ★ 20 个空壳模块（清单，别以为它们有实现）</a></li>
+<li><a href="#53">5.3 虚拟屏的真实状态</a></li>
+<li><a href="#54-v40">5.4 v4.0 方向（设计稿待评审）</a></li>
+</ul>
+</li>
+<li><a href="#6">§6 交接检查清单</a></li>
+<li><a href="#7">§7 改代码前的约定</a><ul>
+<li><a href="#71">7.1 新增模块 = 四个注册点（缺一个就"看不见"）</a></li>
+<li><a href="#72">7.2 依赖只加「今天磁盘上真的有它」的</a></li>
+<li><a href="#73">7.3 提交前必跑</a></li>
+<li><a href="#74">7.4 验证的哲学（贯穿全项目）</a></li>
+</ul>
+</li>
+<li><a href="#a">附录 A：验证脚本速查</a></li>
+<li><a href="#bdocs">附录 B：文档地图（docs/）</a></li>
+<li><a href="#c">附录 C：⚠️ 不在仓库里的东西</a></li>
+<li><a href="#d">附录 D：一句话总结</a></li>
+</ul>
+</div>
+
+  </aside>
+  <main>
+<h1 id="pocketagent-v10">PocketAgent 交接文档 v1.0</h1>
+<blockquote>
+<p><strong>受众：下一个接手继续开发的人。</strong></p>
+<p>这份文档刻意不重复另外两份 —— <code>README.md</code> 面向<strong>使用者</strong>、<code>CONTRIBUTING.md</code> 面向<strong>贡献者</strong>。
+它只回答三个问题：
+<strong>① 这个项目为什么长成现在这样 ② 哪里埋着雷 ③ 按什么顺序读</strong></p>
+<p>对应状态：2026-09-26 · 提交 <code>35a8be8</code> · 分支 <code>main</code></p>
+</blockquote>
+<hr />
+<h2 id="0">§0 三十秒上手</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>是什么</td>
+<td>BYOK 的 Android 手机 AI 智能体；<strong>正从「agent 工具」转向「AI 手机助理」</strong></td>
+</tr>
+<tr>
+<td>协议</td>
+<td><strong>GPL-3.0</strong> · 发布主体「代码乌托邦」· 全开源、不盈利、<strong>不设捐款渠道</strong></td>
+</tr>
+<tr>
+<td>规模</td>
+<td><strong>44 个 Gradle 模块</strong>（24 个有源码 / <strong>20 个空壳</strong>）· <strong>201 个 Kotlin 文件</strong> · 约 <strong>6.1 万行</strong></td>
+</tr>
+<tr>
+<td>测试</td>
+<td><strong>1339 个离线单测全绿</strong>（不需要 Android SDK）</td>
+</tr>
+<tr>
+<td>阶段</td>
+<td>S1–S4 ✅ · S5–S9 ❌ 未开始 · <strong>v4.0 方向设计稿待评审</strong></td>
+</tr>
+<tr>
+<td>目标机型</td>
+<td>红米 K60（<code>mondrian</code> / Android 15 / API 35 / HyperOS）</td>
+</tr>
+<tr>
+<td>★ 最高优先级</td>
+<td><strong>尽量少影响用户正常使用手机</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>三条不可协商的红线</strong>（详见 <code>CONTRIBUTING.md</code>）：不得涉及支付金融 · 不得薅羊毛作弊 · 不得申请被禁能力。</p>
+<blockquote>
+<p><strong>接手第一件事：跑 §1 的三条命令。</strong>
+<strong>不要先读代码</strong> —— 先确认你手上这份是活的。本仓库有过"文档比代码旧好几轮"的历史（§4.4）。</p>
+</blockquote>
+<hr />
+<h2 id="1">§1 先跑起来</h2>
+<h3 id="11">1.1 环境要求</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>要求</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>JDK</td>
+<td><strong>17</strong></td>
+<td>⚠️ <strong>不要 21+</strong> —— AGP 8.x 对高版本 JDK 支持不稳</td>
+</tr>
+<tr>
+<td>Android SDK</td>
+<td><strong>36</strong></td>
+<td><code>android/local.properties</code> 里写 <code>sdk.dir=...</code>（已 gitignore，每台机器各自一份）</td>
+</tr>
+<tr>
+<td>项目路径</td>
+<td><strong>必须纯 ASCII</strong></td>
+<td>⚠️ 含中文路径时 AGP 在 Windows 上直接拒绝构建</td>
+</tr>
+</tbody>
+</table></div>
+<p>绕过路径检查的权宜之计：<code>./gradlew assembleDebug -Pandroid.overridePathCheck=true</code>
+（<strong>不要写进 <code>gradle.properties</code></strong> —— 不该让所有协作者继承这个绕过）。</p>
+<h3 id="12">1.2 三条命令（按顺序跑）</h3>
+<div class="codehilite"><pre><span></span><code>python<span class="w"> </span>tools/verify/run_logic_tests.py<span class="w">                     </span><span class="c1"># ① 离线单测，不需要 Android SDK</span>
+python<span class="w"> </span>android/gen_module_build_files.py<span class="w"> </span>android<span class="w"> </span>--check<span class="w">   </span><span class="c1"># ② 模块构建文件是否落后于生成器</span>
+python<span class="w"> </span>tools/verify/check_module_deps.py<span class="w"> </span>android<span class="w">           </span><span class="c1"># ③ 跨模块依赖是否漏声明</span>
+</code></pre></div>
+
+<p><strong>期望输出</strong>：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>命令</th>
+<th>通过的样子</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>①</td>
+<td>末行 <strong><code>OK (1339 tests)</code></strong></td>
+</tr>
+<tr>
+<td>②</td>
+<td><code>全部 43 个模块的 build 文件与生成器预期一致。</code></td>
+</tr>
+<tr>
+<td>③</td>
+<td><code>[OK] 所有跨模块引用都有对应的 project 依赖声明。</code></td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>⚠️ <strong>①的判据是 <code>OK (N tests)</code> 那一行，不是退出码。</strong>
+清理被中断时退出码会是 1，而测试其实全绿。</p>
+</blockquote>
+<h3 id="13">1.3 完整构建</h3>
+<div class="codehilite"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>android
+./gradlew<span class="w"> </span><span class="nb">test</span><span class="w">            </span><span class="c1"># 单元测试</span>
+./gradlew<span class="w"> </span>assembleDebug<span class="w">   </span><span class="c1"># 打 APK → app/build/outputs/apk/debug/app-debug.apk</span>
+</code></pre></div>
+
+<blockquote>
+<p>⚠️ <strong>诚实提示：本仓库最近几次改动没有在 JDK 17 上验证过。</strong>
+维护者机器上只有 JDK 25（与 AGP 8.x 不兼容），所以 <code>assembleDebug</code> 这条路
+<strong>处于"文档写了、但没人真跑过"的状态</strong>。如果你在 JDK 17 上构建失败，
+那是<strong>新信息</strong>，不是你的环境有问题。</p>
+</blockquote>
+<h3 id="14">1.4 已知环境坑</h3>
+<ul>
+<li><code>./gradlew</code> 首次要下 Gradle 发行版。仓库里的 wrapper 指向<strong>腾讯云镜像</strong>
+  （<code>services.gradle.org</code> 在中国大陆实测不可达）。换回官方地址的写法在
+  <code>gradle/wrapper/gradle-wrapper.properties</code> 的注释里。</li>
+<li>⚠️ <strong>不要给守护进程设 <code>-Dfile.encoding=UTF-8</code></strong> —— 会引发一个报错信息完全指不到
+  真实原因的编码错配（现象：每个测试类都 <code>ClassNotFoundException</code>，而 <code>.class</code> 明明在磁盘上）。
+  完整推导见 <code>README.md</code> 的「别给守护进程设 <code>-Dfile.encoding=UTF-8</code>」一节。</li>
+</ul>
+<hr />
+<h2 id="2">§2 阅读顺序</h2>
+<p><strong>按这个顺序，别乱翻。</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>读什么</th>
+<th>为什么先读它</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>README.md</code></td>
+<td>定位 + <strong>安全边界</strong>（这个项目<strong>不做</strong>哪些事）</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>CONTRIBUTING.md</code></td>
+<td>三条红线。违反的 PR 直接关闭，不讨论</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>本文档 §3</strong></td>
+<td>架构决策的推理链 —— 不读这节，你会觉得"为什么拆这么多模块"</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>本文档 §4</strong></td>
+<td>埋着的雷 —— 不读这节，你会把坑重踩一遍</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>android/settings.gradle.kts</code></td>
+<td><strong>模块清单的唯一权威</strong>，且每个 <code>include</code> 都带一段"这个模块为什么存在"</td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>android/gen_module_build_files.py</code></td>
+<td>模块构建文件的生成器 + 各张配置表（<code>PURE_KOTLIN</code> / <code>ANDROID_LIB</code> / <code>PROJECT_DEPS</code>…）</td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>docs/</code> 的设计文档</td>
+<td>按 <strong>附录 B</strong> 的优先级读</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>代码入口</strong>：<code>android/app/</code> 是应用壳；<strong><code>:provider:gateway</code> 是模型调用的唯一出口</strong>。</p>
+<hr />
+<h2 id="3">§3 为什么长成这样</h2>
+<h3 id="31">3.1 十条架构原则（改动需评审）</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>原则</th>
+<th>违反的后果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><strong>不建自有后端</strong> —— 模型请求直连用户指定的 Provider；订阅源与更新源用 GitHub Pages / Releases</td>
+<td>一旦有后端，"零推理成本 + 合规护身符"两个前提同时失效</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>执行层多通道抽象</strong> —— <code>ActionExecutor</code>，无障碍 / Shizuku / IME / 悬浮窗引导四通道可插拔、可运行时降级</td>
+<td><strong>禁止任何模块直接依赖 <code>AccessibilityService</code></strong> —— 否则换通道要改所有调用点</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>感知层不依赖无障碍树</strong> —— 统一走 <code>ScreenSnapshot</code>，树可用优先用树，不可用截图兜底</td>
+<td>树在某些 App 上根本读不到，硬依赖它等于功能直接消失</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>主动放弃支付环节</strong> —— 命中敏感页面规则立即停止、丢弃截图、交还用户</td>
+<td>规则<strong>只许加严</strong>，不许放宽</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>手动引导模式是正式产品形态</strong>，不是残废版</td>
+<td>把它当降级方案会导致它永远做不好</td>
+</tr>
+<tr>
+<td>6</td>
+<td><strong>domain 层零 Android 依赖</strong></td>
+<td>这是所有 <code>*logic</code> 模块存在的理由（见 §3.2）</td>
+</tr>
+<tr>
+<td>7</td>
+<td><strong>Key 永不落明文</strong> —— Keystore + AES-GCM + SQLCipher；不进日志、崩溃上报、备份、SharedPreferences</td>
+<td>见 §4.1</td>
+</tr>
+<tr>
+<td>8</td>
+<td><strong>插件边界</strong>：本体提供「能力」，插件提供「意图」</td>
+<td>调用必须经 <code>PluginHost</code> 代理；插件拿不到 Key 明文 / 原始节点对象，绕不过 SafetyGuard。<strong>永不开放</strong> <code>payment.*</code> / <code>key.*</code> / <code>crypto.*</code> / <code>system.*</code></td>
+</tr>
+<tr>
+<td>9</td>
+<td><strong>凭据一律运行时注入、绝不硬编码</strong></td>
+<td>GitHub token 用 OAuth Device Flow；<strong>不接触用户的 Key</strong></td>
+</tr>
+<tr>
+<td>10</td>
+<td><strong><code>ModelRouteCoordinator</code> 刻意不缓存</strong></td>
+<td>否则"改了档位、正在跑的任务还按旧配置走"，且<strong>没有任何线索</strong></td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="32">3.2 三个最容易被质疑的取舍</h3>
+<p><strong>① 为什么拆出这么多 <code>*logic</code> 模块？</strong></p>
+<p><code>:agentlogic</code> / <code>:overlaylogic</code> / <code>:filelogic</code> / <code>:capabilitylogic</code> / <code>:provider:gateway</code>
+以及 v4.0 的 <code>:personalogic</code> / <code>:memorylogic</code> / <code>:voicelogic</code> —— 它们的共同点是
+<strong>零 Android 依赖，因此能进离线验证器</strong>。</p>
+<p>判据不是"代码量"，而是：<strong>这一层判错的后果是不是静默的</strong>。
+如果是（不抛异常、只在真机上"看起来不对劲"），那它<strong>必须</strong>能被离线确定性测试覆盖。
+真机验证覆盖不了这类 bug —— 你根本看不到它发生。</p>
+<p>配套的 Android 壳（<code>:agent</code> / <code>:overlay</code> / <code>:capability</code> / <code>:voice</code>…）只做一件事：
+<strong>把纯逻辑层定下的端口接到系统 API 上</strong>，一行判定逻辑都不许有。</p>
+<p><strong>② 为什么网关必须先于 agent 循环做完？</strong></p>
+<p>因为<strong>网关是假的时，mock 测不出「流式 token 乱序」「<code>[DONE]</code> 发两次」</strong>。
+这两类 bug 只在真流式下出现，而它们导致的后果是"回答看起来对、其实拼错了"。
+先把 <code>:provider:gateway</code> 做成真的并真机验证，再往它上面接循环。</p>
+<p><strong>③ 为什么不直接用 <code>dsh</code> 当大脑？</strong></p>
+<p>已经做了（路线 C：dsh 为脑 + Android 为 MCP 能力端），但 <code>dsh</code> 是 RC 版本，
+所以<strong>锁版本 + 隔离层</strong>，且护栏留在 L4。</p>
+<hr />
+<h2 id="4">§4 ★ 埋着的雷</h2>
+<p><strong>这一节是本文档最值钱的部分。</strong> 下面每一条都是<strong>已经真实发生过</strong>的。</p>
+<h3 id="41-bug">4.1 头号 bug 形态：「安静地少做一件事」</h3>
+<p>这个项目最高频的 bug <strong>不是崩溃，是静默少做</strong>。已发生的例子：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>现象</th>
+<th>后果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>encodeDefaults=false</code></td>
+<td>序列化时字段静默消失</td>
+</tr>
+<tr>
+<td>空 <code>defaultModels</code></td>
+<td>静默地没有默认模型可选</td>
+</tr>
+<tr>
+<td>价格回落成 <code>0.0</code></td>
+<td>静默算成免费（<strong>最后一级回落必须是 <code>null</code></strong>）</td>
+</tr>
+<tr>
+<td>TTS 能力未知</td>
+<td>静默丢掉 emotion / 语速参数</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>纪律</strong>：任何"回落/兜底值"都必须<strong>显式且可观测</strong>。
+<strong>价格类回落必须是 <code>null</code>，不是 <code>0.0</code></strong> —— <code>0.0</code> 是一个合法的价格，<code>null</code> 才表示"不知道"。</p>
+<h3 id="42">4.2 静默失败清单（不抛异常、真机上"一眼看不出来"）</h3>
+<p>这些正是 §3.2 里那些 <code>*logic</code> 模块要守的东西：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>层</th>
+<th>判错的表现</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Agent 预算</td>
+<td>只是多跑几轮（用户完全看不到）</td>
+</tr>
+<tr>
+<td>卡死检测</td>
+<td>漏排 <code>WAIT</code>/<code>SCROLL</code> → 任务在正常时莫名中止</td>
+</tr>
+<tr>
+<td>感知档位</td>
+<td>选错只是多花一份截图成本</td>
+</tr>
+<tr>
+<td>文件路径归一化</td>
+<td>漏掉一种 <code>..</code> 变体 → <strong>授权一个目录等于授权整块存储</strong></td>
+</tr>
+<tr>
+<td>文件包含判定</td>
+<td>写成字符串前缀 → <code>/Documents-evil</code> 被当成在 <code>/Documents</code> 之下</td>
+</tr>
+<tr>
+<td>第 0 档硬拒绝清单</td>
+<td>漏一条设置键 → <strong>agent 能给自己授予无障碍权限，整个安全模型归零</strong></td>
+</tr>
+<tr>
+<td>确认标志</td>
+<td>被提前消费 → "用户点过确认"变成绕过一切的后门</td>
+</tr>
+<tr>
+<td>人格白名单（v4.0）</td>
+<td>漏一个字段 → <strong>安全边界被击穿且不抛异常</strong></td>
+</tr>
+<tr>
+<td>语音打断（v4.0）</td>
+<td>漏掉"取消在途请求" → 助理停了，但 <strong>token 还在烧</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>没有一条抛异常，没有一条在真机上"一眼看出来"。唯一可靠的抓手是确定性离线测试。</strong></p>
+<h3 id="43">4.3 已踩过的坑（工具与平台）</h3>
+<p><strong>文件操作</strong></p>
+<ul>
+<li><strong><code>renameDocument</code> 是消耗性的，且会静默改名</strong> —— 不报错，把文件改成 <code>name (1)</code>，
+  源 Uri 立刻失效。⇒ <strong>覆盖必须「挪开旧文件 → 新建 → 删备份」</strong>，
+  且判据是<strong>改完之后它叫什么</strong>（<code>displayName</code>），不是"有没有报错"。</li>
+<li><strong><code>move</code> 跨目录的 <code>createDocument</code> 也会静默改名</strong>（不丢数据，表现为"移动到 <code>b (1).txt</code>"）。</li>
+<li>⚠️ <strong><code>git rm</code> 在本机环境会清空整个父目录</strong>（稳定复现两次）。
+  <strong>不要用 <code>git rm</code></strong> —— 改用 <code>mv &lt;file&gt; .build-trash/</code> + <code>git add -A</code>。
+  抢救方法见 skill <code>windows-git-delete-safety</code>。</li>
+</ul>
+<p><strong>Android 平台</strong></p>
+<ul>
+<li><strong>锁屏下</strong> <code>uiautomator dump</code> 成功但零 text 节点、<code>screencap</code> 全黑。
+  ⇒ 判据：<strong>先看截图是否全黑</strong>。但别一看到 keyguard 就宣布硬边界 ——
+  <code>KEYCODE_WAKEUP</code> 后等 2 秒再上滑<strong>有时真能解开</strong>。</li>
+<li><strong><code>uiautomator dump</code> 没有 <code>--display</code> 参数</strong> —— 永远只读 display 0。
+  用它测虚拟屏 = <strong>测了个寂寞</strong>。判"无障碍能不能读"的唯一有效判据是
+  <code>dumpsys accessibility</code> 的 <code>valid display</code> 列表。</li>
+<li><strong>别用 md5 判断界面状态</strong> —— 息屏 / 时钟 / 温度刷新都会让它变。要看具体字段或看图。</li>
+<li><strong>写系统设置是两类授权，绝不能合并</strong>：<code>GLOBAL</code>/<code>SECURE</code> 走 <code>WRITE_SECURE_SETTINGS</code>
+  （<code>pm grant</code> 能授）；<code>SYSTEM</code> 走 <code>WRITE_SETTINGS</code>（<strong>appop 型，只能 <code>appops set</code></strong>）。</li>
+<li><strong>权限被拒类实验禁用 <code>adb shell</code> 复现</strong> —— shell 持
+  <code>INTERNAL_SYSTEM_WINDOW</code> / <code>ACTIVITY_EMBEDDING</code> / <code>ADD_TRUSTED_DISPLAY</code>，会<strong>假阳性放行</strong>。</li>
+</ul>
+<p><strong>工程纪律</strong></p>
+<ul>
+<li><strong>改文件一律按字节读写</strong> —— <code>Path.write_text()</code> 在 Windows 上会把 LF 翻成 CRLF。
+  <code>tools/verify/check_line_endings.py</code> 可查。</li>
+<li><strong>同一文件的多个修改不能并行</strong> —— 并发写回时后写的会<strong>静默覆盖</strong>先写的，而工具报"成功"。
+  要么串行，要么用一次性脚本原子完成（skill <code>bulk-edit-with-script</code>）。</li>
+<li><strong>确认门是两道，必须分开</strong>（<code>confirmedByUser</code> + <code>operationConfirmedByUser</code>）——
+  合成一个的后果是<strong>第二句话永远说不出来</strong>。</li>
+</ul>
+<h3 id="44">4.4 检查器的「假绿」陷阱 ★★</h3>
+<p><strong>一个漏掉模块的检查，同样是假的</strong> —— 只是它不报红，所以比"总是报红"更难发现。</p>
+<p>真实事故：<code>gen_module_build_files.py</code> 的 <code>PURE_KOTLIN</code> 表里<strong>漏了 <code>filelogic</code></strong>，
+于是 <code>--check</code> 长期打印"全部 <strong>34</strong> 个模块一致"—— 而那个数字<strong>从没把 <code>filelogic</code> 算进去</strong>。
+同一时期，<code>CapabilityCall.kt</code> 少了一个收尾 <code>}</code>，从写完到注册进验证器之前<strong>从没被编译过</strong>，
+注册后<strong>第一次跑就报出来</strong>。</p>
+<p><strong>纪律</strong>：</p>
+<ol>
+<li><strong>往生成器加模块后，必须确认 <code>--check</code> 打印的「总数」在涨。</strong>
+   只看到"一致"两个字<strong>不算通过</strong> —— 必须看到数字变大。</li>
+<li><strong>判据看具体行，不看退出码</strong>（<code>OK (N tests)</code>）。</li>
+<li><strong>检查器必须能"造违规输入证明它会红"</strong> —— 这就是 <code>test_release_check.py</code> 存在的理由。</li>
+<li>
+<p><strong><code>--check</code> 零容忍</strong>。它曾经长期报 4 条"已确认的本地定制"，而检查器输出里
+   <strong>标注不了</strong>哪条是已知的 —— 于是真实漂移（比如少了 <code>room-compiler</code>，
+   会让 Room <strong>直到运行时才崩</strong>）会被一起划掉。
+   ⇒ 现在那些"已知差异"被描述进生成器的配置表，红条归零，<strong>剩下的红条就是真问题</strong>。</p>
+<blockquote>
+<p><strong>一个总有几条红条的检查等于没有检查。</strong></p>
+</blockquote>
+</li>
+<li>
+<p><strong>模块数的权威口径 = <code>settings.gradle.kts</code> 的 <code>include()</code> 条数（现 44）。</strong>
+   ⚠️ <code>find -name build.gradle.kts</code> 得 <strong>45</strong> —— 多出来的是<strong>根构建文件
+   <code>android/build.gradle.kts</code>，不是模块</strong>。而 <code>check_module_deps.py</code> 用
+   <code>rglob("build.gradle.kts")</code> 枚举，<strong>所以它报的「45 个模块」偏大 1</strong>。
+   （这条是 2026-09-26 订正 README 时发现的 —— 当时四份文档分别写着 36/30/37/45，全错。）</p>
+</li>
+</ol>
+<hr />
+<h2 id="5">§5 当前进度</h2>
+<h3 id="51">5.1 已完成</h3>
+<ul>
+<li>完整项目方案（v1.0 / v2.0 / v3.0）+ M0 技术验证手册</li>
+<li><strong>Provider 层</strong>：OpenAI 兼容协议（覆盖 11 家厂商）+ TTS</li>
+<li><strong>安全护栏</strong>：敏感页面 / 敏感控件 / 危险动作 / 频率限制 + 审计</li>
+<li><strong>插件体系</strong>：契约、三级分级、能力白名单、禁止前缀拦截</li>
+<li><strong>插件市场 + 本地导入 + 订阅源管理</strong> + 社区源脚手架（2 个示例插件）</li>
+<li><strong>API Key 管理</strong> + 多 Key / 多模型调度（<code>:modelrouter</code>）</li>
+<li><strong><code>:provider:gateway</code></strong> —— 路由 / 熔断 / 解密 / 转发 / 计量</li>
+<li><strong><code>:provider:gateway</code> 的 HTTP 外壳</strong>（loopback + SSE）+ <code>GatewayTokenProvider</code></li>
+<li><strong>网关与 dsh 的配置接线</strong>（1.4.6c）—— <strong>已真机端到端验证</strong></li>
+<li><strong>Agent 循环的纯逻辑层</strong>（<code>:agentlogic</code>）—— 四维预算 / 状态机 / 感知阶梯 / 检查点 / 消歧</li>
+<li><strong><code>PrivacyFilter</code></strong> —— 所有上传路径的唯一出口</li>
+<li><strong>文件能力沙箱</strong>（<code>:filelogic</code> + Android 侧通道）—— <strong>已真机验证</strong></li>
+<li><strong>第 0 档能力</strong>（<code>:capabilitylogic</code> + <code>:capability</code>）</li>
+<li><strong>P0 五项真机验证全部拿到结论</strong>（含虚拟屏 flags 表）</li>
+<li><strong>发行就绪检查器</strong> + <strong>密钥泄露守卫</strong></li>
+</ul>
+<h3 id="52-20">5.2 ★ 20 个空壳模块（清单，别以为它们有实现）</h3>
+<div class="codehilite"><pre><span></span><code>:provider/anthropic    :provider/gemini      :provider/local
+:plugin/runtime        :plugin/rules         :plugin/script
+:plugin/store          :plugin/devtools      :memory
+:update                :channel              :onboarding
+:display/preview       :contribute
+:personalogic          :memorylogic          :voicelogic      ← v4.0
+:assistant             :voice                :tts             ← v4.0
+</code></pre></div>
+
+<p><strong>24 个有源码 / 44 个总模块。</strong> 复现这个清单：</p>
+<div class="codehilite"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>android<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="k">for</span><span class="w"> </span>m<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="k">$(</span>grep<span class="w"> </span>-o<span class="w"> </span><span class="s1">'include(":[^"]*"'</span><span class="w"> </span>settings.gradle.kts<span class="w"> </span><span class="p">|</span><span class="w"> </span>sed<span class="w"> </span><span class="s1">'s/include("://; s/"$//'</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>tr<span class="w"> </span><span class="s1">':'</span><span class="w"> </span><span class="s1">'/'</span><span class="k">)</span><span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<span class="w">  </span><span class="o">[</span><span class="w"> </span><span class="s2">"</span><span class="k">$(</span>find<span class="w"> </span><span class="s2">"</span><span class="nv">$m</span><span class="s2">"</span><span class="w"> </span>-name<span class="w"> </span><span class="s1">'*.kt'</span><span class="w"> </span>-not<span class="w"> </span>-path<span class="w"> </span><span class="s1">'*/build/*'</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>wc<span class="w"> </span>-l<span class="k">)</span><span class="s2">"</span><span class="w"> </span>-eq<span class="w"> </span><span class="m">0</span><span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">":</span><span class="nv">$m</span><span class="s2">"</span><span class="p">;</span><span class="w"> </span><span class="k">done</span>
+</code></pre></div>
+
+<blockquote>
+<p>⚠️ <code>:memory</code> 是<strong>空壳但有 Room 依赖</strong>（它在 <code>ROOM_MODULES</code> 里）——
+v4.0 的记忆落库正是往这里放。</p>
+</blockquote>
+<h3 id="53">5.3 虚拟屏的真实状态</h3>
+<p><strong>结论与全部证据已存档</strong> → <code>docs/无感虚拟屏方案存档与交接-v1.0.md</code></p>
+<p>一句话：<strong>VDM 路线（<code>createVirtualDisplay</code> + 自带 <code>ImageReader</code> 消费面）
+是三代路线里唯一走通的</strong>，最优解是 <code>flags=85003</code>，能同时做到
+"无障碍可见 + 独立 display group + 独立焦点 + 跨应用跳转留屏"。</p>
+<p><strong>唯一未解</strong>：<code>isVisible=false</code>（疑因主屏安全锁）—— <strong>需解锁后复测</strong>。</p>
+<p>⚠️ <code>android/display/</code> 的接口<strong>基于已废弃的 overlay 路线设计</strong>，实现前<strong>必读那份存档</strong>，
+不要照抄接口里的命令。</p>
+<h3 id="54-v40">5.4 v4.0 方向（设计稿待评审）</h3>
+<p><strong>从「agent 工具」进化为「AI 手机助理」</strong>（人格 + 记忆 + 实时语音）。
+设计稿 → <code>docs/AI手机助理架构-v1.0.md</code></p>
+<p>三条已拍板：① 腾讯开源项目 = <strong>TencentDB Agent Memory</strong>（MIT），形态 = Kotlin 重写进 <code>:memory</code>；
+② 语音 = 混合（默认级联 ASR→LLM→TTS，检测到 Realtime 支持时升级）；③ 现有模块<strong>全保留</strong>，
+降为助理的执行器。</p>
+<p>⚠️ <strong>目前只有设计稿与模块骨架，尚无源码。</strong> 见 §5.2 的空壳清单。</p>
+<hr />
+<h2 id="6">§6 交接检查清单</h2>
+<p>拿到仓库后，<strong>按顺序自己验证这些</strong>（不要相信文档，包括本文档）：</p>
+<ul>
+<li>[ ] §1 的三条命令都通过，且 ① 的末行是 <code>OK (1339 tests)</code></li>
+<li>[ ] <code>./gradlew assembleDebug</code> 在 <strong>JDK 17</strong> 上能出 APK（<strong>这条目前无人验证过</strong>）</li>
+<li>[ ] <code>git log --oneline -5</code> 与本文档标注的提交对得上</li>
+<li>[ ] <code>python tools/verify/check_no_secrets.py</code> 通过</li>
+<li>[ ] <code>python tools/verify/check_release_readiness.py</code> 通过（2 条发版提醒是预期的）</li>
+<li>[ ] 用 §5.2 的命令复现出<strong>同样的 20 个空壳清单</strong></li>
+<li>[ ] 读一遍 <code>docs/无感虚拟屏方案存档与交接-v1.0.md</code>（虚拟屏是最大的技术坑）</li>
+<li>[ ] 确认你清楚 <strong>§4.4 的"假绿"陷阱</strong> —— 这比任何单点知识都重要</li>
+</ul>
+<p><strong>发版前还需清零的</strong>（当前是有意留着的）：</p>
+<ul>
+<li><code>signingConfig</code> 未声明 → 会产出未签名 APK</li>
+<li><code>versionName = "0.1.0-m0"</code> 含开发期标记</li>
+</ul>
+<hr />
+<h2 id="7">§7 改代码前的约定</h2>
+<h3 id="71">7.1 新增模块 = 四个注册点（缺一个就"看不见"）</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>位置</th>
+<th>缺了会怎样</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>android/settings.gradle.kts</code> 的 <code>include(":模块名")</code></td>
+<td>Gradle 根本不认这个模块</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>android/gen_module_build_files.py</code> 的 <code>PURE_KOTLIN</code> 或 <code>ANDROID_LIB</code></td>
+<td>生成 build 文件时漏掉它；<code>--check</code> 也遍历不到</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>tools/verify/run_logic_tests.py</code> 的 <code>MODULES</code>（<strong>仅纯 Kotlin 模块</strong>）</td>
+<td><strong>永远不会被编译、永远不进离线单测</strong></td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>android/&lt;模块&gt;/build.gradle.kts</code></td>
+<td><strong>由生成器产出，不要手写</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p>详见 skill <code>pocketagent-new-module</code>。<strong>加完必须确认 <code>--check</code> 总数在涨。</strong></p>
+<h3 id="72">7.2 依赖只加「今天磁盘上真的有它」的</h3>
+<p><code>PROJECT_DEPS</code> / <code>NEEDS_HILT</code> / <code>NEEDS_SERIALIZATION</code> / <code>EXTRA_TEST_DEPS</code>
+的判据是<strong>现在就有这个需求</strong>，不是"将来可能需要"。</p>
+<h3 id="73">7.3 提交前必跑</h3>
+<div class="codehilite"><pre><span></span><code>python<span class="w"> </span>tools/verify/run_logic_tests.py<span class="w">                     </span><span class="c1"># 离线单测</span>
+python<span class="w"> </span>android/gen_module_build_files.py<span class="w"> </span>android<span class="w"> </span>--check<span class="w">   </span><span class="c1"># 生成器一致性</span>
+python<span class="w"> </span>tools/verify/check_module_deps.py<span class="w"> </span>android<span class="w">           </span><span class="c1"># 依赖声明</span>
+python<span class="w"> </span>tools/verify/check_no_secrets.py<span class="w">                    </span><span class="c1"># 密钥泄露</span>
+python<span class="w"> </span>tools/verify/check_line_endings.py<span class="w">                  </span><span class="c1"># 行尾</span>
+python<span class="w"> </span>tools/verify/check_kt_quotes.py<span class="w"> </span>android<span class="w">             </span><span class="c1"># 中文文案里的 ASCII 引号误用</span>
+python<span class="w"> </span>tools/verify/check_xml_comments.py<span class="w"> </span>android<span class="w">          </span><span class="c1"># XML 注释里的 `--` 非法序列</span>
+</code></pre></div>
+
+<p><strong>推送到公开仓库前，<code>check_no_secrets.py</code> 是硬门槛。</strong></p>
+<h3 id="74">7.4 验证的哲学（贯穿全项目）</h3>
+<blockquote>
+<p><strong>能离线确定性验证的，绝不放到真机上碰运气。</strong></p>
+</blockquote>
+<p>原因：本项目的 bug 大多<strong>不抛异常</strong>。真机验证只能证明"这次没出事"，
+而离线测试能证明"这个分支不可能错"。</p>
+<hr />
+<h2 id="a">附录 A：验证脚本速查</h2>
+<p>全部在 <code>tools/verify/</code> 下（<code>gen_module_build_files.py</code> 跟着代码走，在 <code>android/</code>）：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>脚本</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>run_logic_tests.py</code></td>
+<td><strong>离线单测</strong>（不需要 Android SDK）。判据看 <code>OK (N tests)</code></td>
+</tr>
+<tr>
+<td><code>check_module_deps.py</code></td>
+<td>跨模块 <code>project(...)</code> 依赖是否漏声明</td>
+</tr>
+<tr>
+<td><code>check_version_catalog.py</code></td>
+<td><code>libs.*</code> 访问器对账</td>
+</tr>
+<tr>
+<td><code>check_kt_quotes.py</code></td>
+<td>中文文案里的 ASCII 引号误用</td>
+</tr>
+<tr>
+<td><code>check_xml_comments.py</code></td>
+<td>XML 注释里的 <code>--</code> 非法序列</td>
+</tr>
+<tr>
+<td><code>check_line_endings.py</code></td>
+<td>LF/CRLF 污染</td>
+</tr>
+<tr>
+<td><code>check_no_secrets.py</code></td>
+<td><strong>密钥泄露守卫</strong>（fail-closed，带白名单）</td>
+</tr>
+<tr>
+<td><code>check_release_readiness.py</code></td>
+<td>发行前 10 组规则（R1–R10）</td>
+</tr>
+<tr>
+<td><code>test_release_check.py</code></td>
+<td>上面那个检查器的<strong>自测</strong>（造违规输入证明它会红）</td>
+</tr>
+<tr>
+<td><code>check_aar_metadata.py</code></td>
+<td>读 aar 里的 <code>compileSdk</code> 门槛，防止升依赖踩线</td>
+</tr>
+<tr>
+<td><code>check_ui_markdown.py</code></td>
+<td>UI 文案的 Markdown 规范</td>
+</tr>
+<tr>
+<td><code>community-source/build_source.py --check</code></td>
+<td>社区源产物是否与源一致</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>真机实验工具</strong>在 <code>tools/p0/</code>（含 <code>reports/</code> 里的真机验证记录、<code>vdisplay/</code> 的虚拟屏实验脚本）。</p>
+<hr />
+<h2 id="bdocs">附录 B：文档地图（<code>docs/</code>）</h2>
+<p><strong>必读（按顺序）</strong></p>
+<ol>
+<li><code>无感虚拟屏方案存档与交接-v1.0.md</code> —— 最大的技术坑，含完整 flags 表与证据</li>
+<li><code>AI手机助理架构-v1.0.md</code> —— v4.0 方向（<strong>设计稿待评审</strong>）</li>
+<li><code>M0技术验证与工程落地手册-v1.0.md</code> —— 18 个实验的原始记录</li>
+</ol>
+<p><strong>按需查</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>主题</th>
+<th>文档</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>项目总体方案</td>
+<td><code>手机AI智能体助手-项目方案-v1.0.md</code></td>
+</tr>
+<tr>
+<td>模型接入</td>
+<td><code>BYOK模型接入与dsh代理设计-v1.0.md</code></td>
+</tr>
+<tr>
+<td>多 Key / 调度</td>
+<td><code>多Key与模型调度设计-v1.0.md</code></td>
+</tr>
+<tr>
+<td>插件体系</td>
+<td><code>插件体系与APK实现说明-v1.0.md</code></td>
+</tr>
+<tr>
+<td>文件能力</td>
+<td><code>文件能力沙箱设计-v1.0.md</code></td>
+</tr>
+<tr>
+<td>第 0 档能力</td>
+<td><code>第0档零占屏任务清单-v1.0.md</code></td>
+</tr>
+<tr>
+<td>沙箱 / 离线优先</td>
+<td><code>沙箱优先架构与离线优先方案-v1.0.md</code></td>
+</tr>
+<tr>
+<td>移动端约束</td>
+<td><code>移动端Agent约束分析与迭代优化方案-v1.0.md</code></td>
+</tr>
+<tr>
+<td>后台常驻 / 语音</td>
+<td><code>后台常驻与语音交互方案-v1.0.md</code></td>
+</tr>
+<tr>
+<td>dsh 可行性</td>
+<td><code>豆包手机智能体考察与dsh移植可行性研讨-v1.0.md</code></td>
+</tr>
+<tr>
+<td>社区分发</td>
+<td><code>社区分发版方案-v2.0.md</code> / <code>-v3.0.md</code></td>
+</tr>
+<tr>
+<td>剩余待办</td>
+<td><code>剩余待办实施方案与Agent循环草稿-v1.0.md</code></td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>每份 <code>.md</code> 都有配套的 <code>.html</code>（深色主题、带侧边目录）。
+生成方式：<code>python docs/build_html.py &lt;src.md&gt;</code>（需要 <code>markdown</code> + <code>pygments</code>）。</p>
+</blockquote>
+<hr />
+<h2 id="c">附录 C：⚠️ 不在仓库里的东西</h2>
+<p><strong>这一节很重要。仓库里存的是「结论」，不是「推理过程」。</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>不在仓库里</th>
+<th>后果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>开发过程的长期记忆（决策理由、踩坑记录）</td>
+<td>你只能看到"为什么这么写"的<strong>代码注释</strong>，看不到"我们试过哪三条路、为什么否掉两条"</td>
+</tr>
+<tr>
+<td>任务板 / 路线图</td>
+<td>有 <code>docs/剩余待办实施方案…</code> 作为快照，但<strong>不是活的</strong></td>
+</tr>
+<tr>
+<td>开发者的本机环境细节（JDK 25、Android SDK 路径、adb 位置）</td>
+<td>§1.1 写了要求，但"这台机器上发生过什么"没有</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>接手建议</strong>：把本文档 §3、§4 当作"推理过程"的浓缩版来读。
+它们是从那些不在仓库里的记录里提炼出来的<strong>唯一还活着的部分</strong>。</p>
+<hr />
+<h2 id="d">附录 D：一句话总结</h2>
+<blockquote>
+<p>这是一个<strong>极其重视"不静默失败"</strong>的项目。
+如果你只从本文档记一件事，请记 §4.4：
+<strong>一个漏掉模块的检查同样是假的 —— 只是它不报红。</strong></p>
+</blockquote>
+  </main>
+</div>
+</body>
+</html>
