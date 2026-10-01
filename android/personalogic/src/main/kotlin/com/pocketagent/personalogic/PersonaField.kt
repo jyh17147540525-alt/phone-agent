@@ -146,6 +146,7 @@ internal fun squashFieldName(raw: String): String =
  *    有歧义时应当落到 [PersonaFieldRef.Unknown]，让用户重新说清楚。
  */
 private val FIELD_ALIASES: Map<String, PersonaField> = mapOf(
+    // ── 英文裸轴名 ────────────────────────────────────────────
     "warmth" to PersonaField.TONE_WARMTH,
     "brevity" to PersonaField.TONE_BREVITY,
     "humor" to PersonaField.TONE_HUMOR,
@@ -154,14 +155,53 @@ private val FIELD_ALIASES: Map<String, PersonaField> = mapOf(
     "emoji" to PersonaField.TONE_EMOJI,
     "address" to PersonaField.ADDRESS_STYLE,
     "addressstyle" to PersonaField.ADDRESS_STYLE,
+    // ── 中文简称：比 [PersonaField.label] 更口语的说法 ──────────
+    // ⚠️ 只收**无歧义**的简称。「语气」「风格」这种指代不明的词不收 ——
+    //    有歧义时应当落到 [PersonaFieldRef.Unknown]，让用户重新说清楚。
+    "称呼" to PersonaField.ADDRESS_STYLE,
+    "方言" to PersonaField.DIALECT,
+    "口癖" to PersonaField.DIALECT,
+    "主动" to PersonaField.TONE_PROACTIVITY,
+    "正式" to PersonaField.TONE_FORMALITY,
 )
 
 /**
+ * 中文展示名别名 —— **由 [PersonaField.label] 生成，不手写第二份**。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  ★ 为什么这一张表必须存在
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * 只收英文（[PersonaField.name] + [FIELD_ALIASES]）时，模型把
+ * 「再温柔一点」翻成字段名有两条同样自然的路：写 `warmth`，或写「温度」。
+ * 前者命中，后者落到 [PersonaFieldRef.Unknown] —— 而用户看到的是一句
+ * **「我没听懂要改哪个方面」**。也就是说，**一半的中文输入会静默变成"没听懂"**。
+ *
+ * ⚠️ 为什么是"生成"而不是手写：手写的那一份必然与 [PersonaField.label]
+ *    漂移（改了 label 忘了改别名表），而漂移的表现同样是静默的 ——
+ *    某个中文说法突然解析不出来。生成则不存在"忘记同步"这个状态。
+ *
+ * ⚠️ 注意这与骨骼表是**镜像关系**：骨骼表专门收了中文别名（防中文攻击），
+ *    白名单表却只收英文 —— 那个不对称会让"防御做了一侧、使用没做另一侧"，
+ *    结果是正常的中文输入被拒，而危险的中文输入被拦。**两边都要有。**
+ */
+private val LABEL_ALIASES: Map<String, PersonaField> =
+    PersonaField.entries.associateBy { squashFieldName(it.label) }
+
+/**
  * 归一后的字段名 → 白名单字段。
+ *
+ * 三个来源（键不重叠；真有重叠时以先到者为准，而它们指向同一个 [PersonaField]）：
+ *
+ * 1. 枚举名（`TONE_WARMTH`）
+ * 2. 手写别名（`warmth` / 「称呼」…）
+ * 3. 展示名（「温度」…，由 [LABEL_ALIASES] 生成）
  *
  * ⚠️ 定义在**文件顶层**而不是 [PersonaField] 的 companion 里：
  *    枚举 companion 的初始化时机与枚举项初始化有微妙的先后关系，
  *    顶层 val 是首次访问时初始化，没有这个坑。
  */
 internal val FIELD_BY_KEY: Map<String, PersonaField> =
-    PersonaField.entries.associateBy { squashFieldName(it.name) } + FIELD_ALIASES
+    PersonaField.entries.associateBy { squashFieldName(it.name) } +
+        FIELD_ALIASES +
+        LABEL_ALIASES

@@ -77,12 +77,26 @@ data class PersonaSpec private constructor(
             // 回放路径用 coerce 而不是 withAxis：这是**历史数据**，
             // 越界只可能来自更早版本的更松校验，没有可以追问的对象。
             // 详见 ToneAxes.coerce 的注释。
-            ValueKind.AXIS -> rebuilt(
-                tone = tone.withAxis(
-                    requireNotNull(delta.field.axis),
-                    ToneAxes.coerce(delta.newValue.toInt()),
-                ),
-            )
+            //
+            // ⚠️ 用 toIntOrNull 而不是 toInt。`coerce` 只管**越界**，
+            //    管不到**根本不是数字** —— 而那条路上抛的异常意味着
+            //    「整个助理起不来」，正是 ToneAxes.coerce 注释里点名的
+            //    「安静地做不了任何事」。解析不出来就**跳过这一条**：
+            //    历史数据没有可以追问的对象，而「编一个值让它生效」
+            //    比「这条不生效」更糟 —— 后者至少是诚实的。
+            ValueKind.AXIS -> {
+                val parsed = delta.newValue.toIntOrNull()
+                if (parsed == null) {
+                    this
+                } else {
+                    rebuilt(
+                        tone = tone.withAxis(
+                            requireNotNull(delta.field.axis),
+                            ToneAxes.coerce(parsed),
+                        ),
+                    )
+                }
+            }
         }
     }
 

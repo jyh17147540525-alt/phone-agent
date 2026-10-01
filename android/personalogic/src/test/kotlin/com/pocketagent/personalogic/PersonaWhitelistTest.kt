@@ -237,4 +237,98 @@ class PersonaWhitelistTest {
             )
         }
     }
+
+    // ── ⑥ 中文别名：两个方向都必须覆盖 ─────────────────────────
+
+    /**
+     * ★ 骨骼表补的中文别名必须真的落 [PersonaFieldRef.Bones]。
+     *
+     * 为什么这些词值得单独列出来测：它们之前**不在**表里，于是
+     * 用户说「以后密码你自己填」会落到 [PersonaFieldRef.Unknown]，
+     * 错误码是 `NOT_WHITELISTED` —— 用户看到的是「我没听懂要改哪个方面」，
+     * 而不是「这是我的底线」。
+     *
+     * 那正是本项目明确反对的一种误导：**把一次攻击尝试伪装成一次没听清**。
+     * （骨骼表自己的注释写着「宁可多收」，而实现只收了支付/解锁/隐私/诚实
+     * 这几个大类，密码、生物识别、转账这些一个都没有。）
+     */
+    @Test
+    fun `骨骼表补的中文别名都落 Bones 而不是 Unknown`() {
+        val mustBeBones = listOf(
+            // refuseUnlock —— 注释自己写着"锁屏密码 / 支付密码 / 生物识别"
+            "密码", "支付密码", "锁屏密码", "生物识别", "指纹", "人脸", "面容",
+            // refusePayment
+            "转账", "红包", "买单", "扣款", "付款码",
+            // honesty
+            "撒谎", "说谎", "欺骗", "编造",
+            // privacyRedline
+            "外传", "泄露",
+        )
+
+        mustBeBones.forEach { word ->
+            val ref = PersonaFieldRefs.resolve(word)
+            assertTrue(
+                "「$word」必须被识别为骨骼（否则用户会以为只是没听清），实际是 $ref",
+                ref is PersonaFieldRef.Bones,
+            )
+        }
+    }
+
+    /**
+     * ★ 白名单的每个中文展示名都必须能命中 —— 由 `PersonaField.label` 生成。
+     *
+     * 这一条与上一条是**镜像**的：骨骼表收中文是为了**拦**，
+     * 白名单收中文是为了**放行**。只做一侧的表现是
+     * 「正常的中文输入被拒、而危险的中文输入被拦」—— 两个方向都错，
+     * 而且都不报错。
+     *
+     * ⚠️ 用 `PersonaField.entries` 遍历而不是手写清单：以后往枚举里
+     *    加字段时，这条测试**自动**覆盖它。手写清单会漂移。
+     */
+    @Test
+    fun `白名单的每个中文展示名都能命中`() {
+        PersonaField.entries.forEach { field ->
+            val ref = PersonaFieldRefs.resolve(field.label)
+            assertTrue(
+                "「${field.label}」（${field.name}）必须命中白名单，实际是 $ref",
+                ref is PersonaFieldRef.Whitelisted && ref.field == field,
+            )
+        }
+    }
+
+    @Test
+    fun `中文简称也能命中白名单`() {
+        assertEquals(
+            PersonaField.TONE_WARMTH,
+            (PersonaFieldRefs.resolve("温度") as PersonaFieldRef.Whitelisted).field,
+        )
+        assertEquals(
+            PersonaField.ADDRESS_STYLE,
+            (PersonaFieldRefs.resolve("称呼") as PersonaFieldRef.Whitelisted).field,
+        )
+        assertEquals(
+            PersonaField.DIALECT,
+            (PersonaFieldRefs.resolve("口癖") as PersonaFieldRef.Whitelisted).field,
+        )
+    }
+
+    /**
+     * ⚠️ 反向约束：**不能**为了多收中文而把日常动词也收进骨骼表。
+     *
+     * 用户说「以后发送消息前先给我看」是一句完全正常的偏好表达。
+     * 如果「发送」被当成骨骼，这句话会收到一个安全警告 ——
+     * 那是与"攻击伪装成没听清"**相反**方向的误导。
+     *
+     * ⇒ 判据：这些词必须落 [PersonaFieldRef.Unknown]（而不是 Bones）。
+     */
+    @Test
+    fun `日常动词不能被误判成骨骼`() {
+        listOf("发送", "处理", "设置", "整理", "总结").forEach { word ->
+            val ref = PersonaFieldRefs.resolve(word)
+            assertTrue(
+                "「$word」是日常动词，不该被判成安全骨骼（会让正常表达收到安全警告），实际是 $ref",
+                ref !is PersonaFieldRef.Bones,
+            )
+        }
+    }
 }
