@@ -61,6 +61,7 @@ import com.pocketagent.ui.settings.SettingsScreen
 import com.pocketagent.ui.settings.SettingsViewModel
 import com.pocketagent.ui.sources.SourcesScreen
 import com.pocketagent.ui.sources.SourcesViewModel
+import com.pocketagent.ui.tasks.ContainerChatPort
 import com.pocketagent.ui.tasks.TasksScreen
 import com.pocketagent.ui.tasks.TasksViewModel
 
@@ -149,11 +150,16 @@ fun AppShell(container: AppContainer) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
 
+    // ⚠️ 对话端口在这里建一次并复用。
+    //    它本身无状态（每次 send 都重新取凭据、用完清零），但**重复构造会让
+    //    remember 的 key 变化 → 重建 ViewModel → 丢掉整个任务列表**。
+    val chatPort = remember(container) { ContainerChatPort(container) }
+
     // ⚠️ 任务状态持有者提升到**外壳**这一层，而不是留在 TasksScreen 里。
     //    原因见 TasksScreen 的 viewModel 参数注释：它不继承 ViewModel，
     //    生命周期等于承载它的那次组合，而 destination 会在切 tab 时被移出组合。
     //    放这里 = 生命周期等于整个应用。
-    val tasksViewModel = remember { TasksViewModel() }
+    val tasksViewModel = remember { TasksViewModel(chatPort) }
 
     // 转场位移量：设计令牌给的是 dp，而 slideIn/slideOut 要的是像素。
     // 在这里换算一次，避免每帧在动画 lambda 里做 with(density) 转换。

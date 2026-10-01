@@ -37,6 +37,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import com.pocketagent.provider.api.ChatMessage
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -108,7 +109,12 @@ fun TasksScreen(
      * 所以实例由 [com.pocketagent.ui.shell.AppShell] 持有并传进来，
      * 生命周期提升到整个应用。默认值保留只是为了 Compose Preview 方便。
      */
-    viewModel: TasksViewModel = remember { TasksViewModel() },
+    /**
+     * 对话端口。null = 还没接线 —— 那时界面会**如实说"还没接入模型"**，
+     * 而不是演一段假的执行（见 [TasksViewModel] 的注释）。
+     */
+    chat: ChatPort? = null,
+    viewModel: TasksViewModel = remember(chat) { TasksViewModel(chat) },
 ) {
     val vm = viewModel
 
@@ -440,13 +446,31 @@ private fun perceptionTierLabel(tier: Int): String = when (tier) {
 /**
  * 任务状态持有者。
  *
- * ⚠️ **M0 阶段：纯内存、纯模拟。**
+ * ═══════════════════════════════════════════════════════════════
+ *  ★★ 2026-10-02：从「模拟执行」改成「真的对话」
+ * ═══════════════════════════════════════════════════════════════
  *
- * 这里的推进逻辑（每 900ms 走一轮）是为了让 UI 的动效可被评审，
- * **不是 agent 的真实行为**。接入 agent 后本类会被替换为
- * 对 agent 层状态流的订阅，[AgentTaskUi] 的形状保持不变。
+ * 之前的版本会演一段执行过程（"正在分析当前页面…" → "定位目标控件…" →
+ * 每 900ms 一步 → 走满必然 `Aborted`）。那是为了让 UI 动效可被评审的
+ * **演示**，但界面上**没有任何地方说明它是假的** —— 于是用户会以为
+ * "这个 app 连说句你好都要读屏、还总是失败"。
+ *
+ * ⇒ 现在改成：**有模型就真对话，没有模型就如实说"还没接入"**。
+ *    两种情况都不再演。
+ *
+ * ⚠️ 仍然**不是**完整的 agent（不读屏、不点击、不调工具）。
+ *    这里只做"对话"这一件事 —— 把它做真，比把一串假的做得像真的重要。
  */
-class TasksViewModel {
+class TasksViewModel(
+    /**
+     * 对话端口。null = 还没接线。
+     *
+     * ⚠️ 可空而不是"必须传"：`TasksScreen` 的预览与测试里没有 `AppContainer`，
+     *    强行必传会让预览写不出来。而 null 的分支**有明确行为**
+     *    （如实说"还没接入"），不是静默跳过。
+     */
+    private val chat: ChatPort? = null,
+) {
 
     val tasks = mutableStateListOf<AgentTaskUi>()
 
@@ -465,7 +489,20 @@ class TasksViewModel {
         tasks.add(0, task)
         draft = ""
 
-        simulateRun(task.id)
+        if (chat == null) {
+            // ★ 如实说明，而不是演一段假的执行
+            update(task.id) {
+                it.copy(
+                    state = TaskState.Failed,
+                    perceptionTier = 0,
+                    note = "还没有接入模型。请到「模型」页面配置一个 API Key。",
+                    abortReason = "未接入模型",
+                )
+            }
+            return
+        }
+
+        runChat(task.id, prompt)
     }
 
     fun abort(id: String) {
@@ -473,41 +510,51 @@ class TasksViewModel {
     }
 
     /**
-     * 模拟一次任务执行。
+     * 真发一轮对话。
      *
      * 用 `Thread` 而不是协程，是为了不引入 `viewModelScope` ——
-     * 本类刻意不继承 `ViewModel`，避免评审者以为它已经是一个正式的
-     * 状态持有者。接入 agent 时这里会整体重写。
+     * 本类刻意不继承 `ViewModel`。`runBlocking` 在这里是安全的：
+     * 它跑在一个守护线程上，不阻塞主线程。
      */
-    private fun simulateRun(taskId: String) {
+    private fun runChat(taskId: String, prompt: String) {
         Thread {
-            val notes = listOf(
-                "正在分析当前页面…",
-                "定位目标控件…",
-                "执行点击…",
-                "等待页面响应…",
-                "校验结果…",
-            )
-            var step = 0
-            while (step < AgentTaskUi.DEFAULT_MAX_STEPS) {
-                Thread.sleep(900)
+            update(taskId) { it.copy(note = "正在等模型回复…", perceptionTier = 0) }
 
-                val current = tasks.firstOrNull { it.id == taskId } ?: return@Thread
-                if (current.state != TaskState.Running) return@Thread
-
-                step++
-                val note = notes[(step - 1) % notes.size]
-                // 感知档位随步骤波动：有些步骤不需要读屏（第 0 档）
-                val tier = if (step % 4 == 0) 0 else if (step % 3 == 0) 2 else 1
-
-                update(taskId) { it.copy(step = step, note = note, perceptionTier = tier) }
+            val result = try {
+                kotlinx.coroutines.runBlocking {
+                    chat!!.send(
+                        listOf(
+                            ChatMessage.system(SYSTEM_PROMPT),
+                            ChatMessage.user(prompt),
+                        ),
+                    )
+                }
+            } catch (e: Exception) {
+                // 端口承诺不抛异常，但这里仍然兜一道 ——
+                // 一个未捕获的异常会让任务永远停在"正在等模型回复…"
+                ChatResult.Failed(e.message ?: e::class.simpleName ?: "未知错误")
             }
 
-            update(taskId) {
-                it.copy(
-                    state = TaskState.Aborted,
-                    abortReason = "已达到 ${it.maxSteps} 轮次上限，任务已交还给你。可继续或重新描述。",
-                )
+            when (result) {
+                is ChatResult.Ok -> update(taskId) {
+                    it.copy(state = TaskState.Done, step = 1, note = result.text, perceptionTier = 0)
+                }
+
+                is ChatResult.NoCredential -> update(taskId) {
+                    it.copy(
+                        state = TaskState.Failed,
+                        note = "还没有可用的 API Key。请到「模型」页面添加一个。",
+                        abortReason = "未配置 Key",
+                    )
+                }
+
+                is ChatResult.Failed -> update(taskId) {
+                    it.copy(
+                        state = TaskState.Failed,
+                        note = result.reason,
+                        abortReason = "调用失败",
+                    )
+                }
             }
         }.apply { isDaemon = true }.start()
     }
@@ -515,5 +562,20 @@ class TasksViewModel {
     private fun update(id: String, transform: (AgentTaskUi) -> AgentTaskUi) {
         val index = tasks.indexOfFirst { it.id == id }
         if (index >= 0) tasks[index] = transform(tasks[index])
+    }
+
+    companion object {
+        /**
+         * 系统提示词。
+         *
+         * ⚠️ 它**刻意不承诺任何它做不到的事**。这一版没有读屏、没有点击、
+         *    没有工具调用 —— 如果提示词里写"你可以操作手机"，
+         *    模型会答应下来，而用户等到的是一次失败。
+         *    **一个说"我做不到"的助理，比一个答应后失败的助理好得多。**
+         */
+        const val SYSTEM_PROMPT: String =
+            "你是一个手机上的助理。当前版本你**只能对话**，还不能操作手机" +
+                "（不能读屏、不能点击、不能读写文件）。" +
+                "如果用户要求你操作手机，请如实说明你现在做不到，并说明这还在开发中。"
     }
 }
