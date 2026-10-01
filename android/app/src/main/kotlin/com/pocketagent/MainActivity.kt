@@ -78,6 +78,19 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             delay(1_500)
             com.pocketagent.assistant.A11ySelfCheck.run()
+
+            // ⚠️ 手势自检**只在显式传 extra 时跑** —— 它会**真的点屏幕**。
+            //    做成"启动就跑"意味着用户每次打开 App 都可能被莫名其妙
+            //    点一下别的应用，而**用户没有任何机会拒绝**。
+            //
+            //    触发：adb shell am start -n com.pocketagent.debug/com.pocketagent.MainActivity \
+            //            --ez a11y_gesture_check true
+            val wantGestureCheck = intent
+                ?.getBooleanExtra(com.pocketagent.assistant.A11yGestureCheck.EXTRA, false) == true
+            if (wantGestureCheck) {
+                delay(2_000) // 等界面完全稳定，否则读到的树是过渡态
+                com.pocketagent.assistant.A11yGestureCheck.run()
+            }
         }
 
         val container = (application as PocketAgentApp).container
