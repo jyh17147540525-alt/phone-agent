@@ -253,15 +253,37 @@ object OfficeText {
 }
 
 /**
+ * 产出物的**编码形态** —— 决定它走哪条落盘路径。
+ *
+ * ⚠️ 这个区分不是为了分类好看，是因为**通道能力不同**：
+ *    `FileChannel.write(...)` 收 `String`，二进制要另走一条路。
+ *    界面必须按通道能力筛选 [DocumentFormat]，否则又会出现
+ *    「下拉框里有 xlsx 但当前通道写不出来」——而那种界面比少一个选项更伤人。
+ */
+enum class DocumentKind {
+    /** UTF-8 文本，走 `FileChannel.write(...)` */
+    TEXT,
+
+    /** 字节流（zip 家族），需要二进制写入 */
+    BINARY,
+}
+
+/**
  * 能生成的文档格式。
  *
- * ⚠️ 只有**纯文本家族**。`.docx` / `.xlsx`（OOXML）本质是 zip + XML，
- *    用 JDK 的 `java.util.zip` 也能纯 Kotlin 生成，但那要写一整套
- *    XML 模板与关系文件，是独立一轮的工作量。
+ * ⚠️ 扩展名、MIME、展示名**只在这里定义一次** —— 界面上「另存为」的
+ *    下拉框、文件后缀、分享时的 MIME 都取自这里，不会各自漂移。
  *
- *    把它放在这里的价值是：**界面上「另存为」的选项与文件扩展名、
- *    MIME 类型只定义一次**，不会出现"下拉框里有 xlsx 但写不出来"这种
- *    自相矛盾的界面 —— 那种界面比少一个选项更伤人。
+ * ## 纯文本家族与 OOXML 家族的分工
+ *
+ * | 家族 | 由谁生成 | 形态 |
+ * |---|---|---|
+ * | 文本（txt / md / csv / json） | [OfficeText] | `String` |
+ * | OOXML（xlsx / docx） | [XlsxWriter] / [DocxWriter] | `ByteArray` |
+ *
+ * ★ 注意 **CSV 与 XLSX 不是"同一个东西的两种格式"** —— 它们在安全性上
+ *   根本不同：CSV 没有类型，所以需要 [OfficeText.csvField] 的公式中和；
+ *   XLSX 的类型是显式的，**从根上不存在公式注入**。详见 [XlsxWriter] 的类注释。
  */
 enum class DocumentFormat(
     val extension: String,
@@ -270,9 +292,24 @@ enum class DocumentFormat(
     val displayName: String,
 
     val mimeType: String,
+
+    val kind: DocumentKind,
 ) {
-    TEXT("txt", "纯文本", "text/plain"),
-    MARKDOWN("md", "Markdown", "text/markdown"),
-    CSV("csv", "表格（CSV，可用 Excel 打开）", "text/csv"),
-    JSON("json", "数据（JSON）", "application/json"),
+    TEXT("txt", "纯文本", "text/plain", DocumentKind.TEXT),
+    MARKDOWN("md", "Markdown", "text/markdown", DocumentKind.TEXT),
+    CSV("csv", "表格（CSV，可用 Excel 打开）", "text/csv", DocumentKind.TEXT),
+    JSON("json", "数据（JSON）", "application/json", DocumentKind.TEXT),
+    XLSX(
+        "xlsx",
+        "Excel 工作簿",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        DocumentKind.BINARY,
+    ),
+    DOCX(
+        "docx",
+        "Word 文档",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        DocumentKind.BINARY,
+    ),
+    ;
 }
