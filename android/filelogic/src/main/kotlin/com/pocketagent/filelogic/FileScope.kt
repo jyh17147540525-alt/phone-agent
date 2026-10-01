@@ -1,5 +1,7 @@
 package com.pocketagent.filelogic
 
+import kotlinx.serialization.Serializable
+
 /**
  * 用户授权的一个目录（SAF tree）。
  *
@@ -21,7 +23,13 @@ package com.pocketagent.filelogic
  *    `run_logic_tests.py` —— 而这一层恰恰是最需要离线测试的。
  *
  * 所以分工是：**本层算路径、Android 层认令牌。**
+ *
+ * ⚠️ `@Serializable` 是为了让**工作区**能被持久化（见 [Workspace]）。
+ *    它带来的一个副作用是**好的**：反序列化时会走 [init] 的校验，
+ *    所以一份被手工改坏的存储文件会在**读入时**就失败，
+ *    而不是在某个更晚的时刻表现为"某个工作区行为诡异"。
  */
+@Serializable
 data class ScopeRoot(
     /** 稳定标识。用于审计日志与"这条授权是哪一条"。 */
     val id: String,
