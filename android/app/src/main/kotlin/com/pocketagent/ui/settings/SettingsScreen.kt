@@ -1,5 +1,6 @@
 package com.pocketagent.ui.settings
 
+import com.pocketagent.BuildConfig
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
@@ -213,7 +214,14 @@ fun SettingsScreen(
                         icon = Icons.Default.Info,
                         title = "PocketAgent",
                         subtitle = "开源 · 数据不出设备 · 无自有服务端",
-                        trailing = "M0",
+                        // ⚠️ 2026-10-02 修：这里原本是**硬编码的 `"M0"`**。
+                        //
+                        //    后果：`versionName` 从 `0.1.0-m0` 改成 `0.1.0-m1` 之后，
+                        //    界面上**照样显示 M0** —— 两处真相来源，其中一处是写死的，
+                        //    漂移时没有任何人会知道。用户看到的就是"这软件几个月没动过"。
+                        //
+                        //    ⇒ 让它读构建时注入的真实版本号。**版本号只允许有一个来源。**
+                        trailing = BuildConfig.VERSION_NAME,
                         onClick = null,
                     )
                 }
