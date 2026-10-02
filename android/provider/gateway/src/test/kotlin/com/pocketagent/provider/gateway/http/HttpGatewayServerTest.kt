@@ -249,11 +249,18 @@ class HttpGatewayServerTest {
         try {
             // 用一个**非回环**的本地地址连它 —— 应当连不上。
             // 取任一非 loopback 的本地网卡地址。
-            val external = InetAddress.getAllByName(InetAddress.getLocalHost().hostName)
-                .firstOrNull { !it.isLoopbackAddress && it is java.net.Inet4Address }
+            //
+            // ⚠️ "拿不到本机地址"有两种成因，都该跳过这一半，而不是把验证器判红：
+            //    ① 机器没有可用外网卡（CI 环境常见）；
+            //    ② hostname 在系统里解析不了（例如没有 /etc/hosts 条目的受限容器）。
+            //    两者都不是被测代码的问题 —— 而"总有几条红条的检查等于没有检查"。
+            val external = runCatching {
+                InetAddress.getAllByName(InetAddress.getLocalHost().hostName)
+                    .firstOrNull { !it.isLoopbackAddress && it is java.net.Inet4Address }
+            }.getOrNull()
 
             if (external == null) {
-                // 机器没有可用外网卡时跳过这一半（CI 环境常见）
+                // 拿不到可用地址时跳过这一半（CI / 受限容器常见）
                 assertTrue(InetAddress.getLoopbackAddress().isLoopbackAddress)
                 return
             }
@@ -902,7 +909,10 @@ class HttpGatewayServerTest {
         start(server)
 
         val results = (1..8).map { i ->
-            Thread.ofVirtual().unstarted {
+            // ⚠️ 普通线程而不是 Thread.ofVirtual()：虚拟线程 API 是 JDK 21+，
+            //    会让离线验证器的下限被悄悄抬到 21（文档承诺的是 17，JDK 17 上编译不过）。
+            //    8 个并发连接用平台线程零语义损失 —— 可见性本来就靠下面的 join() 保证。
+            Thread {
                 // ⚠️ 存**整个 Resp**，不只是状态码。
                 //
                 //    第一版只存 `status`，于是失败时报告里只有一个 `502` ——

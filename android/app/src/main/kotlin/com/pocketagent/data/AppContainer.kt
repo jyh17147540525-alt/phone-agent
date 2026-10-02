@@ -8,7 +8,12 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import com.pocketagent.assistant.AgentA11ySource
 import com.pocketagent.assistant.HostPermissionReader
+import com.pocketagent.assistant.McpBridgeHost
+import com.pocketagent.assistant.McpBridgeStatus
+import com.pocketagent.assistant.PerceptionScreenReader
+import com.pocketagent.assistant.SafetyDetectorGate
 import com.pocketagent.capability.AndroidSettingsAccess
 import com.pocketagent.core.common.AtomicTextFile
 import com.pocketagent.core.crypto.CryptoManager
@@ -24,7 +29,13 @@ import com.pocketagent.keymgmt.ModelConfigRepositoryImpl
 import com.pocketagent.keymgmt.ModelDeclarationEntry
 import com.pocketagent.keymgmt.RoomUsageRecorder
 import com.pocketagent.keymgmt.modelDeclarationsOf
+import com.pocketagent.mcp.McpBridgeSession
+import com.pocketagent.mcp.McpDispatcher
+import com.pocketagent.mcp.McpHttpServer
+import com.pocketagent.mcp.ScreenReadTool
+import com.pocketagent.mcp.ToolRegistry
 import com.pocketagent.modelrouter.ModelRouteCoordinator
+import com.pocketagent.perception.AccessibilityPerceptionManager
 import com.pocketagent.plugin.api.MarketCatalog
 import com.pocketagent.plugin.api.SubscriptionSource
 import com.pocketagent.provider.api.LlmProvider
@@ -704,6 +715,81 @@ class AppContainer(context: Context) {
                 },
                 writeFile = ::writeAppPrivateFile,
             ),
+            log = { Timber.i(it) },
+        )
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  MCP 能力桥：把手机能力暴露给 dsh（P2）
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * ⚠️ 与 dsh 集成（网关）**各用一把锁** —— 两者生命周期独立：
+     *    网关要加密存储就绪（用户的 Key），能力桥只要无障碍权限。
+     *    共用一把锁会让"网关因没配 Key 被 Blocked"顺带挡住桥的启停，
+     *    而这两件事用户想分开做是完全合理的。
+     */
+    private val mcpBridgeLock = Any()
+
+    @Volatile
+    private var mcpBridgeHost: McpBridgeHost? = null
+
+    @Volatile
+    private var mcpBridgeStatus: McpBridgeStatus = McpBridgeStatus.Off
+
+    /** 当前状态。只读 —— 不要读了之后自己维护一份副本（同 dshIntegrationStatus）。 */
+    fun mcpBridgeStatus(): McpBridgeStatus = mcpBridgeStatus
+
+    /**
+     * 开启能力桥（幂等）。
+     *
+     * ⚠️ **同步阻塞**（建 ServerSocket、写草稿文件）—— 调用方必须切到 IO 线程，
+     *    与 `startDshIntegration` 同一条纪律。
+     */
+    fun startMcpBridge(): McpBridgeStatus = synchronized(mcpBridgeLock) {
+        val host = mcpBridgeHost ?: buildMcpBridgeHost().also { mcpBridgeHost = it }
+        mcpBridgeStatus = host.start()
+        mcpBridgeStatus
+    }
+
+    /** 关闭能力桥（幂等）。不清理草稿与手机上的配置（同网关的取舍：清理需要不存在的写权限）。 */
+    fun stopMcpBridge(): McpBridgeStatus = synchronized(mcpBridgeLock) {
+        mcpBridgeHost?.stop()
+        mcpBridgeStatus = McpBridgeStatus.Off
+        mcpBridgeStatus
+    }
+
+    /** 草稿文件的绝对路径（给界面显示；非 root 设备打不开它，所以全文也要显示）。 */
+    val mcpDraftPath: String
+        get() = File(appContext.filesDir, McpBridgeHost.DRAFT_REL_PATH).absolutePath
+
+    /** 草稿全文 —— 用户抄到 dsh 那边去的唯一途径（同 [dshDraftSettings]）。 */
+    fun mcpDraft(): String? = runCatching {
+        File(appContext.filesDir, McpBridgeHost.DRAFT_REL_PATH)
+            .takeIf { it.isFile }
+            ?.readText()
+    }.getOrNull()
+
+    /**
+     * 把「起服务 → 渲染草稿」这条链路装起来。
+     *
+     * ⚠️ 这里**刻意没有任何逻辑** —— 协议、关卡、序列化、配置渲染全部在
+     *    `:mcp`（69 条离线测试）；本方法只是把构造参数摆出来
+     *    （也顺便是一份可读的依赖图）。装配错了的后果是"编译不过"，
+     *    那是最便宜的一类错误。
+     */
+    private fun buildMcpBridgeHost(): McpBridgeHost {
+        val reader = PerceptionScreenReader(AccessibilityPerceptionManager(AgentA11ySource))
+        val gate = SafetyDetectorGate()
+        val tool = ScreenReadTool(reader, gate)
+        val server = McpHttpServer(
+            dispatcher = McpDispatcher(ToolRegistry(listOf(tool))),
+            log = { Timber.i(it) },
+        )
+        return McpBridgeHost(
+            session = McpBridgeSession(server),
+            writeFile = ::writeAppPrivateFile,
+            draftDisplayPath = mcpDraftPath,
             log = { Timber.i(it) },
         )
     }

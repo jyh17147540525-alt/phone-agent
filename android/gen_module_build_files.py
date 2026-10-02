@@ -74,6 +74,15 @@ PURE_KOTLIN = {
     #   · 确认标志被提前消费   → "用户确认过"变成绕过一切的后门
     #   没有一条抛异常，没有一条在真机上"一眼看出来"。唯一抓手是确定性离线测试。
     "capabilitylogic",
+    # MCP 能力桥：协议核心 / loopback 服务器 / screen_read 判定与序列化 / dsh 配置渲染。
+    #
+    # ★ 为什么必须离线可测（与 provider/gateway 同一个理由）：
+    #   · 协议分发漏一个分支       → dsh 侧"工具消失"，没有任何报错
+    #   · 关卡顺序颠倒             → 敏感文本**已经进了响应体**，无人知道
+    #   · 遮蔽计划没执行           → 输入框里刚打的半句话跟着树发给模型
+    #   · 配置合并吞掉用户的条目   → 用户手工写的其它 patch 静默消失
+    #   没有一条抛异常，没有一条在真机上"一眼看出来"。
+    "mcp",
     # ── v4.0 AI 手机助理（2026-09-26）──────────────────────────────
     # 人格模型 / 微调算法 / 变更账本 / 反漂移。
     #
@@ -377,6 +386,18 @@ PROJECT_DEPS = {
     #    用到 `PrivacyFilter` / `UploadRequest`，必须**自己**再声明一次
     #    `:agentlogic`（同 `:capability` 与 `:filelogic` 那条注释）。
     "memorylogic": [":agentlogic"],
+    # MCP 能力桥要复用两样既有资产：
+    #   :provider:gateway 的 `GatewayTokenProvider` —— 同一威胁模型（同机其它 App
+    #     连 loopback），同一套加固（32 字节随机 + 常量时间比较）；复制一份等于
+    #     给未来留两个会各自漂移的安全实现。`DshConfigPatch.yamlScalar` 同源地复用。
+    #   :agentlogic 的 `PrivacyFilter` —— 项目红线"上传路径的唯一出口"；树路径的
+    #     遮蔽计划由它产出，本模块**照计划执行**。
+    #
+    # ⚠️ 敏感判定**刻意不走依赖**：`:safety` 是 Android 库模块（带 hilt/robolectric），
+    #    纯 Kotlin 模块在 Gradle 上依赖不了它 —— 走 `ScreenSafetyPort` 端口注入，
+    #    实现在 :app（逐字段映射到 :safety 的 `SensitiveDetector`）。
+    #    两个模块都在 PURE_KOTLIN 里，这条边**不损害**离线可测性。
+    "mcp": [":provider:gateway", ":agentlogic"],
 }
 
 # 哪些模块的**公开 API 暴露了某个库的类型** —— 这些必须是 `api` 而不是 `implementation`。
@@ -438,6 +459,8 @@ EXTRA_TEST_DEPS = {
             "overlaylogic",
             "provider/gateway",
             "agentlogic",
+            # MCP 能力桥：工具执行是 suspend（读屏端口），测试用 runTest 驱动
+            "mcp",
             # 通道层的端口是 suspend 的，测试用 runTest 驱动
             # （`CapabilityRunnerTest` 里 20 多条都是 `= runTest { }`）。
             # 不登记的话 Gradle 通道会缺 kotlinx-coroutines-test：

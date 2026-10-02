@@ -440,6 +440,12 @@ fun AppShell(container: AppContainer) {
                                     stopIntegration = container::stopDshIntegration,
                                     readDraftSettings = container::dshDraftSettings,
                                     draftSettingsPath = container.dshDraftSettingsPath,
+                                    // MCP 能力桥（P2）—— 同一套"收函数"的纪律。
+                                    readMcpStatus = container::mcpBridgeStatus,
+                                    startMcp = container::startMcpBridge,
+                                    stopMcp = container::stopMcpBridge,
+                                    readMcpDraft = container::mcpDraft,
+                                    mcpDraftPath = container.mcpDraftPath,
                                 )
                             }
                         }

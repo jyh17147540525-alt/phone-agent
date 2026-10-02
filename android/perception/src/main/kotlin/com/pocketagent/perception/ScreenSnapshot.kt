@@ -94,6 +94,16 @@ data class UiNode(
     val clickable: Boolean,
     val longClickable: Boolean,
     val editable: Boolean,
+    /**
+     * 密码输入框标记（`AccessibilityNodeInfo.isPassword`）。
+     *
+     * ★ 它是敏感判定里**唯一不依赖文本描述的信号**（`:safety` 的 `matchFields`
+     *   把它作为第一优先判据）—— 即使 App 把提示写成「请输入」，
+     *   只要 inputType 对，我们就知道这是密码框。
+     *   MCP 能力桥（`:mcp` 的 screen_read）靠它决定"这个页面要不要直接拒绝"。
+     *   ⚠️ 它只描述字段类型，不涉及里面已输入的任何内容。
+     */
+    val password: Boolean = false,
     val scrollable: Boolean,
     val checkable: Boolean,
     val checked: Boolean,

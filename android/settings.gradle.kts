@@ -57,6 +57,13 @@ include(":provider:tts-openai")
 // 而 HTTP 外壳只剩"协议翻译"，出错时排查面很小。
 include(":provider:gateway")
 
+// MCP 能力桥（P2）：把手机能力以 MCP 标准暴露给 dsh（loopback HTTP，无 SSE、无 session）。
+// 与 :provider:gateway 的拆法同因 —— 协议核心 / 服务器 / 判定全在纯 Kotlin，
+// 这一层错的后果全是静默的（协议分支漏一个 → dsh 侧"工具消失"；关卡顺序颠倒 →
+// 敏感文本已进响应；遮蔽计划不执行 → 输入框内容随树上传），必须能进离线验证器。
+// Android 侧只在 :app 做两根端口的实现与生命周期接线。
+include(":mcp")
+
 // 多模型调度：按任务难度在已配置模型间派发。
 // 纯 Kotlin、零 Android 依赖 —— 决策错误表现为"静默走贵了"或"任务办砸"，
 // 都不报错，所以必须靠离线单测覆盖。

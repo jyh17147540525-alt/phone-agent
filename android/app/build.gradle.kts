@@ -146,13 +146,25 @@ dependencies {
     //    而状态属于 ViewModel。把它藏进下层只会让"授权完要刷新"这件事
     //    没有明确的触发点 —— 表现是"刚选完目录，点了却说还没授权"。
     implementation(project(":filelogic"))
+    // ── MCP 能力桥（P2）开启的三项 ─────────────────────────
+    //
+    // ⚠️ 到了「对应模块写出第一行代码」的时机：screen_read 需要
+    //    感知层的**真实实现**（无障碍树 → ScreenSnapshot）。
+    //    代价说明白：:perception 会把 ML Kit 的两个文字识别包带进构建，
+    //    而当前代码路径只用树、不用 OCR —— 这是为下一阶段（截图兜底）
+    //    预付的成本，构建时间与包体会涨。
+    implementation(project(":perception"))            // 无障碍树 → ScreenSnapshot（能力桥的读屏通道）
+    // 敏感判定的引擎（SensitiveDetector + 规则库）：能力桥拒绝
+    // 「支付 / 密码 / 验证码」页面靠它，而不是在 :mcp 里另写一份规则。
+    implementation(project(":safety"))
+    // 能力桥本体（纯 Kotlin）：协议 / loopback 服务器 / screen_read / dsh 配置渲染。
+    // 它有 69 条离线测试（属于 tools/verify/run_logic_tests.py 的覆盖范围）。
+    implementation(project(":mcp"))
     // implementation(project(":provider:anthropic"))
     // implementation(project(":provider:gemini"))
     // implementation(project(":provider:local"))
-    // implementation(project(":perception"))
     // implementation(project(":action"))
     // implementation(project(":agent"))
-    // implementation(project(":safety"))
     // implementation(project(":memory"))
     // implementation(project(":overlay"))
 

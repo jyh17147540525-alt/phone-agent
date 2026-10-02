@@ -20,6 +20,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.pocketagent.assistant.McpBridgeDraft
+import com.pocketagent.assistant.McpBridgeStatus
 import com.pocketagent.data.DshIntegrationStatus
 import com.pocketagent.provider.gateway.dsh.DshWriteResult
 import com.pocketagent.ui.design.PaBanner
@@ -68,10 +70,11 @@ fun DshIntegrationScreen(
     val working = ui is DshIntegrationViewModel.UiState.Working
     val ready = ui as? DshIntegrationViewModel.UiState.Ready
     val status = ready?.status ?: DshIntegrationStatus.Off
+    val mcpStatus = ready?.mcpStatus ?: McpBridgeStatus.Off
 
     PaScreen(
         title = "dsh 集成",
-        subtitle = "让 dsh 用上你在这里配的模型",
+        subtitle = "让 dsh 用上你配的模型与手机能力",
         onBack = onBack,
         modifier = modifier,
     ) {
@@ -106,6 +109,32 @@ fun DshIntegrationScreen(
                 }
             }
 
+            // ── MCP 能力桥（P2）────────────────────────────────
+            item {
+                Spacer(Modifier.height(PaSpace.xs))
+                PaSectionTitle("MCP 能力桥")
+            }
+            item {
+                McpStatusBlock(working = working, status = mcpStatus)
+            }
+            item {
+                McpActionBlock(
+                    working = working,
+                    status = mcpStatus,
+                    onStart = viewModel::startBridge,
+                    onStop = viewModel::stopBridge,
+                )
+            }
+            if (!working && mcpStatus is McpBridgeStatus.On) {
+                item {
+                    DraftBlock(
+                        path = viewModel.mcpDraftPath,
+                        text = ready?.mcpDraft,
+                        title = "要抄给 dsh 的能力桥配置",
+                    )
+                }
+            }
+
             item {
                 Spacer(Modifier.height(PaSpace.xs))
                 PaSectionTitle("你需要知道")
@@ -125,6 +154,13 @@ fun DshIntegrationScreen(
                         title = "每次开启，端口都会变",
                         description = "端口由系统随机分配（这是一条安全加固，不是缺陷）。" +
                             "所以重新开启之后，dsh 那边的地址要跟着更新。",
+                    )
+                    PaBanner(
+                        tone = PaBannerTone.Warning,
+                        title = "能力桥需要无障碍权限，且与网关同生命周期",
+                        description = "它通过无障碍树读取屏幕元素；没有权限时工具会如实返回「不可用」。" +
+                            "与网关一样，它只在本应用运行时有效 —— App 重启后地址与令牌都会变，" +
+                            "需要重新投递配置并重启 dsh。",
                     )
                 }
             }
@@ -228,13 +264,80 @@ private fun ActionBlock(
 }
 
 // ─────────────────────────────────────────────────────────────────
+//  MCP 能力桥（P2）：状态与操作
+// ─────────────────────────────────────────────────────────────────
+
+@Composable
+private fun McpStatusBlock(working: Boolean, status: McpBridgeStatus) {
+    Column(verticalArrangement = Arrangement.spacedBy(PaSpace.xs)) {
+        when {
+            working -> Unit // "正在处理…"由上面的全局横幅表达，此处不重复
+
+            status is McpBridgeStatus.Off -> PaBanner(
+                tone = PaBannerTone.Info,
+                title = "能力桥未开启",
+                description = "开启之后，dsh 可以调用 screen_read 读取当前屏幕上的元素（纯文字结构）；" +
+                    "支付、密码、验证码等敏感页面会被安全策略直接拒绝。",
+            )
+
+            status is McpBridgeStatus.Blocked -> PaBanner(
+                tone = PaBannerTone.Warning,
+                title = "能力桥没能开启",
+                // 同网关：理由来自容器，已经点名"用户该去做什么"，不要再包一层。
+                description = status.reason,
+            )
+
+            status is McpBridgeStatus.On -> {
+                PaBanner(
+                    tone = PaBannerTone.Success,
+                    title = "能力桥运行中",
+                    description = "dsh 要连的地址：${status.mcpUrl}",
+                )
+                // ⚠️「服务器在跑」与「草稿写没写出去」是两件独立的事 —— 两条横幅。
+                when (val draft = status.draft) {
+                    is McpBridgeDraft.Written -> PaBanner(
+                        tone = PaBannerTone.Info,
+                        title = "配置草稿已写入",
+                        description = draft.displayPath,
+                    )
+
+                    is McpBridgeDraft.Failed -> PaBanner(
+                        tone = PaBannerTone.Danger,
+                        title = "配置草稿没写进去",
+                        description = draft.reason,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun McpActionBlock(
+    working: Boolean,
+    status: McpBridgeStatus,
+    onStart: () -> Unit,
+    onStop: () -> Unit,
+) {
+    val running = status is McpBridgeStatus.On
+    PaButton(
+        text = if (running) "关闭能力桥" else "开启能力桥",
+        onClick = if (running) onStop else onStart,
+        enabled = !working,
+        fillWidth = true,
+        style = if (running) com.pocketagent.ui.design.PaButtonStyle.Glass
+        else com.pocketagent.ui.design.PaButtonStyle.Primary,
+    )
+}
+
+// ─────────────────────────────────────────────────────────────────
 //  要抄给 dsh 的配置
 // ─────────────────────────────────────────────────────────────────
 
 @Composable
-private fun DraftBlock(path: String, text: String?) {
+private fun DraftBlock(path: String, text: String?, title: String = "要抄给 dsh 的配置") {
     Column(verticalArrangement = Arrangement.spacedBy(PaSpace.xs)) {
-        PaSectionTitle("要抄给 dsh 的配置")
+        PaSectionTitle(title)
 
         Text(
             // ⚠️ 必须解释"为什么要在这里显示全文" —— 否则用户会觉得

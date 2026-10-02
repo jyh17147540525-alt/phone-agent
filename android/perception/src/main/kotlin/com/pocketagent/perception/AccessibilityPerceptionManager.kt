@@ -255,11 +255,18 @@ class AccessibilityPerceptionManager(
             className = node.className?.toString() ?: "",
             text = node.text?.toString()?.takeIf { it.isNotBlank() },
             contentDescription = node.contentDescription?.toString()?.takeIf { it.isNotBlank() },
-            hintText = null, // AccessibilityNodeInfo 不直接暴露 hintText
+            // ⚠️ 此前这里是 null，注释写"不直接暴露"—— 那句话不准确：
+            //    `getHintText()` 是 API 26+ 的公开属性（本项目 minSdk 31）。
+            //    hint 是敏感判定与"这个框是干什么的"的重要形状信号，
+            //    丢掉它只能靠 className / contentDescription 猜。
+            //    （hint 是**提示语**，不是用户输入 —— 不违反"不读输入内容"。）
+            hintText = node.hintText?.toString()?.takeIf { it.isNotBlank() },
             bounds = rect,
             clickable = node.isClickable,
             longClickable = node.isLongClickable,
             editable = node.isEditable,
+            // 密码框标记：敏感判定的第一优先生效信号（见 UiNode.password 的注释）。
+            password = node.isPassword,
             scrollable = node.isScrollable,
             checkable = node.isCheckable,
             checked = node.isChecked,
