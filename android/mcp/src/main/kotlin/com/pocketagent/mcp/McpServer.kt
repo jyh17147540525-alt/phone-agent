@@ -84,7 +84,7 @@ class McpHttpServer(
         private set
 
     override val mcpUrl: String
-        get() = if (port == 0) "" else "http://127.0.0.1:$port$MCP_PATH"
+        get() = if (port == 0) "" else "http://$LOOPBACK_HOST:$port$MCP_PATH"
 
     @Volatile
     private var serverSocket: ServerSocket? = null
@@ -114,7 +114,27 @@ class McpHttpServer(
             val socket = ServerSocket()
             // 先设 reuse 再 bind —— 反过来在某些平台会抛 SocketException
             socket.reuseAddress = true
-            socket.bind(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), BACKLOG)
+
+            // ⚠️⚠️ 必须**显式**用 IPv4 字面量 `127.0.0.1`，**不能**用
+            //      `InetAddress.getLoopbackAddress()`。
+            //
+            //      后者在支持 IPv6 的机器上返回 **`::1`**（IPv6 loopback），
+            //      于是服务器实际绑在 `::1`，而对外公布的 URL 是
+            //      `http://127.0.0.1:<port>` —— **两个不同的地址**。
+            //
+            //      后果（2026-10-02 真机实测，红米 K60 / Android 15）：
+            //        · `cat /proc/net/tcp6` 里能看到 `::1:37025`
+            //        · `cat /proc/net/tcp`  里**没有** 37025
+            //        · 客户端连 `127.0.0.1:37025` → **ECONNREFUSED**
+            //        · 而 `adb forward tcp:37025 tcp:37025` 却**能通**
+            //          （adbd 侧的解析恰好命中 `::1`）—— 这条最迷惑人，
+            //          它会让你以为"服务器没问题，是客户端环境的问题"，
+            //          然后去查网络隔离、netns、UID 权限，**全查错方向**。
+            //
+            //      ★ 而且**单测抓不到**：`McpHttpServerTest` 是同进程用 `localhost`
+            //        连的，而 `localhost` 恰好也会解析到 `::1` —— 两边一起错，
+            //        测试就绿了。**只有跨进程真机才会暴露。**
+            socket.bind(InetSocketAddress(InetAddress.getByName(LOOPBACK_HOST), 0), BACKLOG)
             serverSocket = socket
             port = socket.localPort
 
@@ -123,7 +143,7 @@ class McpHttpServer(
             acceptJob = newScope.launch { acceptLoop(socket) }
 
             // ⚠️ 只打端口，绝不打 token（同网关纪律：日志会被收集与展示）。
-            log("MCP 能力桥已启动于 127.0.0.1:$port（token 未记录）")
+            log("MCP 能力桥已启动于 $LOOPBACK_HOST:$port（token 未记录）")
             true
         } catch (e: Exception) {
             running.set(false)
@@ -283,7 +303,12 @@ class McpHttpServer(
             ':' in h -> h.substringBefore(':')
             else -> h
         }
-        return hostPart == "127.0.0.1" || hostPart == "localhost"
+        // ★ 与绑定地址**同源** —— 见 [LOOPBACK_HOST] 的注释。
+        //   ⚠️ `::1` 刻意**不在**白名单里：我们只监听 IPv4 loopback。
+        //      而在修掉绑定之前，这里白名单写的是 `127.0.0.1`、
+        //      服务器却实际绑在 `::1` —— 白名单"以为"自己在保护的东西
+        //      和真正在听的东西，不是同一个。
+        return hostPart == LOOPBACK_HOST || hostPart == "localhost"
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -429,6 +454,20 @@ class McpHttpServer(
     companion object {
         /** MCP 端点路径。dsh 配置里的 URL 与这里必须一致（渲染器用的就是 [mcpUrl]）。 */
         const val MCP_PATH: String = "/mcp"
+
+        /**
+         * 绑定的主机。**显式 IPv4 字面量。**
+         *
+         * ⚠️ 不要改成 `InetAddress.getLoopbackAddress()` —— 它在支持 IPv6 的机器上
+         *    返回 `::1`，于是服务器绑在 IPv6 loopback 而 URL 公布的是 `127.0.0.1`。
+         *    两者不是同一个地址，客户端会 `ECONNREFUSED`。
+         *    （2026-10-02 真机踩过，详见 [start] 里的长注释。）
+         *
+         * ★ **一个地址只允许有一个写法** —— 绑定、URL 渲染、Host 校验三处必须同源。
+         *   之前这三处是三个独立的字面量，其中一处（绑定）用的是函数，
+         *   于是它单独漂移了，而另外两处"看起来"还是对的。
+         */
+        const val LOOPBACK_HOST: String = "127.0.0.1"
 
         private const val BACKLOG = 16
         private const val READ_TIMEOUT_MS = 30_000
