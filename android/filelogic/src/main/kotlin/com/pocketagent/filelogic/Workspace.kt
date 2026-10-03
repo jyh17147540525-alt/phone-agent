@@ -97,7 +97,7 @@ data class WorkspacePolicy(
     init {
         require(outputSubdir.isNotBlank()) { "产出目录名不能为空" }
         require('/' !in outputSubdir && '\\' !in outputSubdir) {
-            "产出目录名只能是**一段**（不含路径分隔符），当前为「$outputSubdir」"
+            "产出目录名只能是「一段」（不含路径分隔符），当前为「$outputSubdir」"
         }
         require(outputSubdir != "." && outputSubdir != "..") {
             "产出目录名不能是「$outputSubdir」"

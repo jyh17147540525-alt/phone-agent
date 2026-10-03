@@ -101,7 +101,7 @@ object A11yGestureCheck {
             .build()
 
         service.performGesture(gesture) { dispatched ->
-            Timber.i("手势自检：dispatchGesture 回调 dispatched=$dispatched（**只代表被受理**）")
+            Timber.i("手势自检：dispatchGesture 回调 dispatched=$dispatched（「只代表被受理」）")
 
             // ── ④ 验证：等界面响应后重新读树 ─────────────────────
             Handler(Looper.getMainLooper()).postDelayed({
@@ -130,9 +130,9 @@ object A11yGestureCheck {
             // ⚠️ 这一条**不能**直接判定"手势失败"：目标也可能本来就是个
             //    不引起界面变化的东西（比如一个已经选中的 tab）。
             //    所以如实报告"界面未变化"，把判断留给调用方。
-            Timber.w("手势自检·验证：界面**没有变化**（签名相同）—— 手势可能没点中，或目标本身不引起变化")
+            Timber.w("手势自检·验证：界面「没有变化」（签名相同）—— 手势可能没点中，或目标本身不引起变化")
         } else {
-            Timber.i("手势自检·验证：**界面已变化** ⇒ 整条链路（感知→决策→行动→验证）打通")
+            Timber.i("手势自检·验证：「界面已变化」 ⇒ 整条链路（感知→决策→行动→验证）打通")
         }
         Timber.i("手势自检完成。before=${before.take(80)}…")
         Timber.i("手势自检完成。after =${after.take(80)}…")

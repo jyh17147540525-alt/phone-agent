@@ -70,7 +70,7 @@ import java.util.concurrent.atomic.AtomicInteger
  *
  * | # | 措施 | 实现位置 |
  * |---|---|---|
- * | 1 | 只监听 `127.0.0.1` | [start] 的 `InetAddress.getLoopbackAddress()` |
+ * | 1 | 只监听 `127.0.0.1` | [start] 的 `LOOPBACK_HOST`（IPv4 字面量常量） |
  * | 2 | 端口随机 | [start] 用 `port = 0` 让 OS 分配 |
  * | 3 | 本地随机 token | [token] + [handleChat] 的 401 分支 |
  * | 4 | 常量时间比较 | [GatewayTokenProvider.matches] |
@@ -130,8 +130,8 @@ class HttpGatewayServer(
     var port: Int = 0
         private set
 
-    /** baseUrl，供 dsh 配置使用（形如 `http://127.0.0.1:12345/v1`） */
-    override val baseUrl: String get() = "http://127.0.0.1:$port/v1"
+    /** baseUrl，供 dsh 配置使用（形如 `http://127.0.0.1:12345/v1`）。**与绑定地址同源**（见 [LOOPBACK_HOST]） */
+    override val baseUrl: String get() = "http://$LOOPBACK_HOST:$port/v1"
 
     @Volatile
     private var serverSocket: ServerSocket? = null
@@ -153,10 +153,11 @@ class HttpGatewayServer(
      *    会撞上"端口被占用"并在重试时暴露时序特征；交给内核则
      *    内核从空闲端口里挑，且**分配后立刻绑定**（没有 TOCTOU 窗口）。
      *
-     * ⚠️ `InetAddress.getLoopbackAddress()` 而不是 `InetAddress.getByName("127.0.0.1")`
-     *    —— 前者不做 DNS 查询。用一个**需要 DNS 解析**的地址去绑定
-     *    监听端口是个危险的模式（DNS 被劫持时行为不可预测），
-     *    而且解析失败会让启动直接抛异常。
+     * ⚠️ 绑定地址用 [LOOPBACK_HOST] 常量（**IPv4 字面量**），**不能**用
+     *    `InetAddress.getLoopbackAddress()` —— 它在 Android（ART）上返回 `::1`，
+     *    与对外公布的 `127.0.0.1` 是两个地址，真机上客户端会 `ECONNREFUSED`，
+     *    而桌面单测抓不到（完整理由见该常量的长注释）。
+     *    同款 bug 在 MCP 能力桥先炸过一次（2026-10-03 真机端到端联调）。
      *
      * @return 是否启动成功
      */
@@ -172,8 +173,13 @@ class HttpGatewayServer(
             val socket = ServerSocket()
             // 先设 reuse 再 bind —— 反过来在某些平台会抛 SocketException
             socket.reuseAddress = true
+
+            // ⚠️⚠️ 必须**显式**用 IPv4 字面量 [LOOPBACK_HOST]，**不能**用
+            //      `InetAddress.getLoopbackAddress()`（理由见该常量的长注释）。
+            //      一句话：前者在 Android 上返回 `::1`，绑出来的地址与对外
+            //      公布的 `127.0.0.1` **不是同一个** ⇒ 真机上 ECONNREFUSED。
             socket.bind(
-                InetSocketAddress(InetAddress.getLoopbackAddress(), 0),
+                InetSocketAddress(InetAddress.getByName(LOOPBACK_HOST), 0),
                 /* backlog = */ BACKLOG,
             )
             serverSocket = socket
@@ -187,7 +193,7 @@ class HttpGatewayServer(
             //    日志页一起收集，token 进了日志就等于泄露给了任何
             //    能读日志的东西（包括我们要防的同机其它 App 的
             //    辅助功能服务）。token 只能通过进程内传参交给 Node。
-            log("网关已启动于 127.0.0.1:$port（token 未记录）")
+            log("网关已启动于 $LOOPBACK_HOST:$port（token 未记录）")
             true
         } catch (e: Exception) {
             running.set(false)
@@ -845,6 +851,37 @@ class HttpGatewayServer(
          *    现在编译器会替我们钉住这个一致性。
          */
         const val VIRTUAL_MODEL = DshConfigPatch.VIRTUAL_MODEL_ID
+
+        /**
+         * 监听地址。**必须是 IPv4 字面量**，被绑定与 [baseUrl] **两处共用**。
+         *
+         * ═══════════════════════════════════════════════════════════
+         *  ⚠️ 为什么不能用 `InetAddress.getLoopbackAddress()`
+         * ═══════════════════════════════════════════════════════════
+         *
+         * 它看着更"正确"（回环地址嘛），但它两个平台返回**不同的东西**：
+         *
+         * | 平台 | 返回 |
+         * |---|---|
+         * | JVM（桌面单测） | `127.0.0.1` ⇐ 恰好与对外公布的 URL 一致 |
+         * | **Android（ART）** | **`::1`** ⇐ 与对外公布的 URL **不一致** |
+         *
+         * 于是"绑 `::1`、公布 `http://127.0.0.1:<port>`"这个漂移，
+         * 在桌面单测里**两边一起错、测试全绿**；到真机上客户端连
+         * `127.0.0.1` 得到 `ECONNREFUSED`。
+         *
+         * ★ 同款 bug 在 MCP 能力桥先炸过一次（2026-10-03 真机端到端联调，
+         *   见 `McpHttpServer.LOOPBACK_HOST` 的注释）—— 这里是全仓排查
+         *   补上的第二处。**再起 loopback 服务器（如 P3 的执行端）时，
+         *   绑定一律引用本类（或同款）常量，不许用自动解析。**
+         *
+         * ★ 通用教训：**跨平台的 API 行为差异，离线验证器天然测不到。**
+         *   只能靠"不要用它"（用字面量）+ 注释说清为什么。
+         *   ⚠️ 顺带纠正一条旧注释：`getByName("127.0.0.1")` 对**字面量**
+         *   是直接解析，并不会触发 DNS 查询 —— "避开 DNS"这个曾经的理由，
+         *   对字面量并不成立。
+         */
+        const val LOOPBACK_HOST: String = "127.0.0.1"
 
         private const val BACKLOG = 16
         private const val READ_TIMEOUT_MS = 30_000

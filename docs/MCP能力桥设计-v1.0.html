@@ -141,7 +141,10 @@ pre code {
 <li><a href="#5-screen_read">§5 screen_read 契约</a></li>
 <li><a href="#6-dsh">§6 dsh 侧配置：渲染与投递</a></li>
 <li><a href="#7">§7 模块与工程约定</a></li>
-<li><a href="#8">§8 分期与验收</a></li>
+<li><a href="#8">§8 分期与验收</a><ul>
+<li><a href="#2026-10-03">验收结果（2026-10-03 回写）</a></li>
+</ul>
+</li>
 <li><a href="#9">§9 不做什么（明确的边界）</a></li>
 <li><a href="#a">附录 A：兼容性证据（精读来源）</a></li>
 </ul>
@@ -151,8 +154,8 @@ pre code {
   <main>
 <h1 id="mcp-v10-dsh">MCP 能力桥设计 v1.0 —— 让 dsh 调用手机的能力</h1>
 <blockquote>
-<p>状态：<strong>设计稿，待评审</strong>
-日期：2026-10-02
+<p>状态：<strong>已交付 + 真机联调通过</strong>（2026-10-03，提交 <code>29b4920</code>；验收记录与遗留项见 §8）
+日期：2026-10-02 初稿 · 2026-10-03 回写验收结果
 路线来源：<code>docs/豆包手机智能体考察与dsh移植可行性研讨-v1.0.md</code> §3.4 的 <strong>P2（MCP 桥打通）</strong>
 前置事实来源：本机对 <code>@deepseek-ai/dsh-mcp-client</code>（0.1.0-rc.7）与 <code>@modelcontextprotocol/sdk</code>（1.30.0）
 的<strong>源码精读</strong>（非文档转述）；兼容性结论均标注了出处（§附录 A）。</p>
@@ -579,6 +582,45 @@ nodeCount, listedCount, truncated, nodes:[{nodeId,class,text,desc,bounds:[l,t,r,
 ⑦ 反向验证（安全）：在支付页/锁屏上调用 → 应得到&quot;安全策略拒绝&quot;的 isError，而不是节点
 </code></pre></div>
 
+<h3 id="2026-10-03">验收结果（2026-10-03 回写）</h3>
+<p><strong>离线侧（沙盒 + 提交前）</strong>：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>全量离线验证器</td>
+<td><code>OK (1694 tests)</code> 全绿（基线 1623 → <code>:mcp</code> +69 → 桥的 ::1 修复 +1 → 网关钉字面量 +1，最后一项随兄弟修复待收编）</td>
+</tr>
+<tr>
+<td>变异验证：遮蔽计划置空</td>
+<td>恰好 1 条红 ——「正常读取返回文本与结构化输出且输入框被遮蔽」（收编时执行）</td>
+</tr>
+<tr>
+<td>变异验证：绑定地址改 <code>::1</code></td>
+<td>40 条红：钉字面量 1 条 + 数十条 <code>Connection refused</code>（与真机同款症状）—— 「地址漂移」这一类有防线</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>真机侧</strong>（提交 <code>29b4920</code>）：①—⑥ 全部执行并通过。dsh 自主调用 <code>mcp__phone__screen_read</code>
+成功并<strong>准确描述界面细节</strong>（"每次开启端口都会变""左上角有返回按钮"）—— 不是猜的。</p>
+<p>★ <strong>联调中炸出并修复一个跨平台漂移</strong>：<code>InetAddress.getLoopbackAddress()</code> 在 Android（ART）上
+返回 <code>::1</code>，与对外公布的 <code>http://127.0.0.1:&lt;port&gt;</code> <strong>不是同一个地址</strong> ⇒ 客户端 <code>ECONNREFUSED</code>。
+修法：绑定 / <code>mcpUrl</code> / Host 白名单统一 <strong><code>LOOPBACK_HOST</code>（IPv4 字面量）常量</strong>。
+⚠️ 这正是"离线验证器<strong>结构性</strong>抓不到"的一类（JVM 上两边一起错、测试全绿）——
+防线只能是"不用会漂移的写法"（字面量 + 注释说清为什么）。</p>
+<p><strong>遗留（未回填，按优先级）</strong>：</p>
+<ol>
+<li><strong>⑦ 反向安全验证未在真机执行</strong>（支付/敏感页 → <code>isError</code> 拒绝）—— P2 安全验收的另一半；</li>
+<li><strong>真机遮蔽目击未执行</strong>（输入框内容是否真的被遮蔽；单测覆盖、真机未见）；</li>
+<li><strong>网关同款漂移已修、未收编</strong>：<code>HttpGatewayServer</code> 的工作树改动等待评审
+   （<code>LOOPBACK_HOST</code> 常量 + 钉字面量测试；1694 全绿 + 变异 40 红），收编后需重建
+   并在真机核对 <code>/proc/net/tcp</code> 出现该端口（IPv4 而非 <code>tcp6</code>）。</li>
+</ol>
 <hr />
 <h2 id="9">§9 不做什么（明确的边界）</h2>
 <ul>

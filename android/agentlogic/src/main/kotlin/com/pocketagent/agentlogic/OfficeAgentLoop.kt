@@ -114,7 +114,7 @@ class OfficeAgentLoop(
 
                 is ParsedStep.Unparseable -> {
                     // ── 保护 4：解析失败要回给模型 ───────────────
-                    trace += "（你的输出无法解析。请只输出**一个** JSON 对象，" +
+                    trace += "（你的输出无法解析。请只输出「一个」 JSON 对象，" +
                         "形如 {\"tool\":\"read_text\",\"args\":{\"path\":\"a.md\"}} 或 {\"answer\":\"...\"}。" +
                         "原文开头：${step.raw.take(60)}）"
                 }
@@ -176,15 +176,15 @@ class OfficeAgentLoop(
         }
         appendLine()
         appendLine("## 输出格式（必须严格遵守）")
-        appendLine("每次只输出**一个** JSON 对象，不要任何解释、不要代码围栏：")
+        appendLine("每次只输出「一个」 JSON 对象，不要任何解释、不要代码围栏：")
         appendLine("- 要调用工具：`{\"tool\":\"工具名\",\"args\":{\"参数\":\"值\"}}`")
         appendLine("- 任务已完成：`{\"answer\":\"给用户的答复\"}`")
         appendLine()
         appendLine("## 规则")
-        appendLine("1. 路径一律用**相对路径**，不要以 / 开头，不要出现 ..")
-        appendLine("2. **产出只能写到「${task.policy.outputSubdir}/」目录下** —— 写到别处会被拒绝")
+        appendLine("1. 路径一律用「相对路径」，不要以 / 开头，不要出现 ..")
+        appendLine("2. 产出只能写到「${task.policy.outputSubdir}/」目录下 —— 写到别处会被拒绝")
         appendLine("3. 一次只做一步。做完一步后根据结果决定下一步")
-        appendLine("4. 被拒绝时**读拒绝原因并改正**，不要原样重试")
+        appendLine("4. 被拒绝时「读拒绝原因并改正」，不要原样重试")
         appendLine("5. 信息够了就输出 answer 结束，不要为了多做而多做")
         appendLine()
         appendLine("## 当前工作区")

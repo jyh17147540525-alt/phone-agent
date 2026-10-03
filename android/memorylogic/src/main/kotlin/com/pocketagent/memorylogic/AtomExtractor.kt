@@ -142,14 +142,14 @@ class AtomExtractor(private val llm: MemoryLlmPort) {
      * 或者让它省略出处，得到的是一堆无法回溯的字符串。
      */
     fun buildPrompt(turns: List<Turn>): String = buildString {
-        append("你在为一个手机助理维护长期记忆。请从下面的对话里提取**原子记忆**。\n")
+        append("你在为一个手机助理维护长期记忆。请从下面的对话里提取「原子记忆」。\n")
         append("只输出 JSON，不要任何解释。格式：\n")
         append("""{"atoms":[{"kind":"fact|preference|constraint|stage_conclusion","text":"...","sourceTurnIds":["..."],"confidence":0.0}]}""")
         append("\n\n规则：\n")
         append("1. 四类依次是：事实（客观发生的事）、偏好（用户喜欢/不喜欢什么）、约束（用户定下的规则）、阶段结论（本轮任务的阶段性结论）。\n")
         append("2. kind 只允许上面四个值之一。\n")
         append("3. text 用一句完整的话，不要复制原文长段。\n")
-        append("4. sourceTurnIds 必须来自下面列出的 [turn-id]，**不得编造**；不确定就省略该条。\n")
+        append("4. sourceTurnIds 必须来自下面列出的 [turn-id]，「不得编造」；不确定就省略该条。\n")
         append("5. confidence 是 0 到 1 之间的小数（不要写百分比）。\n\n")
         append("对话：\n")
         for (turn in turns) {

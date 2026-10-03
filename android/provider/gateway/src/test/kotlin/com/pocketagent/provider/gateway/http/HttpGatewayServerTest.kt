@@ -281,6 +281,26 @@ class HttpGatewayServerTest {
     }
 
     @Test
+    fun `绑定地址是 IPv4 字面量`() {
+        // ⚠️ 这条测试**结构性地抓不住那个真正的 bug**（2026-10-03 真机踩的，
+        //    与 MCP 能力桥同款）——它是**跨平台漂移**：
+        //    `InetAddress.getLoopbackAddress()` 在 JVM 上返回 `127.0.0.1`、
+        //    在 Android（ART）上返回 `::1`；桌面单测里两边一起错、测试照样绿。
+        //    ⇒ 本测试只能钉住**配置一致性**（地址只有一个来源、且是 IPv4 字面量）。
+        //      真正拦住那个 bug 的是 HttpGatewayServer.LOOPBACK_HOST 的注释
+        //      + 它被绑定与 baseUrl **两处共用**。
+        assertEquals(
+            "LOOPBACK_HOST 必须是 127.0.0.1 —— 用 ::1 会让客户端连 127.0.0.1 时被拒",
+            "127.0.0.1",
+            HttpGatewayServer.LOOPBACK_HOST,
+        )
+        assertTrue(
+            "必须是 IPv4 点分字面量，不能是主机名或 IPv6",
+            HttpGatewayServer.LOOPBACK_HOST.matches(Regex("""\d{1,3}(\.\d{1,3}){3}""")),
+        )
+    }
+
+    @Test
     fun `端口由内核分配且不为 0`() {
         val (server, _) = buildServer()
         start(server)

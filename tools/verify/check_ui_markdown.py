@@ -40,6 +40,10 @@ Kotlin 字符串里的 `**粗体**` 是 markdown 语法，但 Android 的 `Text`
 ⚠️ 它的代价是**漏掉纯英文的 markdown 粗体**（如 `**PM**`）。本项目目前没有
 这种写法；真出现了，就把它当成"判据需要加一条"的信号，而不是默默放过。
 
+⚠️ 测试源（`src/test/`、`src/androidTest/`）**不检查**：测试不渲染给用户，
+且里面可能有**故意**的 markdown 样例（如 `OoxmlWriterTest` 写出 .md 内容
+供 Python 侧独立校验）—— 把那种样例"修"掉反而是错的。见 `is_test_source`。
+
 用法：
     python tools/verify/check_ui_markdown.py android
 退出码：0 = 干净；1 = 发现可疑行。
@@ -60,6 +64,19 @@ CJK = r"\u4e00-\u9fff"
 SUSPECT = re.compile(r"(\*\*[" + CJK + r"])|([" + CJK + r"]\*\*)")
 
 SKIP_DIR_NAMES = {".gradle", ".build-trash", ".idea", "build", "generated"}
+
+
+def is_test_source(path: str) -> bool:
+    """测试源（`src/test/`、`src/androidTest/`）一律跳过 —— 理由见模块 docstring。
+
+    2026-10-03 加：当时 16 处报告里有 2 处就在测试源，其中一处
+    （`OoxmlWriterTest` 里写进样例文件的注释）是**故意的 markdown**。
+    """
+    parts = path.split(os.sep)
+    return any(
+        parts[i] == "src" and parts[i + 1] in ("test", "androidTest")
+        for i in range(len(parts) - 1)
+    )
 
 
 def string_literals(text: str):
@@ -169,6 +186,8 @@ def scan(root: str):
             if not name.endswith(".kt"):
                 continue
             path = os.path.join(dirpath, name)
+            if is_test_source(path):
+                continue
             try:
                 text = io.open(path, encoding="utf-8").read()
             except (OSError, UnicodeDecodeError):
@@ -194,6 +213,7 @@ def main() -> int:
         1
         for dp, dn, fn in os.walk(root)
         if not any(x in dp.split(os.sep) for x in SKIP_DIR_NAMES)
+        if not is_test_source(dp)
         for f in fn
         if f.endswith(".kt")
     )
