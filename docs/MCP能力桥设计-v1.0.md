@@ -187,6 +187,124 @@ nodeCount, listedCount, truncated, nodes:[{nodeId,class,text,desc,bounds:[l,t,r,
 
 ---
 
+## §5.5 执行工具契约（`android_tap` / `android_swipe`）—— P3 离线部分（2026-10-03）
+
+**范围**：本文档此节描述**已交付的离线部分**（工具 + 端口 + 测试）。
+真机接线（执行器实现、dispatcher 组装、注册进 `ToolRegistry`）归 WorkBuddy，
+见 `docs/协作/TO-WORKBUDDY.md` 的接线步骤。**未注册前，两个工具不会出现在 `tools/list`。**
+
+### 执行流水线（顺序不可调换）
+
+```
+① 参数解析（目标三选一 + 严校验）→ 失败即 Failed，且给出"下一步"
+② 采集（ScreenReaderPort，与 screen_read 同一条"如实"纪律）
+③ 目标解析（本次快照上；可点击祖先上浮；node_id 带跨快照位置校验）
+④ 安全判定（ActionSafetyPort → :safety 的 SafetyGuard.checkBeforeAction）
+    顺序在引擎内部：黑名单 → App声明 → 页面文本 → 敏感控件 → 频率 → 危险动作
+⑤ 频率闸（工具侧：20 次/分钟滚动窗口 + 250ms 防连点下限）
+⑥ 派发（ActionDispatchPort → :action 的 ActionDispatcher；派发前拟人间隔）
+```
+
+★ **为什么安全判定不另拼一套**：`DefaultSafetyGuard.checkBeforeAction` 已实现同语义判定
+（顺序更长、理由在它的注释里、有离线测试）。另拼一套 = 同一策略两份实现，迟早漂移
+且漂移方向是"其中一份更松"。所以本工具只做**编排**，判定走端口。
+
+### 工具声明
+
+```json
+{
+  "name": "android_tap",
+  "description": "点击屏幕上的一个元素。目标三选一：node_id（最精确，从 screen_read 输出原样抄 nodeId 与 bounds）、text（按文字）、coordinates（坐标兜底）。命中安全策略的点击会被拒绝，被拒绝时不要重试。成功只代表动作已派发，请用 screen_read 确认结果。",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "target": {"type": "object", "properties": {
+        "kind": {"enum": ["node_id", "text", "coordinates"]},
+        "nodeId": {"type": "string"}, "bounds": {"type": "array", "items": {"type": "integer"}},
+        "text": {"type": "string"}, "exact": {"type": "boolean"},
+        "x": {"type": "integer"}, "y": {"type": "integer"}}, "required": ["kind"]},
+      "reason": {"type": "string"}
+    },
+    "required": ["target"]
+  }
+}
+```
+
+```json
+{
+  "name": "android_swipe",
+  "description": "在屏幕上滑动（滚动/翻页）。from/to 为整数像素坐标，durationMs 100–2000（默认 300）。命中安全策略的页面会被拒绝，被拒绝时不要重试。",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "from": {"type": "object", "required": ["x","y"]},
+      "to": {"type": "object", "required": ["x","y"]},
+      "durationMs": {"type": "integer"}, "reason": {"type": "string"}
+    },
+    "required": ["from", "to"]
+  }
+}
+```
+
+### 目标解析规则（`android_tap`）
+
+- **node_id**：必须**同时**给出 `nodeId` 与 `bounds`（从 screen_read 输出原样抄）。
+  解析时要求 nodeId 命中**且 bounds 四项精确相等** —— 点击宁可错报"界面已变化"，
+  不可点错目标。bounds 缺失直接 `Failed`（文案解释它防的是什么）。
+- **text**：`exact=false`（默认）按包含匹配；命中多个可点击节点 → `Failed` 并提示改用
+  node_id / 坐标；命中"一个可点击按钮 + 其内部文本节点"时选中按钮。
+- **coordinates**：越界即 `Failed`；命中元素时选**面积最小**的节点；
+  坐标处无可识别节点 = **盲点**（允许，但成功文案与结构化输出如实标注
+  `blind: true`，且安全判定无目标描述可用）。
+  ★ 评审补的硬约束（workbuddy）：盲点成功文案必须点明「不确定点到了什么」，
+  并要求模型对用户如实说明 —— 自绘界面可能是支付界面，`blind: true` 是唯一信号。
+- **可点击祖先上浮**：语义节点不可点击时，上浮到最近（depth 最大）的
+  可见、可点击、可用的祖先；上浮结果与原节点都在"目标描述"里参与危险动作匹配。
+- 目标不可见 / 不可用（disabled）→ `Failed`（给"重新 screen_read"的下一步）。
+
+### 成功结果
+
+`content=[{type:"text", text:"…"}]` + `structuredContent`：
+
+```json
+{"dispatched": true, "channel": "ACCESSIBILITY", "latencyMs": 12, "blind": false}
+```
+
+文本固定提示：**"这只表示动作已交给系统，不代表界面已按预期变化——请用 screen_read 确认结果"**
+（`ActionResult.Dispatched` 的既定语义：业务成败归 Verifier，本工具没有这一步）。
+
+### 失败/拒绝结果（一律 `isError: true`）
+
+| 情形 | 分支 | 文本（要点） |
+|---|---|---|
+| 敏感页/敏感控件 | `Refused` | `SensitivityHit.userMessage` + "安全策略最终结论，不要重试" |
+| 危险动作（如「确认支付」） | `Refused` | v1 **无确认通道，一律不代做**（见下发注）+ "请用户手动完成"；**不回显目标文本** |
+| 频率超限 | `Refused` | 给"约 N 秒后可继续"+ "这是安全设计不是故障" |
+| 参数非法 / 目标不存在/歧义/失效 | `Failed` | 各自给出"下一步"（重抄 bounds / 重新 screen_read / 换定位方式） |
+| 通道不可用/未接线/执行失败 | `Failed` | 原样转达 + "检查无障碍/Shizuku 权限" |
+| 通道要求人工接手 | `Refused` | "请用户接手后续步骤" |
+
+> **注（v1 已知降级）**：`SafetyGuard` 对危险动作的既定结论是"二次确认"，
+> 但当前没有"用户确认"交互通道 ⇒ 工具层把 `RequireConfirmation` 降级为拒绝。
+> 将来做确认通道时，替换点 = `TapTool.call()` 的一行 `when` 分支。
+
+### 频率闸（两道，数值刻意不同）
+
+| 闸 | 位置 | 数值 | 作用 |
+|---|---|---|---|
+| 拟人节奏闸 | `:mcp` `ActionRateLimiter`（与 Swipe 共用实例） | 20 次/分钟 + 250ms 下限 | 防连点/死循环，**先于**派发拒绝 |
+| 安全硬闸 | `:safety` `DefaultSafetyGuard` 第 5 步 | 60 次/分钟 | 审计 + 兜底；计数由工具侧喂入 |
+
+### 与 `:action` 的关系
+
+`:mcp`（纯 Kotlin）不依赖 `:action`（依赖 `android.graphics`），走
+`ActionDispatchPort` 窄端口；`:app` 的 `ActionPorts.kt` 做逐字段映射
+（含 `safetyCleared=true` 的如实标注 —— 动作在工具层刚过完同一个 `SafetyGuard`）。
+`HumanizePolicy.randomInterval()` 的调用点 = `ActionDispatchAdapter` 派发前
+（该函数此前全仓零调用，审计确认）。
+
+---
+
 ## §6 dsh 侧配置：渲染与投递
 
 **落点**：profile 的 `cordis.patch.yml`（当前真机上是空 `[]`；文件自身注释写明

@@ -8,6 +8,8 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import com.pocketagent.assistant.ActionDispatchAdapter
+import com.pocketagent.assistant.AccessibilityActionExecutor
 import com.pocketagent.assistant.AgentA11ySource
 import com.pocketagent.assistant.AgentForegroundService
 import com.pocketagent.assistant.HostPermissionReader
@@ -15,6 +17,8 @@ import com.pocketagent.assistant.McpBridgeHost
 import com.pocketagent.assistant.McpBridgeStatus
 import com.pocketagent.assistant.PerceptionScreenReader
 import com.pocketagent.assistant.SafetyDetectorGate
+import com.pocketagent.assistant.SafetyGuardAdapter
+import com.pocketagent.assistant.SingleChannelDispatcher
 import com.pocketagent.capability.AndroidSettingsAccess
 import com.pocketagent.core.common.AtomicTextFile
 import com.pocketagent.core.crypto.CryptoManager
@@ -30,11 +34,15 @@ import com.pocketagent.keymgmt.ModelConfigRepositoryImpl
 import com.pocketagent.keymgmt.ModelDeclarationEntry
 import com.pocketagent.keymgmt.RoomUsageRecorder
 import com.pocketagent.keymgmt.modelDeclarationsOf
+import com.pocketagent.mcp.ActionRateLimiter
 import com.pocketagent.mcp.McpBridgeSession
 import com.pocketagent.mcp.McpDispatcher
 import com.pocketagent.mcp.McpHttpServer
 import com.pocketagent.mcp.ScreenReadTool
+import com.pocketagent.mcp.SwipeTool
+import com.pocketagent.mcp.TapTool
 import com.pocketagent.mcp.ToolRegistry
+import com.pocketagent.safety.DefaultSafetyGuard
 import com.pocketagent.modelrouter.ModelRouteCoordinator
 import com.pocketagent.perception.AccessibilityPerceptionManager
 import com.pocketagent.plugin.api.MarketCatalog
@@ -787,8 +795,26 @@ class AppContainer(context: Context) {
         val reader = PerceptionScreenReader(AccessibilityPerceptionManager(AgentA11ySource))
         val gate = SafetyDetectorGate()
         val tool = ScreenReadTool(reader, gate)
+
+        // ── P3：执行工具（android_tap / android_swipe）────────────────
+        // 判定走 :safety 引擎（:mcp 只编排），执行走无障碍单通道；
+        // 频率闸两个工具**共用同一个实例**（否则合计可跑到 40 次/分钟）。
+        val rateLimiter = ActionRateLimiter()
+        val safetyPort = SafetyGuardAdapter(DefaultSafetyGuard())
+        val dispatchPort = ActionDispatchAdapter(
+            SingleChannelDispatcher(AccessibilityActionExecutor()),
+        )
+
         val server = McpHttpServer(
-            dispatcher = McpDispatcher(ToolRegistry(listOf(tool))),
+            dispatcher = McpDispatcher(
+                ToolRegistry(
+                    listOf(
+                        tool,
+                        TapTool(reader, safetyPort, dispatchPort, rateLimiter),
+                        SwipeTool(reader, safetyPort, dispatchPort, rateLimiter),
+                    ),
+                ),
+            ),
             log = { Timber.i(it) },
         )
         return McpBridgeHost(

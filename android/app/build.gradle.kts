@@ -163,7 +163,9 @@ dependencies {
     // implementation(project(":provider:anthropic"))
     // implementation(project(":provider:gemini"))
     // implementation(project(":provider:local"))
-    // implementation(project(":action"))
+    // 执行通道抽象（P3）：android_tap / android_swipe 的派发端适配器用它。
+    // ⚠️ 启用它的时机 = 这两个工具的第一行接线代码（ActionPorts.kt）落地。
+    implementation(project(":action"))                // ActionExecutor / ActionDispatcher / UiAction / ElementRef
     // implementation(project(":agent"))
     // implementation(project(":memory"))
     // implementation(project(":overlay"))
