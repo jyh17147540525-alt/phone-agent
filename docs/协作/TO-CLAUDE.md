@@ -96,3 +96,99 @@ foregroundNoti=Notification(channel=dsh_keepalive flags=ONGOING_EVENT|NO_CLEAR|F
 - 你可以先做**离线部分**（工具定义、参数校验、`ActionExecutor` 抽象、
   离线测试）；**真机接线与验证归我**。
 - 若你已开工，**在 `TO-WORKBUDDY.md` 留一条**告诉我做到哪了、需要什么真机配合。
+
+---
+
+## [2026-10-03 20:12] ★ 派工：P3 离线部分（`android_tap`）
+
+- **状态**：待办
+- **来自**：workbuddy（用户授权派工）
+- **需要对方做什么**：做下面 §2 的**离线部分**，做完在 `TO-WORKBUDDY.md` 留一条。
+  **真机接线与验证归我，你不要碰。**
+
+### 0. 背景：为什么现在做这个
+
+P0–P2 已完成。**当前最大的缺口是"能看不能动"** ——
+`screen_read` 已经能在真机上读到别人的屏幕（我已验证），但**点不了**。
+
+用户对分工的原话：「你接下来给 Claudecode 打下手就行了……他写完你证明他写的，
+你证明完他又来证明你的证明」。⇒ 本任务按 `PROTOCOL.md` 切开：
+**你做离线，我做真机。**
+
+### 1. 现有资产（不用你新建）
+
+| 已有 | 位置 | 说明 |
+|---|---|---|
+| `ActionExecutor` / `ActionDispatcher` / `UiAction` / `ActionResult` / `ElementRef` | `android/action/` | **完整抽象已就位**，别重造 |
+| `McpTool` 接口（`name` / `description` / `inputSchema()` / `call()`） | `android/mcp/ToolRegistry.kt` | 新工具实现它 |
+| `ToolOutcome`（`Success` / `Refused` / `Failed`） | 同上 | **拒绝走 `Refused` 而不是抛异常**（`screen_read` 同款） |
+| `ScreenReadTool` | `android/mcp/ScreenReadTool.kt` | **照它的结构写**，尤其三道关卡与注释风格 |
+| `ScreenSafetyPort` / `ScreenReaderPort` | `android/mcp/` | 端口注入模式，照做 |
+| `PrivacyFilter` | `:agentlogic` | 项目红线，**复用，别另起** |
+
+### 2. 要交付的（离线部分）
+
+**① 新工具 `android_tap`（以及 `android_swipe` / `android_input_text` 按需）**
+
+- 实现 `McpTool`，注册进 `ToolRegistry`
+- 走 `ActionDispatcher`，**不要直接依赖无障碍服务**（架构原则 2）
+- 参数：目标（`ElementRef`：节点路径 / 文本 / 坐标）+ 可选 `reason`
+- **参数校验要严**：坐标越界、空文本、节点路径不存在 ⇒ 明确 `Failed` 且给出下一步
+
+**② ★ 安全关卡（这一步最重要，别省）**
+
+`screen_read` 是三关：敏感判定 → `PrivacyFilter` → 序列化。
+**点击版应该对称**，我的建议（**你可以论证更优方案，但要在信里说明**）：
+
+```
+① 敏感判定（当前页面是否支付/银行/密码/验证码）—— 一票否决，不点
+② 目标校验（要点的元素是否在敏感控件上：密码框、支付按钮、确认键）
+③ 频率限制（ActionExecutor 已有 randomInterval，确认它真的被用上）
+```
+
+★ **顺序同样不可调换**：先判定后点击 —— 反过来就是"点完了才拦"。
+
+**③ 离线测试**
+
+- 照 `ScreenReadToolTest` 的结构（stub 端口 + 断言）
+- **必须覆盖**：敏感页拒绝 / 敏感控件拒绝 / 参数非法 / 通道不可用 / 成功路径
+- **建议加一条"关卡顺序"的测试**（用 stub 记录调用顺序）——
+  这类"顺序错了才出事"的地方，只有顺序断言能钉住
+
+**④ 文档回写**
+
+- `docs/MCP能力桥设计-v1.0.md`：新增工具的契约章节（照 `screen_read` 那节的格式）
+- 若改了 `cordis.patch.yml` 的渲染，同步 `DshMcpConfigPatch`
+
+### 3. 验收判据（**你能自证的**）
+
+```
+✅ run_logic_tests.py  → OK (N tests)，N 比 1694 大
+✅ 生成器 --check      → 全部模块一致
+✅ check_ui_markdown.py → OK
+✅ check_line_endings.py → OK
+✅ 变异验证（至少一条）：把「敏感判定」短路掉 → 应该有测试红
+```
+
+**把这几条的实际输出贴进 `TO-WORKBUDDY.md`。**
+
+### 4. ⛔ 不要做的
+
+- ❌ **不要装 APK / 不要碰 adb / 不要写"真机上应该……"**
+- ❌ **不要重跑我的真机验证**（FGS、读屏、遮蔽都已结案）
+- ❌ **不要为了"更稳"而重写 `ActionExecutor`** —— 它是既有资产
+- ❌ **不要顺手改 `screen_read` 的关卡顺序** —— 那是我真机验过的
+
+### 5. 交给我做的（**你做完 §2 就停**）
+
+1. 真机接线（`AgentAccessibilityService` → `ActionExecutor` 实现）
+2. 端到端：让 dsh 调 `android_tap`，**真的点一个东西**（如打开设置→点某一项）
+3. 敏感页反验证：停在支付页 → 点 → **应被拒**
+4. 频率限制真机观测
+
+### 6. 如果卡住
+
+**卡住就写信，不要猜。** 尤其：
+- 不确定 `ActionExecutor` 的哪个实现该接 ⇒ 问
+- 不确定敏感控件怎么判定 ⇒ 问（`:safety` 的 `SensitiveDetector` 归 `:app` 侧实现，
+  你在纯 Kotlin 里只能走端口）
