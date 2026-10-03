@@ -1,5 +1,10 @@
 package com.pocketagent.ui.dsh
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -15,10 +20,14 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pocketagent.assistant.McpBridgeDraft
 import com.pocketagent.assistant.McpBridgeStatus
@@ -45,13 +54,14 @@ import com.pocketagent.ui.design.PaType
  * 我们也没法在真机上确认那条链到底通没通。
  *
  * ═══════════════════════════════════════════════════════════════
- *  ⚠️ 页面上有两处**必须如实说出来的限制**
+ *  ⚠️ 页面上要如实说出来的限制
  * ═══════════════════════════════════════════════════════════════
  *
  * 它们不是"以后会修好的小毛病"，而是当前形态的**真实边界**：
  *
- * 1. **网关只在 PocketAgent 运行时有效** —— 它跑在本进程里，没有前台服务。
- *    应用被系统回收之后 dsh 就连不上了。
+ * 1. **保活挡得住「冷冻」，挡不住「厂商强杀」** —— 开启后会自动挂
+ *    前台服务 + 常驻通知（应用退到后台仍可用）；但小米等系统的省电
+ *    策略依然可能回收进程 —— 页面里给出「无限制」+ 加锁的指引。
  * 2. **每次开启端口都会变** —— 端口是随机分配的（一条安全加固）。
  *    所以"重新开启"之后，dsh 那边的地址也要跟着改。
  *
@@ -66,6 +76,31 @@ fun DshIntegrationScreen(
     modifier: Modifier = Modifier,
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
+
+    val context = LocalContext.current
+
+    // 拉起保活前台服务之前先把通知权限要到：没有它服务照样跑，
+    // 但常驻通知不会显示，用户会以为"保活没开启"（横幅里有解释，
+    // 但能一次修好的事就不让他去猜）。
+    val pendingToggle = remember { mutableStateOf<(() -> Unit)?>(null) }
+    val notificationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) {
+        // 授权与否都继续 —— 拒绝的后果是"没有常驻通知"，不是"功能坏了"。
+        pendingToggle.value?.invoke()
+        pendingToggle.value = null
+    }
+    fun startWithNotificationPermission(action: () -> Unit) {
+        val needsPermission = Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        if (needsPermission) {
+            pendingToggle.value = action
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            action()
+        }
+    }
 
     val working = ui is DshIntegrationViewModel.UiState.Working
     val ready = ui as? DshIntegrationViewModel.UiState.Ready
@@ -95,7 +130,7 @@ fun DshIntegrationScreen(
                 ActionBlock(
                     working = working,
                     status = status,
-                    onStart = viewModel::start,
+                    onStart = { startWithNotificationPermission(viewModel::start) },
                     onStop = viewModel::stop,
                 )
             }
@@ -121,7 +156,7 @@ fun DshIntegrationScreen(
                 McpActionBlock(
                     working = working,
                     status = mcpStatus,
-                    onStart = viewModel::startBridge,
+                    onStart = { startWithNotificationPermission(viewModel::startBridge) },
                     onStop = viewModel::stopBridge,
                 )
             }
@@ -141,13 +176,19 @@ fun DshIntegrationScreen(
             }
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(PaSpace.xs)) {
-                    // ⚠️ 这两条不是"以后会修好的小毛病"，而是当前形态的真实边界。
+                    // ⚠️ 这些不是"以后会修好的小毛病"，而是当前形态的真实边界。
                     //    不说出来的后果见本文件的类注释。
                     PaBanner(
+                        tone = PaBannerTone.Info,
+                        title = "开启后自动挂常驻通知保活",
+                        description = "网关与能力桥由同一个前台服务保活：应用退到后台，dsh 仍能连上。" +
+                            "看不到那条通知 = 保活没生效（多半是通知权限被拒，去系统设置里打开本应用的通知）。",
+                    )
+                    PaBanner(
                         tone = PaBannerTone.Warning,
-                        title = "网关只在 PocketAgent 运行时有效",
-                        description = "它跑在本应用进程里，还没有前台服务保活。应用被系统回收之后，" +
-                            "dsh 会连不上 —— 需要重新开启，并把配置重新抄一遍。",
+                        title = "厂商省电策略仍可能回收进程",
+                        description = "小米 / HyperOS 等系统即使有常驻通知，「一键清理」或省电模式仍可能杀掉应用。" +
+                            "建议：设置 → 应用 → PocketAgent → 省电策略设为「无限制」，并在最近任务里给它加锁。",
                     )
                     PaBanner(
                         tone = PaBannerTone.Info,
@@ -156,11 +197,10 @@ fun DshIntegrationScreen(
                             "所以重新开启之后，dsh 那边的地址要跟着更新。",
                     )
                     PaBanner(
-                        tone = PaBannerTone.Warning,
-                        title = "能力桥需要无障碍权限，且与网关同生命周期",
+                        tone = PaBannerTone.Info,
+                        title = "能力桥需要无障碍权限",
                         description = "它通过无障碍树读取屏幕元素；没有权限时工具会如实返回「不可用」。" +
-                            "与网关一样，它只在本应用运行时有效 —— App 重启后地址与令牌都会变，" +
-                            "需要重新投递配置并重启 dsh。",
+                            "另外 App 重启后地址与令牌都会变，需要重新投递配置并重启 dsh。",
                     )
                 }
             }

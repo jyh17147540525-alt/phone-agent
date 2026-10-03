@@ -133,11 +133,34 @@
         </service>
 
         <!--
+            保活前台服务：dsh 集成（模型网关 + 能力桥）的保活锚点。
+
+            ⚠️ 为什么必须有：应用退到后台后进程会被冷冻（cached app freezer）——
+            进程还在、端口还在听，但请求不再被处理。而 dsh 的两条链路恰恰是
+            "应用在后台时被调用"的形态（2026-10-03 真机实测：12 秒超时、0 响应）。
+
+            ⚠️ 类型必须是 specialUse：dataSync / mediaProcessing 在 Android 15 下
+            24 小时累计只能跑 6 小时，超时抛异常；本服务要在用户开着 dsh 集成的
+            整个期间常驻。完整推演见 docs/后台常驻与语音交互方案-v1.0.md。
+
+            ⚠️ 将来截图会话需要 mediaProjection 类型时，按「逐项启用」纪律与
+            FOREGROUND_SERVICE_MEDIA_PROJECTION 权限一起加，不要提前声明。
+        -->
+        <service
+            android:name=".assistant.AgentForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="dsh 集成本地服务的保活（模型网关与屏幕读取能力桥）" />
+        </service>
+
+        <!--
         ── 以下组件在 M1+ 随对应模块一起启用 ───────────────────────
            现在注释掉而不是留着，是因为它们的类还不存在：
            系统会在设置里列出无障碍服务，用户点进去启用时报错 ——
            这比"还没有这个功能"糟糕得多。
-           （无障碍服务已经按上面那条理由提前启用了，其余继续等。）
+           （无障碍服务与保活前台服务已按各自理由先行启用，其余继续等。）
 
         <!- 通知监听服务（可选能力） ->
         <service
@@ -148,16 +171,6 @@
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
-        </service>
-
-        <!- 前台服务：截图会话 + 任务执行 ->
-        <service
-            android:name=".assistant.AgentForegroundService"
-            android:exported="false"
-            android:foregroundServiceType="mediaProjection|specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="AI 助手任务执行与屏幕感知会话" />
         </service>
 
         <!- 悬浮窗服务 ->

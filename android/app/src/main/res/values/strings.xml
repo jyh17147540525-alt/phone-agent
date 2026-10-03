@@ -19,4 +19,11 @@
          必须让人一眼看懂「它会读屏、会代我点」，而不是含糊其辞。 -->
     <string name="accessibility_service_summary">读取屏幕内容并模拟点击，代你完成跨应用操作</string>
     <string name="accessibility_service_description">开启后，PocketAgent 可以读取当前屏幕上的内容，并模拟点击、滑动、输入等操作，代替你完成跨应用的任务。它不会在后台偷偷运行，每次执行任务时都会有明确提示，你可以随时在系统设置中关闭本服务。</string>
+
+    <!-- 保活前台服务的常驻通知。渠道名与描述在系统「通知」设置里用户可见，
+         文案要求同无障碍服务：说清"为什么有一条常驻通知"，不含糊。 -->
+    <string name="keepalive_channel_name">dsh 集成保活</string>
+    <string name="keepalive_channel_desc">网关或能力桥在后台运行时显示的常驻通知；关闭 dsh 集成后自动消失。</string>
+    <string name="keepalive_notification_title">PocketAgent 正在为 dsh 提供本地服务</string>
+    <string name="keepalive_notification_stop">全部停止</string>
 </resources>

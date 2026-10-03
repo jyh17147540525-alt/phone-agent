@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.pocketagent.assistant.AgentA11ySource
+import com.pocketagent.assistant.AgentForegroundService
 import com.pocketagent.assistant.HostPermissionReader
 import com.pocketagent.assistant.McpBridgeHost
 import com.pocketagent.assistant.McpBridgeStatus
@@ -621,6 +622,7 @@ class AppContainer(context: Context) {
             is DshGatewayStartResult.Running ->
                 DshIntegrationStatus.On(baseUrl = result.baseUrl, delivery = result.delivery)
         }
+        syncKeepAlive()
         dshStatus
     }
 
@@ -635,6 +637,7 @@ class AppContainer(context: Context) {
     fun stopDshIntegration(): DshIntegrationStatus = synchronized(dshLock) {
         dshSession?.stop()
         dshStatus = DshIntegrationStatus.Off
+        syncKeepAlive()
         dshStatus
     }
 
@@ -749,6 +752,7 @@ class AppContainer(context: Context) {
     fun startMcpBridge(): McpBridgeStatus = synchronized(mcpBridgeLock) {
         val host = mcpBridgeHost ?: buildMcpBridgeHost().also { mcpBridgeHost = it }
         mcpBridgeStatus = host.start()
+        syncKeepAlive()
         mcpBridgeStatus
     }
 
@@ -756,6 +760,7 @@ class AppContainer(context: Context) {
     fun stopMcpBridge(): McpBridgeStatus = synchronized(mcpBridgeLock) {
         mcpBridgeHost?.stop()
         mcpBridgeStatus = McpBridgeStatus.Off
+        syncKeepAlive()
         mcpBridgeStatus
     }
 
@@ -792,6 +797,46 @@ class AppContainer(context: Context) {
             draftDisplayPath = mcpDraftPath,
             log = { Timber.i(it) },
         )
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  保活：两条链路共用一个前台服务（唯一锚点）
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * 把"保活前台服务该不该在"同步到两条链路的真实状态。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ⚠️ 为什么必须在**四个**启停入口都调用（而不是只放进某一条链路）
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 冷冻（cached app freezer）冻的是**整个进程**，不区分是谁的端口 ——
+     * 网关（P1）同样是"应用在后台时被 dsh 调用"的形态。
+     * 只在能力桥里加保活，等于让网关继续带着同一个病
+     * （2026-10-03 真机实证：退后台 12 秒即超时）。
+     *
+     * 语义（单一事实来源，通知文本由它派生）：
+     * - 任一条链路在跑 → 服务必须在（通知文本随组合变化）
+     * - 两条都停了 → 服务必须走
+     *
+     * ⚠️ 设计上是**唯一保活锚点**（见 `docs/后台常驻与语音交互方案-v1.0.md`）：
+     *    将来语音 / 悬浮球上线，在这里加它们的布尔值即可，不要再起第二个常驻服务。
+     */
+    private fun syncKeepAlive() {
+        val gatewayOn = dshStatus is DshIntegrationStatus.On
+        val bridgeOn = mcpBridgeStatus is McpBridgeStatus.On
+        if (gatewayOn || bridgeOn) {
+            AgentForegroundService.start(appContext, keepAliveText(gatewayOn, bridgeOn))
+        } else {
+            AgentForegroundService.stop(appContext)
+        }
+    }
+
+    /** 通知正文 —— 用户看一眼通知就知道"现在开着什么"。 */
+    private fun keepAliveText(gatewayOn: Boolean, bridgeOn: Boolean): String = when {
+        gatewayOn && bridgeOn -> "模型网关与能力桥运行中 · 点按回到应用"
+        gatewayOn -> "模型网关运行中 · 点按回到应用"
+        else -> "能力桥运行中 · 点按回到应用"
     }
 
     /**

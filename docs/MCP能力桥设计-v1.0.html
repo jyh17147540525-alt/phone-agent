@@ -615,12 +615,18 @@ nodeCount, listedCount, truncated, nodes:[{nodeId,class,text,desc,bounds:[l,t,r,
 防线只能是"不用会漂移的写法"（字面量 + 注释说清为什么）。</p>
 <p><strong>遗留（未回填，按优先级）</strong>：</p>
 <ol>
-<li><strong>⑦ 反向安全验证未在真机执行</strong>（支付/敏感页 → <code>isError</code> 拒绝）—— P2 安全验收的另一半；</li>
-<li><strong>真机遮蔽目击未执行</strong>（输入框内容是否真的被遮蔽；单测覆盖、真机未见）；</li>
-<li><strong>网关同款漂移已修、未收编</strong>：<code>HttpGatewayServer</code> 的工作树改动等待评审
-   （<code>LOOPBACK_HOST</code> 常量 + 钉字面量测试；1694 全绿 + 变异 40 红），收编后需重建
-   并在真机核对 <code>/proc/net/tcp</code> 出现该端口（IPv4 而非 <code>tcp6</code>）。</li>
+<li><strong>⑦ 反向安全验证未在真机执行</strong>（支付/敏感页 → <code>isError</code> 拒绝）—— ⏸ 被 FGS 阻断（见下）；</li>
+<li><strong>真机遮蔽目击未执行</strong>（输入框内容是否真的被遮蔽；单测覆盖、真机未见）—— ⏸ 同上；</li>
+<li><strong>网关同款漂移：已完成</strong> —— 修复已收编（提交 <code>3829e2b</code>）并真机核对通过，形态为
+   <code>::ffff:127.0.0.1:&lt;port&gt;</code>（IPv4-mapped）。★ <strong>判据修正</strong>：端口<strong>不是纯 <code>::1</code></strong> 即正确 ——
+   修好后它以 IPv4-mapped 形态<strong>仍出现在 <code>tcp6</code> 表里</strong>，按「不能出现在 tcp6」会误判成没修好。
+   变异复核（改 <code>::1</code> → 40 红）待 Windows 侧补做（当时文件被锁）。</li>
 </ol>
+<p>★ <strong>真机复验新发现（2026-10-03 午后，阻断级）</strong>：App 退到后台后进程被<strong>冷冻</strong>
+（cached app freezer）—— 进程活着、端口在听，但<strong>不响应</strong>（实测 12 秒超时、0 响应）。
+而 <code>screen_read</code> 的真实场景恰恰是「读别的 App、自己在后台」⇒ <strong>在保活前台服务（FGS）
+落地前，本桥在真实场景下不可用</strong>。FGS 已从待办升级为 P3 前置；实现见
+<code>docs/后台常驻与语音交互方案-v1.0.md</code> 的实现回写附录。</p>
 <hr />
 <h2 id="9">§9 不做什么（明确的边界）</h2>
 <ul>

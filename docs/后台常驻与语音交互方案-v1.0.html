@@ -144,6 +144,7 @@ pre code {
 <li><a href="#21">2.1 四种"自启动"触发源的现实评估</a></li>
 <li><a href="#22-ex-17">2.2 建议新增 EX-17 实验</a></li>
 <li><a href="#23-specialuse">2.3 specialUse 类型是更优选择</a></li>
+<li><a href="#24-2026-10-03">2.4 实现回写（2026-10-03）：保活前台服务落地</a></li>
 </ul>
 </li>
 <li><a href="#3">3. 系统限制全景（这是最需要你知道的部分）</a><ul>
@@ -480,6 +481,29 @@ Node 必然一起死。proot 容器在这个 App 的 uid 下跑，没有独立�
 <p>⚠️ <strong>别把 <code>specialUse</code> 当免死金牌。</strong> Google Play 会审核该说明的合理性；
 我们不上架，但<strong>滥用该类型会加速系统/厂商把我们列入管控名单</strong>。
 声明必须诚实 —— 我们确实不是"数据同步"。</p>
+<hr />
+<h3 id="24-2026-10-03">2.4 实现回写（2026-10-03）：保活前台服务落地</h3>
+<blockquote>
+<p>由 10-03 真机复验触发的一条<strong>阻断级</strong>发现落地：App 退到后台后进程被冷冻
+（cached app freezer）—— 进程活着、端口在听，但请求不响应（实测 12 秒超时）。
+而 dsh 的两条链路恰恰是"应用在后台时被调用"的形态。没有 FGS，桥在真实
+场景下不可用。</p>
+</blockquote>
+<p><strong>已实现</strong>（<code>android/app</code>）：<code>AgentForegroundService</code>（<code>assistant/</code>），manifest 以
+<code>foregroundServiceType="specialUse"</code> 声明（含 <code>PROPERTY_SPECIAL_USE_FGS_SUBTYPE</code>）。</p>
+<ul>
+<li><strong>语义</strong>：dsh 集成的两条链路（模型网关 / MCP 能力桥）<strong>共用</strong>这一个保活锚点 ——
+  任一条在跑 → 服务在；都停 → 服务走。由 <code>AppContainer.syncKeepAlive()</code> 在四个
+  启停入口统一同步，通知正文随"现在开着什么"变化。</li>
+<li><strong>通知</strong>：低优先级渠道（无声、不弹窗），点按回应用；带「全部停止」动作 ——
+  等价于把两个开关都关（走与界面完全相同的停止路径），避免"通知里能做的"
+  与"界面里能做的"产生两套状态。</li>
+<li><strong>启动时机 = 用户在前台点击开关</strong> ⇒ 不涉及"后台启动 FGS"限制；
+  "打开即就绪"的自动启动仍是 <strong>EX-17</strong>，未做。</li>
+<li><strong>已知边界</strong>：挡「冷冻」不挡「厂商强杀」（小米省电策略仍可能回收进程）——
+  界面有「无限制」+ 加锁指引；通知权限被拒时服务照跑、通知不显示，界面如实说明。</li>
+<li><strong>真机验证步骤</strong>：见 <code>docs/FGS保活-收编与真机验证-2026-10-03.md</code>。</li>
+</ul>
 <hr />
 <h2 id="3">3. 系统限制全景（这是最需要你知道的部分）</h2>
 <h3 id="31">3.1 各版本硬限制（已核实官方文档）</h3>

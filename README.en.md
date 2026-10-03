@@ -43,7 +43,7 @@ Done:
   upload path**: hard veto on sensitive pages, unconditional rejection of plugin screenshots,
   conservative drop when system-UI regions are unknown, redaction plans for input fields and
   message lists, and forged-marker detection
-- ✅ **1339 offline unit tests passing** (including 44 real-socket integration tests)
+- ✅ **1694 offline unit tests passing** (including real-socket integration tests)
 - ✅ **Release-readiness checker** (`check_release_readiness.py`, 10 rule groups R1–R10 + 20 self-tests)
 - ✅ **All five P0 on-device experiments reached conclusions** (see "M0 on-device results" below)
 - ✅ **A debug APK that builds**
