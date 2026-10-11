@@ -183,6 +183,9 @@ pre code {
 <li><a href="#82-dl-1-dl-5">8.2 分期（DL-1 … DL-5）</a></li>
 <li><a href="#83">8.3 离线可断言清单（验收汇总）</a></li>
 <li><a href="#84-dsh">8.4 与 dsh 线的关系</a></li>
+<li><a href="#85-dl-1-2026-10-11">8.5 实现回写：DL-1 已交付（2026-10-11）</a></li>
+<li><a href="#86-dl-2-2026-10-11">8.6 实现回写：DL-2 已交付（2026-10-11）</a></li>
+<li><a href="#87-dl-3-2026-10-11">8.7 实现回写：DL-3 纯逻辑部分已交付（2026-10-11）</a></li>
 </ul>
 </li>
 <li><a href="#9">§9 待拍板</a></li>
@@ -952,19 +955,19 @@ pre code {
 </thead>
 <tbody>
 <tr>
-<td><strong>DL-1</strong></td>
+<td><strong>DL-1</strong> ✅</td>
 <td>人格卡 v2 + 语言指纹 + 装配器</td>
-<td>§3.1 验收全过；与现有 1623 测试不回归</td>
+<td>§3.1 验收全过（2026-10-11 交付，见 §8.5）</td>
 </tr>
 <tr>
-<td><strong>DL-2</strong></td>
+<td><strong>DL-2</strong> ✅</td>
 <td>输出守卫 + 记忆闸门 + 体检数据</td>
-<td>OOC 样本全命中；负样本零误伤；OOC 轮次零落库</td>
+<td>OOC 样本全命中；负样本零误伤；OOC 轮次零落库（2026-10-11 交付，见 §8.6）</td>
 </tr>
 <tr>
-<td><strong>DL-3</strong></td>
-<td>状态机 + 关系阶段 + 向导 UI（首次可用闭环：设定 → 对话 → 体检）</td>
-<td>状态不进账本/漂移；阶段锁定生效</td>
+<td><strong>DL-3</strong> ◐</td>
+<td>状态机 + 关系阶段 ✅ ＋ <strong>向导 UI 待 <code>:app</code></strong></td>
+<td>状态不进账本/漂移 ✅；阶段锁定生效 ✅（纯逻辑部分 2026-10-11 交付，见 §8.7）</td>
 </tr>
 <tr>
 <td><strong>DL-4</strong></td>
@@ -995,6 +998,208 @@ pre code {
 <h3 id="84-dsh">8.4 与 dsh 线的关系</h3>
 <p>dsh（P2 起的 MCP 桥）是「手脚」的执行外包；本篇是「灵魂」。两者在 <code>:assistant</code>
 编排层交汇，接口上互不阻塞——可以两条线并行推进。</p>
+<hr />
+<h3 id="85-dl-1-2026-10-11">8.5 实现回写：DL-1 已交付（2026-10-11）</h3>
+<p><strong>落点</strong>：<code>:personalogic</code>（扩展，纯 Kotlin，进离线验证器）。<strong>未新增模块</strong>。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>文件</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>LanguageFingerprint.kt</code></td>
+<td>语言指纹（称呼 / 禁令 / 标点 / 口癖 / 句长 / 表情）+ <code>render()</code> + <code>audit()</code> + <code>UNVERIFIABLE</code> 诚实清单</td>
+</tr>
+<tr>
+<td><code>PersonaCard.kt</code></td>
+<td>人格卡 v2（①身份 ②关系 ③指纹 ⑤背景 ⑥边界）+ <code>DialogueAnchor</code> + <code>AnchorStatus</code> + <code>PersonaState</code>（⑦，运行时）</td>
+</tr>
+<tr>
+<td><code>PersonaAssembler.kt</code></td>
+<td>分层装配 L0–L5 + 预算裁剪 + <code>TokenCounter</code> 端口</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>§3.1 验收判据的落实</strong>（<code>PersonaAssemblerTest</code>，全部离线）：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>判据</th>
+<th>怎么钉的</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>输出确定且顺序稳定</td>
+<td>同输入两次装配逐字节一致；层序恒为 L0→L5</td>
+</tr>
+<tr>
+<td>超预算裁剪顺序符合上表</td>
+<td>从满预算扫到 0，被裁层的<strong>首次出现顺序</strong>恰为 记忆→锚点→状态→核心</td>
+</tr>
+<tr>
+<td>L0/L2 任意输入下不被裁</td>
+<td>每个预算档都断言 L0/L2 不在 <code>trimmedLayers</code> 且仍在输出中</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>额外钉住的三条</strong>（设计稿里是文字，这里变成断言）：</p>
+<ol>
+<li><strong>稳定前缀</strong>（§3.1 ★）：同卡不同状态/记忆/预算，L0–L2 前缀<strong>逐字节相同</strong> ——
+   这是 KV-cache 前缀命中的前提，"人格常驻部分越稳定，每轮越便宜"。</li>
+<li><strong>裁无可裁时如实上报</strong>（§overBudget）：预算低到 1 时 <code>overBudget=true</code>，
+   <strong>L0/L2 仍在</strong> —— 宁可提示"预算给少了"，不静默丢底线。</li>
+<li><strong>锚点减量但指令永存</strong>：L5 的锚点可从 N 削到 1，<code>ANTI_OOC_INSTRUCTION</code> 始终在。</li>
+</ol>
+<p><strong>实现中做的两个判断</strong>（供评审）：</p>
+<ul>
+<li><strong>L0 是常量，不从 <code>SafetyBones</code> 对象渲染</strong>。渲染版本看着更"正确"，但那样
+  <strong>一个被改坏的 bones 就能悄悄削弱 prompt 里唯一的红线宣告</strong>。
+  骨骼完整性由 <code>SafetyBones.isIntact()</code> 断言；<strong>宣告本身不依赖任何可变对象</strong>。</li>
+<li><strong>L1 刻意不含表情轴</strong>。<code>ToneAxes.emoji</code>（轴）与 <code>LanguageFingerprint.emojiRule</code>（规则）
+  是同一事实的两个来源，必然漂移 —— 漂移的表现是 prompt 里同时出现
+  "多用表情"与"不要用 emoji"两条互相矛盾的指示。装配器只保留<strong>可校验的那一份</strong>
+  （指纹的 <code>EmojiRule</code>），轴上的数值仍归 UI 与账本，只是不参与渲染。</li>
+</ul>
+<p><strong>已验证（离线）</strong>：<code>OK (1766 tests)</code>（1731 → +35）；
+变异验证——把"先裁记忆"改成"先裁语言指纹"→ <strong>3 条红</strong>（含"L0/L2 永不被裁"），还原后 sha256 一致。
+其余检查器（行尾 / 生成器 <code>--check</code> / UI markdown / kt_quotes）全绿。</p>
+<p><strong>相关坑（已钉测试）</strong>：emoji 在增补平面是<strong>代理对</strong>，按 <code>Char</code> 遍历一个都数不出来
+（表情规则会形同虚设）；<code>❤️</code> 的变体选择符 U+FE0F 不能单独计数，否则 <code>RARE</code>（上限 1）
+会对正常回复误报。</p>
+<hr />
+<h3 id="86-dl-2-2026-10-11">8.6 实现回写：DL-2 已交付（2026-10-11）</h3>
+<p><strong>落点</strong>：<code>:personalogic</code>（守卫与体检）+ <code>:memorylogic</code>（记忆闸门）。<strong>未新增模块</strong>。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>文件</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>:personalogic</code> <code>OutputGuard.kt</code></td>
+<td>输出守卫 + <code>GuardLedger</code>（破环轮次台账）</td>
+</tr>
+<tr>
+<td><code>:personalogic</code> <code>LanguageFingerprint.kt</code>（改）</td>
+<td>新增 <code>RuleStrength</code>，规则分强弱两档</td>
+</tr>
+<tr>
+<td><code>:personalogic</code> <code>PersonaHealthReport.kt</code></td>
+<td>体检数据结构 + <code>PersonaChangeNarrator</code>（账本语言化转写）</td>
+</tr>
+<tr>
+<td><code>:memorylogic</code> <code>MemoryGate.kt</code></td>
+<td>两道子闸 + <code>PersonaContradictionPort</code></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>§3.2 三条纪律的落实</strong>：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>纪律</th>
+<th>怎么钉的</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>只重写一次</strong></td>
+<td>重写额度由调用方传入；额度用尽仍命中 → <strong>放行 + 记录</strong>，测试用"额度耗尽"用例钉住</td>
+</tr>
+<tr>
+<td><strong>规则必须配负样本</strong></td>
+<td>确定性强规则才触发重写；<strong>统计性的句长只记录不重写</strong>（为句长波动改一句正常的话，是把"说清楚"改成"说很短"）</td>
+</tr>
+<tr>
+<td><strong>规则宁少勿滥</strong></td>
+<td><code>RuleStrength</code> 把"能确定性检查的"与"统计性的"分开，后者进不了重写档</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>§3.3 记忆闸门的落实</strong>：<code>screenTurns</code>（<strong>先于提取</strong>，不是提取后再删）→ 被守卫标记
+OOC 的轮次整轮不进提取；<code>screenAtoms</code>（落库前）→ 与人设矛盾的候选原子拒绝落库且带可展示理由。
+隐私过滤顺序<strong>未改动</strong>（红线）。</p>
+<p><strong>实现中做的三个判断</strong>（供评审）：</p>
+<ol>
+<li><strong>修正指令不回显违规原文</strong>。回显等于让模型<strong>再看一遍</strong>那个说法（有复述回去的风险），
+   而且这段指令可能进日志 —— 回显即制造一条内容外泄路径。</li>
+<li><strong>体检里没有 <code>score</code> / <code>grade</code> 字段</strong>，且各项比例在<strong>无样本时返回 <code>null</code></strong>
+   （返 0.0 会显示"0%（很差）"，返 1.0 会显示"100%（完美）"—— 两种都是用数字撒谎）。
+   类注释里写死了诚实条款：<strong>报告是仪表盘，不是验收单</strong>。</li>
+<li><strong>矛盾判定走窄端口且默认为"不检查"</strong>。做一个"什么都想拦"的智能矛盾检测，
+   结果是误伤 —— 用户正常的一句偏好被静默丢弃，比不拦更糟。
+   端口默认值<strong>显式命名</strong>为 <code>None</code>，避免"忘了注入"被当成"检查过了"。</li>
+</ol>
+<p><strong>已验证（离线）</strong>：<code>OK (1790 tests)</code>（1766 → +24）；
+变异验证 —— 破坏「只重写一次」→ <strong>2 条红</strong>（额度耗尽放行 / maxRewrites=0），还原后 sha256 一致。</p>
+<hr />
+<h3 id="87-dl-3-2026-10-11">8.7 实现回写：DL-3 纯逻辑部分已交付（2026-10-11）</h3>
+<p><strong>落点</strong>：<code>:personalogic</code>。<strong>向导 UI 未做</strong>（属 <code>:app</code>，需真机联调）。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>文件</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PersonaStateEngine.kt</code></td>
+<td>状态回落与事件驱动的情绪/精力演化 + <code>StatePolicy</code> + <code>PersonaEventKind</code></td>
+</tr>
+<tr>
+<td><code>RelationshipStage.kt</code></td>
+<td>关系阶段 + <code>RelationshipTracker</code> + <code>RelationshipConfig</code> + <code>StageSpeed</code> + <code>StageTransition</code></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>§4.2 状态的头号不变量：状态不进账本、不参与漂移</strong> —— 落实方式是<strong>结构性的</strong>：</p>
+<ul>
+<li><code>PersonaStateEngine</code> 的签名里只有 <code>PersonaState</code> 进出，<strong>没有</strong> <code>PersonaDelta</code> / 账本 / <code>PersonaSpec</code>；</li>
+<li><code>PersonaSpec.derive(preset, ledger)</code> 不含状态 ⇒ 类型层面就不可能把状态算进人格；</li>
+<li><code>PersonaField</code> 白名单里没有 mood / energy / closeness ⇒ <strong>用户微调不到状态</strong>。
+  这条有专门的测试挡着将来的改动（往白名单里加 MOOD 会立刻变红）。</li>
+</ul>
+<p><strong>回落目标是「中性」而不是「最低」</strong>：人会回到平时的样子，不会无限消沉 ——
+后者既不像人，也会变成一种情绪胁迫（§4.6 禁止的反模式）。
+另外<strong>事件必须带由头</strong>（构造函数强制）：没有由头的情绪就是随机情绪，而随机情绪 = 崩人设。</p>
+<p><strong>§4.4 关系阶段的四条硬规则</strong>（逐条有测试）：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>规则</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>阈值严格递增</strong></td>
+<td>反了会出现"跨过某点反而更难亲近"，而这种 bug 只在涨到那一段才暴露</td>
+</tr>
+<tr>
+<td><strong>只升不降</strong></td>
+<td>一个会自己"降温"的助理是种惩罚，而用户没做错任何事。降级只有<strong>用户主动重置</strong>这一条路</td>
+</tr>
+<tr>
+<td><strong>锁定后不推进</strong></td>
+<td>用户说"就这样吧"就是就这样（D-Life-4 落地）。但<strong>亲密度照常累积</strong> —— 锁的是"关系别自己往前走"，不是"别再对我好"</td>
+</tr>
+<tr>
+<td><strong>一次只上一级</strong></td>
+<td>跃迁是有仪式感的节点，连跳三级没有仪式可言；解锁后一次跳到底也会让人莫名其妙</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>「共同推进」的含义</strong>：进阶需要 <strong>亲密度阈值 ∧ 深度事件数量</strong> 同时满足。
+只看亲密度的话，关系会退化成<strong>活跃度积分</strong>（每天问一百遍早安就能刷满）。</p>
+<p><strong>已验证（离线）</strong>：<code>OK (1827 tests)</code>（1790 → +37）；
+变异验证 —— 短路「锁定后不推进」→ <strong>2 条红</strong>（锁定失效 / 解锁补偿），还原后 sha256 一致。</p>
 <hr />
 <h2 id="9">§9 待拍板</h2>
 <div class="tw"><table>

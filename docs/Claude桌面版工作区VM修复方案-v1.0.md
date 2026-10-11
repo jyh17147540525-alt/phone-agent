@@ -6,6 +6,42 @@
 
 ---
 
+## 0. ★ 复发记录（2026-10-11）——先看这一节
+
+**报错**（与首次不同）：
+
+```
+failed to set VHDX path: VHDX file not found:
+C:\Users\Mikel.Daniela\AppData\Local\Claude-3p\vm_bundles\claudevm.bundle\rootfs.vhdx
+```
+
+⚠️ **这次不是硬链接问题，是 `rootfs.vhdx` 文件「不见了」**（首次是"找到了但拒绝打开"）。
+症状也不同：助手**完全无法执行命令**（bash 全挂），但文件读写仍可用。
+
+**最可能的成因**：这次故障发生在**「把沙箱强度拉到最低」之后** ——
+设置变更可能让应用换/清空了 bundle 目录，或那次操作顺带删了文件。
+
+**处置顺序**：
+
+1. **先把沙箱强度设置改回去试一次。** 若改回后 VM 能起，就不要动文件——
+   那说明是设置本身的问题，而不是文件损坏。（这是成本最低、也最可能成功的一步。）
+2. 仍不行 → 跑第 5 节只读诊断，**重点看 bundle 目录里还剩哪些文件**：
+   ```powershell
+   $b = "C:\Users\Mikel.Daniela\AppData\Local\Claude-3p\vm_bundles\claudevm.bundle"
+   Get-ChildItem -LiteralPath $b -Force | Select Name, Length, LastWriteTime | Format-Table -AutoSize
+   ```
+3. `rootfs.vhdx` 确实没了 → 走**情形 D**（找副本，物理复制回来）。
+   ⚠️ **`rootfs.vhdx` 与 `sessiondata.vhdx` 性质完全不同**：
+   - `sessiondata.vhdx` 是会话数据，**可弃可重建**（情形 C）；
+   - `rootfs.vhdx` 是 VM 的**根文件系统**，**不可凭空重建** —— 必须找回副本，
+     否则只能走第 9 节兜底（修复安装 / 更新 / 重装应用以取得全新 bundle）。
+4. 全机都没有副本 → 第 9 节兜底。
+
+⚠️ **判据仍然是第 7 节第 3 条：让助手执行一条 `echo ok`，能返回输出才算修好。**
+「应用没报错」不算数 —— 它区分不了成功与失败。
+
+---
+
 ## 1. 一句话
 
 Claude 桌面版的**工作区 Linux VM** 启动失败。直接原因：VM 磁盘目录里的文件（当前是 `sessiondata.vhdx`）**带多条硬链接**，被应用的安全校验拒绝。
