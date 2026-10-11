@@ -186,6 +186,7 @@ pre code {
 <li><a href="#85-dl-1-2026-10-11">8.5 实现回写：DL-1 已交付（2026-10-11）</a></li>
 <li><a href="#86-dl-2-2026-10-11">8.6 实现回写：DL-2 已交付（2026-10-11）</a></li>
 <li><a href="#87-dl-3-2026-10-11">8.7 实现回写：DL-3 纯逻辑部分已交付（2026-10-11）</a></li>
+<li><a href="#88-dl-4-2026-10-11">8.8 实现回写：DL-4 纯逻辑部分已交付（2026-10-11）</a></li>
 </ul>
 </li>
 <li><a href="#9">§9 待拍板</a></li>
@@ -970,9 +971,9 @@ pre code {
 <td>状态不进账本/漂移 ✅；阶段锁定生效 ✅（纯逻辑部分 2026-10-11 交付，见 §8.7）</td>
 </tr>
 <tr>
-<td><strong>DL-4</strong></td>
-<td>人格包 + 社区源支持 + 内容分级</td>
-<td>越权字段拒绝；冲突检测；打包可复现</td>
+<td><strong>DL-4</strong> ◐</td>
+<td>人格包 ✅ ＋ <strong>社区源打包类型待做</strong>（与安装器一起，见 §8.8）</td>
+<td>越权字段拒绝 ✅；冲突检测 ✅；打包可复现 ✅（内容指纹；.pagent 侧待做）</td>
 </tr>
 <tr>
 <td><strong>DL-5</strong></td>
@@ -1200,6 +1201,56 @@ OOC 的轮次整轮不进提取；<code>screenAtoms</code>（落库前）→ 与
 只看亲密度的话，关系会退化成<strong>活跃度积分</strong>（每天问一百遍早安就能刷满）。</p>
 <p><strong>已验证（离线）</strong>：<code>OK (1827 tests)</code>（1790 → +37）；
 变异验证 —— 短路「锁定后不推进」→ <strong>2 条红</strong>（锁定失效 / 解锁补偿），还原后 sha256 一致。</p>
+<hr />
+<h3 id="88-dl-4-2026-10-11">8.8 实现回写：DL-4 纯逻辑部分已交付（2026-10-11）</h3>
+<p><strong>落点</strong>：<code>:personalogic</code> 的 <code>PersonaPack.kt</code>（+ 测试）。<strong>未新增模块</strong> —— 按 §2.6
+「算法全部在 <code>:personalogic</code>」的纪律，校验与冲突检测与人格模型同处。</p>
+<p><strong>§8.3 第 8 条三条判据的落实</strong>：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>判据</th>
+<th>怎么钉的</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>越权字段拒绝</strong></td>
+<td>字段声明走<strong>既有的</strong> <code>PersonaFieldRefs.resolve</code> 三态解析器（不另写一套）。★ 关键在「<strong>骨骼</strong>」与「<strong>未知</strong>」必须分成两种结论 —— 合并会让一次<strong>攻击尝试</strong>与一次<strong>口误</strong>长得一样，用户无从判断"这个包是不是想动我的安全设置"</td>
+</tr>
+<tr>
+<td><strong>冲突检测</strong></td>
+<td>一个字段只能有一个占位者（§6.2）。检出后<strong>不自动裁决</strong>（"先装的赢"会让用户在很久以后发现"我改了称呼它没改"）—— 未裁决时<strong>不给出生效集合</strong>，只如实返回还欠哪些裁决</td>
+</tr>
+<tr>
+<td><strong>打包可复现</strong></td>
+<td><code>PersonaPackCanonical</code>：规范化文本 + SHA-256 内容指纹。三件事钉死 —— 字段顺序手写（不靠 Map 迭代）、<code>claims</code> 排序（声明顺序不属于包的身份）、<strong>null 用 <code>∅</code> 占位</strong>（否则"作者是空串"与"没有作者"撞成同一指纹）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>实现中做的三个判断</strong>（供评审）：</p>
+<ol>
+<li><strong>包清单里根本没有 <code>capabilities</code> 字段</strong>，且解析用 <code>ignoreUnknownKeys = false</code>
+   —— <strong>遇到不认识的键就拒收</strong>。这与 <code>:mcp</code> 工具参数刻意相反（那里忽略多余字段）：
+   工具参数多一个无害字段只浪费几个 token，而包清单多一个读不懂的键<strong>很可能是越权声明</strong>，
+   静默忽略等于放行。<strong>两个方向的取舍不同，是因为风险不同。</strong></li>
+<li><strong>冲突的输家整体禁用</strong>，而不是"只让出这一个字段" —— 部分生效的包是最难解释的状态
+   （用户以为装了 A，实际一半是 B）。</li>
+<li><strong>分级过滤必须可见</strong>：返回被隐藏的数量与名单，UI 能说出「有 N 个包被你的设置隐藏了」。
+   静默过滤会让用户以为"社区里就这些"（§6.4 既有立场：违规条目明确展示，不静默过滤）。</li>
+</ol>
+<p><strong>尚未做（有意）</strong>：<code>community-source/build_source.py</code> 的人格包打包类型。</p>
+<blockquote>
+<p><strong>为什么留到下一步</strong>：打包脚本里<strong>已经有</strong>可复现机制（固定时间戳/压缩级别/权限位/来源系统），
+加一条包类型是加法。但<strong>现在还没有消费方</strong> —— 客户端装不了人格包（需要 <code>:app</code> 的
+安装器与冲突裁决 UI 一起落地）。在没有消费方的时候定包格式，等于<strong>猜一个还没问出口的需求</strong>；
+而猜错的代价是格式定错、已分发的包全废。这与项目「三个决定性实验未做前不写更多代码」
+是同一条纪律。
+⇒ 与 §6.2 的原计划（"扩展一个包类型"）不冲突，只是<strong>排序</strong>变了：先做校验内核，
+打包与安装器一起做。</p>
+</blockquote>
+<p><strong>已验证（离线）</strong>：<code>OK (1852 tests)</code>（1827 → +25）；
+变异验证 —— 把「越权」合并进「没听懂」→ <strong>3 条红</strong>，还原后 sha256 一致。</p>
 <hr />
 <h2 id="9">§9 待拍板</h2>
 <div class="tw"><table>
