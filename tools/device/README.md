@@ -1,5 +1,25 @@
 # tools/device —— 真机验证工具（在 Windows 上运行）
 
+## collect-env.cmd / collect_env.py ← **先跑这个**
+
+**一次性把手机的关键环境抓下来存进仓库**，之后**脱离手机也能开发**。
+
+**双击 `collect-env.cmd` 即可**（只读，不改手机上的任何东西）。产出在
+`tools/device/reports/env-<时间戳>.txt`（+ `.json`），把它交给 Claude 就能更新
+[`docs/设备档案-v1.0.md`](../../docs/设备档案-v1.0.md)。
+
+采集九组：设备标识 / 系统版本 / 屏幕 / 资源 / 开发调试状态 /
+应用与依赖工具 / 无障碍 / 后台省电 / 容器与 dsh。
+
+```
+python tools/device/collect_env.py [--serial 192.168.137.165:5555] [--json-only]
+```
+
+**无线调试**：先在手机上开启「无线调试」，然后
+`adb connect 192.168.137.165:5555`，再用 `--serial` 指定同一个地址。
+
+---
+
 ## verify-fgs.cmd / verify_fgs.py
 
 FGS 保活批次（2026-10-03）的**一键真机验证**。**双击 `verify-fgs.cmd` 即可**。
