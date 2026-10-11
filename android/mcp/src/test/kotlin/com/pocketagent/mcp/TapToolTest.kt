@@ -318,4 +318,15 @@ class TapToolTest {
         assertTrue(tool.name.matches(Regex("[A-Za-z0-9_-]+")))
         assertEquals("object", tool.inputSchema()["type"]!!.jsonPrimitive.content)
     }
+
+    @Test
+    fun `schema 里带遮蔽节点必须用 node_id 的提示`() {
+        // 真机实测补的（workbuddy，2026-10-03）：遮蔽文本定位必然失败。
+        // 这条墙模型第一次都会撞 —— 提示写在 schema 里，就不该被后人"顺手精简"掉。
+        val tool = tool(FakeReader(capture(), events), FakeSafety(events), FakeDispatch(events))
+        val schema = tool.inputSchema().toString()
+        assertTrue("要提示遮蔽占位符", schema.contains("[已遮蔽]"))
+        assertTrue("要给出正确的替代定位方式", schema.contains("node_id"))
+        assertTrue("要说明 nodeId 与 bounds 在 structuredContent 里", schema.contains("structuredContent"))
+    }
 }

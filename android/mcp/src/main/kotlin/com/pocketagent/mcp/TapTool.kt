@@ -87,7 +87,14 @@ class TapTool(
                     "description",
                     "要点击的目标。kind=node_id 时必填 nodeId 与 bounds（一起从 screen_read 输出原样抄）；" +
                         "kind=text 时填 text（可用 exact 控制是否精确匹配）；" +
-                        "kind=coordinates 时填 x 与 y（整数像素）",
+                        "kind=coordinates 时填 x 与 y（整数像素）。" +
+                        // ⚠️ 真机实测补的一条（workbuddy，2026-10-03）：可输入框的文本
+                        //    在 screen_read 的文本输出里是遮蔽占位符，而真实树里是原文
+                        //    ⇒ 用遮蔽文本做 kind=text 定位**必然失败**。
+                        //    协议本身是自洽的（遮蔽节点用 node_id 定位），但这道墙
+                        //    每个模型第一次都会撞 —— 写在 schema 里就不必撞了。
+                        "⚠️ 可输入框的文本在 screen_read 输出中显示为 [已遮蔽]，无法用 text 定位；" +
+                        "请改用 kind=node_id（nodeId 与 bounds 都在 structuredContent 的对应节点里）。",
                 )
                 putJsonObject("properties") {
                     putJsonObject("kind") {
