@@ -853,6 +853,33 @@ object ProviderProfiles {
             Capability.JSON_MODE,
         ),
         defaultModels = listOf(
+            // ⚠️ 2026-10-12 补：在此之前只有 GLM-4 系列，用户想用 GLM-5.3 只能**手打 id**，
+            //    而手打的结果是 `glm5.3flash`（丢了全部连字符）→ 服务端报「模型不存在」。
+            //    用户看到这句话会去查钱包和 Key，排查方向完全错。
+            //    **让 id 可以从清单里选，比教用户"抄对"可靠得多。**
+            //    价格留 null（未知）—— 官方文档没给确切数字，宁缺毋滥
+            //    （价格回落链的最后一级必须是 null，见 ModelTier.estimatedCost）。
+            ModelInfo(
+                id = "glm-5.3-flash",
+                displayName = "GLM-5.3 Flash（原生多模态 · 1M 上下文）",
+                capabilities = setOf(
+                    Capability.STREAM, Capability.VISION, Capability.TOOL_CALL, Capability.JSON_MODE,
+                ),
+                contextWindow = 1_000_000,
+                inputPricePerMillion = null,
+                outputPricePerMillion = null,
+                recommended = true,
+            ),
+            ModelInfo(
+                id = "glm-5.3-flashx",
+                displayName = "GLM-5.3 FlashX（200 tokens/s 高速版）",
+                capabilities = setOf(
+                    Capability.STREAM, Capability.VISION, Capability.TOOL_CALL, Capability.JSON_MODE,
+                ),
+                contextWindow = 1_000_000,
+                inputPricePerMillion = null,
+                outputPricePerMillion = null,
+            ),
             ModelInfo(
                 id = "glm-4-flash",
                 displayName = "GLM-4 Flash（免费档）",

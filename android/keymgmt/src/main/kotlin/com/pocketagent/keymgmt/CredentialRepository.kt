@@ -362,6 +362,50 @@ class CredentialRepository(
      * @return null 表示还没有可用的默认凭据。调用方应引导用户去配置，
      *         而不是抛异常 —— "还没配 Key"是正常状态，不是错误。
      */
+    /**
+     * 在受控作用域内用**指定**凭据发请求（2026-10-12 加）。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★ 为什么必须有它：模型绑的 Key 与「默认 Key」是两回事
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 用户可能配了多条 Key（不同厂商）。模型配置里每条都带 `credentialId`
+     * （「这个模型用哪条 Key」），而 [useDefaultKey] **完全不看它** ——
+     * 它只认「默认那条」。
+     *
+     * ⇒ 两者不一致时，请求会带着 A 厂商的 Key 打到 B 厂商的端点，
+     *   而 B 的端点当然不认识这个模型名 —— 报出来的是**「模型不存在」**。
+     *   用户看到这句话只会去查模型名和钱包，**排查方向完全错**。
+     *
+     * ⚠️ 用途仍然硬编码为 [CredentialPurpose.LLM]（同 [useDefaultKey] 的理由）。
+     *    这里**额外核对一次** entity 的用途：传进来一条 TTS 的 Key 会让请求
+     *    打到错误的端点上，而报错会是「Key 无效」—— 那个 Key 在语音场景明明好着。
+     *
+     * ⚠️ 与 [useDefaultKey] 一样：作用域结束（含异常路径）明文立即清零。
+     *
+     * @return null 表示该凭据不存在、用途不对、或它指向的 provider 不认识 ——
+     *         调用方应引导用户重新绑定，而不是抛异常。
+     */
+    suspend fun <T> useKey(
+        credentialId: String,
+        block: suspend (provider: LlmProvider, credential: ProviderCredential) -> T,
+    ): T? {
+        val entity = dao.byId(credentialId) ?: return null
+        if (entity.purpose != CredentialPurpose.LLM) return null
+        val provider = providers.firstOrNull { it.id == entity.providerId } ?: return null
+
+        return crypto.withDecryptedKey(
+            EncryptedBlob(ciphertext = entity.ciphertext, iv = entity.iv)
+        ) { plain ->
+            val credential = ProviderCredential(plain, entity.baseUrlOverride)
+            try {
+                block(provider, credential)
+            } finally {
+                credential.clear()
+            }
+        }
+    }
+
     suspend fun <T> useDefaultKey(
         block: suspend (provider: LlmProvider, credential: ProviderCredential) -> T,
     ): T? {

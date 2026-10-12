@@ -78,8 +78,26 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
         //    办公对话的第一步是"能说话"，路由是第二步。
         //    而且路由失败时的降级语义（用哪个兜底）需要单独设计，
         //    混进第一版会让"为什么这次用了贵模型"变得无法解释。
-        val model = container.modelRepository()?.all()?.firstOrNull()?.id
-            ?: return ChatResult.Failed("还没有配置可用的模型。请到「模型」页面添加一个。")
+        // ⚠️ 这里曾经有一个**只在真机上才暴露**的 bug，两个错叠在一起：
+        //
+        //   ① 取的是 `ModelConfig.id` —— 那是**数据库行 id（UUID）**；
+        //      而 `ChatRequest.model` 要的是 `ModelConfig.modelId`（如 "deepseek-chat"）。
+        //      `ModelConfig.id` 的源码注释本来就写着「对应数据库 model_config.id」，
+        //      是这里读错了字段 —— **编译期不会有任何提示**。
+        //   ② 发请求时用的是 `useDefaultKey`（默认那条 Key），
+        //      而**不看这个模型自己绑的 `credentialId`**。
+        //      两者不一致时，A 厂商的 Key 打到 B 厂商的端点，B 当然不认识这个模型。
+        //
+        //   两个错的表现**完全一样**：一说话就报「模型不存在」。
+        //   而用户的 Key 和余额都没问题 —— 于是他只会去查钱包，
+        //   排查方向完全错。这是本项目头号 bug 形态「安静地少做一件事」的又一例。
+        val config = container.modelRepository()
+            ?.all()
+            ?.firstOrNull { it.enabled }
+            ?: return ChatResult.Failed(
+                "还没有可用的模型。请到「模型」页面添加一个，并确认它处于启用状态。",
+            )
+        val model = config.modelId
 
         // ── ③ 组装系统提示词 ────────────────────────────────────
         //
@@ -104,22 +122,33 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
         val messages = listOf(ChatMessage.system(system)) + history
 
         // ── ④ 在受控作用域内发请求 ──────────────────────────────
-        val text = store.useDefaultKey { provider, credential ->
-            val sb = StringBuilder()
-            provider.chat(
-                request = ChatRequest(model = model, messages = messages),
-                credential = credential,
-            ).collect { chunk ->
-                when (chunk) {
-                    is ChatChunk.Delta -> sb.append(chunk.text)
+        // ⚠️ 用**这个模型自己绑的那条 Key**，不是「默认那条」—— 见上面 ② 的注释。
+        //
+        // ⚠️ 这里必须 catch：`send` 对外承诺不抛异常，而 provider 的异常会从
+        //    `collect` 里冒出来。之前靠界面层兜 —— 但那样就**没机会**把厂商那句
+        //    干巴巴的报错翻译成「用户下一步该做什么」。
+        val text = try {
+            store.useKey(config.credentialId) { provider, credential ->
+                val sb = StringBuilder()
+                provider.chat(
+                    request = ChatRequest(model = model, messages = messages),
+                    credential = credential,
+                ).collect { chunk ->
+                    when (chunk) {
+                        is ChatChunk.Delta -> sb.append(chunk.text)
                     // 推理过程不进正文 —— 它是模型的"草稿"，用户要的是答复
-                    is ChatChunk.Reasoning -> Unit
-                    // 工具调用在本版不处理（办公循环走的是另一条线）
-                    is ChatChunk.ToolCallDelta -> Unit
-                    is ChatChunk.Done -> Unit
+                        is ChatChunk.Reasoning -> Unit
+                        // 工具调用在本版不处理（办公循环走的是另一条线）
+                        is ChatChunk.ToolCallDelta -> Unit
+                        is ChatChunk.Done -> Unit
+                    }
                 }
+                sb.toString()
             }
-            sb.toString()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e // 协程取消必须原样上抛，不许吞
+        } catch (e: Exception) {
+            return ChatResult.Failed(explain(e))
         }
 
         return when {
@@ -129,3 +158,37 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
         }
     }
 }
+
+    /**
+     * 把服务端的报错翻译成「用户下一步该做什么」。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★ 为什么必须翻译：厂商那句话会把排查方向带偏
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 真实案例（内测用户，2026-10-12）：配了 `glm5.3flash`，服务端回
+     * 「模型不存在，请检查模型代码」。用户看到这句话的反应是
+     * **去查钱包余额、查 Key 有没有过期** —— 而真正的答案是
+     * **厂商的模型代码带连字符**（`glm-5.3-flash`）。
+     *
+     * 这不是用户的错：内置清单里没有这个模型，他只能手打；
+     * 而手打丢连字符是最自然的错误。⇒ 治本是把 id 做成可选项（已做），
+     * 治标是**在这里把方向纠正过来**。
+     *
+     * ⚠️ 刻意只在命中「模型不存在」时追加提示，其它报错原样透传 ——
+     *    猜错了方向再给一条错误提示，比不给更糟。
+     */
+    private fun explain(e: Exception): String {
+        val raw = e.message ?: e::class.simpleName ?: "未知错误"
+        val modelMissing = "模型不存在" in raw ||
+            ("model" in raw.lowercase() && "not found" in raw.lowercase())
+        return if (modelMissing) {
+            "$raw\n\n" +
+                "提示：这句话几乎总是「模型 id 抄错了」。厂商的模型代码**带连字符**，" +
+                "例如智谱是 glm-5.3-flash 而不是 glm5.3flash。" +
+                "请到「设置 → 模型配置」核对 id 是否与厂商文档逐字符一致 —— " +
+                "它与你的 Key 和余额无关。"
+        } else {
+            raw
+        }
+    }

@@ -35,6 +35,14 @@ class PocketAgentApp : Application() {
         }
 
         container = AppContainer(this)
+
+        // ★ 把上次退出时「开着」的模型出口 / 能力桥重新开起来。
+        //
+        // ⚠️ 放在这里（Application.onCreate）而不是某个界面里：
+        //    它必须**早于**用户点开 dsh 集成页 —— 否则用户看到的是"未开启"，
+        //    然后手动点一次，而那一次恰好也会成功 —— 于是这个 bug
+        //    **永远表现得像"没问题"**。
+        container.restoreEnabledIntegrations()
     }
 }
 

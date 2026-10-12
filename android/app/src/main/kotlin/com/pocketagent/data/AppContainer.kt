@@ -79,6 +79,9 @@ import com.pocketagent.provider.openaicompat.ProviderProfiles
 import com.pocketagent.provider.ttsopenai.OpenAiCompatTtsProvider
 import com.pocketagent.provider.ttsopenai.TtsProfiles
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -228,6 +231,7 @@ class SubscriptionRepository(
 
         /** 用户是否主动删除过内置源。删过就不再自动加回，直到他手动恢复 */
         private val KEY_BUILTIN_DISMISSED = booleanPreferencesKey("builtin_source_dismissed")
+
 
         /**
          * 内置官方源。
@@ -647,6 +651,9 @@ class AppContainer(context: Context) {
             is DshGatewayStartResult.Running ->
                 DshIntegrationStatus.On(baseUrl = result.baseUrl, delivery = result.delivery)
         }
+        // ⚠️ 只记**成功**的那一次（同能力桥的理由）：把 Blocked 记成"用户想开着"
+        //    会让下次冷启动去重试一个当时就起不来的东西，而用户从没成功开过它。
+        rememberIntegration(KEY_DSH_ON, dshStatus is DshIntegrationStatus.On)
         syncKeepAlive()
         dshStatus
     }
@@ -662,6 +669,7 @@ class AppContainer(context: Context) {
     fun stopDshIntegration(): DshIntegrationStatus = synchronized(dshLock) {
         dshSession?.stop()
         dshStatus = DshIntegrationStatus.Off
+        rememberIntegration(KEY_DSH_ON, false)
         syncKeepAlive()
         dshStatus
     }
@@ -814,6 +822,9 @@ class AppContainer(context: Context) {
     fun startMcpBridge(): McpBridgeStatus = synchronized(mcpBridgeLock) {
         val host = mcpBridgeHost ?: buildMcpBridgeHost().also { mcpBridgeHost = it }
         mcpBridgeStatus = host.start()
+        // ⚠️ 只记**成功**的那一次 —— 把失败记成"用户想开着"会让下次冷启动
+        //    去重试一个当时就起不来的东西，而用户从没成功开过它。
+        rememberIntegration(KEY_BRIDGE_ON, mcpBridgeStatus is McpBridgeStatus.On)
         syncKeepAlive()
         mcpBridgeStatus
     }
@@ -822,6 +833,7 @@ class AppContainer(context: Context) {
     fun stopMcpBridge(): McpBridgeStatus = synchronized(mcpBridgeLock) {
         mcpBridgeHost?.stop()
         mcpBridgeStatus = McpBridgeStatus.Off
+        rememberIntegration(KEY_BRIDGE_ON, false)
         syncKeepAlive()
         mcpBridgeStatus
     }
@@ -962,6 +974,65 @@ class AppContainer(context: Context) {
      * ⚠️ 设计上是**唯一保活锚点**（见 `docs/后台常驻与语音交互方案-v1.0.md`）：
      *    将来语音 / 悬浮球上线，在这里加它们的布尔值即可，不要再起第二个常驻服务。
      */
+    /**
+     * 启动期用的一次性协程作用域。
+     *
+     * ⚠️ 它**不属于任何界面** —— Application 级，进程活着它就活着。
+     *    这里只跑"读偏好 / 恢复开关 / 写偏好"这类短任务。
+     */
+    private val startupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * ★ 把上次退出时「开着」的东西重新开起来。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  为什么需要它
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * `startMcpBridge()` / `startDshIntegration()` 是**内存态** —— 进程一死
+     * 就回到 Off。于是用户每次打开 App 都要重新点两下开关，
+     * 而"我上次明明开着"这件事**界面上一个字都没说**。
+     *
+     * ⚠️ 恢复的是**用户上次的选择**，不是"默认全开"：
+     *    没开过的东西不会被偷偷开起来（那会让"我没开它却自己在跑"变成现实）。
+     *
+     * ⚠️ 恢复失败**不报错也不重试**：它发生在冷启动路径上，
+     *    失败的原因几乎都是"无障碍没开""端口被占"这类**用户能看见的状态** ——
+     *    界面上的开关会如实显示 Off，用户去点一下就知道为什么。
+     *    在这里弹错误框只会让冷启动多一个莫名其妙的弹窗。
+     */
+    fun restoreEnabledIntegrations() {
+        startupScope.launch {
+            val prefs = runCatching { pluginSourceStore.data.first() }.getOrNull() ?: return@launch
+            if (prefs[KEY_DSH_ON] == true) runCatching { startDshIntegration() }
+            if (prefs[KEY_BRIDGE_ON] == true) runCatching { startMcpBridge() }
+        }
+    }
+
+    /**
+     * 记住用户的开关选择。
+     *
+     * ⚠️ **fire-and-forget**：写偏好在 IO 上异步做，不阻塞开关的返回。
+     *    代价是"点了开关之后进程立刻被杀"会丢这次记录 —— 那是可接受的：
+     *    丢了的表现只是"下次要再点一下"，而不是"开了没开说不清"。
+     */
+    private fun rememberIntegration(key: Preferences.Key<Boolean>, on: Boolean) {
+        startupScope.launch { runCatching { pluginSourceStore.edit { it[key] = on } } }
+    }
+
+    /**
+     * 首次启动引导是否已经看过。
+     *
+     * ⚠️ 判据是**一个显式标记**，不是"权限齐不齐" ——
+     *    后者会让用户每次少开一个权限就被重新弹一次，那是骚扰。
+     */
+    val firstRunSeen: Flow<Boolean> = pluginSourceStore.data.map { it[KEY_FIRST_RUN_SEEN] == true }
+
+    /** 用户看过了首次引导（点掉那个弹窗时调用）。 */
+    suspend fun markFirstRunSeen() {
+        runCatching { pluginSourceStore.edit { it[KEY_FIRST_RUN_SEEN] = true } }
+    }
+
     private fun syncKeepAlive() {
         val gatewayOn = dshStatus is DshIntegrationStatus.On
         val bridgeOn = mcpBridgeStatus is McpBridgeStatus.On
@@ -996,6 +1067,19 @@ class AppContainer(context: Context) {
         AtomicTextFile.write(File(appContext.filesDir, relativePath), content)
 
     private companion object {
+        /**
+         * 用户上次把「模型出口 / 能力桥」开着没有。
+         *
+         * ⚠️ 键名带 `_v1`：将来若语义变了（比如"开启"的含义从"进程内跑"变成
+         *    "随系统启动"），**换键名**比"沿用旧键 + 猜旧值的意思"安全 ——
+         *    后者会让老用户带着一个含义已变的 `true` 升级上来。
+         */
+        private val KEY_DSH_ON = booleanPreferencesKey("dsh_integration_on_v1")
+        private val KEY_BRIDGE_ON = booleanPreferencesKey("mcp_bridge_on_v1")
+
+        /** 首次启动引导是否已看过。**用户点掉弹窗才置位**，不随版本重置。 */
+        private val KEY_FIRST_RUN_SEEN = booleanPreferencesKey("first_run_seen_v1")
+
         /**
          * 数据库口令的密文文件。
          *

@@ -9,8 +9,19 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Extension
@@ -39,7 +50,11 @@ import com.pocketagent.data.AppContainer
 import com.pocketagent.ui.design.AuroraBackground
 import com.pocketagent.ui.design.PaBottomBar
 import com.pocketagent.ui.design.PaMotion
+import com.pocketagent.ui.design.PaColor
 import com.pocketagent.ui.design.PaNavItem
+import com.pocketagent.ui.design.PaRadius
+import com.pocketagent.ui.design.PaSpace
+import com.pocketagent.ui.design.PaType
 import com.pocketagent.ui.design.PaTransition
 import com.pocketagent.ui.dsh.DshIntegrationScreen
 import com.pocketagent.ui.dsh.DshIntegrationViewModel
@@ -154,6 +169,30 @@ fun AppShell(container: AppContainer) {
     //    它本身无状态（每次 send 都重新取凭据、用完清零），但**重复构造会让
     //    remember 的 key 变化 → 重建 ViewModel → 丢掉整个任务列表**。
     val chatPort = remember(container) { ContainerChatPort(container) }
+
+    // ── 首次启动引导 ────────────────────────────────────────────────
+    // ★ 只在**第一次**打开 App 时弹一次。
+    //
+    // ⚠️ 判据是一个**显式标记**，不是「权限齐不齐」——
+    //    后者会让用户每少开一个权限就被重新弹一次，那是骚扰，不是引导。
+    // ⚠️ `initialValue = true`：首帧先当成「看过」，等偏好读回来再决定弹不弹。
+    //    反过来会让老用户每次冷启动都闪一下弹窗（而它随即消失）。
+    val guideScope = rememberCoroutineScope()
+    val firstRunSeen by container.firstRunSeen.collectAsStateWithLifecycle(initialValue = true)
+    var guideDismissed by rememberSaveable { mutableStateOf(false) }
+    if (!firstRunSeen && !guideDismissed) {
+        FirstRunGuide(
+            onGoGrant = {
+                guideDismissed = true
+                guideScope.launch { container.markFirstRunSeen() }
+                navController.navigate(Routes.PERMISSIONS)
+            },
+            onDismiss = {
+                guideDismissed = true
+                guideScope.launch { container.markFirstRunSeen() }
+            },
+        )
+    }
 
     // ⚠️ 任务状态持有者提升到**外壳**这一层，而不是留在 TasksScreen 里。
     //    原因见 TasksScreen 的 viewModel 参数注释：它不继承 ViewModel，
@@ -477,5 +516,85 @@ fun AppShell(container: AppContainer) {
                 )
             }
         }
+    }
+}
+
+
+/**
+ * 首次启动引导 —— 说清「要开什么」和「为什么」。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  ★ 为什么这段话必须由应用来说，而不是让用户自己摸索
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * 无障碍 / 悬浮窗 / 通知 / 截图这四项，**系统不允许应用自己开** ——
+ * 必须用户亲手在系统设置里点。而用户第一次打开这个应用时，
+ * 他唯一的信息来源是一个写着「权限状态」的页面，上面四个词他一个都不懂。
+ *
+ * ⇒ 结果是他要么不开（应用什么都干不了，然后被卸载），
+ *   要么闭眼全开（**包括他其实不想给的那些**）。两种都不是好结局。
+ *
+ * ⚠️ 这里**只说明，不催**：没有"必须开启才能继续"，也没有倒计时。
+ *    用户点「稍后」就真的稍后，而且**不会再弹**（标记已经置位）。
+ *
+ * ⚠️ 最后一段那句「之后不需要你再点」不是安慰话 —— 它是真的：
+ *    权限由系统记住，应用内的开关也会在冷启动时自动恢复
+ *    （见 `AppContainer.restoreEnabledIntegrations`）。
+ */
+@Composable
+private fun FirstRunGuide(
+    onGoGrant: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = PaColor.Surface,
+        shape = RoundedCornerShape(PaRadius.l),
+        title = {
+            Text(
+                text = "先开几个权限，我才干得了活",
+                style = PaType.headline,
+                color = PaColor.TextPrimary,
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(PaSpace.s)) {
+                Text(
+                    text = "所有操作都在你手机上完成，数据不出设备。但有四件事必须由你亲手授权 —— " +
+                        "系统不允许应用自己开：",
+                    style = PaType.body,
+                    color = PaColor.TextSecondary,
+                )
+                GuideItem("辅助功能（无障碍）", "读屏与点击。不开启我什么都做不了。")
+                GuideItem("通知", "任务跑起来时你能随时看到进度，也方便一键停下。")
+                GuideItem("悬浮窗", "在别的应用上面显示一个「急停」入口。")
+                GuideItem("截图", "读屏读不到内容时的兜底（部分应用不暴露文字）。")
+                Text(
+                    text = "授权是「一次性」的 —— 系统会记住。之后每次打开我都在，" +
+                        "不需要你再点一遍。",
+                    style = PaType.body,
+                    color = PaColor.TextPrimary,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onGoGrant) {
+                Text("去授权", color = PaColor.Accent)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("稍后", color = PaColor.TextSecondary)
+            }
+        },
+    )
+}
+
+/** 引导里的一项：**粗体名字 + 一句"它能让我做什么"**。 */
+@Composable
+private fun GuideItem(name: String, why: String) {
+    Column {
+        Text(text = name, style = PaType.label, color = PaColor.TextPrimary)
+        Text(text = why, style = PaType.caption, color = PaColor.TextSecondary)
     }
 }
