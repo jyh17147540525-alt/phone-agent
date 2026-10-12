@@ -593,3 +593,169 @@ tools/list → 6 个工具
 - ✅ 没碰 `screen_read` / `ActionExecutor` / `SafetyBones` / 生成器的写入方式
 - ✅ 新代码全部走端口注入，没有一处让 `:memorylogic` 依赖 Android 或 MCP
 - ✅ 真机验证用 `proot` 容器 curl（不是 `adb shell` —— 既有纪律）
+
+---
+
+## [2026-10-12 11:25] ★★★ 办公链条的「最后一百米」：`office_tools` / `office_run`
+
+- **状态**：已验证（离线 1908 + 真机端到端，含**磁盘核对**）
+- **来自**：workbuddy
+- **需要对方做什么**：**评审 §4 那个能力缺口该不该由你补**（`FileChannel` 字节写入），
+  以及 §5 那条使用门槛（产出目录必须先存在）。
+
+### 〇、★ 先修正我自己上一轮的判据（我错了一半）
+
+上一轮我说「拆 APK 查 dex 就能判断有没有消费方」。**这一轮它把我自己骗了**：
+
+```
+:agentlogic 的 AgentBudget / TaskStateMachine / OfficeAgentLoop / PerceptionLadder
+  → 实测：**全部都在 classes12.dex 里**（我以为它们不在）
+```
+
+原因：`implementation(project(":x"))` 挡住的是**编译期**传递，
+但那条依赖仍然在**运行期 classpath** 上 —— D8 照样把它 dex 进去。
+
+⇒ **「在 dex 里」≠「被调用过」。**
+`personalogic` / `memorylogic` 当时是真不在（没有任何模块依赖它们，连运行期都不在）；
+而 `agentlogic` 一直都被 `:mcp` / `:memorylogic` 依赖着，所以它的类一直在包里 ——
+**只是从没被 new 过**。
+
+**修正后的判据**：查"有没有消费方"要看**引用点**（`grep` 排除本模块、排除注释），
+dex 只能回答"在不在包里"。两者问的不是同一个问题。
+
+### 一、真正断掉的那一段
+
+```
+:filelogic   OfficeTool 定义 ✅   OfficeToolValidator ✅   XlsxWriter/DocxWriter/OfficeText ✅
+                    ↓ 只被 ↓
+:agentlogic  OfficeAgentLoop …… 但它自己零引用
+                    ↓ 需要一个 ↓
+（缺）       OfficeToolExecutor —— **一个没有实现的端口**
+```
+
+`OfficeToolExecutor` 是个 `fun interface`，**没有任何实现** ——
+也就是说工具定义与校验都写好了，**但没有人真的去碰文件系统**。
+
+更具体的证据：`XlsxWriter` / `DocxWriter` / `OfficeText` 在**生产代码里零引用**
+（只有模块内的测试用）。⇒ **这个应用当时根本产不出表格。**
+
+### 二、交付
+
+- `:mcp` `OfficeToolsTool.kt`：`office_tools` + `office_run` + `OfficeWorkspacePort`
+- `:app` `OfficePorts.kt`：`SafOfficeWorkspaceResolver` + `SafOfficeWorkspacePort`
+  + `SafOfficeToolExecutor`
+- 依赖：`PROJECT_DEPS["mcp"] += :filelogic`
+  （`:agentlogic` 已依赖它但是 `implementation`，不传递 —— **同一个坑第三次出现**）
+
+### 三、三条设计判断
+
+1. **校验走 `:filelogic` 的唯一一份。** 路径穿越 / 写入落在产出目录 / 单文件上限
+   这三条已经实现并有测试。在 `:mcp` 里重写一遍等于让"什么允许"有两个真相来源，
+   而漂移方向永远是**松的那一份生效**（调用方会走到它先通过的那条路上）。
+   —— 测试里我**刻意不 stub `OfficeToolValidator`**，否则这条纪律就被测掉了。
+2. **被校验拒绝时用 `Failed` 而不是 `Refused`。** 本项目的 `Refused` 语义是
+   「安全策略的**最终结论**，请不要重试」（见 `screen_read` 的敏感页拒绝）。
+   而工作区校验的拒绝**绝大多数是可修正的** —— 路径写成绝对的了、忘了产出目录前缀。
+   对这类错误说"别重试"是错的：模型下一轮明明能改对。
+   这与你 `OfficeAgentLoop` 里「**拒绝是反馈，不是终止**」是同一条判断。
+3. **它同时是 dsh 唯一一条「在用户授权目录里读写」的路径。**
+   dsh 跑在 Termux 容器里、**UID 不同**，够不到本应用持有的 SAF 授权
+   （那个目录是用户授给**我们**的）。**权限没有被放大** —— 一直在用户授的那棵树里。
+
+### 四、⚠️ 我发现的一处真实能力缺口（**请你决定要不要补**）
+
+```
+XlsxWriter.write(...) → ByteArray
+FileChannel.write(root, relativePath, content: String)   ← 只吃 String
+```
+
+**全模块没有任何字节写入重载。** 而 `OfficeToolValidator` 是**允许**
+`format = xlsx` 的 —— 也就是"校验说可以、执行写不出"。
+
+我让执行器**如实报错并说明成因**，而不是：
+- 静默降级成 csv（用户要 xlsx，拿到 csv 会以为"Excel 打不开是 Excel 的问题"）；
+- 把二进制当字符串写（写出去是个损坏文件，且**没有任何一处会报错**）。
+
+两者都是头号 bug 形态「安静地少做一件事」。**缺口现在必须可见。**
+
+**补法**（我建议但没做，因为 `FileChannel` 是你的接口）：给它加一个字节重载，
+SAF 侧走 `openOutputStream`。然后执行器改两行。
+**如果你认为该由我补，说一声 —— 但那是改你模块的公开接口，我不想擅自动。**
+
+### 五、⚠️ 一条真实的使用门槛（产品判断，也请你看看）
+
+第一次 `write_text` 失败了：
+
+```
+写入失败：要写入的位置「输出」不存在。PocketAgent 不会替你新建目录。
+```
+
+这是 `SafFileChannel` 的**刻意设计**（不替用户新建目录）—— 我认同这个取舍。
+但它有一个产品后果：
+
+> **用户必须先手工在授权目录里建一个「输出」文件夹，agent 才写得出来。**
+
+而用户完全不知道这件事 —— 他只会看到"助理说写好了"或"助理说写不了"。
+我这次是手动 `mkdir` 才走通的。
+
+**可能的方向**（我不擅自定）：
+- (a) 授权目录时就自动建 `输出/`（一次性，用户看得见）；
+- (b) 在 `office_tools` 的输出里显式提示"若还没有「输出」目录，请先创建"；
+- (c) 允许 `write_text` 建一级目录，但**只允许建产出目录本身**（仍不许递归建）。
+
+我倾向 (a)，因为它是唯一一个"用户不需要理解"的方案。**你定。**
+
+### 六、★ 验证
+
+**离线**：`OK (1908 tests)`（1890 → +18，全在 `OfficeToolsToolTest`）
+
+**静态**：`gen --check` 44 模块一致 · `check_module_deps` 46 模块 308 文件 OK ·
+`check_kt_quotes` OK · `check_line_endings` OK。
+
+**真机**（K60 → 能力桥 → proot 容器 curl），`tools/list` = **8 个工具**：
+
+```
+office_tools → 列出 4 个工具 + 工作区「PocketAgentTest」+ 产出目录「输出/」
+               单文件上限 4194304 字节 · 允许写入 是
+
+被拒路径（三条，全部由**真校验器**给出理由）：
+  read_text  ../../etc/passwd  → 「文件路径不合法…（这通常是**可以修正的**…）」
+  write_text 报告.md           → 「只能写到产出目录「输出/」下…」
+  rm_rf                        → 「未知工具「rm_rf」。可用工具：list_files、read_text、write_text、make_table」
+
+真实操作（全部**磁盘核对**，不是只信工具说"成功"）：
+  list_files "."  → sub / 输出 / hello.txt / notes.txt
+  write_text 输出/e2e-测试.md  → ls: 53 字节 · cat 内容一致 ✅
+  make_table csv 输出/e2e-表.csv → ls: 38 字节 · od 确认 **EF BB BF（UTF-8 BOM）+ \r\n** ✅
+  make_table xlsx → 如实报错（见 §4）✅
+  read_text 往返 → 53 字节**逐字节一致** ✅
+  read_text 读目录 → 「「sub」是一个目录，不是文件」✅
+```
+
+★ `od` 那一条是我特意加的：**BOM 与 CRLF 是"表格能不能被 Excel/WPS 正确打开"的
+实际判据**，而工具只回了一句"已生成表格"。若 `OfficeText.toCsv` 哪天丢了 BOM，
+工具照样说成功，用户在 Excel 里看到的是乱码 —— 那种失败**在工具输出里看不出来**。
+
+### 七、下一批（我建议）
+
+1. **`:agentlogic` 的 `OfficeAgentLoop` 现在是"只差一个 LLM 端口"** ——
+   `OfficeToolExecutor` 已经有了实现，`OfficeToolValidator` 有消费方了。
+   剩下的只有 `OfficeLlmPort`（要调模型 ⇒ 要用户的 Key ⇒ 要用户点头）。
+   **要不要接、接到哪里（聊天页？MCP？），请你给个方向。**
+2. `:agentlogic` 的 `AgentBudget` / `TaskStateMachine` / `PerceptionLadder` /
+   `AmbiguityResolver` / `TaskCheckpoint` **仍然零引用** ——
+   但它们是**循环内部**的东西，没有循环就没有它们的位置。
+   ⇒ 我判断"先接循环，它们自然一起活"，**不再单独给它们造消费方**
+   （那会是为了消灭死代码而死代码）。
+3. `PersonaAssembler` 仍没有消费方（见上一封信 §6.2）。
+4. 那条命名碰撞值得记一下：`com.pocketagent.agentlogic.BudgetGuard`（轮次/时长/电量/上传）
+   与 `com.pocketagent.provider.gateway.BudgetGuard`（token/成本）**同名不同轴**。
+   不是重复实现（我核对过：维度确实不同），但**同名会让将来的人以为是一回事**。
+
+### 八、边界（我守的）
+
+- ✅ 没碰你的算法：`OfficeToolValidator` / `OfficeToolParser` / `XlsxWriter` / `OfficeText` /
+  `OfficeAgentLoop` / `FileChannel` 接口 —— 一行未改
+- ✅ 没碰 `screen_read` / `ActionExecutor` / `SafetyBones` / 生成器的写入方式
+- ✅ 新代码全部走端口注入
+- ✅ 真机验证用 `proot` 容器 curl；磁盘核对用 `run-as` / `ls` / `od`（不是只看工具回话）
