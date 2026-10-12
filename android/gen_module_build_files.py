@@ -436,7 +436,22 @@ PROJECT_DEPS = {
     #      来自 `:agentlogic`，它出现在 `:memorylogic` 的**公开签名**里 ——
     #      所以用它的模块（`:app`）必须**自己**再声明一次 `:agentlogic`。
     #      这条坑在 `:memorylogic` 的登记注释里已经被预言过一次，现在应验了。
-    "mcp": [":provider:gateway", ":agentlogic", ":personalogic", ":memorylogic"],
+    #
+    # ★ `:filelogic` 是 2026-10-12 加的（同一批，办公工具出口）。理由与上面两条不同：
+    #   `office_tools` / `office_run` 要**直接吃** `:filelogic` 的类型 ——
+    #   `OfficeTool`（工具清单从枚举生成，不手写）、`OfficeToolValidator`（唯一一份校验）、
+    #   `WorkspacePolicy`、`OfficeRequest`、`DocumentFormat`。
+    #
+    #   ⚠️ 校验**必须**走 `:filelogic` 那一份，不许在 `:mcp` 里另写 ——
+    #      路径穿越 / 写入落在产出目录 / 单文件上限这三条已经实现并有测试；
+    #      重写一遍等于让"什么允许"有两个真相来源，而漂移方向永远是**松的那一份生效**
+    #      （调用方会走到它先通过的那条路上）。同 `:safety` 的既有裁决。
+    #
+    #   ⚠️ `:agentlogic` 已经依赖 `:filelogic`，但那是 `implementation`，**不传递** ——
+    #      所以这一行必须显式写。这是同一个坑第三次出现（见上面两条注释）。
+    #
+    #   两个模块都在 PURE_KOTLIN 里，这条边**不损害**离线可测性。
+    "mcp": [":provider:gateway", ":agentlogic", ":personalogic", ":memorylogic", ":filelogic"],
 }
 
 # 哪些模块的**公开 API 暴露了某个库的类型** —— 这些必须是 `api` 而不是 `implementation`。

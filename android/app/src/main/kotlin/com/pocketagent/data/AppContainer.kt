@@ -23,7 +23,11 @@ import com.pocketagent.assistant.SafetyGuardAdapter
 import com.pocketagent.assistant.SingleChannelDispatcher
 import com.pocketagent.assistant.defaultPersonaRuntime
 import com.pocketagent.assistant.FileOffloadBlobStore
+import com.pocketagent.assistant.SafOfficeToolExecutor
+import com.pocketagent.assistant.SafOfficeWorkspacePort
+import com.pocketagent.assistant.SafOfficeWorkspaceResolver
 import com.pocketagent.capability.AndroidSettingsAccess
+import com.pocketagent.capability.SafFileChannel
 import com.pocketagent.core.common.AtomicTextFile
 import com.pocketagent.core.crypto.CryptoManager
 import com.pocketagent.core.database.DatabaseKeyProvider
@@ -44,6 +48,8 @@ import com.pocketagent.mcp.McpDispatcher
 import com.pocketagent.mcp.McpHttpServer
 import com.pocketagent.mcp.ContextOffloadTool
 import com.pocketagent.mcp.ContextRecallTool
+import com.pocketagent.mcp.OfficeRunTool
+import com.pocketagent.mcp.OfficeToolsTool
 import com.pocketagent.mcp.PersonaBriefTool
 import com.pocketagent.mcp.ScreenReadTool
 import com.pocketagent.mcp.SwipeTool
@@ -848,6 +854,23 @@ class AppContainer(context: Context) {
         )
         val offloadDrafts = AndroidOffloadDraftPort(reader, gate)
 
+        // ── DL：办公/文件工具（office_tools / office_run）──────────────
+        // ★ 这一段补的是「最后一百米」：`:filelogic` 的工具定义与校验、
+        //   `XlsxWriter`/`DocxWriter`/`OfficeText` 都已存在且离线测过，
+        //   但 `OfficeToolExecutor` **是一个没有实现的端口** ——
+        //   没有任何代码真的去碰文件系统（实测：那三个类在生产代码里零引用）。
+        //
+        // ⚠️ 它同时是 dsh 唯一一条「在用户授权目录里读写」的路径：
+        //    dsh 跑在 Termux 容器里、UID 不同，够不到本应用持有的 SAF 授权。
+        //    **权限没有被放大** —— 一直在用户授的那棵树里。
+        //
+        // ⚠️ 工作区解析器**只建一个**，端口与执行器共用 —— 两处各自解析
+        //    会出现「端口说能写、执行器说没工作区」这类不一致。
+        val officeWorkspaces = SafOfficeWorkspaceResolver.of(appContext)
+        val officeChannel = SafFileChannel(appContext)
+        val officeExecutor = SafOfficeToolExecutor(officeWorkspaces, officeChannel)
+        val officeWorkspacePort = SafOfficeWorkspacePort(officeWorkspaces)
+
         val server = McpHttpServer(
             dispatcher = McpDispatcher(
                 ToolRegistry(
@@ -867,6 +890,9 @@ class AppContainer(context: Context) {
                         // ── DL：上下文卸载（`OffloadPorts.kt` 的两个适配器）──
                         ContextOffloadTool(offloader, offloadDrafts),
                         ContextRecallTool(offloader),
+                        // ── DL：办公/文件（见上面 officeExecutor 的注释）──
+                        OfficeToolsTool(officeWorkspacePort),
+                        OfficeRunTool(officeWorkspacePort, officeExecutor),
                     ),
                 ),
             ),
