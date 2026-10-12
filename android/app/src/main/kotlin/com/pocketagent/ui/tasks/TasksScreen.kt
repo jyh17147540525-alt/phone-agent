@@ -528,12 +528,10 @@ class TasksViewModel(
 
             val result = try {
                 kotlinx.coroutines.runBlocking {
-                    chat!!.send(
-                        listOf(
-                            ChatMessage.system(SYSTEM_PROMPT),
-                            ChatMessage.user(prompt),
-                        ),
-                    )
+                    // ⚠️ 只给 USER 消息 —— **系统提示词由 `ChatPort` 注入**
+                    //    （人格装配器的输出 + 能力边界声明）。
+                    //    界面不该知道"助理是谁"，那是数据层的事。
+                    chat!!.send(listOf(ChatMessage.user(prompt)))
                 }
             } catch (e: Exception) {
                 // 端口承诺不抛异常，但这里仍然兜一道 ——
@@ -579,18 +577,19 @@ class TasksViewModel(
     }
 
     companion object {
-        /**
-         * 系统提示词。
-         *
-         * ⚠️ 它**刻意不承诺任何它做不到的事**。这一版没有读屏、没有点击、
-         *    没有工具调用 —— 如果提示词里写"你可以操作手机"，
-         *    模型会答应下来，而用户等到的是一次失败。
-         *    **一个说"我做不到"的助理，比一个答应后失败的助理好得多。**
-         */
-        const val SYSTEM_PROMPT: String =
-            "你是一个手机上的助理。当前版本你「只能对话」，还不能操作手机" +
-                "（不能读屏、不能点击、不能读写文件）。" +
-                "如果用户要求你操作手机，请如实说明你现在做不到，并说明这还在开发中。"
+        // ⚠️ 这里曾有一条 `SYSTEM_PROMPT` 常量，已移到
+        //    `AssistantPromptBuilder.CAPABILITY_BOUNDARY` ——
+        //    它现在与人格提示词一起由 `ChatPort` 注入。
+        //
+        //    搬走不是为了好看，是因为**这两段必须一起改**：
+        //    哪天聊天页真的能操作手机了，分散在两处时漏改的那一处
+        //    会让助理**继续对用户说「我做不到」** ——
+        //    它不会报错，只是用户永远不知道功能已经有了。
+        //
+        //    它原本的纪律仍然成立、也仍然写在那边：
+        //    **刻意不承诺任何它做不到的事** —— 若提示词里写"你可以操作手机"，
+        //    模型会答应下来，而用户等到的是一次失败。
+        //    **一个说「我做不到」的助理，比一个答应后失败的助理好得多。**
 
         /** 没有 Key 时给用户看的那句话。**note 与 abortReason 共用一份**，避免两处文案漂移。 */
         const val NO_KEY_HINT: String =

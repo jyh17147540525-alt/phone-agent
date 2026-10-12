@@ -58,7 +58,7 @@ class AppPersonaBriefPort(
 }
 
 /**
- * 建一个"开箱可用"的人格运行时。
+ * 建一个"开箱可用"的助理人格 —— **模板 + 运行时**。
  *
  * ⚠️ 当前**只有默认 preset + 空账本** —— 这是如实的起点，不是省略：
  *    账本的持久化归 `:memory`（还没接），人格微调的入口是向导 UI（还没做），
@@ -68,11 +68,17 @@ class AppPersonaBriefPort(
  *    （比如账本格式定错）是用户已经攒下的人格调整全部作废。
  *    这与设计稿 §8.8 拒绝先定人格包格式是同一条纪律。
  *
- * ★ 但它**不是**一个假消费方：`brief()` 返回的每一项都由 `:personalogic`
+ * ★ 但它**不是**一个假消费方：`brief()` 与系统提示词返回的每一项都由 `:personalogic`
  *   真实算出 —— 六根语气轴的数值来自 `PersonaPresets.MALE.tone`，
  *   禁用语来自 `LanguageFingerprint` 的默认集，骨骼来自 `SafetyBones` 的默认值。
  *   这些常量只存在于 `:personalogic` 里，所以真机上读到的数值本身就是
  *   "依赖边真的通了"的证据。
+ *
+ * ⚠️ 为什么把 [PersonaPreset] 一起交出去（而不是只给 `PersonaRuntime`）：
+ *    见 [AssistantPersona] 的注释 —— `PersonaCard.of(preset, spec)` 需要它，
+ *    而"模板 id 认不出来时退到哪个"这个兜底判断**只能有一份**。
  */
-fun defaultPersonaRuntime(): PersonaRuntime =
-    PersonaRuntime(DefaultPersonaTuner(PersonaPresets.MALE))
+fun defaultAssistantPersona(): AssistantPersona = AssistantPersona(
+    preset = PersonaPresets.MALE,
+    runtime = PersonaRuntime(DefaultPersonaTuner(PersonaPresets.MALE)),
+)

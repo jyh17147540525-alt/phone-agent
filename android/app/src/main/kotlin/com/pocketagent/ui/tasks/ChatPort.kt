@@ -81,11 +81,33 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
         val model = container.modelRepository()?.all()?.firstOrNull()?.id
             ?: return ChatResult.Failed("还没有配置可用的模型。请到「模型」页面添加一个。")
 
-        // ── ③ 在受控作用域内发请求 ──────────────────────────────
+        // ── ③ 组装系统提示词 ────────────────────────────────────
+        //
+        // ★ 这是「助理是谁」的**唯一入口**：人格装配器的输出 + 能力边界声明。
+        //   在此之前它是一条写死在界面里的常量 —— 用户改口癖、改称呼，
+        //   模型那边一个字都不会变，而且**没有任何地方会报错**。
+        //
+        // ⚠️ 刻意**不检查** `history` 里有没有 SYSTEM 消息 ——
+        //    "检查并跳过"会让"我塞了但它没生效"变成一种静默失败。
+        //    约定写在这里：**调用方只给 USER / ASSISTANT 消息。**
+        //
+        // ⚠️ 组装失败时**如实报错**，不退化成"没有人格也能聊"：
+        //    后者正是本项目最怕的那种失败 —— 用户以为人格生效了，其实没有。
+        val system = try {
+            container.assistantSystemPrompt()
+        } catch (e: Exception) {
+            return ChatResult.Failed(
+                "人格提示词组装失败（${e::class.simpleName ?: "未知"}）：" +
+                    "${e.message ?: "无详细信息"}。为避免在「没有人格」的状态下继续对话，本次已中止。",
+            )
+        }
+        val messages = listOf(ChatMessage.system(system)) + history
+
+        // ── ④ 在受控作用域内发请求 ──────────────────────────────
         val text = store.useDefaultKey { provider, credential ->
             val sb = StringBuilder()
             provider.chat(
-                request = ChatRequest(model = model, messages = history),
+                request = ChatRequest(model = model, messages = messages),
                 credential = credential,
             ).collect { chunk ->
                 when (chunk) {

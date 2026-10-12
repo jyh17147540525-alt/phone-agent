@@ -21,7 +21,8 @@ import com.pocketagent.assistant.PerceptionScreenReader
 import com.pocketagent.assistant.SafetyDetectorGate
 import com.pocketagent.assistant.SafetyGuardAdapter
 import com.pocketagent.assistant.SingleChannelDispatcher
-import com.pocketagent.assistant.defaultPersonaRuntime
+import com.pocketagent.assistant.AssistantPromptBuilder
+import com.pocketagent.assistant.defaultAssistantPersona
 import com.pocketagent.assistant.FileOffloadBlobStore
 import com.pocketagent.assistant.SafOfficeToolExecutor
 import com.pocketagent.assistant.SafOfficeWorkspacePort
@@ -773,11 +774,31 @@ class AppContainer(context: Context) {
      *    （重置它可接受，甚至正确）；而状态的衰减是**长时**的（重置它等于失忆）。
      *    两处的判据同一条：**重置的代价是什么**。
      *
-     * ⚠️ 当前只喂了默认 preset + 空账本（见 [defaultPersonaRuntime] 的注释）——
+     * ⚠️ 当前只喂了默认 preset + 空账本（见 [defaultAssistantPersona] 的注释）——
      *    账本持久化归 `:memory`、微调入口是向导 UI、状态事件归 `:assistant`，
      *    三者都还没接。预支它们的后果是猜一个还没问出口的需求。
      */
-    private val personaRuntime by lazy { defaultPersonaRuntime() }
+    private val assistantPersona by lazy { defaultAssistantPersona() }
+
+    /**
+     * 助理的系统提示词构造器（`PersonaAssembler` 的消费方）。
+     *
+     * ★ 它让「助理有人格」第一次**真的生效**：在此之前聊天页用的是一个
+     *   硬编码常量，用户改口癖、改称呼，模型那边一个字都不会变。
+     */
+    private val assistantPrompt by lazy { AssistantPromptBuilder(assistantPersona) }
+
+    /**
+     * 组装一份系统提示词。
+     *
+     * ⚠️ **每次调用都重新组装**（不缓存）：状态会随时间向中性回落，
+     *    缓存会让「今天心情差」在几轮对话之后失效 —— 而那种失效
+     *    在界面上完全看不出来（模型只是又变回了中性语气）。
+     *
+     * ⚠️ 记忆层还没接，所以提示词里**没有任何记忆** —— 助理目前不会记住任何事。
+     *    这是如实的，不是省略。
+     */
+    fun assistantSystemPrompt(): String = assistantPrompt.build()
 
     /** 当前状态。只读 —— 不要读了之后自己维护一份副本（同 dshIntegrationStatus）。 */
     fun mcpBridgeStatus(): McpBridgeStatus = mcpBridgeStatus
@@ -886,7 +907,7 @@ class AppContainer(context: Context) {
                         // ⚠️ 端口实现是 `:app` 侧的 `AppPersonaBriefPort` ——
                         //    判定与映射在 `:mcp`（`personaBriefOf`），状态与时间在
                         //    `:personalogic`（`PersonaRuntime`）；这里只把两者接起来。
-                        PersonaBriefTool(AppPersonaBriefPort(personaRuntime)),
+                        PersonaBriefTool(AppPersonaBriefPort(assistantPersona.runtime)),
                         // ── DL：上下文卸载（`OffloadPorts.kt` 的两个适配器）──
                         ContextOffloadTool(offloader, offloadDrafts),
                         ContextRecallTool(offloader),
