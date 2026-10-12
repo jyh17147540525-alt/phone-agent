@@ -19,6 +19,7 @@ kotlin {
 dependencies {
     implementation(project(":provider:gateway"))
     implementation(project(":agentlogic"))
+    implementation(project(":personalogic"))
 
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)

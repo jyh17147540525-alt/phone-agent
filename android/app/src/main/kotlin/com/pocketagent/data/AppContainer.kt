@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import com.pocketagent.assistant.AppPersonaBriefPort
 import com.pocketagent.assistant.ActionDispatchAdapter
 import com.pocketagent.assistant.AccessibilityActionExecutor
 import com.pocketagent.assistant.AgentA11ySource
@@ -19,6 +20,7 @@ import com.pocketagent.assistant.PerceptionScreenReader
 import com.pocketagent.assistant.SafetyDetectorGate
 import com.pocketagent.assistant.SafetyGuardAdapter
 import com.pocketagent.assistant.SingleChannelDispatcher
+import com.pocketagent.assistant.defaultPersonaRuntime
 import com.pocketagent.capability.AndroidSettingsAccess
 import com.pocketagent.core.common.AtomicTextFile
 import com.pocketagent.core.crypto.CryptoManager
@@ -38,6 +40,7 @@ import com.pocketagent.mcp.ActionRateLimiter
 import com.pocketagent.mcp.McpBridgeSession
 import com.pocketagent.mcp.McpDispatcher
 import com.pocketagent.mcp.McpHttpServer
+import com.pocketagent.mcp.PersonaBriefTool
 import com.pocketagent.mcp.ScreenReadTool
 import com.pocketagent.mcp.SwipeTool
 import com.pocketagent.mcp.TapTool
@@ -748,6 +751,23 @@ class AppContainer(context: Context) {
     @Volatile
     private var mcpBridgeStatus: McpBridgeStatus = McpBridgeStatus.Off
 
+    /**
+     * 人格运行时（DL-1…DL-4 的载体）—— **容器级单例**。
+     *
+     * ⚠️ **不能每次建桥时现造**：它持有"上次推进的时间基准"与当前情绪/精力，
+     *    重建会把基准点重置到当下，于是「助理已经多久没被搭理」这段历史被抹掉。
+     *
+     * ⚠️ 取舍与 [com.pocketagent.mcp.ActionRateLimiter] **相反** ——
+     *    那个必须每次重建才能"关桥即清空限流"，因为它的窗口是**短时**的
+     *    （重置它可接受，甚至正确）；而状态的衰减是**长时**的（重置它等于失忆）。
+     *    两处的判据同一条：**重置的代价是什么**。
+     *
+     * ⚠️ 当前只喂了默认 preset + 空账本（见 [defaultPersonaRuntime] 的注释）——
+     *    账本持久化归 `:memory`、微调入口是向导 UI、状态事件归 `:assistant`，
+     *    三者都还没接。预支它们的后果是猜一个还没问出口的需求。
+     */
+    private val personaRuntime by lazy { defaultPersonaRuntime() }
+
     /** 当前状态。只读 —— 不要读了之后自己维护一份副本（同 dshIntegrationStatus）。 */
     fun mcpBridgeStatus(): McpBridgeStatus = mcpBridgeStatus
 
@@ -812,6 +832,15 @@ class AppContainer(context: Context) {
                         tool,
                         TapTool(reader, safetyPort, dispatchPort, rateLimiter),
                         SwipeTool(reader, safetyPort, dispatchPort, rateLimiter),
+                        // ── DL：人格摘要（只读）──────────────────────────────
+                        // ★ 它是 `:personalogic` 的**第一个消费方**：在此之前
+                        //   DL-1…DL-4 的 5000+ 行、1852 条测试没有任何模块引用，
+                        //   编译得过、测试全绿，但 `classes.dex` 里一个字节都没有。
+                        //
+                        // ⚠️ 端口实现是 `:app` 侧的 `AppPersonaBriefPort` ——
+                        //    判定与映射在 `:mcp`（`personaBriefOf`），状态与时间在
+                        //    `:personalogic`（`PersonaRuntime`）；这里只把两者接起来。
+                        PersonaBriefTool(AppPersonaBriefPort(personaRuntime)),
                     ),
                 ),
             ),

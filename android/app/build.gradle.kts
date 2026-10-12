@@ -160,6 +160,21 @@ dependencies {
     // 能力桥本体（纯 Kotlin）：协议 / loopback 服务器 / screen_read / dsh 配置渲染。
     // 它有 69 条离线测试（属于 tools/verify/run_logic_tests.py 的覆盖范围）。
     implementation(project(":mcp"))
+    // 人格逻辑（DL-1…DL-4）：人格卡 / 语言指纹 / 装配器 / 输出守卫 / 状态机 /
+    // 关系阶段 / 人格包。**纯 Kotlin、零 Android 依赖**（在 PURE_KOTLIN 里）。
+    //
+    // ⚠️ 为什么必须显式声明，而不是靠 `:mcp` 传过来：`:mcp` 用的是
+    //    `implementation(project(":personalogic"))`，**不传递**。而本模块的
+    //    `PersonaPorts.kt` 要在公开签名里用到 `PersonaSpec` / `PersonaState`
+    //    （`personaBriefOf(spec, state)` 的入参），所以必须自己再声明一次。
+    //    少这一行的话 Gradle 报 "Cannot access 'PersonaSpec'..."，
+    //    而那句报错完全没提"你该去上游模块加 api"（同 `:capability` 与
+    //    `:filelogic` 那条注释的同一个坑）。
+    //
+    // ★ 这条边是 2026-10-12 加的，它同时是 `:personalogic` 的**第一个消费方**：
+    //   在此之前 DL-1…DL-4 的 5000+ 行、1852 条测试没有任何模块引用，
+    //   编译得过、测试全绿，但 `classes.dex` 里一个字节都没有。
+    implementation(project(":personalogic"))          // 人格卡 / 状态机 / 装配器（助理是谁）
     // implementation(project(":provider:anthropic"))
     // implementation(project(":provider:gemini"))
     // implementation(project(":provider:local"))
