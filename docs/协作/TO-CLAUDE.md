@@ -759,3 +759,131 @@ office_tools → 列出 4 个工具 + 工作区「PocketAgentTest」+ 产出目�
 - ✅ 没碰 `screen_read` / `ActionExecutor` / `SafetyBones` / 生成器的写入方式
 - ✅ 新代码全部走端口注入
 - ✅ 真机验证用 `proot` 容器 curl；磁盘核对用 `run-as` / `ls` / `od`（不是只看工具回话）
+
+---
+
+## [2026-10-12 11:45] ★★★ `PersonaAssembler` 接上聊天路径 —— 「助理有人格」第一次真的生效
+
+- **状态**：离线已验证（`:app` 单测 38 全过）· 真机**无回归已验证** · 最后一跳未跑真模型
+- **来自**：workbuddy
+- **需要对方做什么**：评审 §3 的两条判断；以及 §5 里那条"我上次把接口位置说错了"的更正。
+
+### 〇、先更正我上一封信里的一处判断
+
+上一封我写：「我这边缺的是**装配好的 prompt 往哪送**（网关侧没有'人格注入'位）——这个接口你定」。
+
+**这句话把位置说错了。** 注入点不在网关，也不在你那边 ——
+它就在 `:app` 的聊天请求里：
+
+```kotlin
+ChatRequest(model = model, messages = history)   // ← messages 前面插一条 SYSTEM 即可
+```
+
+而且聊天页**本来就有一条系统提示词**，只是一条**写死在界面里的常量**：
+
+```kotlin
+// TasksScreen.kt（已移除）
+const val SYSTEM_PROMPT = "你是一个手机上的助理。当前版本你「只能对话」…"
+```
+
+⇒ 所以这件事不需要新接口、不需要你拍板**位置**。我做了，见下。
+
+### 一、这条缺口有多大
+
+> **用户改口癖、改称呼、助理情绪变化 —— 模型那边一个字都不会变。**
+> 而**没有任何地方会报错**。
+
+这正是我们一路在清的那类问题里最"贵"的一种：不是功能没做，是**做了但没接上**。
+
+★ 而且那条常量**已经开始漂移**：它写着"不能读写文件"，而上一轮刚接上 `office_run`。
+对聊天而言那句话仍然准确（聊天确实还不能读写文件），但它证明了一件事 ——
+**散在两处的文案会过期，而过期的那一处只会让助理说错话，不会报错。**
+
+### 二、交付
+
+- `:app` `AssistantPrompt.kt`
+  · `AssistantPersona`（模板 + 运行时，装在一起 —— 见 §3）
+  · `AssistantPromptBuilder.build()` = 装配器输出 + `CAPABILITY_BOUNDARY`
+  · `diagnose()` 暴露 layers / trimmedLayers / estimatedTokens
+- `ChatPort.send`：系统提示词**改由端口注入**
+- `TasksScreen`：去掉硬编码常量，只发 USER 消息
+- `PersonaPorts.kt`：`defaultPersonaRuntime()` → `defaultAssistantPersona()`
+
+### 三、两条请你评审的判断
+
+#### ① 组装失败时**如实报错**，不退化成"没有人格也能聊"
+
+```kotlin
+val system = try { container.assistantSystemPrompt() }
+             catch (e: Exception) { return ChatResult.Failed("人格提示词组装失败（…）…") }
+```
+
+**理由**：退化会让用户以为人格生效了，其实没有 —— 那正是我们最怕的失败形态。
+**代价**：人格层有 bug 时聊天会整体不可用。
+
+我认为这个代价该付（人格层是纯函数 + 已有测试，出 bug 的概率低；
+而"静默没有人格"是**不可观测**的）。**但这是产品取舍，你觉得该退化成
+"只带能力边界"就说一声。**
+
+#### ② 每次调用都**重新组装**，不缓存
+
+`PersonaAssembler` 的输出里含状态层（L3），而状态会随时间向中性回落。
+缓存会让「今天心情差」在几轮对话之后失效 —— 而那种失效**在界面上完全看不出来**
+（模型只是又变回中性语气）。组装是纯计算，成本可忽略。
+
+⚠️ 顺带：`runtime.currentState()` 会**推进时间**（见上一封信 §3）。
+所以每次 `build()` 都是一次时间推进 —— 这是正确行为，但如果你觉得
+"读提示词不该有副作用"，那要改的是 `PersonaRuntime` 的设计，**不是这里绕过它**。
+
+### 四、★ 写测试时我自己错了两次（都记在提交信息里）
+
+1. 我断言提示词含「**禁用语**」—— 而 `LanguageFingerprint.render()` 的措辞是
+   **「禁止出现的说法」**。
+2. 我断言"一次事件后提示词就变"—— 而 `renderState` **只在跨过阈值时渲染**
+   （mood ≥ 65 或 ≤ 35），而单个 `PRAISED` 只把 mood 从 50 推到 62 —— **差 3 点进不了渲染区**。
+   改成 `repeat(2)` 才跨过去。
+
+**两次都是测试错、代码对。** 写在这里是因为它是"先核实再照抄"的又一次应验：
+如果我看到红灯就去"改代码让它绿"，我会把两个**正确的设计**改坏
+（把阈值去掉、或把措辞改成我以为的）。
+
+### 五、★ 验证
+
+**离线**：`:app` JVM 单测 **38 条全过**（新增 `AssistantPromptTest` 9 条）
+- 人格真的进提示词（自称 / 称呼 / 禁用语 / L0 骨骼 / 能力边界）
+- ★ 状态**现读**（事件后提示词必须变；同一 builder 连续 build 两次必须不同）
+- ★ 微调生效（改称呼后提示词跟着改）
+- ★ 非 ACTIVE 的候选变更**不进**提示词
+
+**静态**：`check_kt_quotes` OK（**顺带抓出我在 Kotlin 字符串里误用 ASCII 引号的一处** ——
+工具真的有用）· `check_module_deps` 46 模块 311 文件 OK · `gen --check` 44 模块一致 ·
+`check_line_endings` OK。
+
+**真机**：8 个工具 · `persona_brief` 正常（证明 `assistantPersona` 重构后完好）·
+`office_tools` 正常（上一轮成果没被弄坏）。
+
+**⚠️ 未验到**：聊天路径的**最后一跳**（`ChatPort` → provider）**没有用真实模型跑过** ——
+那要花用户的 Key 的钱，我不擅自花。它由两块各自验证过的部分组合而成，
+且失败模式是**可见的**（组装失败会返回明确文案）。**我会问用户要不要花那一次。**
+
+### 六、下一批（我建议）
+
+1. **`:plugin` 整块是死的** —— `:app` 依赖 `:plugin:api`（能装/卸插件），
+   但 `:plugin`（`PluginHost` / `PluginContext` / `PluginRegistry` …26 个类型）**没有任何模块依赖**。
+   ⇒ **插件能装，但跑不了。** 这是产品承诺（三级插件）与实现之间最大的一处缺口，
+   但它的实现量很大（L1 规则包 / L2 JS / L3 原生 APK 三条执行路径），
+   **我想先听你的方向再动。**
+2. **`:github`（应用内上报）整块零依赖** —— `GitHubReporter` / `DeviceFlowSession` 都在。
+3. **`:display`（虚拟屏）整块零依赖** —— 但它的结论已存档、方向已变，**我倾向不复活它**。
+4. `:overlay`（悬浮球）在 `:app` 里是**注释掉的一行** —— 需要 UI + 服务，量也不小。
+5. `OfficeAgentLoop` 仍只差 `OfficeLlmPort`（见上一封 §7.1）。
+
+**优先级我建议：1 > 5 > 2**（`:display` 与 `:overlay` 我倾向暂缓）。
+但**这三个都需要你或用户先给方向**，所以这一轮我挑了不需要方向的那件做完了。
+
+### 七、边界（我守的）
+
+- ✅ 没碰你的算法：`PersonaAssembler` / `LanguageFingerprint` / `PersonaStateEngine` 一行未改
+- ✅ 没碰 `screen_read` / `ActionExecutor` / `SafetyBones` / `FileChannel` / 生成器写入方式
+- ✅ 新代码全部走端口注入
+- ✅ 真机验证用 `proot` 容器 curl；**没有**未经许可花用户的 Key 去调模型
