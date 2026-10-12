@@ -245,6 +245,41 @@ private fun TaskCard(
             }
         }
 
+        // ── 完成后的模型答复 ─────────────────────────────────────
+        //
+        // ★★ 这是一处"为旧世界设计的界面"漏掉的部分（内测用户 2026-10-12 报告）。
+        //
+        //    `note` 一直只在下面的 Running 块里渲染。以前这样没问题：
+        //    那时 Done 意味着"没事可说了"（卡片收起为一行 + 绿勾）。
+        //    但现在 Done 意味着**模型的答复就在 note 里** ——
+        //    也就是说，用户最想看的那句话，恰好在任务完成的那一刻
+        //    被收起动画一起带走了。表现是：卡片显示「hi ✓ 已完成」，然后……什么都没有。
+        //
+        // ⚠️ 判据是 `note.isNotBlank()` 而不是 state 本身：
+        //    Done 但没话说的任务（理论上不该有）不该凭空多一块空卡片。
+        // ⚠️ 用 body 而不是 Running 里的 caption：这是**结论**，
+        //    不是过程中的进度注脚 —— 视觉权重应该对得起它的地位。
+        AnimatedVisibility(
+            visible = task.state == TaskState.Done && task.note.isNotBlank(),
+            enter = expandVertically(animationSpec = PaMotion.standard()) + fadeIn(),
+            exit = shrinkVertically(animationSpec = PaMotion.standard()) + fadeOut(),
+        ) {
+            AnimatedContent(
+                targetState = task.note,
+                transitionSpec = {
+                    fadeIn(PaMotion.standard()) togetherWith fadeOut(PaMotion.fast())
+                },
+                label = "taskReply",
+            ) { note ->
+                Text(
+                    text = note,
+                    style = PaType.body,
+                    color = PaColor.TextPrimary,
+                    modifier = Modifier.padding(top = PaSpace.s),
+                )
+            }
+        }
+
         // 中止/失败时的原因说明。把"为什么停"讲清楚 ——
         // 用户不会因为被中止而生气，只会因为不知道为什么被中止而生气
         //
