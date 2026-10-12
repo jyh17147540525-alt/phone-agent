@@ -429,3 +429,167 @@ tools/call persona_brief {} →
 - ✅ 新代码全部走端口注入，没有一处让 `:personalogic` 依赖 Android 或 MCP
 - ✅ 真机验证用 `proot` 容器 curl（不是 `adb shell` —— shell 持 `INTERNAL_SYSTEM_WINDOW` 等，
   做权限类实验会假阳性；这条是项目既有的纪律）
+
+---
+
+## [2026-10-12 11:10] ★★★ `:memorylogic` 也接上消费方了 —— **红线第一次真的执行**
+
+- **状态**：已验证（离线 1890 + 真机端到端，含**拒绝路径**）
+- **来自**：workbuddy
+- **需要对方做什么**：**评审 §3 的两处取舍**（SAF vs 应用私有目录、输入框区域传空），
+  以及 §4 那个我认为需要你拍板的**开放问题**（正文来源与当前屏幕不一致）。
+
+### 一、瓶颈的第二个实例
+
+`persona_brief` 那轮我拆 APK 发现 `:personalogic` 在 dex 里一个字节都没有。
+这次同样查了 `:memorylogic`：
+
+```
+修改前： com/pocketagent/memorylogic → ❌ 25 个 dex 一个字节都没有
+        ContextOffloader / MemoryGate / OffloadPayload → ❌ 全无
+修改后： com/pocketagent/memorylogic → ✅ 进了 4 个 dex
+```
+
+**而它比人格线更危险**，因为它扛着一条红线：
+
+> **「卸载前必须过 `PrivacyFilter`，顺序不可颠倒」（架构 §8.2-2）**
+
+那条红线的实现很漂亮 —— `OffloadPayload` 的**构造函数私有**，唯一的工厂是
+`internal` 且只被 `ContextOffloader.offload` 调用，所以"不过关卡直接写"
+**在模块外编译不过**。但**代码从没进过包** ⇒ 这条红线**从未被执行过一次**。
+
+> ★ 这正是我上一轮说的那句：**「红线没跑过」与「红线没生效」在真机上长得一模一样。**
+
+### 二、接线（我做的）
+
+```
+:memorylogic  ──→  :mcp  ──→  :app  ──→  MCP 工具 context_offload / context_recall
+  （记住什么）      （协议出口）  （接线）        （dsh 的上下文瘦身）
+```
+
+**它解决什么**（不是"为了有个消费方"）：dsh 手上最容易膨胀的东西，
+恰恰是本能力桥自己产出的 —— 一次 `screen_read` 就是几百行节点文本。
+腾讯那组实测里短期记忆 token 降 61%，靠的就是"把大块内容搬出上下文、只留一行占位"。
+
+```
+screen_read      → 几百行节点文本（进上下文，线性推高 token）
+context_offload  → [已卸载「工具原始结果」· 10283 字节 · of-17b6de2d…]  ← 只留这一行
+context_recall   → 需要时原样取回
+```
+
+**关卡顺序**（与 `screen_read` 同构，不可调换）：
+`① 敏感判定（一票否决） → ② 构造 draft（页面类型由 Android 层量） → ③ offload（关卡→编码→落盘）`
+
+### 三、⚠️ 我做的两处取舍（请你评审）
+
+#### ① 落盘根目录：**应用私有目录**，不是设计稿写的 SAF
+
+设计稿 §2.3 的原话是"大内容本身走 `OffloadBlobStore`（SAF 目录）"。**这一版没走 SAF**：
+
+1. SAF 要**先向用户要一个目录**。当前这个能力刚接上第一个消费方，
+   还没有任何界面能让用户理解"为什么要给助理一个目录" ——
+   在用户还不知道这东西干嘛的时候要权限，只会训练他闭眼点同意。
+2. **应用私有目录其实更严**：其它 App 读不到，用户也不能用文件管理器翻到。
+   SAF 的好处是**用户可见可删**（透明度），代价是暴露面更大。
+
+⇒ 我判断"现在还不是要 SAF 的时候"，但这是**取舍不是省事**。
+真正让 SAF 值钱的是「记忆管理页」（让用户看见并删除卸载内容）——
+那件事落地时应当一并重新评估。**如果你认为该现在就上 SAF，说一声我改。**
+
+#### ② 输入框区域：**刻意传空**（与 `screen_read` 不同）
+
+`screen_read` 会把 `inputFieldRegions` 传进 `UploadRequest`，因为它的**序列化步骤**
+能照着 plan 逐节点遮蔽 —— 那里有节点结构，遮得动。
+
+本端口拿到的是**一段不透明字符串**，没有节点、没有区域。把区域传进去只会让
+`plan.mask` 非空、看起来"遮过了"，而 `FileOffloadBlobStore` 其实什么都做不了 ——
+那正是本项目头号 bug 形态「**安静地少做一件事**」。
+
+⇒ **宁可传空、并在注释里说清"这里没有做区域遮蔽"**，也不留一个假的 plan。
+正文安全性由上游两道保证：敏感页判定 + `screen_read` 序列化时的遮蔽。
+
+⚠️ **若将来出现"带区域信息的卸载"（比如截图 OCR 的中间结果），这个实现必须换。**
+换的信号是 `OffloadPayload` 里出现像素/区域。现在不预支。
+
+### 四、⚠️ 一个开放问题（我认为需要你拍板）
+
+**`pageKind` 取自「当前屏幕」，而卸载的正文可能来自「更早的一次读取」。**
+
+两者在时间上可以不一致。当前处置是**保守方向**的，理由如下 ——
+我认为成立，但它值得被质疑：
+
+> 本桥里"大正文"的唯一生产者就是 `screen_read`，而它在**产出时**已经拒过敏感页 ——
+> 所以正文本身不可能含支付页内容。剩下的不一致只可能来自模型自己编的正文，
+> 而那类正文没有"泄漏用户屏幕"的问题。
+
+⚠️ **若将来出现第二个正文来源（截图 OCR / 剪贴板 / 其它 App 的内容），这条推理不成立** ——
+那时需要给 `OffloadDraft` 加**来源标记**。
+
+**我没有现在加**：在没有第二个来源时定义来源标记的格式，等于猜一个还没问出口的需求
+（与你 §8.8 拒绝先定人格包格式是同一条纪律）。
+
+**但这个判断该由你做**，因为它是你那条红线的一部分。请回一句"同意"或"该加"。
+
+### 五、★ 验证
+
+**离线**：`OK (1890 tests)`（1873 → +17，全在 `ContextOffloadToolTest`）
+
+其中两条是**安全断言**（不是功能断言）：
+- `关卡在写入之前 —— 调用顺序是 draft → gate → write`（用记账 fake 断言调用序列）
+- `敏感页被拒时 —— 存储一次都没被碰过` / `关卡 Dropped 时 —— 存储一次都没被碰过`
+  （断言 `events` 停在 gate，且 `files` 为空）
+
+**静态**：`gen --check` 44 模块一致 · `check_module_deps` 46 模块 306 文件 OK ·
+`check_kt_quotes` OK · `check_line_endings` OK。
+
+**真机端到端**（K60 → 能力桥 → proot 容器 curl）：
+
+```
+tools/list → 6 个工具
+  screen_read / android_tap / android_swipe / persona_brief / context_offload / context_recall
+
+① context_offload {kind:tool-result, taskId:e2e-2026-10-12, body:10200 字节中文}
+   → 占位索引：[已卸载「工具原始结果」· 10283 字节 · of-17b6de2d8d2e153aba2c]
+   → ref: {id:of-17b6de2d…, bytes:10283, sha256:147f121e…, createdAt:…}
+
+② 落盘确认（run-as 直接看）
+   files/offload/e2e-2026-10-12/tool-result/of-17b6de2d8d2e153aba2c.json
+
+③ context_recall {ref: 原样抄回来}
+   → 3400 字符 / 10200 字节，与原文**逐字节一致**（verified:true）
+
+④ context_recall {ref: 缺 bytes/sha256}
+   → isError + 「请把 structuredContent.ref **原样**传过来（六个字段：…）」
+
+⑤ ★ 拒绝路径（关掉无障碍，用**另一段正文**再卸载一次）
+   → isError +「读屏能力当前不可用（无障碍权限未开启），因此无法确认当前页面是否敏感
+      —— 按保守策略，本次卸载已中止，**一个字节都没有写**。」
+   → 磁盘核对：仍只有 ① 那 1 个文件，**没有 e2e-refuse 目录** ✅
+   → 恢复无障碍后 persona_brief / screen_read 均正常（没把别的东西弄坏）
+```
+
+**★ ⑤ 是这一轮最重要的一条**：它证明的不是"功能能用"，而是
+**「拒绝时一个字节都没写」在真机上成立** —— 那正是红线的核心主张。
+
+⚠️ 但有一条**没验到**，如实说：**敏感页（`PageKind.SENSITIVE`）的拒绝分支在真机上没测**。
+原因是找不到一条零风险的触发路径（`adb shell input text` 输不了中文，
+没法在设置搜索框里打"验证码"去命中关键词表）。这条分支由离线测试覆盖，
+且它复用 `screen_read` 的同一个 `ScreenSafetyPort` —— 而那个端口的真机反验证
+至今也仍是待办（等你点头上支付页）。
+
+### 六、下一批（我建议）
+
+1. **`:agentlogic` 仍是零消费方**（`AgentBudget` / `TaskStateMachine` / `PrivacyFilter`
+   的**本体**）。`PrivacyFilter` 现在被 `:mcp` 用着（它属于 `:agentlogic`），
+   但 `AgentBudget` 与状态机没有消费方 —— 而它俩是"防任务跑飞"的那两个横切组件。
+2. **`PersonaAssembler` 仍没有消费方**（人格 → system prompt 的出口）——
+   我这边缺的是"装配好的 prompt 往哪送"（网关侧没有"人格注入"位）。**这个接口你定。**
+3. **`:voicelogic` / `:assistant` / `:voice` / `:tts` 四个模块零源码**（v4.0 新增 6 个里剩下的）。
+4. 「记忆管理页」（让用户看见并删除卸载内容）—— 它会决定 SAF 那个取舍的答案。
+
+### 七、边界（我守的）
+
+- ✅ 没碰你的算法：`ContextOffloader` / `MemoryGate` / `OffloadCodec` / `OffloadPolicy` 一行未改
+- ✅ 没碰 `screen_read` / `ActionExecutor` / `SafetyBones` / 生成器的写入方式
+- ✅ 新代码全部走端口注入，没有一处让 `:memorylogic` 依赖 Android 或 MCP
+- ✅ 真机验证用 `proot` 容器 curl（不是 `adb shell` —— 既有纪律）

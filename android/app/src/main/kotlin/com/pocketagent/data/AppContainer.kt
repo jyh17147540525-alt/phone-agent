@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import com.pocketagent.assistant.AndroidOffloadDraftPort
 import com.pocketagent.assistant.AppPersonaBriefPort
 import com.pocketagent.assistant.ActionDispatchAdapter
 import com.pocketagent.assistant.AccessibilityActionExecutor
@@ -21,6 +22,7 @@ import com.pocketagent.assistant.SafetyDetectorGate
 import com.pocketagent.assistant.SafetyGuardAdapter
 import com.pocketagent.assistant.SingleChannelDispatcher
 import com.pocketagent.assistant.defaultPersonaRuntime
+import com.pocketagent.assistant.FileOffloadBlobStore
 import com.pocketagent.capability.AndroidSettingsAccess
 import com.pocketagent.core.common.AtomicTextFile
 import com.pocketagent.core.crypto.CryptoManager
@@ -40,11 +42,14 @@ import com.pocketagent.mcp.ActionRateLimiter
 import com.pocketagent.mcp.McpBridgeSession
 import com.pocketagent.mcp.McpDispatcher
 import com.pocketagent.mcp.McpHttpServer
+import com.pocketagent.mcp.ContextOffloadTool
+import com.pocketagent.mcp.ContextRecallTool
 import com.pocketagent.mcp.PersonaBriefTool
 import com.pocketagent.mcp.ScreenReadTool
 import com.pocketagent.mcp.SwipeTool
 import com.pocketagent.mcp.TapTool
 import com.pocketagent.mcp.ToolRegistry
+import com.pocketagent.memorylogic.ContextOffloader
 import com.pocketagent.safety.DefaultSafetyGuard
 import com.pocketagent.modelrouter.ModelRouteCoordinator
 import com.pocketagent.perception.AccessibilityPerceptionManager
@@ -825,6 +830,24 @@ class AppContainer(context: Context) {
             SingleChannelDispatcher(AccessibilityActionExecutor()),
         )
 
+        // ── DL：上下文卸载（context_offload / context_recall）──────────
+        // ★ 它是 `:memorylogic` 的**第一个消费方**：在此之前它的 2000+ 行
+        //   （含「卸载前必须过 PrivacyFilter」这条红线）没有任何模块引用，
+        //   `classes.dex` 里一个字节都没有 —— 红线从未被执行过一次。
+        //
+        // ⚠️ 落盘根目录是**应用私有目录**（不是设计稿写的 SAF），取舍写在
+        //    `FileOffloadBlobStore` 的类注释里：SAF 要先向用户要一个目录权限，
+        //    而当前还没有任何界面能让用户理解"为什么要给助理一个目录"。
+        //    等「记忆管理页」落地时一并重新评估。
+        //
+        // ⚠️ 隐私关卡 `PrivacyGate` 用 `:mcp` 里的默认值（`PrivacyFilter`
+        //    + `systemUi = unknown`），与 `ScreenReadTool` 同一个构造口径 ——
+        //    文本路径没有像素，unknown 不会误伤。
+        val offloader = ContextOffloader(
+            FileOffloadBlobStore(File(appContext.filesDir, OFFLOAD_DIR_NAME)),
+        )
+        val offloadDrafts = AndroidOffloadDraftPort(reader, gate)
+
         val server = McpHttpServer(
             dispatcher = McpDispatcher(
                 ToolRegistry(
@@ -841,6 +864,9 @@ class AppContainer(context: Context) {
                         //    判定与映射在 `:mcp`（`personaBriefOf`），状态与时间在
                         //    `:personalogic`（`PersonaRuntime`）；这里只把两者接起来。
                         PersonaBriefTool(AppPersonaBriefPort(personaRuntime)),
+                        // ── DL：上下文卸载（`OffloadPorts.kt` 的两个适配器）──
+                        ContextOffloadTool(offloader, offloadDrafts),
+                        ContextRecallTool(offloader),
                     ),
                 ),
             ),
@@ -918,6 +944,18 @@ class AppContainer(context: Context) {
          * 而它是数据库唯一的钥匙：被清掉就等于数据全丢。
          */
         const val PASSPHRASE_FILE_NAME = "db.key"
+
+        /**
+         * 上下文卸载内容的落盘目录（`filesDir/offload/`）。
+         *
+         * ⚠️ 与 `PASSPHRASE_FILE_NAME` 同一个理由用 `filesDir` 而不是 `cacheDir`：
+         *    卸载的内容是**用户上下文的一部分**，被系统在存储紧张时清掉之后，
+         *    `context_recall` 会报 Missing —— 而那时用户只会觉得"助理记性变差了"。
+         *
+         * ⚠️ 目录名是**相对路径**（`OffloadBlobStore` 的实现会再拼
+         *    `<taskId>/<kind>/<id>.json`）。
+         */
+        const val OFFLOAD_DIR_NAME = "offload"
     }
 }
 

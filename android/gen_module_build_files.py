@@ -420,7 +420,23 @@ PROJECT_DEPS = {
     #
     #   两个模块都在 PURE_KOTLIN 里，这条边**不损害**离线可测性：
     #   验证器把两者放进同一次编译，跨模块引用照常解析。
-    "mcp": [":provider:gateway", ":agentlogic", ":personalogic"],
+    #
+    # ★ `:memorylogic` 是 2026-10-12 加的，与 `:personalogic` 那条同一个由来：
+    #   `:memorylogic` 此前同样**没有任何模块引用** —— 而它比人格线更危险，
+    #   因为它扛着一条红线「卸载前必须过 `PrivacyFilter`，顺序不可颠倒」
+    #   （架构 §8.2-2）。那条红线此前由 `OffloadPayload` 的**私有构造函数**保证
+    #   （"不过关卡直接写"编译不过），但**代码从没进过包**，所以从未执行过一次 ——
+    #   **「红线没跑过」与「红线没生效」在真机上长得一模一样。**
+    #
+    #   ⚠️ 方向是 mcp → memorylogic，**不能反过来** ——
+    #      `:memorylogic` 是"记住什么、卸载什么"的纯判定层，
+    #      让它反过来知道 MCP 协议就从可离线验证的记忆模型变成了协议层的一部分。
+    #
+    #   ⚠️ `implementation` 不传递：`OffloadDraft.request` 的类型 `UploadRequest`
+    #      来自 `:agentlogic`，它出现在 `:memorylogic` 的**公开签名**里 ——
+    #      所以用它的模块（`:app`）必须**自己**再声明一次 `:agentlogic`。
+    #      这条坑在 `:memorylogic` 的登记注释里已经被预言过一次，现在应验了。
+    "mcp": [":provider:gateway", ":agentlogic", ":personalogic", ":memorylogic"],
 }
 
 # 哪些模块的**公开 API 暴露了某个库的类型** —— 这些必须是 `api` 而不是 `implementation`。

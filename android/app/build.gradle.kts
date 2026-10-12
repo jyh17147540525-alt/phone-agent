@@ -175,6 +175,20 @@ dependencies {
     //   在此之前 DL-1…DL-4 的 5000+ 行、1852 条测试没有任何模块引用，
     //   编译得过、测试全绿，但 `classes.dex` 里一个字节都没有。
     implementation(project(":personalogic"))          // 人格卡 / 状态机 / 装配器（助理是谁）
+    // 记忆逻辑（DL 记忆线）：上下文卸载 / 分层记忆 / 记忆闸门。
+    // **纯 Kotlin、零 Android 依赖**（在 PURE_KOTLIN 里）。
+    //
+    // ★ 与 `:personalogic` 同一个由来：它此前也**没有任何模块引用** ——
+    //   而它扛着一条红线「卸载前必须过 `PrivacyFilter`」（架构 §8.2-2）。
+    //   红线由 `OffloadPayload` 的私有构造函数保证，但代码从没进过包 ⇒ 从未执行过。
+    implementation(project(":memorylogic"))           // 上下文卸载 / 记忆闸门（记住什么）
+    // ⚠️ `:memorylogic` 用的是 `implementation(project(":agentlogic"))`，**不传递** ——
+    //    而本模块的 `OffloadPorts.kt` 要构造 `UploadRequest`（`OffloadDraft.request`
+    //    的类型），所以必须自己再声明一次。
+    //    少这一行 Gradle 报 "Cannot access 'UploadRequest'..."，
+    //    那句报错完全没提"你该去上游模块加 api"（同 `:capability` 与 `:filelogic` 的坑）。
+    //    这条坑在 `:memorylogic` 的登记注释里被预言过一次，现在应验。
+    implementation(project(":agentlogic"))            // PrivacyFilter / UploadRequest / AgentBudget
     // implementation(project(":provider:anthropic"))
     // implementation(project(":provider:gemini"))
     // implementation(project(":provider:local"))
