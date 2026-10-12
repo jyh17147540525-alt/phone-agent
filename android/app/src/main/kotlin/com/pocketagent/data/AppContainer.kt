@@ -49,6 +49,8 @@ import com.pocketagent.mcp.McpDispatcher
 import com.pocketagent.mcp.McpHttpServer
 import com.pocketagent.mcp.ContextOffloadTool
 import com.pocketagent.mcp.ContextRecallTool
+import com.pocketagent.mcp.GlobalKeyTool
+import com.pocketagent.mcp.TypeTextTool
 import com.pocketagent.mcp.OfficeRunTool
 import com.pocketagent.mcp.OfficeToolsTool
 import com.pocketagent.mcp.PersonaBriefTool
@@ -914,6 +916,16 @@ class AppContainer(context: Context) {
                         // ── DL：办公/文件（见上面 officeExecutor 的注释）──
                         OfficeToolsTool(officeWorkspacePort),
                         OfficeRunTool(officeWorkspacePort, officeExecutor),
+                        // ── 2026-10-12：文字输入与导航键 ────────────────────
+                        // ★ 在此之前能力桥**只能点击与滑动** —— 而"帮我搜一下 X"
+                        //   这类任务的第一步就是打字。没有它，跨应用任务大部分走不通：
+                        //   能点开搜索框，却打不出一个字。
+                        //   （`:action` 里 `ActionType` 有 15 种，此前只暴露了 2 种。）
+                        //
+                        // ⚠️ `rateLimiter` **共用同一个实例** —— 否则合计可跑到
+                        //    `tap+swipe+type+key` 各自上限之和，那是 4 倍的节奏。
+                        TypeTextTool(reader, safetyPort, dispatchPort, rateLimiter),
+                        GlobalKeyTool(dispatchPort, rateLimiter),
                     ),
                 ),
             ),

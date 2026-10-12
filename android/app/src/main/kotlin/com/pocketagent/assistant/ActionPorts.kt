@@ -14,6 +14,7 @@ import com.pocketagent.mcp.ActionSafetyPort
 import com.pocketagent.mcp.ActionSafetyQuery
 import com.pocketagent.mcp.AgentAction
 import com.pocketagent.mcp.DispatchOutcome
+import com.pocketagent.mcp.GlobalKeyName
 import com.pocketagent.mcp.ScreenPoint
 import com.pocketagent.mcp.ScreenRect
 import com.pocketagent.safety.ActionContext
@@ -137,6 +138,43 @@ class ActionDispatchAdapter(private val dispatcher: ActionDispatcher) : ActionDi
                 point = action.from.toPoint(),
                 endPoint = action.to.toPoint(),
                 durationMs = action.durationMs,
+                safetyCleared = true,
+            )
+
+            is AgentAction.TypeText -> {
+                val ref = action.ref
+                if (ref != null) {
+                    UiAction(
+                        type = ActionType.INPUT_TEXT,
+                        targetDescription = action.reason,
+                        elementRef = ElementRef.ByNodeId(ref.nodeId, ref.bounds.toRect()),
+                        // ⚠️ text 也要带 —— 执行侧要先"点一下"再写（见 performInputText），
+                        //    而点的坐标就是从这个 elementRef.bounds 算出来的。
+                        text = action.text,
+                        safetyCleared = true,
+                    )
+                } else {
+                    val point = action.point
+                        ?: return DispatchOutcome.Failed(
+                            "工具内部错误：输入同时缺少节点引用与坐标（这是接线 bug，不该发生）。",
+                        )
+                    UiAction(
+                        type = ActionType.INPUT_TEXT,
+                        targetDescription = action.reason,
+                        point = point.toPoint(),
+                        text = action.text,
+                        safetyCleared = true,
+                    )
+                }
+            }
+
+            is AgentAction.GlobalKey -> UiAction(
+                type = when (action.key) {
+                    GlobalKeyName.BACK -> ActionType.BACK
+                    GlobalKeyName.HOME -> ActionType.HOME
+                    GlobalKeyName.RECENTS -> ActionType.RECENTS
+                },
+                targetDescription = action.reason,
                 safetyCleared = true,
             )
         }

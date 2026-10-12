@@ -69,6 +69,63 @@ sealed interface AgentAction {
         val durationMs: Long,
         val reason: String?,
     ) : AgentAction
+
+    /**
+     * 往一个输入框里写文字（2026-10-12 加）。
+     *
+     * ═══════════════════════════════════════════════════════════
+     *  ★ 为什么它必须存在
+     * ═══════════════════════════════════════════════════════════
+     *
+     * 在此之前能力桥**只能点击与滑动** —— 而"帮我搜一下 X"、"把地址填进去"
+     * 这类任务的**第一步就是打字**。没有它，跨应用任务执行大部分走不通。
+     *
+     * ⚠️ 语义是「**把输入框的内容设成 [text]**」，不是"追加"：
+     *    底层用 `ACTION_SET_TEXT`，它是**替换**。要清空就传空串。
+     *    刻意不做"追加"模式 —— 追加需要先读回原内容，
+     *    而读回的内容会经过隐私关卡（输入框文本在树里是明文），
+     *    多绕这一圈只是多一条泄漏路径，换来的能力用户很少需要。
+     *
+     * ⚠️ [ref] / [point] 与 [AgentAction.Tap] 同构：目标三选一（node_id / text / 坐标）。
+     *    执行侧会**先点一下这个目标**再写入 —— 那是让人手做同一件事时的顺序，
+     *    而且它顺带解决了"焦点在不在这个框上"的问题（见执行侧的自校验）。
+     */
+    data class TypeText(
+        val ref: ResolvedNodeRef?,
+        val point: ScreenPoint?,
+        /** 要写入的文本。空串 = 清空该输入框。 */
+        val text: String,
+        val reason: String?,
+    ) : AgentAction
+
+    /**
+     * 一个**全局导航键**（2026-10-12 加）。
+     *
+     * ⚠️ 只开放三个键，且**不开放 HOME 之外的"回桌面再打开别的 App"组合**：
+     *    `BACK` / `HOME` / `RECENTS` 是**用户自己也会按**的导航动作，
+     *    而"跳转到某个 App"是另一回事（它需要 `OPEN_APP` + 应用白名单，本版不做）。
+     */
+    data class GlobalKey(
+        val key: GlobalKeyName,
+        val reason: String?,
+    ) : AgentAction
+}
+
+/**
+ * 全局导航键的**白名单**。
+ *
+ * ⚠️ 枚举而不是字符串：执行侧要 `when` 穷尽匹配，
+ *    传字符串会让"写错一个键名"变成运行期静默无效。
+ */
+enum class GlobalKeyName(val id: String, val label: String) {
+    BACK("back", "返回"),
+    HOME("home", "回桌面"),
+    RECENTS("recents", "最近任务"),
+    ;
+
+    companion object {
+        fun byId(raw: String): GlobalKeyName? = entries.firstOrNull { it.id == raw.trim().lowercase() }
+    }
 }
 
 /**
