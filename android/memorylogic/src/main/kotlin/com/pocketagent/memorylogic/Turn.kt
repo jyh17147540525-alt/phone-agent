@@ -28,6 +28,28 @@ data class Turn(
     val role: TurnRole,
     val text: String,
     val at: Long,
+
+    /**
+     * 父轮次。null = 这条是根（或来自"还没有分支概念"的老数据）。
+     *
+     * ★ 2026-10-14 加。它让会话成为一棵**树**：`重新生成 / 改写上一条` 会分叉，
+     *   而**旧分支保留**（用户随时能切回去对比）。当前采纳的路径由
+     *   `session.activeLeafTurnId` 指出来，见 [TurnChain.currentPath]。
+     *
+     * ⚠️ **默认值是刻意的**：老调用方（`AtomExtractor` 的测试等）不用改一行，
+     *   而语义上"没有父"正是扁平结构该有的样子 —— 完全向后兼容。
+     */
+    val parentTurnId: String? = null,
+
+    /**
+     * 是否被"重新生成 / 改写"取代。
+     *
+     * ★ 它决定**这一轮进不进 L1 记忆**：
+     *   - 被放弃的**回答**不进 —— 记下来会让助理下次答得更像那次
+     *   - 但被放弃的**提问**要进（降权）—— 用户**真的问过**，那是他的真实意图。
+     *     **「问过」是事实，「答错」不是用户的属性。**
+     */
+    val superseded: Boolean = false,
 ) {
     init {
         require(id.isNotBlank()) {

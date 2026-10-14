@@ -198,7 +198,18 @@ fun AppShell(container: AppContainer) {
     //    原因见 TasksScreen 的 viewModel 参数注释：它不继承 ViewModel，
     //    生命周期等于承载它的那次组合，而 destination 会在切 tab 时被移出组合。
     //    放这里 = 生命周期等于整个应用。
-    val tasksViewModel = remember { TasksViewModel(chatPort) }
+    val tasksViewModel = remember {
+        TasksViewModel(
+            chat = chatPort,
+            // ★ 传**提供者**而不是实例：库是懒开的，构造时它大概率还是 null，
+            //   而这里 `remember` 只跑一次 —— 存实例等于永远拿到 null。
+            //   首次调用会顺带把库开起来（要碰 Keystore，所以是 suspend）。
+            conversations = {
+                container.openCredentialStore()
+                container.conversationRepository()
+            },
+        )
+    }
 
     // 转场位移量：设计令牌给的是 dp，而 slideIn/slideOut 要的是像素。
     // 在这里换算一次，避免每帧在动画 lambda 里做 with(density) 转换。

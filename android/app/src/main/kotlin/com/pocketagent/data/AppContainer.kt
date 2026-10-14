@@ -416,6 +416,16 @@ class AppContainer(context: Context) {
     private var modelStore: ModelConfigRepositoryImpl? = null
 
     /**
+     * 会话与轮次的仓储。
+     *
+     * ⚠️ 它**必须和 [modelStore] 同时建、同时清** —— 理由同那里写的：
+     *    共用同一个 `db` 句柄的仓储分两次建，会让"凭据就绪但会话还没"
+     *    成为一个可达状态，而那时界面会显示空历史，**用户以为聊天记录丢了**。
+     */
+    @Volatile
+    private var conversationStore: ConversationStore? = null
+
+    /**
      * 打开加密存储。
      *
      * ═══════════════════════════════════════════════════════════════
@@ -515,6 +525,11 @@ class AppContainer(context: Context) {
                 db = db,
                 declarations = modelDeclarations,
             )
+            conversationStore = ConversationStore(
+                sessions = db.sessionDao(),
+                turns = db.turnDao(),
+                tasks = db.taskDao(),
+            )
 
             CredentialStoreResult.Ready(repository)
         }
@@ -555,6 +570,10 @@ class AppContainer(context: Context) {
 
             credentialStore = null
             modelStore = null
+            // ⚠️ 一起清。库一关，它就成了"指向已关闭库的引用"——
+            //    留着它比留着 null 更危险：调用方拿到它、用它，然后崩在一个
+            //    与"会话"毫不相干的地方。
+            conversationStore = null
             runCatching { database?.close() }
             database = null
 
@@ -575,6 +594,14 @@ class AppContainer(context: Context) {
      * （Key 页 / 模型页），合成会让 Key 页也被迫持有模型仓储的概念。
      */
     fun modelRepository(): ModelConfigRepositoryImpl? = modelStore
+
+    /**
+     * 会话仓储。null = 库还没开（调用前先 `openCredentialStore()`）。
+     *
+     * ⚠️ 聊天路径上库**本来就是开的** —— `ChatPort` 为了取 Key 已经调过
+     *    `openCredentialStore()`。所以这里复用，不额外付一次 Keystore 的代价。
+     */
+    fun conversationRepository(): ConversationStore? = conversationStore
 
     // ═══════════════════════════════════════════════════════════════
     //  dsh 集成：本机网关 + 配置投递

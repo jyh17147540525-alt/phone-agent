@@ -37,6 +37,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import com.pocketagent.data.ConversationStore
+import com.pocketagent.memorylogic.TurnRole
 import com.pocketagent.provider.api.ChatMessage
 import timber.log.Timber
 import androidx.compose.runtime.remember
@@ -473,6 +475,15 @@ data class AgentTaskUi(
          * 它同时是 [AgentBudget] 的默认值 —— 改这里之前先确认能耗预算是否也改了。
          */
         const val DEFAULT_MAX_STEPS = 8
+
+        /**
+         * 每次发给模型的**历史轮数上限**。
+         *
+         * ⚠️ 它是**成本闸**，不只是体验参数：上下文越长，每次请求越贵 ——
+         *    而花的是用户自己的钱。20 轮足够"接着聊"，
+         *    更早的内容应该由 L1/L2 记忆（设计稿 §4）来承载，而不是靠堆上下文。
+         */
+        const val HISTORY_LIMIT = 20
     }
 }
 
@@ -511,9 +522,80 @@ class TasksViewModel(
      *    （如实说"还没接入"），不是静默跳过。
      */
     private val chat: ChatPort? = null,
+
+    /**
+     * 会话仓储的**提供者**（不是实例）。
+     *
+     * ⚠️ 为什么必须是 `() ->`：库是**懒开**的（开库要碰 Keystore，冷启动路径上不该付这个代价），
+     *    所以 `AppContainer.conversationRepository()` 在本类被构造时**大概率还是 null**。
+     *    而本类由 `AppShell` 用 `remember` 持有 —— 只构造一次。
+     *    ⇒ 存实例 = 永远拿到 null。
+     *
+     *    这正是项目里既有的那条纪律：**生命周期比调用方短的东西，不能存引用**
+     *    （`AccessibilityActionExecutor` 对无障碍服务用的也是 `() -> Service?`）。
+     *
+     * ⚠️ 是 `suspend` 的：首次调用会触发开库，那是个慢操作。
+     */
+    private val conversations: (suspend () -> ConversationStore?)? = null,
 ) {
 
     val tasks = mutableStateListOf<AgentTaskUi>()
+
+    /** 当前会话 id。null = 还没定下来（库没开，或还没说过话）*/
+    private var sessionId: String? = null
+
+    init {
+        restoreHistory()
+    }
+
+    /**
+     * 启动时把历史读回来。
+     *
+     * ★ 在这之前，进程一死聊天记录就没了 —— 这是"软件不能正常使用"里最硬的一条。
+     *
+     * ⚠️ 拿不到仓储（库没开 / Keystore 失效）时**静默跳过**：
+     *    这时列表本来就是空的，而用户还没做任何操作，
+     *    弹一个"读不到历史"反而会让他以为数据丢了。
+     *    （真正需要报错的是**写入**路径 —— 那里失败意味着这次对话不会被保存。）
+     */
+    private fun restoreHistory() {
+        val provider = conversations ?: return
+        Thread {
+            val store = runCatching { kotlinx.coroutines.runBlocking { provider() } }
+                .getOrNull() ?: return@Thread
+            val pairs = runCatching {
+                kotlinx.coroutines.runBlocking {
+                    val session = store.currentSession()
+                    sessionId = session.id
+                    store.restorePairs(session.id)
+                }
+            }.getOrNull() ?: return@Thread
+
+            if (pairs.isEmpty()) return@Thread
+            // ⚠️ 直接改 `tasks`，不 post 到主线程 —— 与既有的 `update()` 一致
+            //    （它也是在后台线程里改这个列表）。改成 post 会让两种写法并存，
+            //    而"到底哪个线程在改它"变成需要读两处才能回答的问题。
+            // 倒序插入：`tasks` 是**新的在前**（`submit` 用的是 `add(0, ...)`）
+            pairs.asReversed().forEach { pair ->
+                // ⚠️ `pair.prompt` 是**跨模块**属性，Kotlin 不对它做智能转换 ——
+                //    必须取到局部变量再用（否则 `pair.prompt.id` 编译不过：
+                //    "Smart cast to 'Turn' is impossible"）。
+                val promptTurn = pair.prompt ?: return@forEach
+                val replyTurn = pair.reply
+                tasks.add(
+                    0,
+                    AgentTaskUi(
+                        id = promptTurn.id,
+                        prompt = promptTurn.text,
+                        state = if (replyTurn != null) TaskState.Done else TaskState.Running,
+                        step = if (replyTurn != null) 1 else 0,
+                        note = replyTurn?.text ?: "正在等模型回复…",
+                        perceptionTier = 0,
+                    ),
+                )
+            }
+        }.start()
+    }
 
     var draft by mutableStateOf("")
         private set
@@ -563,10 +645,51 @@ class TasksViewModel(
 
             val result = try {
                 kotlinx.coroutines.runBlocking {
-                    // ⚠️ 只给 USER 消息 —— **系统提示词由 `ChatPort` 注入**
+                    // ── ① 把用户这一句落库 ──────────────────────────
+                    //
+                    // ⚠️ **先落库再发请求**：反过来的话，请求成功但落库失败，
+                    //    用户会看到回复、而下次打开它没了 —— 那比"这次没回复"更难解释。
+                    val store = conversations?.let { runCatching { it() }.getOrNull() }
+                    val sid = store?.let { s ->
+                        runCatching {
+                            val session = sessionId?.let { id -> s.currentPath(id).let { id } }
+                                ?: s.currentSession().id
+                            sessionId = session
+                            s.append(session, TurnRole.USER, prompt)
+                            session
+                        }.getOrNull()
+                    }
+
+                    // ── ② 取上下文 ──────────────────────────────────
+                    //
+                    // ★ 这是本次接线真正的收益：在此之前每次只发**当前这一句**，
+                    //   助理不记得你三句话前说过什么。
+                    //
+                    // ⚠️ 取的是**当前路径**的最近 N 条，不是"按时间最近 N 条"——
+                    //   后者会把用户已经放弃的分支也喂给模型。
+                    // ⚠️ 不含刚写进去的这一句（`recentForModel` 会含），
+                    //   所以下面要**去掉最后一条 USER** 再自己补上，
+                    //   否则用户的话会在上下文里出现两次。
+                    val history = if (store != null && sid != null) {
+                        runCatching {
+                            store.recentForModel(sid, AgentTaskUi.HISTORY_LIMIT)
+                                .filter { it.role != TurnRole.TOOL }
+                                .dropLastWhile { it.role == TurnRole.USER && it.text == prompt }
+                                .map { turn ->
+                                    when (turn.role) {
+                                        TurnRole.USER -> ChatMessage.user(turn.text)
+                                        else -> ChatMessage.assistant(turn.text)
+                                    }
+                                }
+                        }.getOrDefault(emptyList())
+                    } else {
+                        emptyList()
+                    }
+
+                    // ⚠️ 只给 USER / ASSISTANT —— **系统提示词由 `ChatPort` 注入**
                     //    （人格装配器的输出 + 能力边界声明）。
                     //    界面不该知道"助理是谁"，那是数据层的事。
-                    chat!!.send(listOf(ChatMessage.user(prompt)))
+                    chat!!.send(history + ChatMessage.user(prompt))
                 }
             } catch (e: Exception) {
                 // 端口承诺不抛异常，但这里仍然兜一道 ——
@@ -575,8 +698,23 @@ class TasksViewModel(
             }
 
             when (result) {
-                is ChatResult.Ok -> update(taskId) {
-                    it.copy(state = TaskState.Done, step = 1, note = result.text, perceptionTier = 0)
+                is ChatResult.Ok -> {
+                    // ★ 把答复也落库 —— 否则下次打开只剩用户那句话，
+                    //   看起来像是对着空气说话。
+                    conversations?.let { provider ->
+                        runCatching {
+                            kotlinx.coroutines.runBlocking {
+                                val s = provider()
+                                val id = sessionId
+                                if (s != null && id != null) {
+                                    s.append(id, TurnRole.ASSISTANT, result.text)
+                                }
+                            }
+                        }
+                    }
+                    update(taskId) {
+                        it.copy(state = TaskState.Done, step = 1, note = result.text, perceptionTier = 0)
+                    }
                 }
 
                 is ChatResult.NoCredential -> {
