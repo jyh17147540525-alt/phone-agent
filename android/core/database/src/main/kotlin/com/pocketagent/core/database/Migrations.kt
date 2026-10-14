@@ -147,6 +147,80 @@ object Migrations {
         }
     }
 
+    /**
+     * v3 → v4：**会话持久化**（2026-10-14）。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★ 在此之前，任务**只在内存里**
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * `TasksViewModel.tasks = mutableStateListOf<AgentTaskUi>()`，
+     * 由 `AppShell` 用 `remember` 持有 ⇒ **进程一死，全部历史消失**。
+     * 连"正常使用"都谈不上，更不用说侧边栏与全局记忆。
+     *
+     * 这三张表是 `docs/会话侧边栏与全局记忆设计-v1.0.md` §3.2 / §4.3 的落点。
+     *
+     * ⚠️ **纯新增表，不动任何既有表** ⇒ 老数据零风险（结构对但数据丢了的"通过"
+     *    比失败更危险，所以这一条值得写出来）。
+     *
+     * ⚠️ SQL **逐字取自 `schemas/4.json`**（Room 自己导出的期望）。
+     *    手写"差不多"的 SQL 会挂在 `Migration didn't properly handle`，
+     *    而那个报错只告诉你表名，**不告诉你是列类型还是索引名**。
+     *    索引名尤其容易错：`index_turn_sessionId_at` 里的下划线一个都不能少。
+     *
+     * ⚠️ 外键 `ON DELETE CASCADE` 在这里声明，但它**默认不生效** ——
+     *    SQLite 的 `PRAGMA foreign_keys` 是关的。真正的开关在
+     *    `PocketAgentDatabaseFactory.create` 的 `onOpen` 回调里。
+     *    业务路径还要走 `SessionDao.deleteCascade` 显式删（第二道保险）。
+     */
+    val MIGRATION_3_4 = object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `session` (" +
+                    "`id` TEXT NOT NULL, `title` TEXT NOT NULL, `titleSource` TEXT NOT NULL, " +
+                    "`createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                    "`lastMessageAt` INTEGER NOT NULL, `turnCount` INTEGER NOT NULL, " +
+                    "`pinned` INTEGER NOT NULL, `archived` INTEGER NOT NULL, " +
+                    "`activeLeafTurnId` TEXT, PRIMARY KEY(`id`))",
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_session_archived_pinned_lastMessageAt` " +
+                    "ON `session` (`archived`, `pinned`, `lastMessageAt`)",
+            )
+
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `turn` (" +
+                    "`id` TEXT NOT NULL, `sessionId` TEXT NOT NULL, `role` TEXT NOT NULL, " +
+                    "`text` TEXT NOT NULL, `at` INTEGER NOT NULL, `tokenCount` INTEGER, " +
+                    "`parentTurnId` TEXT, `superseded` INTEGER NOT NULL, PRIMARY KEY(`id`), " +
+                    "FOREIGN KEY(`sessionId`) REFERENCES `session`(`id`) " +
+                    "ON UPDATE NO ACTION ON DELETE CASCADE )",
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_turn_sessionId_at` " +
+                    "ON `turn` (`sessionId`, `at`)",
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_turn_parentTurnId` ON `turn` (`parentTurnId`)",
+            )
+
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `task` (" +
+                    "`id` TEXT NOT NULL, `sessionId` TEXT NOT NULL, `prompt` TEXT NOT NULL, " +
+                    "`state` TEXT NOT NULL, `step` INTEGER NOT NULL, `note` TEXT NOT NULL, " +
+                    "`abortReason` TEXT, `perceptionTier` INTEGER NOT NULL, " +
+                    "`createdAtMillis` INTEGER NOT NULL, `finishedAtMillis` INTEGER, " +
+                    "PRIMARY KEY(`id`), " +
+                    "FOREIGN KEY(`sessionId`) REFERENCES `session`(`id`) " +
+                    "ON UPDATE NO ACTION ON DELETE CASCADE )",
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_task_sessionId_createdAtMillis` " +
+                    "ON `task` (`sessionId`, `createdAtMillis`)",
+            )
+        }
+    }
+
     /** 全部迁移，按顺序 */
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
 }

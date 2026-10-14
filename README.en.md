@@ -561,6 +561,13 @@ Users bear sole responsibility for:
 third-party accounts that users supply themselves, and the service relationship between the user and
 that provider has nothing to do with this project.
 
+**This project is not intended for minors**, and is not suitable for use as a companion or an
+object of emotional dependence by minors.
+
+You are responsible for ensuring that your use complies with the laws of your jurisdiction.
+⚠️ **This disclaimer is not legal advice** and does not replace any statutory obligation —
+if you intend to use this software for a **public-facing service**, consult a qualified lawyer first.
+
 ### What this disclaimer does not cover
 
 The paragraph above only allocates risk **between this project and the user**. It does **not**:

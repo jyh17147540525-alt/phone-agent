@@ -5,9 +5,15 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.pocketagent.core.database.dao.CredentialDao
+import com.pocketagent.core.database.dao.SessionDao
+import com.pocketagent.core.database.dao.TaskDao
+import com.pocketagent.core.database.dao.TurnDao
 import com.pocketagent.core.database.dao.ModelConfigDao
 import com.pocketagent.core.database.dao.UsageDao
 import com.pocketagent.core.database.entity.CredentialEntity
+import com.pocketagent.core.database.entity.SessionEntity
+import com.pocketagent.core.database.entity.TaskEntity
+import com.pocketagent.core.database.entity.TurnEntity
 import com.pocketagent.core.database.entity.ModelConfigEntity
 import com.pocketagent.core.database.entity.UsageRecordEntity
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
@@ -37,8 +43,14 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         CredentialEntity::class,
         ModelConfigEntity::class,
         UsageRecordEntity::class,
+        // ── v4：会话持久化（2026-10-14）──────────────────────────
+        // ★ 在此之前任务**只在内存里**（TasksViewModel 的 mutableStateListOf），
+        //   进程一死全没 —— 连"正常使用"都谈不上。
+        SessionEntity::class,
+        TurnEntity::class,
+        TaskEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class PocketAgentDatabase : RoomDatabase() {
@@ -48,6 +60,10 @@ abstract class PocketAgentDatabase : RoomDatabase() {
     abstract fun modelConfigDao(): ModelConfigDao
 
     abstract fun usageDao(): UsageDao
+
+    abstract fun sessionDao(): SessionDao
+    abstract fun turnDao(): TurnDao
+    abstract fun taskDao(): TaskDao
 }
 
 /**
@@ -84,6 +100,19 @@ object PocketAgentDatabaseFactory {
             //    那会在升级时静默删掉整个库 —— 用户的 API Key 全部消失，
             //    而界面上只会表现为"配置没了"。这类数据丢失是不可逆的。
             .addMigrations(*Migrations.ALL)
+            // ⚠️ **必须显式打开外键约束**：SQLite 的 `PRAGMA foreign_keys` 默认是**关**的。
+            //    不打开的话，`turn` / `task` 上声明的 `ON DELETE CASCADE`
+            //    **一行都不会生效** —— 删了会话，用户说过的每一句话还躺在库里。
+            //    **那是隐私问题，不是整洁问题**（设计稿 §4.6）。
+            //
+            //    ⚠️ 而且"没被强制执行的外键"比"没有外键"更糟：它看起来像个保证。
+            //    ⇒ 业务路径仍然走 `SessionDao.deleteCascade` 显式删，
+            //      这一句是 DB 层的**第二道**保险，不是唯一的一道。
+            .addCallback(object : RoomDatabase.Callback() {
+                override fun onOpen(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                    db.execSQL("PRAGMA foreign_keys = ON")
+                }
+            })
             .build()
     }
 

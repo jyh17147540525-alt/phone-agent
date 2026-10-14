@@ -417,66 +417,11 @@ def compare_table(db: sqlite3.Connection, entity: dict) -> bool:
     return passed
 
 
-def main() -> int:
-    print("=" * 64)
-    print("  离线迁移校验（替代 MigrationTestHelper 的结构比对部分）")
-    print("=" * 64)
+def _behaviour_1_2(db: sqlite3.Connection) -> bool:
+    """v1→v2 的行为检查：老数据保全 + purpose 默认值 + 唯一约束真生效。"""
+    passed = True
 
-    v1 = load_schema(1)
-    v2 = load_schema(2)
-
-    print(f"\nv1 → v2，v1 有 {len(v1['entities'])} 张表，v2 有 {len(v2['entities'])} 张表")
-
-    # ① 用 v1 的 createSql 建库（等价于 helper.createDatabase(db, 1)）
-    db = sqlite3.connect(":memory:")
-    db.execute("PRAGMA foreign_keys=ON")
-    for ent in v1["entities"]:
-        db.execute(materialise(ent["createSql"], ent["tableName"]))
-    for ent in v1["entities"]:
-        for idx in ent.get("indices", []):
-            db.execute(materialise(idx["createSql"], ent["tableName"]))
-    print("\n① 已用 v1 schema 建库")
-
-    # 插入一条 v1 老数据（等价于测试里那条 INSERT）—— 同时验证列名没写错
-    try:
-        db.execute(
-            """
-            INSERT INTO credential
-                (id, providerId, label, ciphertext, iv, keyLength,
-                 baseUrlOverride, createdAtMillis, lastCheckedAtMillis,
-                 lastStatus, lastStatusDetail, modelCount, isDefault)
-            VALUES ('c1','deepseek','主力',X'0102',X'0304',35,
-                    NULL,1000,NULL,NULL,NULL,NULL,1)
-            """
-        )
-        ok("v1 老数据插入成功（MigrationTest 用的同一条语句）")
-    except sqlite3.Error as exc:
-        bad(f"v1 老数据插入失败：{exc}")
-        return 1
-
-    # ② 应用迁移
-    stmts = extract_migration_sql(MIGRATIONS_KT, 1, 2)
-    print(f"\n② 从 Migrations.kt 提取到 {len(stmts)} 条语句，开始执行")
-    for i, s in enumerate(stmts, 1):
-        head = _norm_sql(s)[:72]
-        try:
-            db.execute(s)
-            ok(f"[{i}] {head}…")
-        except sqlite3.Error as exc:
-            bad(f"[{i}] 执行失败：{exc}")
-            print(f"      SQL: {s[:200]}")
-            return 1
-    db.commit()
-
-    # ③ 与 v2 期望结构比对
-    print("\n③ 与实际结构比对（Room 从 @Entity 生成的期望）")
-    all_passed = True
-    for ent in v2["entities"]:
-        if not compare_table(db, ent):
-            all_passed = False
-
-    # ④ 数据保全：老数据的 purpose 必须变成 'LLM'
-    print("\n④ 老数据保全检查")
+    print("\n④ 老数据保全检查（探针行 c1）")
     try:
         row = db.execute(
             "SELECT id, providerId, label, keyLength, isDefault, purpose "
@@ -484,20 +429,19 @@ def main() -> int:
         ).fetchone()
         if row is None:
             bad("老数据丢失了！（结构对但数据没了 —— 比失败更危险）")
-            all_passed = False
+            passed = False
         else:
             assert row[0] == "c1" and row[1] == "deepseek" and row[2] == "主力"
             assert row[3] == 35 and row[4] == 1
             if row[5] != "LLM":
                 bad(f"purpose 应为 'LLM'，实际 {row[5]!r}")
-                all_passed = False
+                passed = False
             else:
                 ok("老数据完整保留，且 purpose 默认为 'LLM'")
     except sqlite3.Error as exc:
         bad(f"查询失败：{exc}")
-        all_passed = False
+        passed = False
 
-    # ⑤ 唯一约束真的生效
     print("\n⑤ 唯一约束检查")
     try:
         db.execute(
@@ -512,10 +456,9 @@ def main() -> int:
                 "VALUES ('m2','c1','gpt-4o-mini',NULL,'STANDARD',2,NULL,NULL,1,1000)"
             )
             bad("重复的 (credentialId, modelId) 竟然插入成功 —— 唯一索引没生效")
-            all_passed = False
+            passed = False
         except sqlite3.IntegrityError:
             ok("同凭据同模型被唯一索引拒绝")
-        # 不同凭据应可共存
         db.execute(
             "INSERT INTO model_config (id,credentialId,modelId,label,tier,roleMask,"
             "inputPriceOverride,outputPriceOverride,enabled,createdAtMillis) "
@@ -524,13 +467,257 @@ def main() -> int:
         ok("不同凭据可配置同一模型")
     except sqlite3.Error as exc:
         bad(f"唯一约束测试失败：{exc}")
-        all_passed = False
+        passed = False
+
+    return passed
+
+
+def _behaviour_3_4(db: sqlite3.Connection) -> bool:
+    """v3→v4 的行为检查：老表没被动 + 新表能读写 + ★ 外键级联**真**生效。
+
+    ⚠️ 最后一条是本迁移最要紧的：`ON DELETE CASCADE` 声明了不等于生效 ——
+       SQLite 的 `PRAGMA foreign_keys` 默认是**关**的。
+       不打开的话，删了会话、用户说过的每一句话还躺在库里。
+       **那是隐私问题，不是整洁问题。**
+    """
+    passed = True
+
+    print("\n④ 老数据保全（探针行 c1）")
+    try:
+        # 纯新增表**不该触碰任何既有表** —— 探针行必须原样还在。
+        # ⚠️ 这条检查的价值在于：它挡的是"迁移脚本顺手 UPDATE 了一下老表"
+        #    这类看起来无害、实际会改用户数据的写法。
+        row = db.execute(
+            "SELECT providerId, label, keyLength, isDefault FROM credential WHERE id='c1'"
+        ).fetchone()
+        if row is None:
+            bad("v4 迁移把 credential 里的老数据弄丢了")
+            passed = False
+        elif row != ("deepseek", "主力", 35, 1):
+            bad(f"老数据被改动了：{row!r}")
+            passed = False
+        else:
+            ok("credential 探针行原样保留（纯新增表，未触碰既有表）")
+    except sqlite3.Error as exc:
+        bad(f"查询 credential 失败：{exc}")
+        passed = False
+
+    print("\n⑤ 新表可读写")
+    try:
+        db.execute(
+            "INSERT INTO session (id,title,titleSource,createdAt,updatedAt,"
+            "lastMessageAt,turnCount,pinned,archived,activeLeafTurnId) "
+            "VALUES ('s1','帮我查一下明天天气','AUTO',1000,1000,1000,0,0,0,NULL)"
+        )
+        db.execute(
+            "INSERT INTO turn (id,sessionId,role,text,at,tokenCount,parentTurnId,superseded) "
+            "VALUES ('t1','s1','USER','你好',1000,NULL,NULL,0)"
+        )
+        db.execute(
+            "INSERT INTO task (id,sessionId,prompt,state,step,note,abortReason,"
+            "perceptionTier,createdAtMillis,finishedAtMillis) "
+            "VALUES ('k1','s1','你好','Done',1,'你好，有什么需要帮忙的？',NULL,0,1000,1100)"
+        )
+        db.execute("UPDATE session SET turnCount = 1, activeLeafTurnId = 't1' WHERE id='s1'")
+        row = db.execute(
+            "SELECT s.turnCount, s.activeLeafTurnId, t.text, k.state "
+            "FROM session s JOIN turn t ON t.sessionId = s.id "
+            "JOIN task k ON k.sessionId = s.id WHERE s.id='s1'"
+        ).fetchone()
+        if row is None:
+            bad("插入后联查不到数据")
+            passed = False
+        else:
+            ok(f"会话/轮次/执行记录可写可查（turnCount={row[0]}，状态={row[3]}）")
+    except sqlite3.Error as exc:
+        bad(f"新表读写失败：{exc}")
+        passed = False
+
+    print("\n⑥ ★ 外键级联是否真生效（本迁移最要紧的一条）")
+    try:
+        db.execute("PRAGMA foreign_keys=ON")
+        db.execute("DELETE FROM session WHERE id='s1'")
+        left_t = db.execute("SELECT COUNT(*) FROM turn WHERE sessionId='s1'").fetchone()[0]
+        left_k = db.execute("SELECT COUNT(*) FROM task WHERE sessionId='s1'").fetchone()[0]
+        if left_t == 0 and left_k == 0:
+            ok("开了 PRAGMA 之后，删会话会带走轮次与执行记录")
+        else:
+            bad(
+                f"级联没生效！删了会话，却还剩 {left_t} 条轮次、{left_k} 条执行记录 "
+                "—— 用户以为删干净了，而磁盘上还留着他说的每一句话",
+            )
+            passed = False
+    except sqlite3.Error as exc:
+        bad(f"级联测试失败：{exc}")
+        passed = False
+
+    print("\n⑦ ★ 关掉 PRAGMA 时级联**确实不生效**（证明那句 PRAGMA 是必需的）")
+    try:
+        # ⚠️ **`PRAGMA foreign_keys` 在事务里是静默无效的** ——
+        #    Python 的 sqlite3 对 DML 会隐式开事务，所以上一段的 DELETE
+        #    已经让连接处于事务中。不 commit 就切 PRAGMA，
+        #    这条语句**什么都不会做**，而实验会得出"关了也生效"的错误结论。
+        #    （本次就是这么被误导的 —— 报了一条 `!` 出来。）
+        db.commit()
+        db.execute("PRAGMA foreign_keys=OFF")
+        fk_now = db.execute("PRAGMA foreign_keys").fetchone()[0]
+        if fk_now != 0:
+            warn(f"PRAGMA foreign_keys 没被关掉（读到 {fk_now}）—— 本实验作废")
+            db.close()
+            return passed
+        db.execute(
+            "INSERT INTO session (id,title,titleSource,createdAt,updatedAt,"
+            "lastMessageAt,turnCount,pinned,archived,activeLeafTurnId) "
+            "VALUES ('s2','x','AUTO',1000,1000,1000,0,0,0,NULL)"
+        )
+        db.execute(
+            "INSERT INTO turn (id,sessionId,role,text,at,tokenCount,parentTurnId,superseded) "
+            "VALUES ('t2','s2','USER','x',1000,NULL,NULL,0)"
+        )
+        db.execute("DELETE FROM session WHERE id='s2'")
+        left = db.execute("SELECT COUNT(*) FROM turn WHERE sessionId='s2'").fetchone()[0]
+        if left == 1:
+            ok("确认：不关 PRAGMA 就会留孤儿轮次 —— 所以 onOpen 里那句不是装饰")
+        else:
+            warn("关了 PRAGMA 级联仍然生效？请重新核实 SQLite 版本行为")
+    except sqlite3.Error as exc:
+        warn(f"该对照实验没跑成：{exc}")
+    finally:
+        db.execute("PRAGMA foreign_keys=ON")
+
+    return passed
+
+
+# key = (from, to) → 行为检查函数。没有条目就只做结构比对。
+BEHAVIOUR = {
+    (1, 2): _behaviour_1_2,
+    (3, 4): _behaviour_3_4,
+}
+
+
+def migration_pairs() -> list[tuple[int, int]]:
+    """从 schema 目录推导**全部相邻版本对**。
+
+    ★ 这是本次修的关键：脚本原来**写死了 v1→v2**，
+      于是新写的 v3→v4 迁移**一条都没被检查过**，而脚本照样报「全部通过」。
+      **一个恒过的校验等于没有校验，而且比没有更糟** ——
+      它让人以为"迁移有覆盖"，从而放心地改迁移脚本。
+
+    ⇒ 改成从 `schemas/*.json` 推导：**新加一个 N.json 就自动被覆盖**。
+    """
+    versions = sorted(
+        int(p.stem) for p in SCHEMA_DIR.glob("*.json") if p.stem.isdigit()
+    )
+    return list(zip(versions, versions[1:]))
+
+
+def check_pair(from_v: int, to_v: int) -> bool:
+    """通用的一对迁移：用 v_from 建库 → 跑迁移 → 与 v_to 期望比对。"""
+    print("\n" + "=" * 64)
+    print(f"  v{from_v} → v{to_v}")
+    print("=" * 64)
+
+    src = load_schema(from_v)
+    dst = load_schema(to_v)
+    print(f"\nv{from_v} 有 {len(src['entities'])} 张表，v{to_v} 有 {len(dst['entities'])} 张表")
+
+    # ① 用 v_from 的 createSql 建库（等价于 helper.createDatabase(db, from_v)）
+    db = sqlite3.connect(":memory:")
+    db.execute("PRAGMA foreign_keys=ON")
+    for ent in src["entities"]:
+        db.execute(materialise(ent["createSql"], ent["tableName"]))
+    for ent in src["entities"]:
+        for idx in ent.get("indices", []):
+            db.execute(materialise(idx["createSql"], ent["tableName"]))
+    print(f"\n① 已用 v{from_v} schema 建库")
+
+    # ★ 每一对都插同一行"探针数据"，迁移后检查它还在。
+    #
+    #   ⚠️ 原来只在 `from_v == 1` 时插 —— 于是 2→3 / 3→4 那两对**根本没有数据可保全**，
+    #      而它们照样"通过"。这正是"恒过的校验"的另一种形态：
+    #      **检查跑了，但检查的对象是空的。**
+    #   `credential` 从 v1 起就存在且列名稳定，所以它是天然的探针表。
+    try:
+        # ⚠️ 探针语句必须**跟着 schema 版本变**：`purpose` 是 v2 才加的列，
+        #    而它 NOT NULL 无默认值 ⇒ 给 v1 的库带上它、或给 v2+ 的库漏掉它，
+        #    都会直接插入失败。
+        #    （本次就是这么发现的 —— 顺带印证了"每一对都要各自插探针"的必要性：
+        #      老版本的表结构和新版本**不一样**。）
+        cols = {r[1] for r in db.execute("PRAGMA table_info(credential)")}
+        has_purpose = "purpose" in cols
+        base_cols = (
+            "id, providerId, label, ciphertext, iv, keyLength, "
+            "baseUrlOverride, createdAtMillis, lastCheckedAtMillis, "
+            "lastStatus, lastStatusDetail, modelCount, isDefault"
+        )
+        base_vals = "'c1','deepseek','主力',X'0102',X'0304',35, NULL,1000,NULL,NULL,NULL,NULL,1"
+        if has_purpose:
+            db.execute(
+                f"INSERT INTO credential ({base_cols}, purpose) VALUES ({base_vals}, 'LLM')"
+            )
+        else:
+            db.execute(f"INSERT INTO credential ({base_cols}) VALUES ({base_vals})")
+        ok(f"v{from_v} 探针数据插入成功（credential/c1，purpose 列：{'有' if has_purpose else '无'}）")
+    except sqlite3.Error as exc:
+        bad(f"探针数据插入失败：{exc}")
+        db.close()
+        return False
+
+    # ② 应用迁移
+    stmts = extract_migration_sql(MIGRATIONS_KT, from_v, to_v)
+    if not stmts:
+        bad(f"Migrations.kt 里找不到 MIGRATION_{from_v}_{to_v} 的任何语句")
+        db.close()
+        return False
+    print(f"\n② 从 Migrations.kt 提取到 {len(stmts)} 条语句，开始执行")
+    for i, s in enumerate(stmts, 1):
+        head = _norm_sql(s)[:72]
+        try:
+            db.execute(s)
+            ok(f"[{i}] {head}…")
+        except sqlite3.Error as exc:
+            bad(f"[{i}] 执行失败：{exc}")
+            print(f"      SQL: {s[:200]}")
+            db.close()
+            return False
+    db.commit()
+
+    # ③ 与 v_to 期望结构比对
+    print(f"\n③ 与 v{to_v} 期望结构比对（Room 从 @Entity 生成的期望）")
+    passed = True
+    for ent in dst["entities"]:
+        if not compare_table(db, ent):
+            passed = False
+
+    # ④ 该对独有的行为检查
+    behaviour = BEHAVIOUR.get((from_v, to_v))
+    if behaviour is not None:
+        if not behaviour(db):
+            passed = False
 
     db.close()
+    return passed
+
+
+def main() -> int:
+    print("=" * 64)
+    print("  离线迁移校验（替代 MigrationTestHelper 的结构比对部分）")
+    print("=" * 64)
+
+    pairs = migration_pairs()
+    if not pairs:
+        bad("schema 目录里没有可用的版本对")
+        return 1
+    print(f"\n发现 {len(pairs)} 对迁移：{'、'.join(f'v{a}→v{b}' for a, b in pairs)}")
+
+    all_passed = True
+    for from_v, to_v in pairs:
+        if not check_pair(from_v, to_v):
+            all_passed = False
 
     print("\n" + "=" * 64)
     if all_passed:
-        print(f"{GREEN}  全部通过 —— 迁移后的结构符合 Room 期望{RESET}")
+        print(f"{GREEN}  全部通过 —— 每一对迁移的结构都符合 Room 期望{RESET}")
         print("=" * 64)
         return 0
     print(f"{RED}  存在不匹配，升级后会崩在打开数据库那一步{RESET}")
