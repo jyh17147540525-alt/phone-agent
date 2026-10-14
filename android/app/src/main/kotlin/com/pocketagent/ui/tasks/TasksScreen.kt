@@ -57,6 +57,7 @@ import com.pocketagent.ui.design.PaBadge
 import com.pocketagent.ui.design.PaBadgeTone
 import com.pocketagent.ui.design.PaButton
 import com.pocketagent.ui.design.PaButtonStyle
+import androidx.compose.material.icons.filled.Menu
 import com.pocketagent.ui.design.PaColor
 import com.pocketagent.ui.design.PaEmptyState
 import com.pocketagent.ui.design.PaIconButton
@@ -126,6 +127,11 @@ fun TasksScreen(
         title = "任务",
         modifier = modifier,
         subtitle = if (vm.tasks.isEmpty()) null else "${vm.tasks.size} 个任务",
+        // ★ 抽屉入口。用 leadingIcon 而不是 onBack ——
+        //   摆一个返回箭头（←）当菜单用，用户会以为点它返回上一页。
+        leadingIcon = Icons.Default.Menu,
+        leadingContentDescription = "历史对话",
+        onLeadingClick = vm::openDrawer,
         actions = {
             PaIconButton(
                 icon = Icons.Default.Tune,

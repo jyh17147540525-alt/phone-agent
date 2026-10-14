@@ -72,11 +72,23 @@ fun PaScreen(
     modifier: Modifier = Modifier,
     subtitle: String? = null,
     onBack: (() -> Unit)? = null,
+    /** 见 [PaTopBar.leadingIcon] */
+    leadingIcon: ImageVector? = null,
+    leadingContentDescription: String? = null,
+    onLeadingClick: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
     content: @Composable () -> Unit,
 ) {
     Column(modifier = modifier.fillMaxSize()) {
-        PaTopBar(title = title, subtitle = subtitle, onBack = onBack, actions = actions)
+        PaTopBar(
+            title = title,
+            subtitle = subtitle,
+            onBack = onBack,
+            leadingIcon = leadingIcon,
+            leadingContentDescription = leadingContentDescription,
+            onLeadingClick = onLeadingClick,
+            actions = actions,
+        )
         Box(modifier = Modifier.weight(1f)) {
             content()
         }
@@ -95,6 +107,19 @@ fun PaTopBar(
     modifier: Modifier = Modifier,
     subtitle: String? = null,
     onBack: (() -> Unit)? = null,
+    /**
+     * 左侧图标（如汉堡菜单）。**与 [onBack] 互斥** —— 一个顶栏不该有两个左侧图标。
+     *
+     * ⚠️ 两者同时给时 **[leadingIcon] 胜出**，且不报错：
+     *    这是刻意的 —— 报错会让"加一个抽屉入口"这种小改动
+     *    在别处炸开，而"哪个图标显示出来"一眼就能看见。
+     *
+     * ★ 2026-10-14 加。在此之前只有 [onBack]，于是任务页想放汉堡菜单
+     *   就只能摆一个返回箭头（←）当菜单用 —— 语义不对，用户会以为点它返回上一页。
+     */
+    leadingIcon: ImageVector? = null,
+    leadingContentDescription: String? = null,
+    onLeadingClick: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     Row(
@@ -104,15 +129,24 @@ fun PaTopBar(
             .glassEdgeHorizontal(RoundedCornerShape(0.dp), highlightOnTop = false)
             .windowInsetsPadding(WindowInsets.statusBars)
             .padding(
-                start = if (onBack != null) PaSpace.xs else PaSpace.screenH,
+                start = if (leadingIcon != null || onBack != null) PaSpace.xs else PaSpace.screenH,
                 end = PaSpace.screenH,
                 top = PaSpace.xs,
                 bottom = PaSpace.s,
             ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (onBack != null) {
-            PaIconButton(icon = Icons.AutoMirrored.Filled.ArrowBack, onClick = onBack)
+        // 左侧图标：`leadingIcon` 优先，其次才是 `onBack` 的返回箭头。
+        // ⚠️ 缩进（start padding）的判据也要跟着一起改 —— 只看 `onBack`
+        //    会让"只给了 leadingIcon"的情况左边多出一截空白，
+        //    而那种错位在真机上看起来像"这个顶栏没对齐"。
+        val hasLeading = leadingIcon != null || onBack != null
+        if (hasLeading) {
+            PaIconButton(
+                icon = leadingIcon ?: Icons.AutoMirrored.Filled.ArrowBack,
+                onClick = onLeadingClick ?: onBack ?: {},
+                contentDescription = leadingContentDescription,
+            )
             Spacer(Modifier.width(PaSpace.xxs))
         }
 

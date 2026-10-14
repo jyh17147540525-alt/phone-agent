@@ -14,8 +14,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -27,6 +31,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -77,6 +82,7 @@ import com.pocketagent.ui.settings.SettingsViewModel
 import com.pocketagent.ui.sources.SourcesScreen
 import com.pocketagent.ui.sources.SourcesViewModel
 import com.pocketagent.ui.tasks.ContainerChatPort
+import com.pocketagent.ui.tasks.SessionDrawer
 import com.pocketagent.ui.tasks.TasksScreen
 import com.pocketagent.ui.tasks.TasksViewModel
 
@@ -242,7 +248,46 @@ fun AppShell(container: AppContainer) {
         }
     }
 
-    AuroraBackground {
+    // ── 会话抽屉 ────────────────────────────────────────────────
+    //
+    // ⚠️ 状态源在 `TasksViewModel`（而不是这里）—— 因为"新对话""切会话"
+    //    这些操作执行完要顺手把抽屉关上，而它们都在 ViewModel 里。
+    //    放两处会让"谁负责关"变成一个需要读两个文件才能回答的问题。
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    LaunchedEffect(tasksViewModel.drawerOpen) {
+        if (tasksViewModel.drawerOpen) drawerState.open() else drawerState.close()
+    }
+    // ⚠️ 手势只在任务页开启：设置页、插件页往右滑也会拉出抽屉，
+    //    而那里的用户预期是"返回上一页"（边缘返回手势）。
+    val drawerGestures = currentRoute == Routes.TASKS
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        gesturesEnabled = drawerGestures,
+        drawerContent = {
+            ModalDrawerSheet(
+                drawerContainerColor = PaColor.CanvasElevated,
+                drawerShape = RoundedCornerShape(topEnd = PaRadius.l, bottomEnd = PaRadius.l),
+            ) {
+                SessionDrawer(
+                    sessions = tasksViewModel.sessions,
+                    onNewSession = tasksViewModel::startNewSession,
+                    onSwitch = tasksViewModel::switchTo,
+                    onRename = tasksViewModel::renameSession,
+                    onDelete = tasksViewModel::deleteSession,
+                    onSearch = { tasksViewModel.refreshSessions(it) },
+                )
+            }
+        },
+    ) {
+        // 抽屉关掉时把状态同步回去 —— 用户是**滑**关的，没走 ViewModel
+        LaunchedEffect(drawerState.currentValue) {
+            if (drawerState.currentValue == DrawerValue.Closed && tasksViewModel.drawerOpen) {
+                tasksViewModel.closeDrawer()
+            }
+        }
+
+        AuroraBackground {
         Column(modifier = Modifier.fillMaxSize()) {
 
             NavHost(
@@ -527,6 +572,7 @@ fun AppShell(container: AppContainer) {
                 )
             }
         }
+    }
     }
 }
 
