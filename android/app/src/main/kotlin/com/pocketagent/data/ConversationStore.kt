@@ -60,6 +60,19 @@ class ConversationStore(
         return createSession(now)
     }
 
+    /** 侧边栏列表：未归档，置顶优先 + 最近发言优先。 */
+    suspend fun recentSessions(limit: Int): List<SessionEntity> = sessions.listActive(limit)
+
+    /**
+     * 侧边栏搜索。
+     *
+     * ⚠️ 走 `SessionDao.search` 的 `LIKE` 子串 —— 中文下 FTS 会坑人（见那里的注释）。
+     * ⚠️ 结果里的敏感片段**要在界面层遮蔽**：否则"搜索"会变成一条
+     *    绕过 `PrivacyFilter` 的读屏旁路。
+     */
+    suspend fun searchSessions(keyword: String, limit: Int): List<SessionEntity> =
+        sessions.search(keyword.trim(), limit)
+
     /** 显式开一个新会话（界面的「新对话」按钮）。 */
     suspend fun newSession(): SessionEntity = createSession(clock())
 

@@ -37,6 +37,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import com.pocketagent.core.database.entity.SessionEntity
 import com.pocketagent.data.ConversationStore
 import com.pocketagent.memorylogic.TurnRole
 import com.pocketagent.provider.api.ChatMessage
@@ -456,6 +457,36 @@ private fun SendButton(enabled: Boolean, onClick: () -> Unit) {
 
 enum class TaskState { Running, Done, Aborted, Failed }
 
+/**
+ * 侧边栏列表项。
+ *
+ * ⚠️ 刻意**不带 `activeLeafTurnId` / `titleSource` 这些内部字段** ——
+ *    界面一旦能读到它们，就会开始"顺手用一下"，而数据层的重构立刻变成破坏性变更。
+ */
+data class SessionSummary(
+    val id: String,
+    val title: String,
+    val lastMessageAt: Long,
+    val turnCount: Int,
+    val pinned: Boolean,
+    val isCurrent: Boolean,
+)
+
+/**
+ * 实体 → 侧边栏列表项。
+ *
+ * ⚠️ 这是**唯一**允许读 `SessionEntity` 的地方，而且只读展示需要的字段 ——
+ *    界面其它地方一律用 [SessionSummary]。
+ */
+private fun SessionEntity.toSummary(isCurrent: Boolean) = SessionSummary(
+    id = id,
+    title = title,
+    lastMessageAt = lastMessageAt,
+    turnCount = turnCount,
+    pinned = pinned,
+    isCurrent = isCurrent,
+)
+
 data class AgentTaskUi(
     val id: String,
     val prompt: String,
@@ -484,6 +515,15 @@ data class AgentTaskUi(
          *    更早的内容应该由 L1/L2 记忆（设计稿 §4）来承载，而不是靠堆上下文。
          */
         const val HISTORY_LIMIT = 20
+
+        /**
+         * 侧边栏一次列多少条。
+         *
+         * ⚠️ 刻意**不做分页**（v1）：个人助理的会话量级是"千"，不是"百万"，
+         *    一次列 200 条已经远超用户会翻的量。真到了翻不动的量级，
+         *    该上的是**搜索**而不是分页 —— 人不会"翻到第 7 页"，他会直接搜。
+         */
+        const val SESSION_LIST_LIMIT = 200
     }
 }
 
@@ -544,57 +584,175 @@ class TasksViewModel(
     /** 当前会话 id。null = 还没定下来（库没开，或还没说过话）*/
     private var sessionId: String? = null
 
+    // ── 侧边栏：会话列表 ────────────────────────────────────────
+
+    /**
+     * 侧边栏的列表。
+     *
+     * ⚠️ 只带界面需要的字段，**不把 `SessionEntity` 整个漏到 UI 层** ——
+     *    那个类型里有 `activeLeafTurnId` 这种纯内部状态，
+     *    漏出去之后界面就会开始"顺手读一下"，而数据层的重构立刻变成破坏性变更。
+     */
+    val sessions = mutableStateListOf<SessionSummary>()
+
+    /** 当前会话 id。界面用它高亮列表里那一项 */
+    var currentSessionId by mutableStateOf<String?>(null)
+        private set
+
+    /** 侧边栏是否打开。放在这里而不是 AppShell，是为了让「新对话」等操作能顺手关掉它 */
+    var drawerOpen by mutableStateOf(false)
+        private set
+
+    fun openDrawer() { drawerOpen = true }
+    fun closeDrawer() { drawerOpen = false }
+
     init {
-        restoreHistory()
+        refreshSessions()
     }
 
     /**
-     * 启动时把历史读回来。
+     * 启动/切换后刷新列表。
      *
-     * ★ 在这之前，进程一死聊天记录就没了 —— 这是"软件不能正常使用"里最硬的一条。
+     * ★ 在这之前进程一死聊天记录就没了 —— 这是"软件不能正常使用"里最硬的一条。
      *
      * ⚠️ 拿不到仓储（库没开 / Keystore 失效）时**静默跳过**：
      *    这时列表本来就是空的，而用户还没做任何操作，
      *    弹一个"读不到历史"反而会让他以为数据丢了。
      *    （真正需要报错的是**写入**路径 —— 那里失败意味着这次对话不会被保存。）
      */
-    private fun restoreHistory() {
+    fun refreshSessions(keyword: String? = null) {
         val provider = conversations ?: return
         Thread {
             val store = runCatching { kotlinx.coroutines.runBlocking { provider() } }
                 .getOrNull() ?: return@Thread
-            val pairs = runCatching {
+
+            val rows = runCatching {
                 kotlinx.coroutines.runBlocking {
-                    val session = store.currentSession()
-                    sessionId = session.id
-                    store.restorePairs(session.id)
+                    val list = if (keyword.isNullOrBlank()) {
+                        store.recentSessions(AgentTaskUi.SESSION_LIST_LIMIT)
+                    } else {
+                        store.searchSessions(keyword, AgentTaskUi.SESSION_LIST_LIMIT)
+                    }
+                    val cur = sessionId ?: store.currentSession().also { sessionId = it.id }.id
+                    list.map { it.toSummary(isCurrent = it.id == cur) }
                 }
             }.getOrNull() ?: return@Thread
 
-            if (pairs.isEmpty()) return@Thread
-            // ⚠️ 直接改 `tasks`，不 post 到主线程 —— 与既有的 `update()` 一致
-            //    （它也是在后台线程里改这个列表）。改成 post 会让两种写法并存，
-            //    而"到底哪个线程在改它"变成需要读两处才能回答的问题。
-            // 倒序插入：`tasks` 是**新的在前**（`submit` 用的是 `add(0, ...)`）
-            pairs.asReversed().forEach { pair ->
-                // ⚠️ `pair.prompt` 是**跨模块**属性，Kotlin 不对它做智能转换 ——
-                //    必须取到局部变量再用（否则 `pair.prompt.id` 编译不过：
-                //    "Smart cast to 'Turn' is impossible"）。
-                val promptTurn = pair.prompt ?: return@forEach
-                val replyTurn = pair.reply
-                tasks.add(
-                    0,
-                    AgentTaskUi(
-                        id = promptTurn.id,
-                        prompt = promptTurn.text,
-                        state = if (replyTurn != null) TaskState.Done else TaskState.Running,
-                        step = if (replyTurn != null) 1 else 0,
-                        note = replyTurn?.text ?: "正在等模型回复…",
-                        perceptionTier = 0,
-                    ),
-                )
+            sessions.clear()
+            sessions.addAll(rows)
+
+            // ★ 首次进入时把当前会话的历史读回来。
+            //    ⚠️ 只在"还没加载过"时做 —— 每次刷新都重载会让
+            //      正在进行的对话被覆盖成库里的旧状态。
+            if (!historyLoaded) {
+                historyLoaded = true
+                loadPairs(store, sessionId)
             }
         }.start()
+    }
+
+    /** 切到另一个会话。 */
+    fun switchTo(id: String) {
+        if (id == sessionId) {
+            closeDrawer()
+            return
+        }
+        sessionId = id
+        currentSessionId = id
+        tasks.clear()
+        drawerOpen = false
+        val provider = conversations ?: return
+        Thread {
+            val store = runCatching { kotlinx.coroutines.runBlocking { provider() } }
+                .getOrNull() ?: return@Thread
+            loadPairs(store, id)
+            refreshSessions()
+        }.start()
+    }
+
+    /** 「新对话」。⚠️ 必须**真的**开一个新的，不能复用空闲超时那条路径 ——
+     *  用户点这个按钮时明确表达了"上一段结束了"。 */
+    fun startNewSession() {
+        val provider = conversations ?: return
+        drawerOpen = false
+        Thread {
+            val store = runCatching { kotlinx.coroutines.runBlocking { provider() } }
+                .getOrNull() ?: return@Thread
+            val s = runCatching { kotlinx.coroutines.runBlocking { store.newSession() } }
+                .getOrNull() ?: return@Thread
+            sessionId = s.id
+            currentSessionId = s.id
+            historyLoaded = true
+            tasks.clear()
+            refreshSessions()
+        }.start()
+    }
+
+    fun renameSession(id: String, title: String) {
+        val clean = title.trim()
+        if (clean.isEmpty()) return
+        val provider = conversations ?: return
+        Thread {
+            val store = runCatching { kotlinx.coroutines.runBlocking { provider() } }
+                .getOrNull() ?: return@Thread
+            runCatching { kotlinx.coroutines.runBlocking { store.renameSession(id, clean) } }
+            refreshSessions()
+        }.start()
+    }
+
+    /**
+     * 删会话。
+     *
+     * ⚠️ 删的是**当前会话**时，要顺手切走 —— 否则界面会停在一个已经不存在的会话上，
+     *    而下一次发言会创建一个新的会话 id，用户会觉得"我删了它却还在"。
+     */
+    fun deleteSession(id: String) {
+        val provider = conversations ?: return
+        Thread {
+            val store = runCatching { kotlinx.coroutines.runBlocking { provider() } }
+                .getOrNull() ?: return@Thread
+            runCatching { kotlinx.coroutines.runBlocking { store.deleteSession(id) } }
+            if (id == sessionId) {
+                sessionId = null
+                currentSessionId = null
+                historyLoaded = false
+                tasks.clear()
+            }
+            refreshSessions()
+        }.start()
+    }
+
+    private var historyLoaded = false
+
+    /** 把某个会话的当前路径读成界面卡片。 */
+    private fun loadPairs(store: ConversationStore, sid: String?) {
+        if (sid == null) return
+        val pairs = runCatching {
+            kotlinx.coroutines.runBlocking { store.restorePairs(sid) }
+        }.getOrNull() ?: return
+
+        // ⚠️ 直接改 `tasks`，不 post 到主线程 —— 与既有的 `update()` 一致
+        //    （它也是在后台线程里改这个列表）。改成 post 会让两种写法并存，
+        //    而"到底哪个线程在改它"变成需要读两处才能回答的问题。
+        // 倒序插入：`tasks` 是**新的在前**（`submit` 用的是 `add(0, ...)`）
+        pairs.asReversed().forEach { pair ->
+            // ⚠️ `pair.prompt` 是**跨模块**属性，Kotlin 不对它做智能转换 ——
+            //    必须取到局部变量再用（否则 `pair.prompt.id` 编译不过：
+            //    "Smart cast to 'Turn' is impossible"）。
+            val promptTurn = pair.prompt ?: return@forEach
+            val replyTurn = pair.reply
+            tasks.add(
+                0,
+                AgentTaskUi(
+                    id = promptTurn.id,
+                    prompt = promptTurn.text,
+                    state = if (replyTurn != null) TaskState.Done else TaskState.Running,
+                    step = if (replyTurn != null) 1 else 0,
+                    note = replyTurn?.text ?: "正在等模型回复…",
+                    perceptionTier = 0,
+                ),
+            )
+        }
     }
 
     var draft by mutableStateOf("")
