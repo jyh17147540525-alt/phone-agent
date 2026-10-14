@@ -79,6 +79,7 @@ internal fun ModelRoleEntity.Companion.fromEntityMask(mask: Int): Set<ModelRole>
 internal fun ModelRoleEntity.toRole(): ModelRole = when (this) {
     ModelRoleEntity.SCHEDULER -> ModelRole.SCHEDULER
     ModelRoleEntity.WORKER -> ModelRole.WORKER
+    ModelRoleEntity.CHAT -> ModelRole.CHAT
 }
 
 /**

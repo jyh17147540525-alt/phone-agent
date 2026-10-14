@@ -36,7 +36,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pocketagent.core.database.entity.ModelRoleEntity
 import com.pocketagent.modelrouter.ModelConfig
 import com.pocketagent.modelrouter.ModelSetupSummary
+import com.pocketagent.modelrouter.ModelResolution
+import com.pocketagent.modelrouter.ModelRole
 import com.pocketagent.modelrouter.ModelTier
+import com.pocketagent.modelrouter.resolveForPurpose
 import com.pocketagent.ui.design.GlassSurface
 import com.pocketagent.ui.design.PaBadge
 import com.pocketagent.ui.design.PaBadgeTone
@@ -204,6 +207,15 @@ private fun ReadyContent(
 ) {
     var pendingDelete by remember { mutableStateOf<ModelConfig?>(null) }
 
+    // ★ 聊天**实际会**用哪个模型 —— 标在对应卡片上。
+    //
+    //   ⚠️ 在此之前这个决定是**静默**的（`firstOrNull { enabled }` = 最旧优先）：
+    //      用户配了多个模型时，聊天用哪个无从得知，只会觉得"这次回答怎么变笨了"。
+    //      把它显示在**配置的地方**，用户才知道自己刚刚做了什么决定。
+    val chatModelId = remember(state.models) {
+        (state.models.resolveForPurpose(ModelRole.CHAT) as? ModelResolution.Found)?.config?.id
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(
@@ -291,6 +303,7 @@ private fun ReadyContent(
                     items(items = models, key = { it.id }) { model ->
                         ModelCard(
                             model = model,
+                            chatModelId = chatModelId,
                             onToggleEnabled = { viewModel.setEnabled(model.id, it) },
                             onTier = { viewModel.setTier(model.id, it) },
                             onToggleRole = { viewModel.toggleRoleOf(model, it) },
@@ -416,6 +429,8 @@ private fun TierHeader(tier: ModelTier, count: Int) {
 @Composable
 private fun ModelCard(
     model: ModelConfig,
+    /** 聊天实际会用的那条的 `id`；null = 还没定下来。见 ReadyContent 的注释 */
+    chatModelId: String?,
     onToggleEnabled: (Boolean) -> Unit,
     onTier: (ModelTier) -> Unit,
     onToggleRole: (ModelRoleEntity) -> Unit,
@@ -446,7 +461,7 @@ private fun ModelCard(
             //   这是最容易让人困惑的状态：界面显示"已启用"，
             //   但它既不能调度也不能干活，调度时会被**静默跳过**。
             //   不标出来，用户会以为配好了，然后永远等不到它被使用。
-            val badge = statusBadgeFor(model)
+            val badge = statusBadgeFor(model, chatModelId)
             if (badge != null) {
                 PaBadge(text = badge.first, tone = badge.second)
             }
@@ -486,6 +501,11 @@ private fun ModelCard(
             verticalArrangement = Arrangement.spacedBy(PaSpace.xs),
         ) {
             PaFilterChip(
+                text = "对话",
+                selected = ModelRoleEntity.CHAT in model.roles.toEntityRoles(),
+                onClick = { onToggleRole(ModelRoleEntity.CHAT) },
+            )
+            PaFilterChip(
                 text = "执行任务",
                 selected = ModelRoleEntity.WORKER in model.roles.toEntityRoles(),
                 onClick = { onToggleRole(ModelRoleEntity.WORKER) },
@@ -502,8 +522,10 @@ private fun ModelCard(
         //    然后发现自己唯一的模型变成了调度者，任务反而跑不了。
         Spacer(Modifier.height(PaSpace.xs))
         Text(
-            text = "「当调度者」的模型只负责判断任务难度、不做实际工作。" +
-                "只有一个模型时，选「执行任务」就够了。",
+            text = "「对话」= 你在聊天框说话时用它；「执行任务」= 跑 agent 循环时用它；" +
+                "「当调度者」只负责判断任务难度、不做实际工作。" +
+                "只有一个模型时，勾「对话」和「执行任务」就够了 —— " +
+                "不勾「对话」的话，聊天会回落到「执行任务」的那一个（也能用，只是不明确）。",
             style = PaType.caption,
             color = PaColor.TextTertiary,
         )
@@ -537,11 +559,19 @@ private fun ModelCard(
  *    如果每条都挂一个绿色的"正常"，那徽章就退化成装饰，
  *    真正出问题的那条反而不会引起注意。
  */
-private fun statusBadgeFor(model: ModelConfig): Pair<String, PaBadgeTone>? = when {
+private fun statusBadgeFor(
+    model: ModelConfig,
+    chatModelId: String?,
+): Pair<String, PaBadgeTone>? = when {
     !model.enabled -> "已停用" to PaBadgeTone.Neutral
 
     // 启用了但一个角色都没有 —— 最需要被看见的状态
     model.roles.isEmpty() -> "没设用途" to PaBadgeTone.Warning
+
+    // ★ 聊天会用它。这一条的价值不在"告诉你它被选中了"，
+    //   而在**反过来的那半边**：没被标的模型，用户就知道聊天不会用它。
+    //   在此之前这个信息完全不存在。
+    model.id == chatModelId -> "对话用它" to PaBadgeTone.Success
 
     else -> null
 }
@@ -691,6 +721,11 @@ private fun EditorCard(
             horizontalArrangement = Arrangement.spacedBy(PaSpace.xs),
             verticalArrangement = Arrangement.spacedBy(PaSpace.xs),
         ) {
+            PaFilterChip(
+                text = "对话",
+                selected = ModelRoleEntity.CHAT in editor.roles,
+                onClick = { onToggleRole(ModelRoleEntity.CHAT) },
+            )
             PaFilterChip(
                 text = "执行任务",
                 selected = ModelRoleEntity.WORKER in editor.roles,

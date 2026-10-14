@@ -165,6 +165,20 @@ enum class ModelRoleEntity(val bit: Int) {
 
     /** 执行者：实际接受任务并跑 agent 循环 */
     WORKER(2),
+
+    /**
+     * 对话：用户在聊天框里说话时用它（2026-10-14 加）。
+     *
+     * ⚠️ 位掩码取值 **4**，与既有 1/2 不冲突 ⇒ **不需要数据库迁移**
+     *    （老行的 mask 只会是 1 / 2 / 3，没有 CHAT 位 —— 那正是我们要的"未指定"）。
+     *
+     * ★ 为什么单开一个用途而不是复用 WORKER：
+     *    `ChatPort` 之前是 `firstOrNull { enabled }`（**最旧优先**）——
+     *    用户配多个模型时，聊天用哪个是**静默决定**的，界面上一个字都没说。
+     *    参考 Operit 的做法（按 chat/memory/summarization/UI control 分别指定），
+     *    把它变成用户可表达的意图。
+     */
+    CHAT(4),
     ;
 
     companion object {

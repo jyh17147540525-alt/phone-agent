@@ -425,12 +425,14 @@ internal fun ModelTier.toEntity(): ModelTierEntity = when (this) {
 internal fun ModelRoleEntity.toRoleOrNull(): com.pocketagent.modelrouter.ModelRole? = when (this) {
     ModelRoleEntity.SCHEDULER -> com.pocketagent.modelrouter.ModelRole.SCHEDULER
     ModelRoleEntity.WORKER -> com.pocketagent.modelrouter.ModelRole.WORKER
+    ModelRoleEntity.CHAT -> com.pocketagent.modelrouter.ModelRole.CHAT
 }
 
 /** 界面角色 → 数据库角色。同上，穷举 `when` 而非 `valueOf` */
 internal fun com.pocketagent.modelrouter.ModelRole.toEntity(): ModelRoleEntity = when (this) {
     com.pocketagent.modelrouter.ModelRole.SCHEDULER -> ModelRoleEntity.SCHEDULER
     com.pocketagent.modelrouter.ModelRole.WORKER -> ModelRoleEntity.WORKER
+    com.pocketagent.modelrouter.ModelRole.CHAT -> ModelRoleEntity.CHAT
 }
 
 /**

@@ -4,7 +4,11 @@ import com.pocketagent.data.AppContainer
 import com.pocketagent.data.CredentialStoreResult
 import com.pocketagent.provider.api.ChatChunk
 import com.pocketagent.provider.api.ChatMessage
+import com.pocketagent.modelrouter.ModelResolution
+import com.pocketagent.modelrouter.ModelRole
+import com.pocketagent.modelrouter.resolveForPurpose
 import com.pocketagent.provider.api.ChatRequest
+import timber.log.Timber
 
 /**
  * 对话端口 —— 任务页与模型之间的**唯一出口**。
@@ -91,12 +95,23 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
         //   两个错的表现**完全一样**：一说话就报「模型不存在」。
         //   而用户的 Key 和余额都没问题 —— 于是他只会去查钱包，
         //   排查方向完全错。这是本项目头号 bug 形态「安静地少做一件事」的又一例。
-        val config = container.modelRepository()
-            ?.all()
-            ?.firstOrNull { it.enabled }
-            ?: return ChatResult.Failed(
-                "还没有可用的模型。请到「模型」页面添加一个，并确认它处于启用状态。",
+        // ★ 2026-10-14：改成**按用途**挑（`ModelRole.CHAT`），不再是
+        //   `firstOrNull { it.enabled }`（那等于"永远用最早添加的那条"）。
+        //   三级回落在 `resolveForPurpose` 里，每一级都带得出"靠哪一步选中的"。
+        val resolution = container.modelRepository()?.all().orEmpty()
+            .resolveForPurpose(ModelRole.CHAT)
+        val config = when (resolution) {
+            is ModelResolution.Found -> resolution.config
+            ModelResolution.None -> return ChatResult.Failed(
+                "还没有可用的模型。请到「设置 → 模型配置」添加一个，并确认它处于启用状态。",
             )
+        }
+        // ⚠️ 回落时记一笔 —— 界面上也有提示（模型页会标出"对话用它"），
+        //    但日志是排查时唯一的线索：用户说"回答变笨了"时，
+        //    第一件要确认的事就是"它到底用了哪个模型"。
+        if (resolution is ModelResolution.Found && resolution.via.isFallback) {
+            Timber.i("聊天模型是回落选中的（%s）：%s", resolution.via.name, config.modelId)
+        }
         val model = config.modelId
 
         // ── ③ 组装系统提示词 ────────────────────────────────────

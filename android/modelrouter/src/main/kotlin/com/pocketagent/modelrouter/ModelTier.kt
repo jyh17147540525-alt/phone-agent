@@ -68,6 +68,15 @@ enum class ModelRole {
 
     /** 可被调度去执行任务 */
     WORKER,
+
+    /**
+     * 可在**聊天框**里对话（2026-10-14 加）。
+     *
+     * ⚠️ 它与 [WORKER] **不是**包含关系：WORKER 指的是"能跑 agent 循环"，
+     *    CHAT 指的是"用户说一句话时用它"。一个贵而慢的推理模型可能
+     *    WORKER 合适但 CHAT 不合适（用户等不起）。
+     */
+    CHAT,
 }
 
 /**
@@ -113,6 +122,9 @@ data class ModelConfig(
 
     /** 是否可用于执行任务 */
     val canWork: Boolean get() = enabled && ModelRole.WORKER in roles
+
+    /** 是否可用于聊天框对话 */
+    val canChat: Boolean get() = enabled && ModelRole.CHAT in roles
 
     /**
      * 单次调用的粗略成本（美元）。
