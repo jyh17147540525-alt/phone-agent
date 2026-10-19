@@ -154,5 +154,6 @@ replay_pid*.log
 .ue.xml
 .chk
 .commitmsg*.tmp
+.cm.tmp
 .chk.py
 .enc.py
