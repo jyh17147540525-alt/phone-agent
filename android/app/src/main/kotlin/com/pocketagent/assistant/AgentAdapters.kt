@@ -18,6 +18,7 @@ import com.pocketagent.provider.api.ContentPart
 import com.pocketagent.provider.api.LlmProvider
 import com.pocketagent.provider.api.ProviderCredential
 import com.pocketagent.provider.api.ToolSpec
+import timber.log.Timber
 
 /**
  * `:agentlogic` 的循环 ←→ 真实世界的**适配层**。
@@ -89,15 +90,33 @@ object AgentAdapters {
                 )
 
             when (val outcome = tool.call(args)) {
-                is ToolOutcome.Success -> AgentToolResult.Ok(outcome.text)
+                is ToolOutcome.Success -> {
+                    // ★ 诊断日志：真机上"读不到屏幕"可能是三件完全不同的事 ——
+                    //   ① 模型没调工具；② 工具调了但返回空；③ 工具返回了内容，
+                    //   模型自己没用上。只靠最终答复无法区分，而三者的修法不同。
+                    //   这里只记**长度与前 200 字**，不整段落日志（屏幕内容含隐私）。
+                    Timber.i(
+                        "工具 %s 成功：%d 字，开头=%s",
+                        call.name,
+                        outcome.text.length,
+                        outcome.text.take(200),
+                    )
+                    AgentToolResult.Ok(outcome.text)
+                }
 
                 // ★★ 三分支的映射是**本文件最要紧**的三行。
                 //    `:mcp` 的 `Refused` 语义是「安全策略的最终结论，不要重试」
                 //    （见 ToolRegistry 的注释），所以它必须落到 Blocked ——
                 //    落到 Failed 会让模型以为"只是没成功"，于是换个坐标再试。
-                is ToolOutcome.Refused -> AgentToolResult.Blocked(outcome.reason)
+                is ToolOutcome.Refused -> {
+                    Timber.w("工具 %s 被安全策略拒绝：%s", call.name, outcome.reason)
+                    AgentToolResult.Blocked(outcome.reason)
+                }
 
-                is ToolOutcome.Failed -> AgentToolResult.Failed(outcome.reason)
+                is ToolOutcome.Failed -> {
+                    Timber.w("工具 %s 失败：%s", call.name, outcome.reason)
+                    AgentToolResult.Failed(outcome.reason)
+                }
             }
         }
     }
@@ -154,6 +173,14 @@ object AgentAdapters {
         }
 
         val ready = calls.build()
+        // ★ 诊断日志：区分"模型没调工具"与"调了但结果为空"。
+        //   前者是提示词/模型能力问题，后者是权限/读屏问题 —— 修法完全不同。
+        Timber.i(
+            "模型回合：正文 %d 字，工具调用 %d 个%s",
+            text.length,
+            ready.size,
+            if (ready.isEmpty()) "" else "：${ready.joinToString("、") { it.name }}",
+        )
         if (ready.isEmpty()) {
             AgentTurnReply.Final(text.toString())
         } else {

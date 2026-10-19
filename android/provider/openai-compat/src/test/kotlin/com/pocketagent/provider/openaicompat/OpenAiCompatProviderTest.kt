@@ -3,10 +3,12 @@ package com.pocketagent.provider.openaicompat
 import com.pocketagent.provider.api.AuthScheme
 import com.pocketagent.provider.api.Capability
 import com.pocketagent.provider.api.ChatMessage
+import com.pocketagent.provider.api.ChatRequest
 import com.pocketagent.provider.api.ContentPart
 import com.pocketagent.provider.api.ModelInfo
 import com.pocketagent.provider.api.ProviderCredential
 import com.pocketagent.provider.api.TokenUsage
+import com.pocketagent.provider.api.ToolSpec
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -293,5 +295,145 @@ class OpenAiCompatProviderTest {
         cred.clear()
 
         assertEquals("sk-test", plain)   // 副本依然存在 —— 这就是必须压缩暴露窗口的原因
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  ★ 请求体编码 —— 走**生产真正调用的那个函数**
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * 回归测试 —— 2026-10-19 真机抓到的 400。
+     *
+     * ═══════════════════════════════════════════════════════════
+     *  这个 bug 为什么离线全绿、上机就炸
+     * ═══════════════════════════════════════════════════════════
+     *
+     * `buildChatPayload` 曾经用**自己内联的一份** `Json`（`encodeDefaults = false`），
+     * 而带修复的那份 `PROVIDER_JSON`（`encodeDefaults = true`）**只有测试在用**。
+     * 于是 `tools[].type: "function"` 被静默删掉，模型回：
+     *
+     *     tools[0].type:type cannot be empty.
+     *
+     * 关键教训：`OpenAiCompatDtosTest` 测的是**它自己引用的那个 Json 实例**，
+     * 不是生产路径真正用的那个。这类"测了副本"的 bug 有个共同特征 ——
+     * 两边各自演化，而且**永远不会有一方失败**。
+     *
+     * ⇒ 所以这条用例**不碰任何 DTO 的 Json**，只调 `buildChatPayload`，
+     *   然后检查它真正吐出来的字符串。它比上面那些更接近真机。
+     */
+    @Test
+    fun `生产路径的工具定义必须带上 type 字段`() {
+        val out = provider.buildChatPayload(
+            ChatRequest(
+                model = "m",
+                messages = listOf(ChatMessage.user("打开设置")),
+                tools = listOf(
+                    ToolSpec(
+                        name = "android_tap",
+                        description = "点一下",
+                        parametersJsonSchema = """{"type":"object"}""",
+                    )
+                ),
+            ),
+            stream = false,
+        )
+
+        assertTrue("tools[].type 丢了，模型会回 400：$out", out.contains("\"type\":\"function\""))
+        assertTrue(out.contains("\"name\":\"android_tap\""))
+        assertTrue(out.contains("\"parameters\""))
+    }
+
+    /**
+     * 同一条链路的另一半：**没有工具时不该出现 `tools` 字段**。
+     *
+     * 理由：部分厂商对空数组直接报错；而且空 `tools` 会让模型以为
+     * "有工具但都不可用"，反而更容易瞎猜工具名。
+     */
+    @Test
+    fun `没有工具时请求体里不该出现 tools 字段`() {
+        val out = provider.buildChatPayload(
+            ChatRequest(model = "m", messages = listOf(ChatMessage.user("你好"))),
+            stream = false,
+        )
+
+        assertFalse("空工具列表不该出现在请求体里：$out", out.contains("\"tools\""))
+    }
+
+    /**
+     * 工具的历史调用也必须带上 `type`。
+     *
+     * 这一条与上一条**同源但不同字段**：模型多轮对话时，
+     * 我们回传的 assistant 消息里含 `tool_calls`，它同样依赖
+     * `RequestToolCall.type` 的默认值被编码出来。
+     * 漏了它的表现不是 400，而是**第二轮开始模型不认得自己调过工具**。
+     */
+    @Test
+    fun `生产路径的历史工具调用必须带上 type 字段`() {
+        val out = provider.buildChatPayload(
+            ChatRequest(
+                model = "m",
+                messages = listOf(
+                    ChatMessage(
+                        role = ChatMessage.Role.ASSISTANT,
+                        content = listOf(ContentPart.ToolCall("call_1", "android_tap", """{"x":1}""")),
+                    ),
+                    ChatMessage(
+                        role = ChatMessage.Role.TOOL,
+                        content = listOf(ContentPart.ToolResult("call_1", "已点击")),
+                        toolCallId = "call_1",
+                    ),
+                ),
+            ),
+            stream = false,
+        )
+
+        assertTrue("tool_calls[].type 丢了：$out", out.contains("\"type\":\"function\""))
+        assertTrue("tool_call_id 丢了，模型无法把结果对上是哪次调用：$out", out.contains("\"tool_call_id\":\"call_1\""))
+    }
+
+    /**
+     * 回归测试 —— 2026-10-19 真机抓出的**第二个** bug：工具结果被吞成 `[]`。
+     *
+     * ═══════════════════════════════════════════════════════════
+     *  这个 bug 的症状与"无障碍权限没开"一模一样
+     * ═══════════════════════════════════════════════════════════
+     *
+     * 日志显示 `screen_read` **成功返回 1119 字 / 36 个节点**，
+     * 但模型对用户说「读屏返回了空结果」。
+     *
+     * 根因：`role=tool` 的消息里装的是 `ContentPart.ToolResult`，
+     * 而 `toRequestMessage()` 的 `when` 把它落进 `else -> Unit`，
+     * 于是 content 变成空数组：
+     *
+     *     {"role":"tool","content":[],"tool_call_id":"call_1"}
+     *
+     * 模型拿到的是空字符串 ⇒ 它只能如实说"看不到"。
+     * **用户会去查无障碍权限，而权限根本没问题** —— 这是本项目
+     * 头号 bug 形态「安静地少做一件事」里最难查的一种：
+     * 错误信息把排查方向指向了完全无关的地方。
+     *
+     * ⇒ 协议要求 `role=tool` 的 content 是**字符串**，不是数组。
+     */
+    @Test
+    fun `工具结果必须作为字符串内容回传给模型`() {
+        val out = provider.buildChatPayload(
+            ChatRequest(
+                model = "m",
+                messages = listOf(
+                    ChatMessage(
+                        role = ChatMessage.Role.TOOL,
+                        content = listOf(
+                            ContentPart.ToolResult("call_1", "【屏幕快照】节点 36 · 来源=无障碍树"),
+                        ),
+                        toolCallId = "call_1",
+                    ),
+                ),
+            ),
+            stream = false,
+        )
+
+        assertTrue("工具结果丢了，模型会以为读屏返回空：$out", out.contains("屏幕快照"))
+        assertTrue("tool_call_id 丢了：$out", out.contains("\"tool_call_id\":\"call_1\""))
+        assertFalse("role=tool 的 content 不能是空数组：$out", out.contains("\"content\":[]"))
     }
 }

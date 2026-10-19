@@ -137,3 +137,20 @@ dist/
 #    排查"验证器莫名全红"这类问题时需要它。
 hs_err_pid*.log
 replay_pid*.log
+
+# ── 真机联调期的临时产物（截图 / UI dump / 临时提交信息）──────────
+#    这些都是我排查时随手生成的，**不是项目产物**。
+#    ⚠️ 尤其 .shot.png：它是设备**真实屏幕**的截图，
+#       里面可能有微信消息、支付页 —— 绝不能进公开仓库。
+.shot*.png
+.ui*.xml
+.u[0-9]*.xml
+.f[0-9]*.xml
+.g[0-9]*.xml
+.uc.xml
+.ud.xml
+.ue.xml
+.chk
+.commitmsg*.tmp
+.chk.py
+.enc.py

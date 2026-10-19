@@ -65,11 +65,35 @@ class OpenAiCompatProvider(
     override val authScheme: AuthScheme get() = profile.authScheme
     override val defaultBaseUrl: String get() = profile.defaultBaseUrl
 
-    private val json = Json {
-        ignoreUnknownKeys = true
-        encodeDefaults = false
-        explicitNulls = false
-    }
+    /**
+     * 本类使用的 Json 配置 —— **必须是 [PROVIDER_JSON] 这一个实例**。
+     *
+     * ═══════════════════════════════════════════════════════════
+     *  ★ 2026-10-19 真机抓出的 bug：这里曾经是**另一份**配置
+     * ═══════════════════════════════════════════════════════════
+     *
+     * 曾经这里写的是内联的 `Json { encodeDefaults = false }`，
+     * 而 [PROVIDER_JSON]（`encodeDefaults = true`）**只有测试在用**。
+     *
+     * 后果：`buildChatPayload` 用这份配置编码，于是
+     * `tools[].type: "function"` 被**静默删除**，模型直接 400：
+     *
+     *     模型调用失败：请求被拒绝（400）：tools[0].type:type cannot be empty.
+     *
+     * 为什么测试全绿却抓不到：`OpenAiCompatDtosTest` 引用的是
+     * `PROVIDER_JSON`（带修好的那条），生产路径用的是这一个（没修）。
+     * **测试测的是副本，不是线上真正用的那个** —— 这正是那个测试文件
+     * 自己的注释（第 20-25 行）警告过的反模式，而它恰恰就在这里发生了。
+     *
+     * 为什么潜伏了这么久：**工具的编码路径之前从未被端到端跑过**。
+     * 办公循环用的 reject 是本地调用，dsh 的 MCP 工具走 MCP 协议
+     * （不经过模型 function calling）。直到聊天接上 agent 循环，
+     * 这条路径才第一次真的被走通 —— 于是一走就炸。
+     *
+     * ⇒ **不要再在这里新建 Json 实例。** 任何"另一份配置"都会重新
+     *   制造同一个缝隙，而症状永远是"换个地方炸、错误信息指不到这里"。
+     */
+    private val json: Json = PROVIDER_JSON
 
     override fun capabilities(): Set<Capability> = profile.capabilities
 
@@ -361,7 +385,15 @@ class OpenAiCompatProvider(
     //  请求构造
     // ═══════════════════════════════════════════════════════════
 
-    private fun buildChatPayload(request: ChatRequest, stream: Boolean): String {
+    /**
+     * 构造请求体。
+     *
+     * ⚠️ `internal` 而不是 `private`：**为了让测试能直接测"生产真正走的那条路"**。
+     *    2026-10-19 的 `tools[].type` bug 之所以能潜伏，正是因为测试
+     *    只测了 DTO + 自己的 Json 副本，从没走过这个函数。
+     *    ⇒ 凡是"只被间接调用、又容易配错"的构造逻辑，都该留这样一道缝。
+     */
+    internal fun buildChatPayload(request: ChatRequest, stream: Boolean): String {
         val payload = ChatCompletionRequest(
             model = request.model,
             messages = request.messages.map { it.toRequestMessage() },
@@ -384,6 +416,32 @@ class OpenAiCompatProvider(
     }
 
     private fun ChatMessage.toRequestMessage(): RequestMessage {
+        // ═══════════════════════════════════════════════════════════
+        //  ★ 2026-10-19 真机抓出的第二个 bug：工具结果被序列化成 `[]`
+        // ═══════════════════════════════════════════════════════════
+        //
+        // `role=tool` 的消息，其内容在协议里是 `ContentPart.ToolResult`。
+        // 而下面那个 `when` 的 `else -> Unit` 把它**整个跳过**，
+        // 于是 content 变成空数组 `[]`：
+        //
+        //     {"role":"tool","content":[],"tool_call_id":"call_1"}
+        //
+        // 模型收到的是**空字符串**。表现极具迷惑性：
+        // 工具明明成功返回了 1119 字（日志可证），模型却对用户说
+        // 「读屏返回了空结果」—— 用户会去查权限，方向完全错。
+        //
+        // ⇒ `role=tool` 的 content **必须是纯字符串**（OpenAI 协议），
+        //   不是数组、更不是空数组。这条分支必须在 `when` 之前截住。
+        if (role == ChatMessage.Role.TOOL) {
+            val text = content.filterIsInstance<ContentPart.ToolResult>()
+                .joinToString("") { it.content }
+            return RequestMessage(
+                role = role.name.lowercase(),
+                content = JsonPrimitive(text),
+                toolCallId = toolCallId,
+            )
+        }
+
         // 纯文本走 String，多模态走数组 —— 这是 OpenAI 协议的约定
         val hasNonText = content.any { it !is ContentPart.Text }
 
@@ -410,7 +468,9 @@ class OpenAiCompatProvider(
                             }
                         )
 
-                        else -> Unit   // 工具相关的内容不放进 content
+                        // 工具结果只出现在 role=tool 的消息里，已在上面拦掉；
+                        // ToolCall 走 toolCalls 字段，不进 content。
+                        else -> Unit
                     }
                 }
             }
