@@ -55,6 +55,7 @@ import com.pocketagent.mcp.OfficeRunTool
 import com.pocketagent.mcp.OfficeToolsTool
 import com.pocketagent.mcp.PersonaBriefTool
 import com.pocketagent.mcp.ScreenReadTool
+import com.pocketagent.mcp.McpTool
 import com.pocketagent.mcp.SwipeTool
 import com.pocketagent.mcp.TapTool
 import com.pocketagent.mcp.ToolRegistry
@@ -884,14 +885,39 @@ class AppContainer(context: Context) {
      *    （也顺便是一份可读的依赖图）。装配错了的后果是"编译不过"，
      *    那是最便宜的一类错误。
      */
-    private fun buildMcpBridgeHost(): McpBridgeHost {
+    /**
+     * 能力桥的全部工具 —— **容器级单例**。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★ 为什么必须单例，而不是"每次用的时候现造一份"
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 因为 [ActionRateLimiter] 是**有状态的**（滑动窗口）。现在有两条链路
+     * 都要这份工具清单：
+     *
+     *  - **dsh** 经 HTTP 调（[buildMcpBridgeHost]）
+     *  - **应用内聊天**经 `PhoneAgentLoop` 直接调（`:agentlogic` 的循环）
+     *
+     * 若两边各造一份，就各自持有一个限流器 —— 于是**合计**可以跑到
+     * `tap + swipe + type + key` 各自上限之和，也就是 4 倍的拟人节奏。
+     * 而这件事**不会报错**：用户只会觉得"它点得有点快"，
+     * 直到某个 App 把它当成机器人。
+     *
+     * ⇒ 一个实例，两条链路共用。这也是 `ActionRateLimiter` 注释里
+     *    "关桥即清空限流"那个取舍的延伸：**重置它可接受，复制它不可接受**。
+     *
+     * ★ 还有一层更重要的收益：两条链路**走的是同一批工具的 `call()`**，
+     *    于是 `:safety` 的六步判定、频率闸、盲点文案**全部自动一致**。
+     *    若聊天路径另建一套判定，两份策略迟早漂移 —— 
+     *    而漂移的方向是"其中一份比另一份松"，没有人会发现。
+     */
+    private val agentTools: List<McpTool> by lazy {
         val reader = PerceptionScreenReader(AccessibilityPerceptionManager(AgentA11ySource))
         val gate = SafetyDetectorGate()
-        val tool = ScreenReadTool(reader, gate)
 
         // ── P3：执行工具（android_tap / android_swipe）────────────────
         // 判定走 :safety 引擎（:mcp 只编排），执行走无障碍单通道；
-        // 频率闸两个工具**共用同一个实例**（否则合计可跑到 40 次/分钟）。
+        // 频率闸四个工具**共用同一个实例**（否则合计可跑到 40 次/分钟）。
         val rateLimiter = ActionRateLimiter()
         val safetyPort = SafetyGuardAdapter(DefaultSafetyGuard())
         val dispatchPort = ActionDispatchAdapter(
@@ -933,41 +959,41 @@ class AppContainer(context: Context) {
         val officeExecutor = SafOfficeToolExecutor(officeWorkspaces, officeChannel)
         val officeWorkspacePort = SafOfficeWorkspacePort(officeWorkspaces)
 
+        listOf(
+            ScreenReadTool(reader, gate),
+            TapTool(reader, safetyPort, dispatchPort, rateLimiter),
+            SwipeTool(reader, safetyPort, dispatchPort, rateLimiter),
+            // ── DL：人格摘要（只读）──────────────────────────────
+            // ★ 它是 `:personalogic` 的**第一个消费方**：在此之前
+            //   DL-1…DL-4 的 5000+ 行、1852 条测试没有任何模块引用，
+            //   编译得过、测试全绿，但 `classes.dex` 里一个字节都没有。
+            //
+            // ⚠️ 端口实现是 `:app` 侧的 `AppPersonaBriefPort` ——
+            //    判定与映射在 `:mcp`（`personaBriefOf`），状态与时间在
+            //    `:personalogic`（`PersonaRuntime`）；这里只把两者接起来。
+            PersonaBriefTool(AppPersonaBriefPort(assistantPersona.runtime)),
+            // ── DL：上下文卸载（`OffloadPorts.kt` 的两个适配器）──
+            ContextOffloadTool(offloader, offloadDrafts),
+            ContextRecallTool(offloader),
+            // ── DL：办公/文件（见上面 officeExecutor 的注释）──
+            OfficeToolsTool(officeWorkspacePort),
+            OfficeRunTool(officeWorkspacePort, officeExecutor),
+            // ── 2026-10-12：文字输入与导航键 ────────────────────
+            // ★ 在此之前能力桥**只能点击与滑动** —— 而"帮我搜一下 X"
+            //   这类任务的第一步就是打字。没有它，跨应用任务大部分走不通：
+            //   能点开搜索框，却打不出一个字。
+            //   （`:action` 里 `ActionType` 有 15 种，此前只暴露了 2 种。）
+            //
+            // ⚠️ `rateLimiter` **共用同一个实例** —— 否则合计可跑到
+            //    `tap+swipe+type+key` 各自上限之和，那是 4 倍的节奏。
+            TypeTextTool(reader, safetyPort, dispatchPort, rateLimiter),
+            GlobalKeyTool(dispatchPort, rateLimiter),
+        )
+    }
+
+    private fun buildMcpBridgeHost(): McpBridgeHost {
         val server = McpHttpServer(
-            dispatcher = McpDispatcher(
-                ToolRegistry(
-                    listOf(
-                        tool,
-                        TapTool(reader, safetyPort, dispatchPort, rateLimiter),
-                        SwipeTool(reader, safetyPort, dispatchPort, rateLimiter),
-                        // ── DL：人格摘要（只读）──────────────────────────────
-                        // ★ 它是 `:personalogic` 的**第一个消费方**：在此之前
-                        //   DL-1…DL-4 的 5000+ 行、1852 条测试没有任何模块引用，
-                        //   编译得过、测试全绿，但 `classes.dex` 里一个字节都没有。
-                        //
-                        // ⚠️ 端口实现是 `:app` 侧的 `AppPersonaBriefPort` ——
-                        //    判定与映射在 `:mcp`（`personaBriefOf`），状态与时间在
-                        //    `:personalogic`（`PersonaRuntime`）；这里只把两者接起来。
-                        PersonaBriefTool(AppPersonaBriefPort(assistantPersona.runtime)),
-                        // ── DL：上下文卸载（`OffloadPorts.kt` 的两个适配器）──
-                        ContextOffloadTool(offloader, offloadDrafts),
-                        ContextRecallTool(offloader),
-                        // ── DL：办公/文件（见上面 officeExecutor 的注释）──
-                        OfficeToolsTool(officeWorkspacePort),
-                        OfficeRunTool(officeWorkspacePort, officeExecutor),
-                        // ── 2026-10-12：文字输入与导航键 ────────────────────
-                        // ★ 在此之前能力桥**只能点击与滑动** —— 而"帮我搜一下 X"
-                        //   这类任务的第一步就是打字。没有它，跨应用任务大部分走不通：
-                        //   能点开搜索框，却打不出一个字。
-                        //   （`:action` 里 `ActionType` 有 15 种，此前只暴露了 2 种。）
-                        //
-                        // ⚠️ `rateLimiter` **共用同一个实例** —— 否则合计可跑到
-                        //    `tap+swipe+type+key` 各自上限之和，那是 4 倍的节奏。
-                        TypeTextTool(reader, safetyPort, dispatchPort, rateLimiter),
-                        GlobalKeyTool(dispatchPort, rateLimiter),
-                    ),
-                ),
-            ),
+            dispatcher = McpDispatcher(ToolRegistry(agentTools)),
             log = { Timber.i(it) },
         )
         return McpBridgeHost(
@@ -977,6 +1003,22 @@ class AppContainer(context: Context) {
             log = { Timber.i(it) },
         )
     }
+
+    /**
+     * 聊天路径要用的工具清单。
+     *
+     * ★ 与 dsh 那条链路拿到的是**同一份实例**（见 [agentTools] 的注释）——
+     *   于是安全判定、频率闸、盲点文案全部自动一致。
+     *
+     * ⚠️ 刻意**不检查"能力桥是否已启动"**：
+     *    `agentTools` 是纯 Kotlin 工具对象，直接调 `call()` 不需要 HTTP 服务。
+     *    去要求用户"先去 DSH 集成页开启能力桥"，其实是把**传输层**的开关
+     *    当成了**能力**的开关 —— 而聊天这条路径压根不走传输层。
+     *
+     * ⚠️ 但**无障碍权限是真的前置条件**：没开的话读屏会返回 Failed，
+     *    而那个 Failed 会如实告诉模型"无障碍服务没开"（见 ScreenReadTool）。
+     */
+    fun agentToolsForChat(): List<McpTool> = agentTools
 
     // ═══════════════════════════════════════════════════════════════
     //  保活：两条链路共用一个前台服务（唯一锚点）

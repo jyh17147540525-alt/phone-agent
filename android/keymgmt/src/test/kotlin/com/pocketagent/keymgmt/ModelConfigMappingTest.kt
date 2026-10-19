@@ -138,13 +138,50 @@ class ModelConfigMappingTest {
         assertTrue(!config.canSchedule)
     }
 
+    /**
+     * ★ 两个模块的角色枚举必须**逐项对应**。
+     *
+     * ═══════════════════════════════════════════════════════════
+     *  这条测试 2026-09-22 到 2026-10-19 之间**一直是红的**
+     * ═══════════════════════════════════════════════════════════
+     *
+     * 它原来写的是 `assertEquals(2, ...values().size)`。2026-10-14 两边
+     * 同时加了 `CHAT`（聊天框专用模型，见 `ModelRole.CHAT` 的注释），
+     * 但**这个数字没跟着改** —— 于是它开始报 `expected:<2> but was:<3>`。
+     *
+     * ⚠️ 这正是一条"只钉数字、不钉关系"的测试会出的问题：
+     *    数字是**加枚举时最容易忘的**，而它偏偏是唯一被钉住的东西。
+     *    ⇒ 改成三条**关系式**断言 —— 加枚举时它们自动要求两边同步，
+     *      而且不需要人去记得改某个魔法数字。
+     *
+     * 三条关系（缺一条都会静默出错）：
+     *  1. **两边名字集合相同** —— 少一个就有一侧永远表达不出来；
+     *  2. **`bit` 是 2 的幂且互不相同** —— 否则 `toMask`/`fromMask` 会串位，
+     *     而串位的表现是"给模型设了 CHAT，结果它被当成 WORKER"，不报错；
+     *  3. **位值与序号对应** —— 让"读代码的人"和"读数据库的人"看到同一个顺序。
+     */
     @Test
-    fun `两个模块的角色枚举位值必须一致`() {
-        // 若哪边加了第三种角色，这条会红 —— 提示需要同步
-        assertEquals(2, ModelRoleEntity.values().size)
-        assertEquals(2, ModelRole.values().size)
-        assertEquals(1, ModelRoleEntity.SCHEDULER.bit)
-        assertEquals(2, ModelRoleEntity.WORKER.bit)
+    fun `两个模块的角色枚举逐项对应`() {
+        assertEquals(
+            ModelRoleEntity.values().map { it.name },
+            ModelRole.values().map { it.name },
+        )
+    }
+
+    @Test
+    fun `角色位值都是二的幂且互不相同`() {
+        val bits = ModelRoleEntity.values().map { it.bit }
+        assertEquals("位值不能重复，否则掩码串位", bits.size, bits.toSet().size)
+        bits.forEach { bit ->
+            assertTrue("位值必须是二的幂，而 $bit 不是", bit > 0 && (bit and (bit - 1)) == 0)
+        }
+    }
+
+    @Test
+    fun `角色位值与声明顺序对应`() {
+        ModelRoleEntity.values().forEachIndexed { index, role ->
+            assertEquals("${role.name} 的位值应等于 2^$index", 1 shl index, role.bit)
+        }
     }
 
     // ── 价格 ─────────────────────────────────────────────────────

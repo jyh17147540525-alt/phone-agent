@@ -29,8 +29,13 @@ android {
         //
         //    ⇒ 判据要么是能区分构建的版本号，要么是查 dex 内容。
         //      版本号是给人看的那一个。
-        versionCode = 2
-        versionName = "0.1.0-m1"
+        //
+        // ★ m2（2026-10-19）：聊天路径接上 `PhoneAgentLoop` —— 应用内
+        //   聊天第一次真的能读屏、能点击、能输入。这是一次**功能性**更新，
+        //   所以必须 bump：装到手机上之后，`lastUpdateTime` 只证明"装了东西"，
+        //   而版本号才说明"装的是哪个东西"。
+        versionCode = 3
+        versionName = "0.1.0-m2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -189,6 +194,17 @@ dependencies {
     //    那句报错完全没提"你该去上游模块加 api"（同 `:capability` 与 `:filelogic` 的坑）。
     //    这条坑在 `:memorylogic` 的登记注释里被预言过一次，现在应验。
     implementation(project(":agentlogic"))            // PrivacyFilter / UploadRequest / AgentBudget
+    // 卡片协议（W1）：五类卡 / 时间线状态机 / 失败卡出口 / 撤销范围 / `@` 索引 / 导出。
+    // **纯 Kotlin、零 Android 依赖**（在 PURE_KOTLIN 里，有 280 条离线测试）。
+    //
+    // ⚠️ 为什么必须显式声明，而不是靠 `:agentlogic` 之类传过来：本模块的
+    //    `ui/agent/` 要在公开签名里用到 `Card` / `Timeline` / `Exit`
+    //    （`AgentCard(card: Card)`），所以必须自己声明。
+    //    少这一行 Gradle 报 "Cannot access 'Card'..."（同 :personalogic 那条注释的同一个坑）。
+    //
+    // ★ 它是本项目**第一个把"看得见/停得下/说得清"画出来的模块**：
+    //   在此之前 ":agentui" 的卡片只是数据结构，没有任何界面消费它们。
+    implementation(project(":agentui"))
     // implementation(project(":provider:anthropic"))
     // implementation(project(":provider:gemini"))
     // implementation(project(":provider:local"))

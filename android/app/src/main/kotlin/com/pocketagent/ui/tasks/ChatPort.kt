@@ -1,13 +1,19 @@
 package com.pocketagent.ui.tasks
 
+import com.pocketagent.agentlogic.AgentBudget
+import com.pocketagent.agentlogic.AgentMessage
+import com.pocketagent.agentlogic.BudgetGuard
+import com.pocketagent.agentlogic.PauseReason
+import com.pocketagent.agentlogic.PhoneAgentLoop
+import com.pocketagent.agentlogic.PhoneRunResult
+import com.pocketagent.agentlogic.PhoneTask
+import com.pocketagent.assistant.AgentAdapters
 import com.pocketagent.data.AppContainer
 import com.pocketagent.data.CredentialStoreResult
-import com.pocketagent.provider.api.ChatChunk
 import com.pocketagent.provider.api.ChatMessage
 import com.pocketagent.modelrouter.ModelResolution
 import com.pocketagent.modelrouter.ModelRole
 import com.pocketagent.modelrouter.resolveForPurpose
-import com.pocketagent.provider.api.ChatRequest
 import timber.log.Timber
 
 /**
@@ -134,31 +140,62 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                     "${e.message ?: "无详细信息"}。为避免在「没有人格」的状态下继续对话，本次已中止。",
             )
         }
-        val messages = listOf(ChatMessage.system(system)) + history
+        // ⚠️ 这里**不再自己拼 `ChatMessage` 列表**：系统提示词与历史都由
+        //    `PhoneTask` 带进循环（`priorMessages`），循环负责把三者
+        //    （系统 / 历史 / 本轮）按正确顺序组装。
+        //    在这里再拼一次会出现**两份系统提示词** —— 见 `AgentAdapters.llmPort` 的注释。
 
-        // ── ④ 在受控作用域内发请求 ──────────────────────────────
+        // ── ④ 在受控作用域内跑 agent 循环 ────────────────────────
         // ⚠️ 用**这个模型自己绑的那条 Key**，不是「默认那条」—— 见上面 ② 的注释。
         //
-        // ⚠️ 这里必须 catch：`send` 对外承诺不抛异常，而 provider 的异常会从
-        //    `collect` 里冒出来。之前靠界面层兜 —— 但那样就**没机会**把厂商那句
-        //    干巴巴的报错翻译成「用户下一步该做什么」。
+        // ═══════════════════════════════════════════════════════
+        //  ★★ 2026-10-19：聊天第一次真的能「动手」
+        // ═══════════════════════════════════════════════════════
+        //
+        // 在此之前这里是"发一次请求，收完整段文本就结束" ——
+        // 于是应用内聊天**永远不会调用任何工具**：`ChatRequest` 不带 `tools`，
+        // 而 `ChatChunk.ToolCallDelta` 被直接丢掉（旧代码在这里写着
+        // "工具调用在本版不处理"）。用户说"帮我打开微信"，模型只能回答
+        // "我做不到" —— 而它明明有一套能读屏、能点击的工具。
+        //
+        // 现在改成走 `PhoneAgentLoop`：它会带上工具清单、接住模型的
+        // function calling、真的去执行、把结果喂回去，直到模型给出答复。
+        //
+        // ⚠️ 两个不变的东西：
+        //   · **不流式**（`ChatResult.Ok` 仍是整段返回）—— 流式是另一刀，
+        //     见 `StreamPump`（数据层已备好，接线未做）；
+        //   · 循环的所有保护（预算 / 步数 / 重复检测 / 安全拒绝不许重试）
+        //     都在 `:agentlogic` 里，有 24 条离线测试钉着。
         val text = try {
             store.useKey(config.credentialId) { provider, credential ->
-                val sb = StringBuilder()
-                provider.chat(
-                    request = ChatRequest(model = model, messages = messages),
-                    credential = credential,
-                ).collect { chunk ->
-                    when (chunk) {
-                        is ChatChunk.Delta -> sb.append(chunk.text)
-                    // 推理过程不进正文 —— 它是模型的"草稿"，用户要的是答复
-                        is ChatChunk.Reasoning -> Unit
-                        // 工具调用在本版不处理（办公循环走的是另一条线）
-                        is ChatChunk.ToolCallDelta -> Unit
-                        is ChatChunk.Done -> Unit
-                    }
-                }
-                sb.toString()
+                val tools = container.agentToolsForChat()
+                val loop = PhoneAgentLoop(
+                    llm = AgentAdapters.llmPort(
+                        provider = provider,
+                        credential = credential,
+                        model = model,
+                    ),
+                    runner = AgentAdapters.toolRunner(tools),
+                    // ⚠️ 预算按**聊天**场景放宽一点：用户在聊天框里说一句
+                    //    "给妈妈发消息"，背后可能是 4~5 次工具调用，
+                    //    默认 8 轮会显得太紧。
+                    budgetGuard = BudgetGuard(AgentBudget(maxTurns = CHAT_MAX_TURNS)),
+                )
+                val result = loop.run(
+                    PhoneTask(
+                        id = "chat",
+                        userInput = history.lastOrNull()?.plainText() ?: "",
+                        systemPrompt = system,
+                        tools = AgentAdapters.toolSpecs(tools),
+                        // ⚠️ 只把**用户与助理**的发言带进去（不含系统提示词，
+                        //    也不含本轮输入）—— `PhoneTask` 会把系统与本轮
+                        //    各接一次（见它自己的注释）。
+                        priorMessages = history.dropLast(1).map { it.toAgentMessage() },
+                        maxSteps = CHAT_MAX_STEPS,
+                    ),
+                )
+                // ★ 四种结局都要翻成**用户能理解**的一句话（见 explainRun）。
+                explainRun(result)
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e // 协程取消必须原样上抛，不许吞
@@ -172,6 +209,81 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
             else -> ChatResult.Ok(text)
         }
     }
+
+    /**
+     * 把循环的四种结局翻成**用户能理解的一句话**。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★ 为什么四种都要分开说，不能统一成"出错了"
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 因为这四种的**下一步完全不同**：
+     *
+     * | 结局 | 用户该做什么 |
+     * |---|---|
+     * | 被安全拦下 | **他自己来**（重试必然再被拦，那是撞墙） |
+     * | 步数用完 | 说"接着来"，可以继续 |
+     * | 预算超限 | 同上，且要知道是哪种资源用完了 |
+     * | 重复/卡死 | 换个说法重说一遍 |
+     * | 模型调用失败 | 查网络 / 查 Key |
+     *
+     * 统一成"任务失败"会让用户对着一个他没法判断的问题反复点。
+     * ★ 尤其是 [PauseReason.SAFETY_BLOCKED]：它**不是故障**，是安全边界
+     *   在起作用 —— 文案必须让用户知道"这件事得你自己做"，
+     *   而不是"它坏了，再试一次"。
+     */
+    private fun explainRun(result: PhoneRunResult): String = when (result) {
+        is PhoneRunResult.Answered -> result.text
+
+        is PhoneRunResult.StepLimitReached ->
+            "这件事还没做完（已经做了 ${result.steps} 步）。如果还想继续，跟我说一声「接着来」。"
+
+        is PhoneRunResult.Stopped -> when (result.pause) {
+            PauseReason.SAFETY_BLOCKED ->
+                "这一步被安全策略拦下了，我没有继续尝试。\n\n" +
+                    "${result.reason}\n\n" +
+                    "这类操作（支付、密码、验证码等）需要你自己完成 —— 我可以把步骤讲给你，但不会代做。"
+
+            PauseReason.BUDGET ->
+                "先停一下：${result.reason}\n\n可以跟我说「接着来」，也可以先告诉我换个做法。"
+
+            PauseReason.LOOP_DETECTED ->
+                "我好像卡住了（${result.reason}）。\n\n换个说法或者告诉我换个做法，我再来一次。"
+
+            PauseReason.MODEL_ERROR ->
+                "联系模型的时候出错了：${result.reason}"
+        }
+    }
+}
+
+/**
+ * 聊天场景的预算与步数上限。
+ *
+ * ⚠️ 刻意与 `PhoneTask.DEFAULT_MAX_STEPS`（12）分开，且**更大**：
+ *    那里的 12 是"替用户操作手机"（每一步都是真实点击，代价不可逆）；
+ *    这里是"聊天框里说一句"（用户全程看着，随时能喊停）。
+ *    两者共用一个数字会让其中一个必然不合适。
+ */
+private const val CHAT_MAX_TURNS = 12
+private const val CHAT_MAX_STEPS = 12
+
+/** 取一段消息里的纯文本（工具调用等非文本片段忽略）。 */
+private fun ChatMessage.plainText(): String =
+    content.filterIsInstance<com.pocketagent.provider.api.ContentPart.Text>()
+        .joinToString("") { it.text }
+
+/**
+ * `provider.api` 的消息 → `:agentlogic` 的消息。
+ *
+ * ⚠️ **只翻 USER / ASSISTANT 的文本**。工具调用与工具结果**不翻** ——
+ *    因为 `ChatPort` 的入参 `history` 约定只含 USER / ASSISTANT
+ *    （见它自己的注释），而循环内部自己维护工具那一轮的历史。
+ *    把历史里的工具消息也翻过去会让模型看到**上一次会话**的工具调用，
+ *    而它对应的那次执行早已结束 —— 那是编故事。
+ */
+private fun ChatMessage.toAgentMessage(): AgentMessage = when (role) {
+    ChatMessage.Role.USER -> AgentMessage.User(plainText())
+    else -> AgentMessage.Assistant(plainText())
 }
 
     /**
