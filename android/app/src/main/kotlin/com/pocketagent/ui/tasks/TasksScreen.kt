@@ -37,6 +37,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import com.pocketagent.agentlogic.PhoneTask
 import com.pocketagent.core.database.entity.SessionEntity
 import com.pocketagent.data.ConversationStore
 import com.pocketagent.memorylogic.TurnRole
@@ -506,12 +507,28 @@ data class AgentTaskUi(
 ) {
     companion object {
         /**
-         * 默认轮次上限。
+         * 默认轮次上限 —— **从循环那边取，不要在这里另写一个数**。
          *
-         * 8 这个数字来自能耗估算：约 0.07% 电量/次（见《移动端Agent约束分析》§2.4）。
-         * 它同时是 [AgentBudget] 的默认值 —— 改这里之前先确认能耗预算是否也改了。
+         * ═══════════════════════════════════════════════════════════
+         *  ★ 2026-10-19 真机抓出的第三个 bug：进度条在骗人
+         * ═══════════════════════════════════════════════════════════
+         *
+         * 这里原来硬编码 `8`，而实际循环用的是 `ChatPort.CHAT_MAX_STEPS`（16）。
+         * 于是界面上写着「轮次 0 / 8」——**分母是假的**：
+         *
+         *  - 进度条走到 8/8 时任务并不会停（它还有 8 步额度）；
+         *  - 用户看到"已经满了还在跑"，会以为界面卡死或计数坏了；
+         *  - 而真到 16 步停下时，显示的是「8/8」——**看不出还剩多少**。
+         *
+         * 这类"显示的数字与实际用的数字不是同一个来源"的 bug，
+         * 用户第一反应是"这软件有毛病"，而排查时会去看循环，
+         * 因为循环是对的 —— **错误信息再次指向了无关的地方**。
+         *
+         * ⇒ 唯一事实来源是 `PhoneTask.DEFAULT_MAX_STEPS`。
+         *   聊天那条链路会传入更大的 `CHAT_MAX_STEPS`，
+         *   由 `AgentTaskUi.maxSteps` 在构造时显式带进来（见 `TasksScreen` 的调用点）。
          */
-        const val DEFAULT_MAX_STEPS = 8
+        const val DEFAULT_MAX_STEPS = PhoneTask.DEFAULT_MAX_STEPS
 
         /**
          * 每次发给模型的**历史轮数上限**。
@@ -772,7 +789,15 @@ class TasksViewModel(
         val prompt = draft.trim()
         if (prompt.isEmpty()) return
 
-        val task = AgentTaskUi(id = "t${System.currentTimeMillis()}", prompt = prompt)
+        // ★ 分母用**聊天链路的真实额度**，不是 `AgentTaskUi` 的默认值。
+        //   2026-10-19 真机上这里显示「0 / 8」而循环实际给的是 16 ——
+        //   分母来自另一个数，于是进度条既会"满了还在跑"，也看不出还剩多少。
+        //   ⇒ 同一个数字只允许有一个来源（`ChatPort.CHAT_MAX_STEPS`）。
+        val task = AgentTaskUi(
+            id = "t${System.currentTimeMillis()}",
+            prompt = prompt,
+            maxSteps = CHAT_MAX_STEPS,
+        )
         tasks.add(0, task)
         draft = ""
 
@@ -853,7 +878,16 @@ class TasksViewModel(
                     // ⚠️ 只给 USER / ASSISTANT —— **系统提示词由 `ChatPort` 注入**
                     //    （人格装配器的输出 + 能力边界声明）。
                     //    界面不该知道"助理是谁"，那是数据层的事。
-                    chat!!.send(history + ChatMessage.user(prompt))
+                    //
+                    // ★ `onStep` 把循环的真实进度写回界面。
+                    //   在此之前进度条全程停在「0 / 8」（开始设 0、结束设 1，
+                    //   中间从不更新），用户无法区分"在动"和"卡死"。
+                    //   ⚠️ 回调可能来自后台线程，`update` 内部做了同步（见它的注释）。
+                    chat!!.send(history + ChatMessage.user(prompt)) { step, desc ->
+                        update(taskId) {
+                            it.copy(step = step, note = desc, perceptionTier = 1)
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 // 端口承诺不抛异常，但这里仍然兜一道 ——

@@ -3,6 +3,7 @@ package com.pocketagent.ui.tasks
 import com.pocketagent.agentlogic.AgentBudget
 import com.pocketagent.agentlogic.AgentMessage
 import com.pocketagent.agentlogic.BudgetGuard
+import com.pocketagent.agentlogic.budgetStepMisconfiguration
 import com.pocketagent.agentlogic.PauseReason
 import com.pocketagent.agentlogic.PhoneAgentLoop
 import com.pocketagent.agentlogic.PhoneRunResult
@@ -44,8 +45,21 @@ interface ChatPort {
      *
      * ⚠️ **不抛异常**。"还没配 Key"是**正常状态**，不是错误 ——
      *    调用方要能把用户引导到 Key 页面，而不是显示一个堆栈。
+     *
+     * @param onStep 每完成一步工具调用就回调一次（步数，做了什么）。
+     *   **默认空实现** —— 不关心进度的调用方不用改。
+     *
+     *   ★ 2026-10-19 真机加：在此之前界面上的「轮次 0 / 8」**全程不动**，
+     *     因为 `TasksScreen.runChat` 只在开始设 0、结束设 1，中间从不更新。
+     *     用户看到的是一个永远 0 的进度条 + 一句「正在等模型回复…」，
+     *     于是无法判断"它到底在动还是卡住了" —— 这正是本项目最忌讳的
+     *     「用户看不见它在干什么」。进度必须从循环里真实地流出来，
+     *     界面自己猜不出来。
      */
-    suspend fun send(history: List<ChatMessage>): ChatResult
+    suspend fun send(
+        history: List<ChatMessage>,
+        onStep: (step: Int, description: String) -> Unit = { _, _ -> },
+    ): ChatResult
 }
 
 /** 一轮对话的结论。三分支 —— 见 [ChatResult.NoCredential] 的注释。 */
@@ -74,7 +88,10 @@ sealed interface ChatResult {
  */
 class ContainerChatPort(private val container: AppContainer) : ChatPort {
 
-    override suspend fun send(history: List<ChatMessage>): ChatResult {
+    override suspend fun send(
+        history: List<ChatMessage>,
+        onStep: (step: Int, description: String) -> Unit,
+    ): ChatResult {
         // ── ① 拿到凭据仓库 ──────────────────────────────────────
         val store = when (val opened = container.openCredentialStore()) {
             is CredentialStoreResult.Ready -> opened.repository
@@ -169,6 +186,19 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
         val text = try {
             store.useKey(config.credentialId) { provider, credential ->
                 val tools = container.agentToolsForChat()
+                // ⚠️ 预算按**聊天**场景放宽：用户在聊天框里说一句
+                //    "给妈妈发消息"，背后可能是 4~5 次工具调用，
+                //    而"打开微信发朋友圈"要开应用 → 找入口 → 写内容 → 发布，
+                //    光找入口就要好几轮。原来的 12 轮真机上不够用。
+                //
+                // ★ 这两个数的关系由 `budgetStepMisconfiguration` 把关
+                //   （见它的长注释：相等会让 StepLimitReached 变成死代码）。
+                //   配置错了就在**这里**炸，而不是让用户看到一串"预算超限"。
+                budgetStepMisconfiguration(
+                    maxTurns = CHAT_MAX_TURNS,
+                    maxSteps = CHAT_MAX_STEPS,
+                )?.let { throw IllegalStateException("聊天预算配置非法：$it") }
+
                 val loop = PhoneAgentLoop(
                     llm = AgentAdapters.llmPort(
                         provider = provider,
@@ -176,9 +206,6 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                         model = model,
                     ),
                     runner = AgentAdapters.toolRunner(tools),
-                    // ⚠️ 预算按**聊天**场景放宽一点：用户在聊天框里说一句
-                    //    "给妈妈发消息"，背后可能是 4~5 次工具调用，
-                    //    默认 8 轮会显得太紧。
                     budgetGuard = BudgetGuard(AgentBudget(maxTurns = CHAT_MAX_TURNS)),
                 )
                 val result = loop.run(
@@ -193,6 +220,10 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                         priorMessages = history.dropLast(1).map { it.toAgentMessage() },
                         maxSteps = CHAT_MAX_STEPS,
                     ),
+                    // ★ 把循环的真实进度透给界面。
+                    //   界面自己猜不出来它走到第几步 —— 2026-10-19 真机上
+                    //   进度条全程停在「0 / 8」，用户无法区分"在动"和"卡死"。
+                    onStep = onStep,
                 )
                 // ★ 四种结局都要翻成**用户能理解**的一句话（见 explainRun）。
                 explainRun(result)
@@ -263,9 +294,38 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
  *    那里的 12 是"替用户操作手机"（每一步都是真实点击，代价不可逆）；
  *    这里是"聊天框里说一句"（用户全程看着，随时能喊停）。
  *    两者共用一个数字会让其中一个必然不合适。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  ★ 2026-10-19 真机实测后调大，顺带修掉一处**注释与实现不符**
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * 原来的值是 `TURNS = 12` 与 `STEPS = 12` —— 而这恰好等于
+ * `PhoneTask.DEFAULT_MAX_STEPS`（12），于是上面那句"刻意更大"
+ * **是不成立的**：它并没有更大，只是**一样大**。
+ *
+ * 后果在真机上很具体：用户说「打开微信，发一条朋友圈，自我介绍」，
+ * 12 轮用完了连朋友圈编辑页都没走到，卡片显示
+ * 「预算超限（TURNS）：轮次已达上限 12」。
+ * 多步任务（开应用 → 找入口 → 写内容 → 确认发布）光"找入口"就要好几轮。
+ *
+ * ⚠️ **两个数不能相等**（这一条比数值本身更重要）：
+ *    `PhoneAgentLoop` 里预算检查在步数检查**之前**，
+ *    两者相等时永远是 `BUDGET` 先中止，`StepLimitReached` 这条
+ *    分支**永远不会被执行** —— 那是一段死代码，而它的文案
+ *    （"已经做了 N 步，说「接着来」"）本来是更友好的那个。
+ *    ⇒ 步数必须**小于**预算，让"做完了该做的事"先于"资源用尽"触发。
  */
-private const val CHAT_MAX_TURNS = 12
-private const val CHAT_MAX_STEPS = 12
+internal const val CHAT_MAX_TURNS = 20
+
+/**
+ * 聊天链路的步数上限。
+ *
+ * ⚠️ `internal` 而不是 `private`：**界面要拿它当进度条的分母**。
+ *    2026-10-19 真机上进度条写着「0 / 8」而实际额度是 16 —— 分母是另一个数。
+ *    显示的数字与实际用的数字来自两处，是"用户觉得软件有毛病"的经典来源。
+ *    ⇒ 唯一事实来源在这里，界面必须引用它，不要另写一个。
+ */
+internal const val CHAT_MAX_STEPS = 16
 
 /** 取一段消息里的纯文本（工具调用等非文本片段忽略）。 */
 private fun ChatMessage.plainText(): String =

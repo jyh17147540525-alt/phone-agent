@@ -83,8 +83,21 @@ class PhoneAgentLoop(
      * ⚠️ **本方法不抛异常**。内部失败一律转成 [PhoneRunResult] 的一个分支 ——
      *    调用链上没人能处理异常，抛出去会把"任务没做成"这个**可解释的业务状态**
      *    变成崩溃（同 [OfficeAgentLoop] 的既定纪律）。
+     *
+     * @param onStep 每完成一步就回调一次（第几步，一句话说明）。
+     *   **默认空实现**，不关心进度的调用方不用改。
+     *
+     *   ★ 为什么进度必须从这里出来：界面自己**猜不出来**它走到哪了。
+     *     2026-10-19 真机上，`TasksScreen` 的进度条全程显示「0 / 8」，
+     *     因为它在开始设 0、结束设 1，中间没有任何数据源。
+     *     用户看到的是一个不动的条 + 「正在等模型回复…」，
+     *     无法区分"在动"和"卡死"—— 那是本项目最忌讳的失败形态。
+     *     ⇒ 唯一知道真实进度的地方是这里，就由这里通知。
      */
-    suspend fun run(task: PhoneTask): PhoneRunResult {
+    suspend fun run(
+        task: PhoneTask,
+        onStep: (step: Int, description: String) -> Unit = { _, _ -> },
+    ): PhoneRunResult {
         val started = clock()
         val trace = mutableListOf<String>()
         var usage = BudgetUsage()
@@ -191,7 +204,9 @@ class PhoneAgentLoop(
 
                         when (outcome) {
                             is AgentToolResult.Ok -> {
-                                trace += "${call.name} → ${outcome.text.oneLine()}"
+                                val line = "${call.name} → ${outcome.text.oneLine()}"
+                                trace += line
+                                onStep(usage.turns, line)
                                 results += AgentMessage.ToolResult(
                                     text = outcome.text,
                                     callId = call.id,
@@ -203,7 +218,9 @@ class PhoneAgentLoop(
                                 // ★ 技术故障**可以**重试 —— 这与 Blocked 是两回事。
                                 //   "无障碍没开"用户能修，"支付页不许点"模型改不了。
                                 val text = "执行失败：${outcome.reason}。可以换个方式重试一次。"
-                                trace += "${call.name} 失败：${outcome.reason.oneLine()}"
+                                val line = "${call.name} 失败：${outcome.reason.oneLine()}"
+                                trace += line
+                                onStep(usage.turns, line)
                                 results += AgentMessage.ToolResult(
                                     text = text,
                                     callId = call.id,
@@ -216,7 +233,9 @@ class PhoneAgentLoop(
                                 val text = "这一步被安全策略拦下，**这是最终结论，不要重试、不要换个说法再试**。" +
                                     "原因：${outcome.reason}。" +
                                     "请把这个情况如实告诉用户，并问他接下来想怎么办。"
-                                trace += "${call.name} 被拦下：${outcome.reason.oneLine()}"
+                                val line = "${call.name} 被拦下：${outcome.reason.oneLine()}"
+                                trace += line
+                                onStep(usage.turns, line)
                                 results += AgentMessage.ToolResult(
                                     text = text,
                                     callId = call.id,
@@ -439,6 +458,48 @@ data class PhoneTask(
          */
         const val DEFAULT_MAX_STEPS: Int = 12
     }
+}
+
+/**
+ * 「预算轮次必须大于步数上限」—— 这个不变量**必须由调用方遵守**。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  为什么这是个不变量，而不是"建议"
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * [PhoneAgentLoop] 里预算检查写在步数检查**之前**：
+ *
+ *     if (budgetGuard.check(...) is Exceeded) return Stopped(BUDGET)
+ *     if (usage.turns >= task.maxSteps)        return StepLimitReached
+ *
+ * 于是当 `maxTurns == maxSteps` 时，永远是 `BUDGET` 先中止，
+ * `StepLimitReached` **一次都不会发生** —— 那是死代码。
+ *
+ * 而这两个结局给用户的文案完全不同：
+ *  - `StepLimitReached`：「做了 N 步，说『接着来』继续」（可操作）
+ *  - `BUDGET`          ：「预算超限（TURNS）：轮次已达上限 12」（像故障）
+ *
+ * ★ 2026-10-19 真机踩过：`ChatPort` 把两个数都设成 12，
+ *   用户说「打开微信发一条朋友圈」，12 轮用完连编辑页都没走到，
+ *   而卡片显示的是后者。**用户以为坏了，其实只是额度用完了。**
+ *
+ * ⇒ 调用方在构造 `AgentBudget` 时必须过这道检查。
+ *   [PhoneTask] 与 `BudgetGuard` 分属两个模块，编译器不会替我们连起来，
+ *   所以用一个普通的纯函数把它变成**可测试的规则**。
+ *
+ * @return 为什么这组配置不可用；`null` = 合法。
+ */
+fun budgetStepMisconfiguration(maxTurns: Int, maxSteps: Int): String? = when {
+    maxSteps <= 0 -> "步数上限必须为正数（当前 $maxSteps）"
+    maxTurns <= 0 -> "预算轮次必须为正数（当前 $maxTurns）"
+    maxTurns == maxSteps ->
+        "预算轮次($maxTurns) 不能等于步数上限($maxSteps)：" +
+            "两个检查里预算在前，相等时 StepLimitReached 永远不会触发，" +
+            "用户会看到像故障的「预算超限」而不是「做了 N 步，说接着来继续」"
+    maxTurns < maxSteps ->
+        "预算轮次($maxTurns) 必须大于步数上限($maxSteps)：" +
+            "否则模型还没走到步数上限，就先被预算中止了"
+    else -> null
 }
 
 /** 循环为什么停下。 */

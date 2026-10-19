@@ -3,6 +3,8 @@ package com.pocketagent.agentlogic
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -127,6 +129,51 @@ class PhoneAgentLoopTest {
 
         assertTrue(result is PhoneRunResult.Stopped)
         assertEquals(PauseReason.BUDGET, (result as PhoneRunResult.Stopped).pause)
+    }
+
+    /**
+     * ★ 预算与步数**必须能分别触发** —— 这条钉的是两者的**先后关系**。
+     *
+     * ═══════════════════════════════════════════════════════════
+     *  为什么需要这条（真机上踩过）
+     * ═══════════════════════════════════════════════════════════
+     *
+     * `PhoneAgentLoop` 里预算检查写在步数检查**之前**。于是当
+     * `maxTurns == maxSteps` 时，永远是 `BUDGET` 先中止，
+     * `StepLimitReached` **一次都不会出现** —— 那是一段死代码。
+     *
+     * 而 `ChatPort` 曾经就把它俩都设成 12，于是真机上用户看到的是
+     * 「预算超限（TURNS）：轮次已达上限 12」，
+     * 而不是更该说的「做了 N 步，说『接着来』继续」。
+     *
+     * 这条用例从**两侧**逼近，确保两个结局各自可达：
+     *  - 步数更小时 → 必须先撞步数（用户看到的是"做完了 N 步"）
+     *  - 预算更小时 → 必须先撞预算
+     *
+     * ⚠️ 它不能防止"某天有人又把两个数调成相等"（那发生在另一个模块），
+     *    但它能钉住**循环本身的语义**：谁先到谁说了算。
+     */
+    @Test
+    fun `步数上限与预算轮次各自可达`() = runTest {
+        // 模型永远调工具、永不答复，两个上限都不会自然达成
+        fun llm() = ScriptedLlm(List(30) { AgentTurnReply.Calls(listOf(call(args = """{"n":$it}"""))) })
+
+        // ① 步数更小 ⇒ 必须先撞步数
+        val bySteps = PhoneAgentLoop(llm(), RecordingRunner(emptyList()), guard(turns = 99))
+            .run(task(maxSteps = 4))
+        assertTrue(
+            "步数(4) < 预算(99) 时应当是 StepLimitReached，实际是 $bySteps",
+            bySteps is PhoneRunResult.StepLimitReached,
+        )
+
+        // ② 预算更小 ⇒ 必须先撞预算
+        val byBudget = PhoneAgentLoop(llm(), RecordingRunner(emptyList()), guard(turns = 3))
+            .run(task(maxSteps = 99))
+        assertTrue(
+            "预算(3) < 步数(99) 时应当是 Stopped(BUDGET)，实际是 $byBudget",
+            byBudget is PhoneRunResult.Stopped &&
+                (byBudget as PhoneRunResult.Stopped).pause == PauseReason.BUDGET,
+        )
     }
 
     // ── 保护 3：重复调用 ───────────────────────────────────────────

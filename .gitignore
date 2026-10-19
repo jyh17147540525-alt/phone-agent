@@ -147,6 +147,8 @@ replay_pid*.log
 .u[0-9]*.xml
 .f[0-9]*.xml
 .g[0-9]*.xml
+.h[0-9]*.xml
+.[kmnp][0-9]*.xml
 .uc.xml
 .ud.xml
 .ue.xml
