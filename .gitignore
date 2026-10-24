@@ -157,3 +157,6 @@ replay_pid*.log
 .cm.tmp
 .chk.py
 .enc.py
+
+# 临时提交信息等
+*.tmp
