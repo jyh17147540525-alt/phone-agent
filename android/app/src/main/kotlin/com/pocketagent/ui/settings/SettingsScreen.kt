@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.runtime.Composable
@@ -73,6 +74,7 @@ fun SettingsScreen(
     onOpenImport: (() -> Unit)? = null,
     onOpenPermissions: (() -> Unit)? = null,
     onOpenCapabilities: (() -> Unit)? = null,
+    onOpenPrivilegeMode: (() -> Unit)? = null,
 ) {
     val (keyBadge, keyTone) = keyBadgeFor(keyStatus)
 
@@ -200,6 +202,17 @@ fun SettingsScreen(
                         //    （2026-09-23 真机目击）
                         subtitle = "不占屏幕就能做的事：读写文件、发通知",
                         onClick = onOpenCapabilities,
+                    )
+                    PaListDivider()
+                    // ★ 运行模式是**权限的上游**：系统给不给我们权限是一回事，
+                    //   我们准不准自己用 root 能力是另一回事。
+                    //   放在这里而不是塞进「权限状态」，因为用户来这一行的
+                    //   目的是"我能不能更强"，不是"还差哪个开关"。
+                    PaListRow(
+                        icon = Icons.Default.Lock,
+                        title = "运行模式",
+                        subtitle = "普通模式 / Root 模式，以及两边的能力边界",
+                        onClick = onOpenPrivilegeMode,
                     )
                 }
             }

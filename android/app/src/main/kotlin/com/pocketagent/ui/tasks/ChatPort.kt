@@ -12,6 +12,12 @@ import com.pocketagent.assistant.AgentAdapters
 import com.pocketagent.data.AppContainer
 import com.pocketagent.data.CredentialStoreResult
 import com.pocketagent.provider.api.ChatMessage
+import com.pocketagent.rootlogic.IntentClassifier
+import com.pocketagent.rootlogic.TurnIntent
+import com.pocketagent.provider.api.ChatChunk
+import com.pocketagent.provider.api.ChatRequest
+import com.pocketagent.provider.api.LlmProvider
+import com.pocketagent.provider.api.ProviderCredential
 import com.pocketagent.modelrouter.ModelResolution
 import com.pocketagent.modelrouter.ModelRole
 import com.pocketagent.modelrouter.resolveForPurpose
@@ -184,8 +190,50 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
         //   · 循环的所有保护（预算 / 步数 / 重复检测 / 安全拒绝不许重试）
         //     都在 `:agentlogic` 里，有 24 条离线测试钉着。
         val text = try {
+            // ══════════════════════════════════════════════════════
+            //  ★ 先判意图：默认**纯对话**，只有要办事才挂工具
+            // ══════════════════════════════════════════════════════
+            //
+            // 改之前：每一次对话都把全部 11 个工具挂上去。三个真问题：
+            //  1. **模型被工具带偏** —— 问「今天几号」它可能先 screen_read
+            //     看一眼再答，用户只是随口一问，却付出读屏的代价和延迟。
+            //  2. **每轮都在为用不到的东西付费** —— 11 个工具的 JSON Schema
+            //     每次请求都要发，纯聊天根本不需要。
+            //  3. **安全面被无必要地放大** —— 能调工具就有调错的可能，
+            //     而纯聊天是**零风险**的。
+            //
+            // ⚠️ 判错的代价**不对称**：
+            //   该 Act 判成 Chat → 用户再说一遍，损失一轮
+            //   该 Chat 判成 Act → **助理真的去操作了用户的手机**，不可撤销
+            //   ⇒ 所以 `IntentClassifier` 一律偏保守（拿不准就当 Chat）。
+            //
+            // ⚠️ 纯对话**不经过 agent 循环**：不挂工具就该直接问模型要文字，
+            //   走循环只会让 `PhoneAgentLoop` 拿到一个空工具列表然后
+            //   多跑一圈 —— 那圈唯一的产出是"确认没有工具可调"。
+            val userText = history.lastOrNull()?.plainText() ?: ""
+            val decision = IntentClassifier.classify(userText)
+
+            Timber.i("意图判定：%s（%s）—— 输入 %d 字", decision.intent, decision.reason, userText.length)
+
             store.useKey(config.credentialId) { provider, credential ->
-                val tools = container.agentToolsForChat()
+                // ── 纯对话：一次性请求，零工具 ────────────────────
+                if (decision.intent == TurnIntent.Chat) {
+                    return@useKey chatOnly(provider, credential, model, history, system)
+                }
+
+                // ★ 按**实际生效的模式**取工具集，不是全量：
+                //   root 不可用时 `root_exec` 根本不出现在清单里 ——
+                //   模型看不到它，也就不会去调它。
+                //   （见 `AppContainer.toolsForCurrentMode` 的长注释：
+                //     root 工具刻意**不**进 `agentTools`，否则 dsh 那条链路
+                //     也会看到它，等于绕过了用户选的模式。）
+                val tools = container.toolsForCurrentMode()
+                Timber.i(
+                    "本次工具集 %d 个（模式=%s）：%s",
+                    tools.size,
+                    container.effectivePrivilegeMode(),
+                    tools.joinToString("、") { it.name },
+                )
                 // ⚠️ 预算按**聊天**场景放宽：用户在聊天框里说一句
                 //    "给妈妈发消息"，背后可能是 4~5 次工具调用，
                 //    而"打开微信发朋友圈"要开应用 → 找入口 → 写内容 → 发布，
@@ -239,6 +287,55 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
             text.isBlank() -> ChatResult.Failed("模型返回了空内容。可能是 Key 无效、额度用完，或该模型不支持对话。")
             else -> ChatResult.Ok(text)
         }
+    }
+
+    /**
+     * **纯对话**路径 —— 一次性请求，**零工具**。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★ 为什么它必须独立于 agent 循环
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 把空工具列表塞进 `PhoneAgentLoop` 也能跑，但产出的是**同一个答复
+     * 加一整圈循环开销**：每轮都要判预算、判步数、判重复、记 trace。
+     * 而纯对话的全部需求只有一句"发出去、收文字"。
+     *
+     * ⚠️ 更重要的是**语义**：走循环意味着"这次要办事"，
+     *    于是任何未来的循环级副作用（审计、进度上报、接管条）
+     *    都会在纯聊天时被触发。用户问「今天几号」不该产生一条任务记录。
+     *
+     * @return 答复文本；null 表示模型没给出内容
+     */
+    private suspend fun chatOnly(
+        provider: LlmProvider,
+        credential: ProviderCredential,
+        model: String,
+        history: List<ChatMessage>,
+        system: String,
+    ): String? {
+        // ⚠️ tools 传空列表（不是 null）：`ChatRequest` 的默认值就是 emptyList，
+        //    而传 null 需要它可空。空列表在这里的语义是"明确不提供工具"。
+        val request = ChatRequest(
+            model = model,
+            messages = listOf(ChatMessage.system(system)) + history,
+            tools = emptyList(),
+        )
+
+        val sb = StringBuilder()
+        provider.chat(request = request, credential = credential).collect { chunk ->
+            when (chunk) {
+                is ChatChunk.Delta -> sb.append(chunk.text)
+                // 推理过程不进正文（同 `AgentAdapters` 的既定纪律）
+                is ChatChunk.Reasoning -> Unit
+                // 纯对话不该有工具调用 —— 有的话说明模型忽略了空 tools，
+                // 直接丢弃：执行它等于绕过意图判定。
+                is ChatChunk.ToolCallDelta -> {
+                    Timber.w("纯对话路径收到工具调用分片（%s），已忽略", chunk.name)
+                }
+                is ChatChunk.Done -> Unit
+            }
+        }
+        return sb.toString().ifBlank { null }
     }
 
     /**

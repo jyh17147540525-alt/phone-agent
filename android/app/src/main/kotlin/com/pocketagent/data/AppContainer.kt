@@ -56,6 +56,12 @@ import com.pocketagent.mcp.OfficeToolsTool
 import com.pocketagent.mcp.PersonaBriefTool
 import com.pocketagent.mcp.ScreenReadTool
 import com.pocketagent.mcp.McpTool
+import com.pocketagent.rootlogic.PrivilegeMode
+import com.pocketagent.rootlogic.RootProbeResult
+import com.pocketagent.assistant.effectiveMode
+import com.pocketagent.mcp.RootExecTool
+import com.pocketagent.assistant.RootProbe
+import com.pocketagent.assistant.RootShellRunner
 import com.pocketagent.mcp.SwipeTool
 import com.pocketagent.mcp.TapTool
 import com.pocketagent.mcp.ToolRegistry
@@ -1019,6 +1025,96 @@ class AppContainer(context: Context) {
      *    而那个 Failed 会如实告诉模型"无障碍服务没开"（见 ScreenReadTool）。
      */
     fun agentToolsForChat(): List<McpTool> = agentTools
+
+    // ═══════════════════════════════════════════════════════════════
+    //  权限模式（root / 非 root）
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * 用户在设置里**选的**模式。
+     *
+     * ⚠️ 它不是"实际生效的模式" —— 见 [effectivePrivilegeMode]。
+     *    选了 root 但 Magisk 没放行时，实际是普通模式，
+     *    而**这个区别必须能被界面读到**，否则用户会以为开关坏了。
+     */
+    private var selectedPrivilegeMode: PrivilegeMode = PrivilegeMode.NON_ROOT
+
+    /** 最近一次 root 探测结果。null = 还没探过。 */
+    private var lastRootProbe: RootProbeResult? = null
+
+    /** 当前选择（界面渲染开关用）。 */
+    fun privilegeMode(): PrivilegeMode = selectedPrivilegeMode
+
+    /** 最近一次探测结论（界面显示"为什么不可用"用）。 */
+    fun rootProbe(): RootProbeResult? = lastRootProbe
+
+    /**
+     * **实际生效**的模式。
+     *
+     * ★ 这个函数是整个 root 模式的安全阀：
+     *   用户选了 root ≠ 真的能用 root。手机可能换了、Magisk 可能更新后
+     *   丢了授权。此时能力**必须降级**，而不是"按选择来"。
+     *
+     * ⚠️ 反向也成立：选了普通模式时**绝不自动升级** ——
+     *   用户明确说不要 root，我们不该悄悄用 root 权限做事。
+     */
+    fun effectivePrivilegeMode(): PrivilegeMode =
+        effectiveMode(selectedPrivilegeMode, lastRootProbe ?: RootProbeResult.NotRooted)
+
+    /**
+     * 切换模式，并**立刻探一次** root（切换时探，而不是每次调用都探）。
+     *
+     * @return 切换后的实际生效模式 + 探测结论，供界面显示
+     */
+    fun setPrivilegeMode(mode: PrivilegeMode): Pair<PrivilegeMode, RootProbeResult> {
+        selectedPrivilegeMode = mode
+        // 只在选 root 时才值得探 —— 选普通模式时探了也没用
+        val probe = if (mode == PrivilegeMode.ROOT) RootProbe.probe() else RootProbeResult.NotRooted
+        lastRootProbe = probe
+        Timber.i("权限模式：选择=%s 探测=%s 实际=%s", mode, probe::class.simpleName, effectivePrivilegeMode())
+        return effectivePrivilegeMode() to probe
+    }
+
+    /**
+     * root 专用工具 —— **只在 root 真的可用时才挂载**。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★ 为什么要单独一个列表，而不是塞进 [agentTools]
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * [agentTools] 也会给 dsh 那条链路（MCP 桥）用。如果把 root_exec
+     * 放进那个列表，dsh 那边**无论用户选什么模式都能看到它** ——
+     * 那等于绕过了用户的选择。
+     *
+     * ⇒ root 工具只挂在聊天链路上，且必须同时满足：
+     *   ① 用户选了 root ② 实际生效模式是 root
+     */
+    private val rootTools: List<McpTool> by lazy {
+        val shellRunner = RootShellRunner()
+        listOf(
+            RootExecTool(
+                runner = shellRunner,
+                safety = SafetyGuardAdapter(DefaultSafetyGuard()),
+                // ★ 传函数而不是布尔值：用户可能刚在 Magisk 里放行，
+                //   而这个列表是 lazy 单例，构造时的快照会永远过时。
+                rootAvailable = { effectivePrivilegeMode() == PrivilegeMode.ROOT },
+            ),
+        )
+    }
+
+    /**
+     * 聊天链路本次该拿到的工具集。
+     *
+     * ★ 与原来的 [agentToolsForChat] 的差别：**按模式动态加减**。
+     *   root 不可用时 root_exec 根本不出现在清单里 ——
+     *   模型看不到它，也就不会去调它。
+     */
+    fun toolsForCurrentMode(): List<McpTool> =
+        if (effectivePrivilegeMode() == PrivilegeMode.ROOT) {
+            agentTools + rootTools
+        } else {
+            agentTools
+        }
 
     // ═══════════════════════════════════════════════════════════════
     //  保活：两条链路共用一个前台服务（唯一锚点）

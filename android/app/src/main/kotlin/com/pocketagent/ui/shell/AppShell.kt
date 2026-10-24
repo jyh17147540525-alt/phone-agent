@@ -77,6 +77,10 @@ import com.pocketagent.ui.permissions.PermissionsScreen
 import com.pocketagent.ui.permissions.PermissionsViewModel
 import com.pocketagent.ui.plugins.InstalledPluginsViewModel
 import com.pocketagent.ui.plugins.PluginsScreen
+import com.pocketagent.rootlogic.PrivilegeMode
+import com.pocketagent.rootlogic.RootProbeResult
+import com.pocketagent.ui.design.PaScreen
+import com.pocketagent.ui.settings.PrivilegeModeScreen
 import com.pocketagent.ui.settings.SettingsScreen
 import com.pocketagent.ui.settings.SettingsViewModel
 import com.pocketagent.ui.sources.SourcesScreen
@@ -110,6 +114,9 @@ object Routes {
     const val TASKS = "tasks"
     const val PLUGINS = "plugins"
     const val SETTINGS = "settings"
+
+    /** 运行模式（root / 非 root）与能力边界。 */
+    const val PRIVILEGE_MODE = "privilege-mode"
 
     // ── 二级页面（隐藏底部导航）──────────────────────────
     const val MARKET = "market"
@@ -161,6 +168,7 @@ private val TABS = listOf(
         owns = setOf(
             Routes.SETTINGS, Routes.SOURCES, Routes.KEYS,
             Routes.MODELS, Routes.DSH, Routes.PERMISSIONS, Routes.CAPABILITIES,
+            Routes.PRIVILEGE_MODE,
         ),
     ),
 )
@@ -376,6 +384,7 @@ fun AppShell(container: AppContainer) {
                         permissionSummary = permissionSummary,
                         onOpenPermissions = { navController.navigate(Routes.PERMISSIONS) },
                         onOpenCapabilities = { navController.navigate(Routes.CAPABILITIES) },
+                        onOpenPrivilegeMode = { navController.navigate(Routes.PRIVILEGE_MODE) },
                     )
                 }
 
@@ -430,6 +439,31 @@ fun AppShell(container: AppContainer) {
                         viewModel = vm,
                         onBack = { navController.popBackStack() },
                     )
+                }
+
+
+                composable(Routes.PRIVILEGE_MODE) {
+                    // ★ 模式状态放在容器里（容器是进程级单例）——
+                    //   放 ViewModel 会让"切到 root"在页面被销毁后丢失，
+                    //   而用户期望的是"切一次，一直有效"。
+                    var mode by remember { mutableStateOf(container.privilegeMode()) }
+                    var probe by remember { mutableStateOf(container.rootProbe()) }
+
+                    PaScreen(title = "运行模式", onBack = { navController.popBackStack() }) {
+                        PrivilegeModeScreen(
+                            current = mode,
+                            probe = probe,
+                            onToggle = { want ->
+                                // ★ 立刻探一次，并把**实际生效**的模式回写到界面。
+                                //   用户可能选了 root 但 Magisk 没放行 ——
+                                //   那时界面必须显示"开关是开的，但没生效"，
+                                //   而不是假装成功（那是本项目最忌讳的形态）。
+                                val (effective, result) = container.setPrivilegeMode(want)
+                                mode = effective
+                                probe = result
+                            },
+                        )
+                    }
                 }
 
                 composable(Routes.MARKET) {

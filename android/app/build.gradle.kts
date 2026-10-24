@@ -187,6 +187,7 @@ dependencies {
     //   而它扛着一条红线「卸载前必须过 `PrivacyFilter`」（架构 §8.2-2）。
     //   红线由 `OffloadPayload` 的私有构造函数保证，但代码从没进过包 ⇒ 从未执行过。
     implementation(project(":memorylogic"))           // 上下文卸载 / 记忆闸门（记住什么）
+    implementation(project(":rootlogic"))             // 权限模式 / 能力梯度 / 意图判定
     // ⚠️ `:memorylogic` 用的是 `implementation(project(":agentlogic"))`，**不传递** ——
     //    而本模块的 `OffloadPorts.kt` 要构造 `UploadRequest`（`OffloadDraft.request`
     //    的类型），所以必须自己再声明一次。

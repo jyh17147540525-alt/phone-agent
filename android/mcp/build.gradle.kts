@@ -22,6 +22,7 @@ dependencies {
     implementation(project(":personalogic"))
     implementation(project(":memorylogic"))
     implementation(project(":filelogic"))
+    implementation(project(":capabilitylogic"))
 
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
