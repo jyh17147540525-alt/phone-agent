@@ -75,25 +75,37 @@ fun AuroraBackground(
     Box(modifier = modifier.fillMaxSize().background(PaColor.Canvas)) {
 
         Canvas(modifier = Modifier.fillMaxSize()) {
-            // 三团光：左上偏蓝、右上偏紫、底部偏青。
+            // 三团光：左上偏暖、右上偏粉、底部偏绿灰。
             // 位置用屏幕尺寸的比例，保证构图在任何尺寸下都不散。
+            //
+            // ★★ 2026-10-25：alpha 整体下调到 1/4 左右（0.38→0.10 等）。
+            //
+            //   那两个值是为**深色底**调的：黑底吃得住高饱和光斑，
+            //   光斑越浓越有"极光"感。
+            //   但换到暖米色浅底之后，同样的 alpha 会让整屏变成
+            //   **脏黄色块** —— 因为浅底本身亮度已经接近光斑，
+            //   叠加只会污染而不是发光。
+            //
+            //   浅底上正确的手法是"水彩在纸上化开"：颜色极淡、
+            //   范围极大、几乎看不出边界。所以这里 alpha 压到 0.10 以下，
+            //   效果是"纸张有一点点色温倾向"，而不是"屏幕上有光"。
             auroraBlob(
                 center = Offset(x = size.width * 0.18f, y = size.height * 0.08f),
-                radius = size.minDimension * 0.85f,
+                radius = size.minDimension * 0.95f,
                 color = PaColor.AuroraBlue,
-                alpha = 0.38f,
+                alpha = 0.10f,
             )
             auroraBlob(
                 center = Offset(x = size.width * 0.92f, y = size.height * 0.22f),
-                radius = size.minDimension * 0.70f,
+                radius = size.minDimension * 0.80f,
                 color = PaColor.AuroraViolet,
-                alpha = 0.30f,
+                alpha = 0.08f,
             )
             auroraBlob(
                 center = Offset(x = size.width * 0.35f, y = size.height * 0.92f),
-                radius = size.minDimension * 0.90f,
+                radius = size.minDimension * 1.00f,
                 color = PaColor.AuroraTeal,
-                alpha = 0.22f,
+                alpha = 0.06f,
             )
         }
 

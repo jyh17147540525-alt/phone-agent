@@ -7,7 +7,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import com.pocketagent.ui.design.PaColor
-import com.pocketagent.ui.design.PaColorLight
+import com.pocketagent.ui.design.PaColorDark
 import com.pocketagent.ui.design.PaType
 
 /**
@@ -67,31 +67,31 @@ private val DarkColors = darkColorScheme(
 )
 
 private val LightColors = lightColorScheme(
-    primary = PaColorLight.Accent,
-    onPrimary = Color.White,
-    primaryContainer = PaColorLight.AccentSoft,
-    onPrimaryContainer = PaColorLight.Accent,
-    secondary = PaColorLight.TextSecondary,
-    onSecondary = Color.White,
-    secondaryContainer = PaColorLight.SurfaceHigh,
-    onSecondaryContainer = PaColorLight.TextPrimary,
-    tertiary = PaColorLight.Accent,
-    onTertiary = Color.White,
-    background = PaColorLight.Canvas,
-    onBackground = PaColorLight.TextPrimary,
-    surface = PaColorLight.Surface,
-    onSurface = PaColorLight.TextPrimary,
-    surfaceVariant = PaColorLight.SurfaceHigh,
-    onSurfaceVariant = PaColorLight.TextSecondary,
-    surfaceContainer = PaColorLight.CanvasElevated,
-    surfaceContainerHigh = PaColorLight.Surface,
-    surfaceContainerHighest = PaColorLight.SurfaceHigh,
-    outline = PaColorLight.GlassBorder,
-    outlineVariant = PaColorLight.GlassBorder,
-    error = PaColorLight.Danger,
-    onError = Color.White,
-    errorContainer = Color(0x1FD32F2F),
-    onErrorContainer = PaColorLight.Danger,
+    primary = PaColor.Accent,
+    onPrimary = androidx.compose.ui.graphics.Color.White,
+    primaryContainer = PaColor.AccentSoft,
+    onPrimaryContainer = PaColor.Accent,
+    secondary = PaColor.TextSecondary,
+    onSecondary = androidx.compose.ui.graphics.Color.White,
+    secondaryContainer = PaColor.SurfaceHigh,
+    onSecondaryContainer = PaColor.TextPrimary,
+    tertiary = PaColor.Accent,
+    onTertiary = androidx.compose.ui.graphics.Color.White,
+    background = PaColor.Canvas,
+    onBackground = PaColor.TextPrimary,
+    surface = PaColor.Surface,
+    onSurface = PaColor.TextPrimary,
+    surfaceVariant = PaColor.SurfaceHigh,
+    onSurfaceVariant = PaColor.TextSecondary,
+    surfaceContainer = PaColor.CanvasElevated,
+    surfaceContainerHigh = PaColor.Surface,
+    surfaceContainerHighest = PaColor.SurfaceHigh,
+    outline = PaColor.GlassBorder,
+    outlineVariant = PaColor.GlassBorder,
+    error = PaColor.Danger,
+    onError = androidx.compose.ui.graphics.Color.White,
+    errorContainer = Color(0x1FB5443A),
+    onErrorContainer = PaColor.Danger,
 )
 
 /**
@@ -127,29 +127,31 @@ private val AppTypography = buildTypography()
  * 应用主题。
  *
  * ═══════════════════════════════════════════════════════════════
- *  ⚠️ `darkTheme` 默认 **true**，刻意不跟随系统
+ *  ★★ 2026-10-25：`darkTheme` 默认改为 **false**（浅色）
  * ═══════════════════════════════════════════════════════════════
  *
- * 这不是偷懒，是三个约束共同推出的结果：
+ * 用户要求 Claude 风格的审美。而 Claude 的识别度**全部建立在暖色浅底上**：
+ * 米色纸感、衬线标题、陶土强调色。这三样换到深色会**同时失效** ——
+ * 深色里衬线标题显得过于庄重、暖色强调糊在黑底上、纸感无从谈起。
  *
- * 1. **深色是本设计的唯一打磨对象。** [PaColorLight] 只给了一套"能用"的值，
- *    没有做同等深度的对比度校准。跟随系统切到浅色，用户看到的是半成品。
+ * ⚠️ 所以这不是"把默认值从 true 改成 false"这么简单，
+ *    而是**主设计对象换了**：浅色是打磨对象，深色是可用的备选。
+ *    这与本文件历史上的立场相反，那一段保留在下面供追溯。
  *
- * 2. **极光背景是深色设计的一部分。** [com.pocketagent.ui.design.AuroraBackground]
- *    画的是三团高饱和光斑叠在近黑底上 —— 那是"雾化玻璃"的光源。
- *    换到浅底，光斑会变成脏兮兮的色块，整个玻璃质感直接塌掉。
+ * ═══════════════════════════════════════════════════════════════
+ *  （历史立场，已被上面的决定取代）
+ * ═══════════════════════════════════════════════════════════════
  *
- * 3. **跟随系统等于把设计权交出去。** 本应用刻意放弃动态取色，理由是
- *    "同一界面在十台手机上十种配色就不叫设计了"（见 [PaColor] 立场第 1 条）。
- *    明暗切换是同一件事 —— 既然要固定，就连明暗一起固定。
- *
- * 将来若要支持浅色，前提是先把 [PaColorLight] 与浅色版极光背景
- * （低饱和光斑 + 白底）都打磨到位，而不是简单地把这个默认值改回
- * `isSystemInDarkTheme()`。
+ * 1. 深色曾是唯一打磨对象 —— 现在浅色是。
+ * 2. 极光背景曾是深色设计的一部分（高饱和光斑叠在近黑底上）；
+ *    浅底版必须改用**极低饱和的暖色晕染**，否则会变成脏色块
+ *    （见 `PaColor.Aurora*` 的注释）。
+ * 3. **不跟随系统明暗**这条立场**保留**：理由与放弃动态取色相同 ——
+ *    既然要固定设计，就连明暗一起固定。跟随系统等于把设计权交出去。
  */
 @Composable
 fun PocketAgentTheme(
-    darkTheme: Boolean = true,
+    darkTheme: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val colors = if (darkTheme) DarkColors else LightColors

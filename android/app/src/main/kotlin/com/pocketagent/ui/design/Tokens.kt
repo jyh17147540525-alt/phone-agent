@@ -1,6 +1,8 @@
 package com.pocketagent.ui.design
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -9,139 +11,160 @@ import androidx.compose.ui.unit.sp
  * PocketAgent 设计令牌 —— 所有视觉决策的单一事实来源。
  *
  * ═══════════════════════════════════════════════════════════════
- *  设计立场（改之前先读完）
+ *  ★★ 2026-10-25：整体转为「Claude 风格」暖色浅底
  * ═══════════════════════════════════════════════════════════════
  *
- * **1. 不跟随动态取色（Material You）。**
- * 之前用的是 `dynamicDarkColorScheme(context)`，它会跟着用户壁纸变色。
- * 这在"实用工具"上没问题，但它是**高级感的天敌** ——
- * 同一个界面在十台手机上呈现十种配色，就没有"设计"可言了，
- * 只剩下"系统给我的颜色"。而且动态取色会给出高饱和的糖果色，
- * 与本应用"风险提示要克制"的基调冲突。
- * → **改为固定配色。** 这是本文件存在的主要理由。
+ * 用户明确要求："我都喜欢克劳德的审美。"
  *
- * **2. 深色是主要打磨对象。**
- * 「极致简约 + 高级」在深色下最容易成立：靠**层级差异**而不是颜色数量来建立结构。
- * 浅色配色给出一套可用的值，但不追求同等打磨深度。
+ * Claude 的视觉识别不是"某个颜色好看"，而是三个可复述的决策：
  *
- * **3. 颜色数量刻意压到最低。**
- * 除语义色（成功/警告/危险）外，全站只有**一个强调色**。
- * 需要区分层级时，用**透明度**而不是新颜色 —— 这是"简约"的技术含义。
+ *  1. **底色是暖的，不是灰的。** `#F5F2EC` 这类偏黄的米色，
+ *     而不是 `#F7F8FA` 那种偏蓝的中性灰。冷暖一线之差，
+ *     但暖底长时间阅读的疲劳感明显更低 —— 这是它"书卷气"的来源。
+ *  2. **标题用衬线体。** 正文仍是无衬线（保证小字可读），
+ *     只有标题走衬线 —— 那个对比就是"高级感"的实体。
+ *  3. **强调色是低饱和的暖色**（陶土/珊瑚），不是高饱和蓝。
+ *     蓝在浅底上显得像"系统默认"，暖色才像"被设计过"。
  *
- * **4. 间距只用 4 的倍数。**
- * 例外：1.dp 用于描边。8pt grid 是廉价的秩序感来源。
+ * ⚠️ **深色模式不再是主要打磨对象** —— 见 [PaColorDark] 的注释。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  保留下来的一条旧立场（它与风格无关，是工程约束）
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * **不跟随动态取色（Material You）。** 同一个界面在十台手机上呈现
+ * 十种配色，就没有"设计"可言了，只剩下"系统给我的颜色"。
+ *
+ * **颜色数量压到最低。** 除语义色外全站只有一个强调色；
+ * 需要区分层级时用**透明度**而不是新颜色。
+ *
+ * **间距只用 4 的倍数。**
  */
 object PaColor {
 
-    // ── 基底：三级高度，靠亮度差建立层级，不靠颜色 ──────────────
-    /** 最底层。近黑但不纯黑 —— 纯黑在 OLED 上会让卡片"浮不起来" */
-    val Canvas = Color(0xFF0A0B0D)
-    /** 抬升一档，用于分区背景 */
-    val CanvasElevated = Color(0xFF0F1115)
-    /** 卡片/列表项 */
-    val Surface = Color(0xFF14171C)
-    /** 卡片内的次级块（如代码块、嵌套项） */
-    val SurfaceHigh = Color(0xFF1B1F25)
+    // ── 基底：暖米色，靠**亮度**建立层级（不是靠加灰）──────────
+    //
+    // ⚠️ 关键：三档之间是"纸张叠起来"的差别，不是"灰色深浅"。
+    //    如果 Surface 做成偏冷的纯白，暖底整体就会显得脏。
+    /** 最底层：暖米。比纯白柔和，长时间看不刺眼 */
+    val Canvas = Color(0xFFF5F2EC)
+    /** 抬升一档：接近纸白，用于分区背景 */
+    val CanvasElevated = Color(0xFFFAF8F4)
+    /** 卡片/列表项：纯白（在暖底上"浮起来"靠的是白，不是阴影） */
+    val Surface = Color(0xFFFFFFFF)
+    /** 卡片内的次级块 */
+    val SurfaceHigh = Color(0xFFF0ECE4)
 
-    // ── 玻璃：全部用白色透明度叠加，随底层亮度自适应 ────────────
-    /** 玻璃主体：5% 白 */
-    val GlassTint = Color(0x0DFFFFFF)
-    /** 玻璃加强：10% 白，用于需要更明显"实体感"的悬浮层 */
-    val GlassTintStrong = Color(0x1AFFFFFF)
-    /** 玻璃描边：12% 白。**这条边是玻璃质感的关键**，去掉就变成普通半透明块 */
-    val GlassBorder = Color(0x1FFFFFFF)
-    /** 顶边高光：模拟光线打在玻璃上边缘 */
-    val GlassHighlight = Color(0x26FFFFFF)
-    /** 底部暗边：与顶边高光配合形成厚度感 */
-    val GlassShadow = Color(0x40000000)
+    // ── 卡片质感：浅底不用玻璃，用**发丝边** ────────────────────
+    //
+    // ⚠️ 深色那套"5% 白 + 12% 白描边"的玻璃在浅底上完全看不见。
+    //    浅底的高级感来自**极细的暖灰描边**，而不是半透明叠加。
+    /** 卡片主体不需要叠加色 —— 白就是白 */
+    val GlassTint = Color(0x00000000)
+    val GlassTintStrong = Color(0x0A000000)
+    /** 卡片描边：暖灰，透明度低到几乎看不见 —— 但它撑起了卡片的"实体感" */
+    val GlassBorder = Color(0x14000000)
+    /** 浅底下不需要高光/暗边（那是模拟玻璃厚度的手法） */
+    val GlassHighlight = Color(0x00000000)
+    val GlassShadow = Color(0x0A000000)
 
-    // ── 文字：四级，靠亮度而非字号建立层级 ─────────────────────
-    val TextPrimary = Color(0xFFF2F4F7)
-    val TextSecondary = Color(0xFF9BA3AE)
-    val TextTertiary = Color(0xFF5F6771)
-    val TextDisabled = Color(0xFF3C424A)
+    // ── 文字：四级，暖调深色 ───────────────────────────────────
+    //
+    // ⚠️ 不用纯黑：暖底 + 纯黑会产生刺眼的高对比，
+    //    而那种"纸感"恰恰来自**降低对比、加大行距**。
+    /** 近黑但偏暖，不是 #000000 */
+    val TextPrimary = Color(0xFF1F1D1A)
+    val TextSecondary = Color(0xFF6B655C)
+    val TextTertiary = Color(0xFF9A938A)
+    val TextDisabled = Color(0xFFC4BDB2)
 
-    // ── 强调色：全站唯一 ───────────────────────────────────────
-    val Accent = Color(0xFF5B9DF9)
-    val AccentPressed = Color(0xFF4A86D8)
+    // ── 强调色：陶土/珊瑚（招牌色）─────────────────────────────
+    //
+    // ⚠️ 这不是"随便挑一个暖色"，它必须在三个位置都成立：
+    //    ① 白底上的小字（对比度要够）
+    //    ② 选中态的低透明底（不能脏）
+    //    ③ 与语义色红/橙**分得开**（否则"强调"和"危险"混了）
+    val Accent = Color(0xFFC96442)
+    val AccentPressed = Color(0xFFAE5236)
     /** 强调色的低透明底，用于选中态背景 */
-    val AccentSoft = Color(0x1F5B9DF9)
-    val AccentBorder = Color(0x4D5B9DF9)
+    val AccentSoft = Color(0x14C96442)
+    val AccentBorder = Color(0x3DC96442)
 
     // ── 语义色 ─────────────────────────────────────────────────
     // ⚠️ 这四个**不允许**被主题或动态取色覆盖。
     //    用户是靠颜色形成条件反射的：看到红=危险。
-    //    如果红色在某些手机上变成橙色，条件反射就断了。
-    val Success = Color(0xFF3DD68C)
-    val Warning = Color(0xFFF5A623)
-    val Danger = Color(0xFFFF5C5C)
-    val Info = Color(0xFF5B9DF9)
+    //    浅底上要压暗一档，否则刺眼。
+    val Success = Color(0xFF3D8A5F)
+    val Warning = Color(0xFFB07425)
+    val Danger = Color(0xFFB5443A)
+    val Info = Color(0xFF4A6B8A)
 
     // ── 风险等级：四档，**只此一套，不随主题漂移** ──────────────
     //
-    // ⚠️ 为什么不直接复用上面的语义色：
-    //    语义色只有三档（成功/警告/危险），而风险等级有**四档**
+    // ⚠️ 为什么不直接复用语义色：语义色只有三档，而风险等级有四档
     //    （低/中/高/极高），且必须四档一眼能分开 ——
-    //    用户是靠这套颜色形成条件反射来判断插件危不危险的，
+    //    用户靠这套颜色形成条件反射判断插件危不危险，
     //    这是本应用最重要的一道人工防线（详见 Risk.kt）。
-    //    低/中/极高沿用语义色的值以保持全站一致，只有「高」是新增的。
-    //
-    // ⚠️ 这四档**刻意不做浅色版**。风险色的语义就是「不随环境变化」：
-    //    同一个插件在市场页是红色、到管理页变成橙色，反射就废了。
     val RiskLow = Success
     val RiskMedium = Warning
-    /** 高：黄橙与正红之间的过渡色，专门为「高」这一档存在 */
-    val RiskHigh = Color(0xFFFF8A4C)
+    /** 高：橙与正红之间的过渡色，专门为「高」这一档存在 */
+    val RiskHigh = Color(0xFFC4703A)
     val RiskCritical = Danger
 
-    // ── 极光光斑：毛玻璃背后那层被模糊的彩色 ────────────────────
-    // 这是"雾化玻璃"观感的来源 —— 玻璃下面是模糊的彩色光，
-    // 而不是模糊的纯色。纯色模糊出来是灰雾，彩色模糊才有高级感。
-    val AuroraBlue = Color(0xFF2B5CE6)
-    val AuroraViolet = Color(0xFF6B3FA0)
-    val AuroraTeal = Color(0xFF1E7A6B)
+    // ── 极光光斑：**浅底版** ────────────────────────────────────
+    //
+    // ⚠️ 深色那套高饱和光斑放到米色底上会变成脏色块。
+    //    浅底要用**极低饱和的暖色晕染**，像水彩在纸上化开；
+    //    强度还必须大幅降低 —— 浅底对色偏极其敏感。
+    val AuroraBlue = Color(0xFFE8DFD2)
+    val AuroraViolet = Color(0xFFEFE4DC)
+    val AuroraTeal = Color(0xFFE4E8DE)
 }
 
 /**
- * 浅色配色。
+ * 深色配色 —— **本版不再作为主打**。
  *
- * 只给出必要值，不做深度打磨 —— 见 [PaColor] 的设计立场第 2 条。
- * 玻璃系列在浅色下改用黑色透明度，语义色保持不变。
+ * ═══════════════════════════════════════════════════════════════
+ *  ⚠️ 它存在，但请不要用它来评判本应用的设计
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * 用户选了 Claude 风格，而 Claude 的识别度**全部建立在暖色浅底上** ——
+ * 衬线标题、陶土强调色、纸感留白，换到深色全部失效
+ * （深色里衬线标题显得过于庄重，暖色强调会糊在黑底上）。
+ *
+ * ⇒ 这里保留一套**可用**的深色值（供夜间浏览不刺眼），
+ *   但主题默认值是浅色。见 `PocketAgentTheme`。
+ *
+ * 如果将来要做深色为主的设计，那是**另一套设计**，不是这套的取反。
  */
-object PaColorLight {
-    val Canvas = Color(0xFFF7F8FA)
-    val CanvasElevated = Color(0xFFFFFFFF)
-    val Surface = Color(0xFFFFFFFF)
-    val SurfaceHigh = Color(0xFFF0F2F5)
+object PaColorDark {
+    val Canvas = Color(0xFF1A1816)
+    val CanvasElevated = Color(0xFF221F1C)
+    val Surface = Color(0xFF262320)
+    val SurfaceHigh = Color(0xFF302C28)
 
-    val GlassTint = Color(0xB3FFFFFF)
-    val GlassTintStrong = Color(0xE6FFFFFF)
-    val GlassBorder = Color(0x14000000)
-    val GlassHighlight = Color(0x66FFFFFF)
-    val GlassShadow = Color(0x14000000)
+    val GlassTint = Color(0x0DFFFFFF)
+    val GlassTintStrong = Color(0x1AFFFFFF)
+    val GlassBorder = Color(0x1FFFFFFF)
+    val GlassHighlight = Color(0x26FFFFFF)
+    val GlassShadow = Color(0x40000000)
 
-    val TextPrimary = Color(0xFF0F1115)
-    val TextSecondary = Color(0xFF5A6472)
-    val TextTertiary = Color(0xFF8B95A3)
-    val TextDisabled = Color(0xFFBFC6CF)
+    val TextPrimary = Color(0xFFF2EDE6)
+    val TextSecondary = Color(0xFFA8A199)
+    val TextTertiary = Color(0xFF736C64)
+    val TextDisabled = Color(0xFF4A453F)
 
-    val Accent = Color(0xFF2F6FD0)
-    val AccentPressed = Color(0xFF255AB0)
-    val AccentSoft = Color(0x1A2F6FD0)
-    val AccentBorder = Color(0x4D2F6FD0)
+    val Accent = Color(0xFFD9785A)
+    val AccentPressed = Color(0xFFC96442)
+    val AccentSoft = Color(0x1FD9785A)
+    val AccentBorder = Color(0x4DD9785A)
 
-    val Success = Color(0xFF1E9E63)
-    val Warning = Color(0xFFB87400)
-    val Danger = Color(0xFFD32F2F)
-    val Info = Color(0xFF2F6FD0)
+    val Success = Color(0xFF5FA97D)
+    val Warning = Color(0xFFD09448)
+    val Danger = Color(0xFFD96A5F)
+    val Info = Color(0xFF7E9DB8)
 }
 
-/**
- * 间距。
- *
- * 只用 4 的倍数。命名按**用途**而不是数值 ——
- * `gapS` 比 `space8` 更抗改：将来把 S 从 8 调到 10，调用点不用动。
- */
 object PaSpace {
     /** 4dp —— 图标与文字之间 */
     val xxs = 4.dp
@@ -197,47 +220,83 @@ object PaRadius {
  *  这一收一放是"精致感"最廉价的来源。
  */
 object PaType {
-    /** 28sp / Medium —— 页面主标题 */
+
+    /**
+     * **衬线族** —— 标题专用。
+     *
+     * ═══════════════════════════════════════════════════════════
+     *  ★ 这是 Claude 风格最关键的一处，也是最容易被做丢的一处
+     * ═══════════════════════════════════════════════════════════
+     *
+     * 为什么用 `FontFamily.Serif` 而不是内置一个字体文件：
+     *  - 内置中文衬线字体（Noto Serif SC 一类）动辄 10MB+，
+     *    会让 APK 明显变大；
+     *  - 系统 Serif 在中文上会落到各家的衬线（思源宋体/宋体一类），
+     *    视觉方向是对的，且**零体积**。
+     *
+     * ⚠️ 它的**唯一用途是标题**。正文若也用衬线，小字号下笔画会糊，
+     *    可读性明显下降 —— 那正是「书卷气」变成「难以阅读」的分界线。
+     */
+    private val Serif = FontFamily.Serif
+
+    /**
+     * 28sp —— 页面主标题。
+     *
+     * ★ 衬线 + **常规**字重（不是 Medium）：衬线本身已经带来足够
+     *   视觉重量，再加粗会显得笨重。
+     */
     val display = androidx.compose.ui.text.TextStyle(
+        fontFamily = Serif,
         fontSize = 28.sp,
-        lineHeight = 34.sp,
-        fontWeight = FontWeight.Medium,
-        letterSpacing = (-0.4).sp,
+        lineHeight = 36.sp,
+        fontWeight = FontWeight.Normal,
+        letterSpacing = (-0.2).sp,
     )
 
-    /** 22sp / Medium —— 区块标题 */
+    /** 22sp —— 区块标题。同样衬线、常规字重 */
     val title = androidx.compose.ui.text.TextStyle(
+        fontFamily = Serif,
         fontSize = 22.sp,
-        lineHeight = 28.sp,
-        fontWeight = FontWeight.Medium,
-        letterSpacing = (-0.3).sp,
+        lineHeight = 30.sp,
+        fontWeight = FontWeight.Normal,
+        letterSpacing = (-0.1).sp,
     )
 
-    /** 17sp / Medium —— 卡片标题、列表主文字 */
+    /**
+     * 17sp —— 卡片标题、列表主文字。
+     *
+     * ⚠️ 这一档**不用衬线**：它承担"列表项主文字"，出现频率极高、
+     *    常与正文混排。衬线在高频小标题上会显得啰嗦。
+     */
     val headline = androidx.compose.ui.text.TextStyle(
         fontSize = 17.sp,
-        lineHeight = 24.sp,
+        lineHeight = 25.sp,
         fontWeight = FontWeight.Medium,
         letterSpacing = (-0.2).sp,
     )
 
-    /** 15sp / Normal —— 正文 */
+    /**
+     * 15sp —— 正文。
+     *
+     * ★ 行高 23 → **24**（行高比约 1.6）：纸感的另一半来自行距。
+     *   对比度降低之后必须靠行距补偿可读性，这两件事要一起调。
+     */
     val body = androidx.compose.ui.text.TextStyle(
         fontSize = 15.sp,
-        lineHeight = 23.sp,
+        lineHeight = 24.sp,
         fontWeight = FontWeight.Normal,
         letterSpacing = 0.sp,
     )
 
-    /** 13sp / Normal —— 辅助说明 */
+    /** 13sp —— 辅助说明 */
     val caption = androidx.compose.ui.text.TextStyle(
         fontSize = 13.sp,
-        lineHeight = 19.sp,
+        lineHeight = 20.sp,
         fontWeight = FontWeight.Normal,
         letterSpacing = 0.1.sp,
     )
 
-    /** 12sp / Medium —— 小标签、按钮文字 */
+    /** 12sp —— 小标签、按钮文字 */
     val label = androidx.compose.ui.text.TextStyle(
         fontSize = 12.sp,
         lineHeight = 16.sp,
@@ -245,7 +304,7 @@ object PaType {
         letterSpacing = 0.4.sp,
     )
 
-    /** 11sp / Medium —— 全大写微标签（配合放开字距） */
+    /** 11sp —— 微标签（配合放开字距） */
     val overline = androidx.compose.ui.text.TextStyle(
         fontSize = 11.sp,
         lineHeight = 14.sp,
