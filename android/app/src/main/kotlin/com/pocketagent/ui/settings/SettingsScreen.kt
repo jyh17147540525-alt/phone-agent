@@ -1,6 +1,16 @@
 package com.pocketagent.ui.settings
 
 import com.pocketagent.BuildConfig
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
+import com.pocketagent.ui.design.PaColor
+import com.pocketagent.ui.design.PaButton
+import com.pocketagent.ui.design.PaButtonStyle
+import com.pocketagent.ui.design.PaType
+import com.pocketagent.ui.theme.ThemeMode
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
@@ -77,6 +87,10 @@ fun SettingsScreen(
     onOpenCapabilities: (() -> Unit)? = null,
     onOpenPrivilegeMode: (() -> Unit)? = null,
     onOpenPersona: (() -> Unit)? = null,
+    /** 当前明暗偏好 */
+    themeMode: ThemeMode = ThemeMode.SYSTEM,
+    /** 切换明暗偏好 */
+    onThemeModeChange: (ThemeMode) -> Unit = {},
 ) {
     val (keyBadge, keyTone) = keyBadgeFor(keyStatus)
 
@@ -225,6 +239,42 @@ fun SettingsScreen(
                         subtitle = "普通模式 / Root 模式，以及两边的能力边界",
                         onClick = onOpenPrivilegeMode,
                     )
+                }
+            }
+
+            // ══════════════════════════════════════════════════════
+            //  ★ 明暗主题 —— 默认跟随系统
+            // ══════════════════════════════════════════════════════
+            item {
+                Spacer(Modifier.height(PaSpace.xs))
+                PaSectionTitle("外观")
+            }
+            item {
+                PaListGroup {
+                    Column(modifier = Modifier.fillMaxWidth().padding(PaSpace.m)) {
+                        Text(
+                            text = "明暗主题",
+                            style = PaType.body,
+                            color = PaColor.TextPrimary,
+                        )
+                        Spacer(Modifier.height(PaSpace.xxs))
+                        Text(
+                            text = "默认跟随手机设置。你也可以固定其中一个。",
+                            style = PaType.caption,
+                            color = PaColor.TextSecondary,
+                        )
+                        Spacer(Modifier.height(PaSpace.s))
+                        Row {
+                            for (m in ThemeMode.entries) {
+                                PaButton(
+                                    text = m.label,
+                                    onClick = { onThemeModeChange(m) },
+                                    style = if (themeMode == m) PaButtonStyle.Primary else PaButtonStyle.Glass,
+                                    modifier = Modifier.padding(end = PaSpace.xs),
+                                )
+                            }
+                        }
+                    }
                 }
             }
 

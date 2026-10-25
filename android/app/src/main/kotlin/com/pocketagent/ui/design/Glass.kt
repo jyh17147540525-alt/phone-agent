@@ -72,7 +72,15 @@ fun AuroraBackground(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit = {},
 ) {
-    Box(modifier = modifier.fillMaxSize().background(PaColor.Canvas)) {
+    // ★ 颜色必须在**组合期**读出，再传进 DrawScope。
+    //   `Canvas { }` 的 lambda 是 DrawScope 上下文，**不能**读 CompositionLocal
+    //   （主题切换时它也不会自动重组）—— 所以在这里先取值。
+    val canvasColor = PaColor.Canvas
+    val blue = PaColor.AuroraBlue
+    val violet = PaColor.AuroraViolet
+    val teal = PaColor.AuroraTeal
+
+    Box(modifier = modifier.fillMaxSize().background(canvasColor)) {
 
         Canvas(modifier = Modifier.fillMaxSize()) {
             // 三团光：左上偏暖、右上偏粉、底部偏绿灰。
@@ -92,19 +100,19 @@ fun AuroraBackground(
             auroraBlob(
                 center = Offset(x = size.width * 0.18f, y = size.height * 0.08f),
                 radius = size.minDimension * 0.95f,
-                color = PaColor.AuroraBlue,
+                color = blue,
                 alpha = 0.10f,
             )
             auroraBlob(
                 center = Offset(x = size.width * 0.92f, y = size.height * 0.22f),
                 radius = size.minDimension * 0.80f,
-                color = PaColor.AuroraViolet,
+                color = violet,
                 alpha = 0.08f,
             )
             auroraBlob(
                 center = Offset(x = size.width * 0.35f, y = size.height * 0.92f),
                 radius = size.minDimension * 1.00f,
-                color = PaColor.AuroraTeal,
+                color = teal,
                 alpha = 0.06f,
             )
         }
@@ -225,6 +233,7 @@ fun GlassCard(
  * ⚠️ 停靠点不是均匀的：顶部高光集中在最上面 8%，
  *    因为真实玻璃的高光就是一条窄带，均匀分布会变成"上下都有边"的塑料感。
  */
+@Composable
 fun Modifier.glassEdge(
     shape: Shape,
     width: Dp = 1.dp,
@@ -248,6 +257,7 @@ fun Modifier.glassEdge(
  * 顶栏要"下边亮"（光从下方来，因为下面是内容），
  * 底栏要"上边亮"。这个方向感是"面板贴着屏幕边缘"的关键暗示。
  */
+@Composable
 fun Modifier.glassEdgeHorizontal(
     shape: Shape,
     highlightOnTop: Boolean,

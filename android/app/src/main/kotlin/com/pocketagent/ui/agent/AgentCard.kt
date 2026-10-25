@@ -585,6 +585,7 @@ private fun evidenceTag(kind: EvidenceKind): String = when (kind) {
  * 它是模型的主张，不是我们的发现。用同一个颜色，等于告诉用户
  * "这条和那条一样可信"。
  */
+@Composable
 private fun evidenceTone(kind: EvidenceKind): Color = when (kind) {
     EvidenceKind.MODEL_CLAIM -> PaColor.Warning
     else -> PaColor.TextTertiary

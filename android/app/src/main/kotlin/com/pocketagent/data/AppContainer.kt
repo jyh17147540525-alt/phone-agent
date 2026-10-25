@@ -951,6 +951,52 @@ class AppContainer(context: Context) {
         activeCustomPersona = null
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  明暗主题
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * 用户选的明暗偏好。**默认跟随系统**。
+     *
+     * ★ 为什么默认跟随系统：多数人白天用浅色、夜间切深色 ——
+     *   跟随系统是"最少惊喜"的选择。让用户一上来就做一次
+     *   他很可能不关心的选择，是多余的门槛。
+     *
+     * ⚠️ 用内存 + DataStore 两级：读的时候同步返回内存值（Compose
+     *    要在组合期立刻拿到），写入时异步落盘。
+     */
+    @Volatile
+    private var themeModeValue: com.pocketagent.ui.theme.ThemeMode =
+        com.pocketagent.ui.theme.ThemeMode.SYSTEM
+
+    /** 当前明暗偏好（界面渲染用，同步）。 */
+    fun themeMode(): com.pocketagent.ui.theme.ThemeMode = themeModeValue
+
+    /**
+     * 切换明暗偏好。
+     *
+     * ⚠️ **同步更新内存**再落盘 —— 否则用户点了之后要等异步写盘完成
+     *    才会看到变化，那一下的延迟会被感知成"点了没反应"。
+     */
+    fun setThemeMode(mode: com.pocketagent.ui.theme.ThemeMode) {
+        themeModeValue = mode
+        startupScope.launch {
+            runCatching {
+                pluginSourceStore.edit { it[KEY_THEME_MODE] = mode.name }
+            }.onFailure { Timber.e(it, "主题偏好落盘失败") }
+        }
+    }
+
+    /** 启动时读回主题偏好。 */
+    private suspend fun loadThemeMode() {
+        val saved: String = runCatching<String?> {
+            pluginSourceStore.data.first()[KEY_THEME_MODE]
+        }.getOrNull() ?: return
+        themeModeValue = com.pocketagent.ui.theme.ThemeMode.entries
+            .firstOrNull { it.name == saved }
+            ?: com.pocketagent.ui.theme.ThemeMode.SYSTEM
+    }
+
     /** 当前是否有自定义角色在生效。 */
     fun hasCustomPersona(): Boolean = activeCustomPersona != null
 
@@ -1399,6 +1445,8 @@ class AppContainer(context: Context) {
             //     在重启后**静默失效**（不报错，只是变回默认人格）。
             runCatching { loadCustomPersona() }
                 .onFailure { Timber.e(it, "自定义角色加载失败") }
+            runCatching { loadThemeMode() }
+                .onFailure { Timber.e(it, "主题偏好加载失败") }
 
             val prefs = runCatching { pluginSourceStore.data.first() }.getOrNull() ?: return@launch
             if (prefs[KEY_DSH_ON] == true) runCatching { startDshIntegration() }
@@ -1480,6 +1528,15 @@ class AppContainer(context: Context) {
          *    后者会让老用户带着一个含义已变的 `true` 升级上来。
          */
         private val KEY_DSH_ON = booleanPreferencesKey("dsh_integration_on_v1")
+
+        /**
+         * 明暗偏好。
+         *
+         * ⚠️ 存枚举的 **name** 而不是序号：序号会随枚举顺序变化而错位 ——
+         *    那种错位表现为「升级后主题莫名其妙变了」，且不会有任何报错。
+         */
+        private val KEY_THEME_MODE = androidx.datastore.preferences.core
+            .stringPreferencesKey("theme_mode")
         private val KEY_BRIDGE_ON = booleanPreferencesKey("mcp_bridge_on_v1")
 
         /** 首次启动引导是否已看过。**用户点掉弹窗才置位**，不随版本重置。 */

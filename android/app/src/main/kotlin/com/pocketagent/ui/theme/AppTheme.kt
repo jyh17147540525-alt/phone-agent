@@ -1,5 +1,7 @@
 package com.pocketagent.ui.theme
 
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
@@ -7,7 +9,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import com.pocketagent.ui.design.PaColor
-import com.pocketagent.ui.design.PaColorDark
+
 import com.pocketagent.ui.design.PaType
 
 /**
@@ -38,7 +40,8 @@ import com.pocketagent.ui.design.PaType
  *
  * 等旧页面全部迁移完，这个映射可以退化成最小实现（只留 error 给对话框）。
  */
-private val DarkColors = darkColorScheme(
+@Composable
+private fun darkColors() = darkColorScheme(
     primary = PaColor.Accent,
     onPrimary = Color(0xFF06121F),
     primaryContainer = PaColor.AccentSoft,
@@ -66,7 +69,8 @@ private val DarkColors = darkColorScheme(
     onErrorContainer = PaColor.Danger,
 )
 
-private val LightColors = lightColorScheme(
+@Composable
+private fun lightColors() = lightColorScheme(
     primary = PaColor.Accent,
     onPrimary = androidx.compose.ui.graphics.Color.White,
     primaryContainer = PaColor.AccentSoft,
@@ -127,38 +131,43 @@ private val AppTypography = buildTypography()
  * 应用主题。
  *
  * ═══════════════════════════════════════════════════════════════
- *  ★★ 2026-10-25：`darkTheme` 默认改为 **false**（浅色）
+ *  ★★ 2026-10-25：支持明暗两套主题，默认**跟随系统**
  * ═══════════════════════════════════════════════════════════════
  *
- * 用户要求 Claude 风格的审美。而 Claude 的识别度**全部建立在暖色浅底上**：
- * 米色纸感、衬线标题、陶土强调色。这三样换到深色会**同时失效** ——
- * 深色里衬线标题显得过于庄重、暖色强调糊在黑底上、纸感无从谈起。
+ * 此前这里把 `darkTheme` 写死成 false（"浅色是唯一打磨对象"）——
+ * 那是为了让 Claude 风格先立起来。现在补上暗色版，并跟随系统。
  *
- * ⚠️ 所以这不是"把默认值从 true 改成 false"这么简单，
- *    而是**主设计对象换了**：浅色是打磨对象，深色是可用的备选。
- *    这与本文件历史上的立场相反，那一段保留在下面供追溯。
+ * ⚠️ 暗色**不是浅色的取反**：三处重新校准过（见 [DarkPalette] 的注释）。
+ *   简单取反会让陶土强调色在深底上糊掉、卡片描边消失、光斑看不见。
  *
- * ═══════════════════════════════════════════════════════════════
- *  （历史立场，已被上面的决定取代）
- * ═══════════════════════════════════════════════════════════════
+ * ⚠️ `PaColor` 现在是**转发层**（读 [LocalPalette]），所以两套主题
+ *    对 326 处调用点**完全透明** —— 一行都不用改。
  *
- * 1. 深色曾是唯一打磨对象 —— 现在浅色是。
- * 2. 极光背景曾是深色设计的一部分（高饱和光斑叠在近黑底上）；
- *    浅底版必须改用**极低饱和的暖色晕染**，否则会变成脏色块
- *    （见 `PaColor.Aurora*` 的注释）。
- * 3. **不跟随系统明暗**这条立场**保留**：理由与放弃动态取色相同 ——
- *    既然要固定设计，就连明暗一起固定。跟随系统等于把设计权交出去。
+ * @param mode 用户的明暗偏好。默认 [ThemeMode.SYSTEM] = 跟随系统。
  */
 @Composable
 fun PocketAgentTheme(
-    darkTheme: Boolean = false,
+    mode: ThemeMode = ThemeMode.SYSTEM,
     content: @Composable () -> Unit,
 ) {
-    val colors = if (darkTheme) DarkColors else LightColors
+    // ★ 跟随系统时读系统的明暗标志。
+    //   ⚠️ `isSystemInDarkTheme()` 是 Composable，必须在组合期调用 ——
+    //      所以它只能在这里读，不能放进 `mode.toDark()` 那种纯函数里。
+    val systemDark = isSystemInDarkTheme()
+    val isDark = when (mode) {
+        ThemeMode.SYSTEM -> systemDark
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
+    }
 
-    MaterialTheme(
-        colorScheme = colors,
-        typography = AppTypography,
-        content = content,
-    )
+    val palette = if (isDark) DarkPalette else LightPalette
+    val colors = if (isDark) darkColors() else lightColors()
+
+    CompositionLocalProvider(LocalPalette provides palette) {
+        MaterialTheme(
+            colorScheme = colors,
+            typography = AppTypography,
+            content = content,
+        )
+    }
 }

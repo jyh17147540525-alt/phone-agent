@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.mutableStateOf
+import com.pocketagent.ui.theme.ThemeMode
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -180,7 +181,18 @@ private val TABS = listOf(
 )
 
 @Composable
-fun AppShell(container: AppContainer) {
+fun AppShell(
+    container: AppContainer,
+    /**
+     * 当前明暗偏好。
+     *
+     * ⚠️ 状态**不属于本函数** —— 它在 `MainActivity` 里，因为
+     *    `PocketAgentTheme`（真正需要重组的节点）在更上面。
+     *    这里只负责显示与回传。
+     */
+    themeMode: ThemeMode = ThemeMode.SYSTEM,
+    onThemeModeChange: (ThemeMode) -> Unit = {},
+) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
@@ -189,6 +201,7 @@ fun AppShell(container: AppContainer) {
     //    它本身无状态（每次 send 都重新取凭据、用完清零），但**重复构造会让
     //    remember 的 key 变化 → 重建 ViewModel → 丢掉整个任务列表**。
     val chatPort = remember(container) { ContainerChatPort(container) }
+
 
     // ── 首次启动引导 ────────────────────────────────────────────────
     // ★ 只在**第一次**打开 App 时弹一次。
@@ -392,6 +405,10 @@ fun AppShell(container: AppContainer) {
                         onOpenCapabilities = { navController.navigate(Routes.CAPABILITIES) },
                         onOpenPrivilegeMode = { navController.navigate(Routes.PRIVILEGE_MODE) },
                         onOpenPersona = { navController.navigate(Routes.PERSONA) },
+                        // ★ 明暗偏好：用 remember 承接，切换后立刻重组。
+                        //   容器是唯一事实来源，这里只是读 + 回写。
+                        themeMode = themeMode,
+                        onThemeModeChange = onThemeModeChange,
                     )
                 }
 

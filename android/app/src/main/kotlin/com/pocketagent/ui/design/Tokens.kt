@@ -1,6 +1,8 @@
 package com.pocketagent.ui.design
 
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import com.pocketagent.ui.theme.LocalPalette
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -40,129 +42,102 @@ import androidx.compose.ui.unit.sp
  *
  * **间距只用 4 的倍数。**
  */
+/**
+ * **当前主题的颜色** —— 一个读取 CompositionLocal 的**转发层**。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  ★★ 2026-10-25：支持明暗两套主题的关键改动
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * 它原来是 `object PaColor { val Canvas = Color(...) }` —— 一组编译期常量。
+ * 现在每个属性变成 `get() = LocalPalette.current.Xxx`，即**运行时读取当前主题**。
+ *
+ * 这样做的唯一目的是：**让 326 处调用点一行都不用改**。
+ * （分布在 21 个文件里 —— 逐个改成 `if (isDark) ... else ...` 是 326 次出错机会。）
+ *
+ * ⚠️ 代价：从"编译期常量"变成"运行时查表"。它发生在 Compose 的**组合期**，
+ *    不是绘制期 —— 实测开销可忽略。换来的是"主题只在一处决定"，值得。
+ *
+ * ⚠️ **必须从 @Composable 调用**（因为它读 CompositionLocal）。
+ *    当前 326 处全都在 Composable 上下文里（已核对过），所以不需要改。
+ *    若将来要在非 Composable 里取色，请直接读 `LightPalette` / `DarkPalette`
+ *    的字面值，**不要**在这里加一个"非 Composable 版本"的旁路 ——
+ *    那会让"当前主题是什么"出现第二个事实来源。
+ */
 object PaColor {
 
-    // ── 基底：暖米色，靠**亮度**建立层级（不是靠加灰）──────────
-    //
-    // ⚠️ 关键：三档之间是"纸张叠起来"的差别，不是"灰色深浅"。
-    //    如果 Surface 做成偏冷的纯白，暖底整体就会显得脏。
-    /** 最底层：暖米。比纯白柔和，长时间看不刺眼 */
-    val Canvas = Color(0xFFF5F2EC)
-    /** 抬升一档：接近纸白，用于分区背景 */
-    val CanvasElevated = Color(0xFFFAF8F4)
-    /** 卡片/列表项：纯白（在暖底上"浮起来"靠的是白，不是阴影） */
-    val Surface = Color(0xFFFFFFFF)
-    /** 卡片内的次级块 */
-    val SurfaceHigh = Color(0xFFF0ECE4)
+    // ── 基底 ───────────────────────────────────────────────────
+    val Canvas: Color
+        @Composable get() = LocalPalette.current.Canvas
+    val CanvasElevated: Color
+        @Composable get() = LocalPalette.current.CanvasElevated
+    val Surface: Color
+        @Composable get() = LocalPalette.current.Surface
+    val SurfaceHigh: Color
+        @Composable get() = LocalPalette.current.SurfaceHigh
 
-    // ── 卡片质感：浅底不用玻璃，用**发丝边** ────────────────────
-    //
-    // ⚠️ 深色那套"5% 白 + 12% 白描边"的玻璃在浅底上完全看不见。
-    //    浅底的高级感来自**极细的暖灰描边**，而不是半透明叠加。
-    /** 卡片主体不需要叠加色 —— 白就是白 */
-    val GlassTint = Color(0x00000000)
-    val GlassTintStrong = Color(0x0A000000)
-    /** 卡片描边：暖灰，透明度低到几乎看不见 —— 但它撑起了卡片的"实体感" */
-    val GlassBorder = Color(0x14000000)
-    /** 浅底下不需要高光/暗边（那是模拟玻璃厚度的手法） */
-    val GlassHighlight = Color(0x00000000)
-    val GlassShadow = Color(0x0A000000)
+    // ── 卡片质感 ───────────────────────────────────────────────
+    val GlassTint: Color
+        @Composable get() = LocalPalette.current.GlassTint
+    val GlassTintStrong: Color
+        @Composable get() = LocalPalette.current.GlassTintStrong
+    val GlassBorder: Color
+        @Composable get() = LocalPalette.current.GlassBorder
+    val GlassHighlight: Color
+        @Composable get() = LocalPalette.current.GlassHighlight
+    val GlassShadow: Color
+        @Composable get() = LocalPalette.current.GlassShadow
 
-    // ── 文字：四级，暖调深色 ───────────────────────────────────
-    //
-    // ⚠️ 不用纯黑：暖底 + 纯黑会产生刺眼的高对比，
-    //    而那种"纸感"恰恰来自**降低对比、加大行距**。
-    /** 近黑但偏暖，不是 #000000 */
-    val TextPrimary = Color(0xFF1F1D1A)
-    val TextSecondary = Color(0xFF6B655C)
-    val TextTertiary = Color(0xFF9A938A)
-    val TextDisabled = Color(0xFFC4BDB2)
+    // ── 文字 ───────────────────────────────────────────────────
+    val TextPrimary: Color
+        @Composable get() = LocalPalette.current.TextPrimary
+    val TextSecondary: Color
+        @Composable get() = LocalPalette.current.TextSecondary
+    val TextTertiary: Color
+        @Composable get() = LocalPalette.current.TextTertiary
+    val TextDisabled: Color
+        @Composable get() = LocalPalette.current.TextDisabled
 
-    // ── 强调色：陶土/珊瑚（招牌色）─────────────────────────────
-    //
-    // ⚠️ 这不是"随便挑一个暖色"，它必须在三个位置都成立：
-    //    ① 白底上的小字（对比度要够）
-    //    ② 选中态的低透明底（不能脏）
-    //    ③ 与语义色红/橙**分得开**（否则"强调"和"危险"混了）
-    val Accent = Color(0xFFC96442)
-    val AccentPressed = Color(0xFFAE5236)
-    /** 强调色的低透明底，用于选中态背景 */
-    val AccentSoft = Color(0x14C96442)
-    val AccentBorder = Color(0x3DC96442)
+    // ── 强调色 ─────────────────────────────────────────────────
+    val Accent: Color
+        @Composable get() = LocalPalette.current.Accent
+    val AccentPressed: Color
+        @Composable get() = LocalPalette.current.AccentPressed
+    val AccentSoft: Color
+        @Composable get() = LocalPalette.current.AccentSoft
+    val AccentBorder: Color
+        @Composable get() = LocalPalette.current.AccentBorder
 
     // ── 语义色 ─────────────────────────────────────────────────
-    // ⚠️ 这四个**不允许**被主题或动态取色覆盖。
-    //    用户是靠颜色形成条件反射的：看到红=危险。
-    //    浅底上要压暗一档，否则刺眼。
-    val Success = Color(0xFF3D8A5F)
-    val Warning = Color(0xFFB07425)
-    val Danger = Color(0xFFB5443A)
-    val Info = Color(0xFF4A6B8A)
+    // ⚠️ 这四个**不允许**被主题或动态取色覆盖掉语义 ——
+    //    但它们的**具体色值**会随明暗切换（深底上要提亮，否则警示色糊成暗红）。
+    //    用户的条件反射靠的是"红=危险"这个**关系**，不是某个具体色号。
+    val Success: Color
+        @Composable get() = LocalPalette.current.Success
+    val Warning: Color
+        @Composable get() = LocalPalette.current.Warning
+    val Danger: Color
+        @Composable get() = LocalPalette.current.Danger
+    val Info: Color
+        @Composable get() = LocalPalette.current.Info
 
-    // ── 风险等级：四档，**只此一套，不随主题漂移** ──────────────
-    //
-    // ⚠️ 为什么不直接复用语义色：语义色只有三档，而风险等级有四档
-    //    （低/中/高/极高），且必须四档一眼能分开 ——
-    //    用户靠这套颜色形成条件反射判断插件危不危险，
-    //    这是本应用最重要的一道人工防线（详见 Risk.kt）。
-    val RiskLow = Success
-    val RiskMedium = Warning
-    /** 高：橙与正红之间的过渡色，专门为「高」这一档存在 */
-    val RiskHigh = Color(0xFFC4703A)
-    val RiskCritical = Danger
+    // ── 风险等级 ───────────────────────────────────────────────
+    val RiskLow: Color
+        @Composable get() = LocalPalette.current.RiskLow
+    val RiskMedium: Color
+        @Composable get() = LocalPalette.current.RiskMedium
+    val RiskHigh: Color
+        @Composable get() = LocalPalette.current.RiskHigh
+    val RiskCritical: Color
+        @Composable get() = LocalPalette.current.RiskCritical
 
-    // ── 极光光斑：**浅底版** ────────────────────────────────────
-    //
-    // ⚠️ 深色那套高饱和光斑放到米色底上会变成脏色块。
-    //    浅底要用**极低饱和的暖色晕染**，像水彩在纸上化开；
-    //    强度还必须大幅降低 —— 浅底对色偏极其敏感。
-    val AuroraBlue = Color(0xFFE8DFD2)
-    val AuroraViolet = Color(0xFFEFE4DC)
-    val AuroraTeal = Color(0xFFE4E8DE)
-}
-
-/**
- * 深色配色 —— **本版不再作为主打**。
- *
- * ═══════════════════════════════════════════════════════════════
- *  ⚠️ 它存在，但请不要用它来评判本应用的设计
- * ═══════════════════════════════════════════════════════════════
- *
- * 用户选了 Claude 风格，而 Claude 的识别度**全部建立在暖色浅底上** ——
- * 衬线标题、陶土强调色、纸感留白，换到深色全部失效
- * （深色里衬线标题显得过于庄重，暖色强调会糊在黑底上）。
- *
- * ⇒ 这里保留一套**可用**的深色值（供夜间浏览不刺眼），
- *   但主题默认值是浅色。见 `PocketAgentTheme`。
- *
- * 如果将来要做深色为主的设计，那是**另一套设计**，不是这套的取反。
- */
-object PaColorDark {
-    val Canvas = Color(0xFF1A1816)
-    val CanvasElevated = Color(0xFF221F1C)
-    val Surface = Color(0xFF262320)
-    val SurfaceHigh = Color(0xFF302C28)
-
-    val GlassTint = Color(0x0DFFFFFF)
-    val GlassTintStrong = Color(0x1AFFFFFF)
-    val GlassBorder = Color(0x1FFFFFFF)
-    val GlassHighlight = Color(0x26FFFFFF)
-    val GlassShadow = Color(0x40000000)
-
-    val TextPrimary = Color(0xFFF2EDE6)
-    val TextSecondary = Color(0xFFA8A199)
-    val TextTertiary = Color(0xFF736C64)
-    val TextDisabled = Color(0xFF4A453F)
-
-    val Accent = Color(0xFFD9785A)
-    val AccentPressed = Color(0xFFC96442)
-    val AccentSoft = Color(0x1FD9785A)
-    val AccentBorder = Color(0x4DD9785A)
-
-    val Success = Color(0xFF5FA97D)
-    val Warning = Color(0xFFD09448)
-    val Danger = Color(0xFFD96A5F)
-    val Info = Color(0xFF7E9DB8)
+    // ── 背景光斑 ───────────────────────────────────────────────
+    val AuroraBlue: Color
+        @Composable get() = LocalPalette.current.AuroraBlue
+    val AuroraViolet: Color
+        @Composable get() = LocalPalette.current.AuroraViolet
+    val AuroraTeal: Color
+        @Composable get() = LocalPalette.current.AuroraTeal
 }
 
 object PaSpace {

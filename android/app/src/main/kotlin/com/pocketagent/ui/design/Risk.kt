@@ -37,6 +37,7 @@ import com.pocketagent.plugin.api.label
  * [level] 为 null 表示"未知"，用中性灰而不是绿色 ——
  * 把一个没解析出风险等级的东西画成"安全色"，是在替用户做他没授权的判断。
  */
+@Composable
 fun riskColor(level: PluginCapability.RiskLevel?): Color = when (level) {
     PluginCapability.RiskLevel.LOW -> PaColor.RiskLow
     PluginCapability.RiskLevel.MEDIUM -> PaColor.RiskMedium
