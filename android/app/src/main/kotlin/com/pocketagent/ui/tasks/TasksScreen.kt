@@ -40,6 +40,7 @@ import androidx.compose.runtime.mutableStateOf
 import com.pocketagent.agentlogic.PhoneTask
 import com.pocketagent.core.database.entity.SessionEntity
 import com.pocketagent.data.ConversationStore
+import com.pocketagent.memorylogic.Turn
 import com.pocketagent.memorylogic.TurnRole
 import com.pocketagent.provider.api.ChatMessage
 import timber.log.Timber
@@ -52,6 +53,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.pocketagent.ui.design.GlassSurface
 import com.pocketagent.ui.design.PaBadge
@@ -199,12 +201,33 @@ private fun TaskCard(
     modifier: Modifier = Modifier,
 ) {
     GlassSurface(modifier = modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        // ══════════════════════════════════════════════════════════
+        //  ★★ 2026-10-25 视觉层次重构（用户原话："全是字"）
+        // ══════════════════════════════════════════════════════════
+        //
+        // 改之前：用户的话和 AI 的回答**视觉权重完全一样** ——
+        // 同样的大字号、同样的颜色、都在左边。一屏下来分不清
+        // "哪句是我说的、哪句是它说的"，这才是"全是字"的真正原因
+        // （不是字多，是**没有层次**）。
+        //
+        // 现在：
+        //  - 用户的话 = **小标签**，右对齐、次要色。它是"背景信息"，
+        //    用户自己知道刚说过什么，不需要大字号重复给他看。
+        //  - AI 的回答 = **主体**，左对齐、主色、可读字号。
+        //  - 状态徽章贴着用户那一行（它描述的是"这一轮"的状态）。
+        //
+        // 这个布局参照了主流 AI 对话应用（ChatGPT / Claude）的通用做法：
+        // **用户的输入是引用，助手的输出是正文。**
+        Row(verticalAlignment = Alignment.Top) {
+            Spacer(Modifier.weight(1f))
             Text(
                 text = task.prompt,
-                style = PaType.headline,
-                color = PaColor.TextPrimary,
-                modifier = Modifier.weight(1f),
+                style = PaType.caption,
+                color = PaColor.TextSecondary,
+                textAlign = TextAlign.End,
+                modifier = Modifier
+                    .weight(4f, fill = false)
+                    .padding(bottom = PaSpace.xs),
             )
             Spacer(Modifier.width(PaSpace.xs))
             TaskStateBadge(task.state)
@@ -270,7 +293,14 @@ private fun TaskCard(
         // ⚠️ 用 body 而不是 Running 里的 caption：这是**结论**，
         //    不是过程中的进度注脚 —— 视觉权重应该对得起它的地位。
         AnimatedVisibility(
-            visible = task.state == TaskState.Done && task.note.isNotBlank(),
+            // ★ 2026-10-25：原来只认 `Done`，于是**失败时正文整段不显示** ——
+            //   而失败恰恰是用户最需要看正文的时候（里面写着为什么失败、
+            //   下一步怎么做）。用户看到一张只有红徽章的空卡片，比什么都不显示更糟。
+            //
+            //   ⚠️ `Aborted` 不算在内：中止时 `note` 往往是"正在等模型回复…"，
+            //      显示它等于把一句过期的进度当成结论。
+            visible = (task.state == TaskState.Done || task.state == TaskState.Failed) &&
+                task.note.isNotBlank(),
             enter = expandVertically(animationSpec = PaMotion.standard()) + fadeIn(),
             exit = shrinkVertically(animationSpec = PaMotion.standard()) + fadeOut(),
         ) {
@@ -282,7 +312,10 @@ private fun TaskCard(
                 label = "taskReply",
             ) { note ->
                 Text(
-                    text = note,
+                    // ★ 2026-10-25：模型输出带 Markdown 标记（`**35**`），
+                    //   原来原样显示成星号，看起来像"没渲染好的机器输出"。
+                    //   这里过一层极简渲染（只认加粗与行内代码，见 SimpleMarkdown）。
+                    text = SimpleMarkdown.render(note),
                     style = PaType.body,
                     color = PaColor.TextPrimary,
                     modifier = Modifier.padding(top = PaSpace.s),
@@ -298,7 +331,11 @@ private fun TaskCard(
         //    注释与实现的差额，正好落在用户身上。
         //    **凡是要显示"为什么"的地方，条件必须覆盖所有终止态。**
         AnimatedVisibility(
-            visible = task.state == TaskState.Aborted || task.state == TaskState.Failed,
+            // ★ 只在**没有正文**时才用 abortReason 兜底 ——
+            //   否则同一句原因会在正文下面再重复一遍（2026-10-25 真机见过）。
+            visible = (task.state == TaskState.Aborted || task.state == TaskState.Failed) &&
+                !task.abortReason.isNullOrBlank() &&
+                task.abortReason != task.note,
             enter = expandVertically(animationSpec = PaMotion.standard()) + fadeIn(),
             exit = shrinkVertically(animationSpec = PaMotion.standard()) + fadeOut(),
         ) {
@@ -494,6 +531,36 @@ private fun SessionEntity.toSummary(isCurrent: Boolean) = SessionSummary(
     isCurrent = isCurrent,
 )
 
+/**
+ * 从库里恢复一条回复时，判断它当时**成功还是失败**。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  ★ 为什么不能一律标"已完成"
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * 2026-10-25 真机：一条内容是 `模型调用失败：network unreachable`
+ * 的历史卡片，挂着**绿色的「已完成」徽章**。
+ *
+ * 那个绿勾在说"事情办成了"，而正文在说"根本没连上模型" ——
+ * 用户会得出"它失败了但系统认为成功了"这种结论，
+ * 从而**不再信任所有状态标记**（包括那些对的）。
+ *
+ * ⇒ 恢复时按内容判断。判据刻意简单（认 `ChatPort.explain`
+ *   与 `explainRun` 产出的那几种前缀），因为回复落库的是
+ *   **已经翻好的用户文案**，不是原始异常。
+ */
+private fun Turn.toRecoveredState(): TaskState {
+    val t = text.trim()
+    val failed = t.startsWith("联系模型") ||
+        t.startsWith("网络连不上") ||
+        t.startsWith("这个模型的额度") ||
+        t.startsWith("这个模型的 API Key") ||
+        t.startsWith("模型名不对") ||
+        t.startsWith("模型返回了空内容") ||
+        t.startsWith("联系模型的时候出错了")
+    return if (failed) TaskState.Failed else TaskState.Done
+}
+
 data class AgentTaskUi(
     val id: String,
     val prompt: String,
@@ -644,9 +711,22 @@ class TasksViewModel(
      *    （真正需要报错的是**写入**路径 —— 那里失败意味着这次对话不会被保存。）
      */
     fun refreshSessions(keyword: String? = null) {
-        val provider = conversations ?: return
+        val provider = conversations ?: run {
+            Timber.w("历史会话：拿不到 conversations provider，跳过刷新")
+            return
+        }
         Thread {
+            // ★ 2026-10-25 真机事故后改：原来这两个 `runCatching{}.getOrNull()`
+            //   把**所有**失败都咽掉了，于是"历史记录全没了"在日志里
+            //   **一个字都没有** —— 排查时无法区分三个完全不同的原因：
+            //     ① Keystore / SQLCipher 打不开库
+            //     ② 库里真的没数据
+            //     ③ 读出来了但界面没渲染
+            //   ⇒ 现在失败一律进日志（仍然不弹给用户，用户还没做任何操作，
+            //    弹窗只会让他以为数据丢了）。这符合项目那条纪律：
+            //    **安静地少做一件事**是最难查的 bug 形态，日志必须留痕。
             val store = runCatching { kotlinx.coroutines.runBlocking { provider() } }
+                .onFailure { Timber.e(it, "历史会话：打不开会话仓储（库/Keystore 失败）") }
                 .getOrNull() ?: return@Thread
 
             val rows = runCatching {
@@ -657,9 +737,21 @@ class TasksViewModel(
                         store.searchSessions(keyword, AgentTaskUi.SESSION_LIST_LIMIT)
                     }
                     val cur = sessionId ?: store.currentSession().also { sessionId = it.id }.id
-                    list.map { it.toSummary(isCurrent = it.id == cur) }
+                    Timber.i("历史会话：读到 %d 个会话，当前=%s", list.size, cur)
+                    // ★ 过滤掉**一条消息都没有**的会话（除非它就是当前那个）。
+                    //
+                    //   2026-10-25：侧边栏曾经堆着"今天 · 0 条"这类空壳 ——
+                    //   它们每次冷启动都新建一个，越积越多，把真正的历史挤下去。
+                    //   用户看到一列"0 条"会以为数据坏了。
+                    //
+                    //   ⚠️ 保留当前会话：用户正要在这个会话里说话，
+                    //      列表里没有它会让"当前"这个高亮无对象可标。
+                    list
+                        .filter { it.turnCount > 0 || it.id == cur }
+                        .map { it.toSummary(isCurrent = it.id == cur) }
                 }
-            }.getOrNull() ?: return@Thread
+            }.onFailure { Timber.e(it, "历史会话：查询会话列表失败") }
+                .getOrNull() ?: return@Thread
 
             sessions.clear()
             sessions.addAll(rows)
@@ -749,10 +841,16 @@ class TasksViewModel(
 
     /** 把某个会话的当前路径读成界面卡片。 */
     private fun loadPairs(store: ConversationStore, sid: String?) {
-        if (sid == null) return
+        if (sid == null) {
+            Timber.w("历史消息：sessionId 为空，跳过恢复")
+            return
+        }
         val pairs = runCatching {
             kotlinx.coroutines.runBlocking { store.restorePairs(sid) }
-        }.getOrNull() ?: return
+        }
+            .onFailure { Timber.e(it, "历史消息：restorePairs 失败 session=%s", sid) }
+            .getOrNull() ?: return
+        Timber.i("历史消息：会话 %s 恢复 %d 轮（插入前 tasks=%d）", sid, pairs.size, tasks.size)
 
         // ⚠️ 直接改 `tasks`，不 post 到主线程 —— 与既有的 `update()` 一致
         //    （它也是在后台线程里改这个列表）。改成 post 会让两种写法并存，
@@ -762,14 +860,42 @@ class TasksViewModel(
             // ⚠️ `pair.prompt` 是**跨模块**属性，Kotlin 不对它做智能转换 ——
             //    必须取到局部变量再用（否则 `pair.prompt.id` 编译不过：
             //    "Smart cast to 'Turn' is impossible"）。
-            val promptTurn = pair.prompt ?: return@forEach
+            val promptTurn = pair.prompt ?: run {
+                // ★★ 2026-10-25：这里原本直接 `return@forEach` 跳过 ——
+                //    而真机上出现过"只有 assistant 回复、没有用户提问"的孤儿数据
+                //    （成因见 `runChat` 里那段长注释：两次会话解析给出了不同的 id）。
+                //    跳过它的后果是**历史整片不显示**，用户以为数据丢了。
+                //
+                //   ⇒ 孤儿回复也要显示出来。它确实发生过，用户有权看到
+                //     "我当时问过什么、它答了什么"。没有提问就如实标出来，
+                //     比假装这条不存在更接近事实。
+                val reply = pair.reply ?: return@forEach
+                Timber.w("历史消息：孤儿回复 %s（无对应提问），仍展示", reply.id)
+                tasks.add(
+                    0,
+                    AgentTaskUi(
+                        id = reply.id,
+                        prompt = "（这一轮的提问没有保存下来）",
+                        // ⚠️ 不能一律标 Done（绿勾）：回复里带着错误说明时
+                        //    标成"已完成"就是在骗人 —— 用户会以为事情办成了。
+                        state = reply.toRecoveredState(),
+                        step = 1,
+                        note = reply.text,
+                        perceptionTier = 0,
+                    ),
+                )
+                return@forEach
+            }
             val replyTurn = pair.reply
             tasks.add(
                 0,
                 AgentTaskUi(
                     id = promptTurn.id,
                     prompt = promptTurn.text,
-                    state = if (replyTurn != null) TaskState.Done else TaskState.Running,
+                    state = when {
+                        replyTurn == null -> TaskState.Running
+                        else -> replyTurn.toRecoveredState()
+                    },
                     step = if (replyTurn != null) 1 else 0,
                     note = replyTurn?.text ?: "正在等模型回复…",
                     perceptionTier = 0,
@@ -841,8 +967,25 @@ class TasksViewModel(
                     val store = conversations?.let { runCatching { it() }.getOrNull() }
                     val sid = store?.let { s ->
                         runCatching {
-                            val session = sessionId?.let { id -> s.currentPath(id).let { id } }
-                                ?: s.currentSession().id
+                            // ★ 写消息时用 `ensureSessionForNewMessage` 而**不是**
+                            //   `currentSession`：前者才应用"空闲超过 30 分钟就切会话"，
+                            //   后者现在的语义是"打开时展示最近的那个"。
+                            //   ⚠️ 两者用反的后果：要么两天的事并成一段（L2 归纳变糊），
+                            //   要么用户的历史被续到新会话里（看起来像丢了）。
+                            //
+                            // ★★ 2026-10-25 修的第二个 bug：这里原本写的是
+                            //     `sessionId?.let { id -> s.currentPath(id).let { id } }`
+                            //     —— `currentPath` 返回空列表时**依然非 null**，
+                            //     于是"当前会话"被原样返回，哪怕它一条消息都没有。
+                            //     后果：用户的话被写进空会话，而回复走的是
+                            //     `ChatPort` 里另一次 `currentSession()` 解析 ——
+                            //     两次解析给出**不同**的会话 id，于是库里出现
+                            //     "有关系没有提问"的孤儿回复（`TurnPairing` 配不成对），
+                            //     历史在界面上就渲染不出来。
+                            //     ⇒ 必须**先确认这个 id 真的存在且可写**，否则重新解析。
+                            val session = sessionId
+                                ?.takeIf { id -> runCatching { s.currentPath(id).isNotEmpty() }.getOrDefault(false) }
+                                ?: s.ensureSessionForNewMessage().id
                             sessionId = session
                             s.append(session, TurnRole.USER, prompt)
                             session
@@ -921,9 +1064,11 @@ class TasksViewModel(
                         it.copy(
                             state = TaskState.Failed,
                             note = NO_KEY_HINT,
-                            // ★ abortReason 要写**完整原因**，不是"未配置 Key"这种简写 ——
-                            //   它是用户唯一能看到的那行字（note 在 Running 块里，失败时不显示）
-                            abortReason = NO_KEY_HINT,
+                            // ★ 2026-10-25：`note` 与 `abortReason` **不再写同一句话**。
+                            //    现在失败时正文（note）也会显示，两处同文会上下重复一遍，
+                            //    看起来像渲染 bug。note 承载正文，abortReason 只在
+                            //    "没有正文"时兜底。
+                            abortReason = null,
                         )
                     }
                 }
@@ -933,8 +1078,10 @@ class TasksViewModel(
                     update(taskId) {
                         it.copy(
                             state = TaskState.Failed,
+                            // ★ 只写 `note`：它是正文（失败时会显示，见 TaskCard 那段注释）。
+                            //   `abortReason` 留空，否则同一句话会显示两遍。
                             note = result.reason,
-                            abortReason = result.reason,
+                            abortReason = null,
                         )
                     }
                 }

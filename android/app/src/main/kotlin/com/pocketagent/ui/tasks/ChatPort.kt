@@ -155,14 +155,24 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
         //
         // ⚠️ 组装失败时**如实报错**，不退化成"没有人格也能聊"：
         //    后者正是本项目最怕的那种失败 —— 用户以为人格生效了，其实没有。
-        val system = try {
-            container.assistantSystemPrompt()
-        } catch (e: Exception) {
-            return ChatResult.Failed(
-                "人格提示词组装失败（${e::class.simpleName ?: "未知"}）：" +
-                    "${e.message ?: "无详细信息"}。为避免在「没有人格」的状态下继续对话，本次已中止。",
-            )
-        }
+            val userText = history.lastOrNull()?.plainText() ?: ""
+            val decision = IntentClassifier.classify(userText)
+
+            Timber.i("意图判定：%s（%s）—— 输入 %d 字", decision.intent, decision.reason, userText.length)
+
+            // ★ 能力声明必须与**这一轮实际挂载的工具**一致（见 `AssistantPromptBuilder.build`）。
+            //   ⚠️ 所以这一句只能在意图判定**之后**组装。原来它在前面，
+            //      于是纯对话那一轮的系统提示词里写着"你可以直接操作手机" ——
+            //      模型照着说，用户真去让它操作时发现做不到。
+            val system = try {
+                container.assistantSystemPrompt(canAct = decision.intent == TurnIntent.Act)
+            } catch (e: Exception) {
+                return ChatResult.Failed(
+                    "人格提示词组装失败（${e::class.simpleName ?: "未知"}）：" +
+                        "${e.message ?: "无详细信息"}。为避免在「没有人格」的状态下继续对话，本次已中止。",
+                )
+            }
+
         // ⚠️ 这里**不再自己拼 `ChatMessage` 列表**：系统提示词与历史都由
         //    `PhoneTask` 带进循环（`priorMessages`），循环负责把三者
         //    （系统 / 历史 / 本轮）按正确顺序组装。
@@ -210,11 +220,12 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
             // ⚠️ 纯对话**不经过 agent 循环**：不挂工具就该直接问模型要文字，
             //   走循环只会让 `PhoneAgentLoop` 拿到一个空工具列表然后
             //   多跑一圈 —— 那圈唯一的产出是"确认没有工具可调"。
-            val userText = history.lastOrNull()?.plainText() ?: ""
-            val decision = IntentClassifier.classify(userText)
-
-            Timber.i("意图判定：%s（%s）—— 输入 %d 字", decision.intent, decision.reason, userText.length)
-
+            // ⚠️ 纯对话**不经过 agent 循环**：不挂工具就该直接问模型要文字，
+            //   走循环只会让 `PhoneAgentLoop` 拿到一个空工具列表然后
+            //   多跑一圈 —— 那圈唯一的产出是"确认没有工具可调"。
+            //
+            // ⚠️ 意图判定与系统提示词组装都已**上移**到 `useKey` 之前
+            //   （见那里的注释：能力声明必须与这一轮挂不挂工具一致）。
             store.useKey(config.credentialId) { provider, credential ->
                 // ── 纯对话：一次性请求，零工具 ────────────────────
                 if (decision.intent == TurnIntent.Chat) {
@@ -464,15 +475,54 @@ private fun ChatMessage.toAgentMessage(): AgentMessage = when (role) {
      */
     private fun explain(e: Exception): String {
         val raw = e.message ?: e::class.simpleName ?: "未知错误"
+        val lower = raw.lowercase()
+
+        // ★ 2026-10-25 真机（用户原话："全是字、看不懂"）：
+        //   卡片上直接显示 `模型调用失败：network unreachable` ——
+        //   英文、术语、没有任何下一步。用户不知道该干什么。
+        //
+        //   这里把**最常见的那几类**翻成人话 + 一个具体动作。
+        //   判据刻意宽松（只认关键词），因为翻译错的代价只是多一句提示，
+        //   而不翻译的代价是用户对着一个英文单词发愣。
+        val networkish = "network" in lower || "unreachable" in lower ||
+            "timeout" in lower || "timed out" in lower ||
+            "failed to connect" in lower || "connection" in lower ||
+            "no address" in lower || "socket" in lower
+        if (networkish) {
+            return "网络连不上模型服务。\n\n" +
+                "常见原因（按可能性排序）：\n" +
+                "• 手机当前没网，或网络突然切换（Wi-Fi ↔ 数据）\n" +
+                "• 这个模型的服务商在你当前的网络下连不通\n" +
+                "• 请求超时了（模型一直没返回）\n\n" +
+                "换个网络或稍等一会儿再试一次。刚才那句话已经保存，不用重打。"
+        }
+
+        val quotaish = "quota" in lower || "insufficient" in lower ||
+            "balance" in lower || "402" in raw
+        if (quotaish) {
+            return "这个模型的额度用完了或余额不足。\n\n" +
+                "请到服务商那边充值，或在「设置 → 模型配置」换一个模型。"
+        }
+
+        val authish = "401" in raw || "unauthorized" in lower ||
+            "invalid api key" in lower || "invalid_api_key" in lower
+        if (authish) {
+            return "这个模型的 API Key 无效或已过期。\n\n" +
+                "请到「设置 → API Key」重新填一次。注意别把厂商的「模型 id」当成 Key —— " +
+                "两者完全不同。"
+        }
+
         val modelMissing = "模型不存在" in raw ||
-            ("model" in raw.lowercase() && "not found" in raw.lowercase())
-        return if (modelMissing) {
-            "$raw\n\n" +
+            ("model" in lower && "not found" in lower)
+        if (modelMissing) {
+            return "$raw\n\n" +
                 "提示：这句话几乎总是「模型 id 抄错了」。厂商的模型代码**带连字符**，" +
                 "例如智谱是 glm-5.3-flash 而不是 glm5.3flash。" +
                 "请到「设置 → 模型配置」核对 id 是否与厂商文档逐字符一致 —— " +
                 "它与你的 Key 和余额无关。"
-        } else {
-            raw
         }
+
+        // 认不出来的错误：原样透传，但**加一行**说明这是哪个层面的问题，
+        // 免得用户以为是自己操作错了。
+        return "$raw\n\n（这是模型服务返回的原始错误，不是你的操作问题）"
     }

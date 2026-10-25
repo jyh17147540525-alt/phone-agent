@@ -50,14 +50,81 @@ class ConversationStore(
      *
      * ⚠️ 阈值判定用 [SessionBoundary]（纯函数，有测试）。
      *    特别是"时钟回拨"那一条：它决定用户的历史会不会**看起来消失**。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★★ 2026-10-25 真机事故：这个方法会让用户以为"历史全丢了"
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 现场：库里明明有 4 个会话（其中昨天那个有 9 条消息），
+     * 但用户打开应用看到的是**空白**，侧边栏里默认选中一个
+     * "今天 · 0 条"的空会话。他的原话是"历史记录全不见了"。
+     *
+     * 根因就是这里：冷启动时 `latest.lastMessageAt` 是昨天，
+     * 超过 30 分钟阈值 ⇒ 判定"该开新会话" ⇒ 建一个空的。
+     * 而界面默认展示"当前会话"，于是展示的就是那个空的。
+     *
+     * ⚠️ 会话切分本身是对的（避免两天的事并成一段）；
+     *    **错的是"冷启动时默认打开哪个"这个决定**。
+     *    用户重新打开应用，期望看到的是"我上次聊到哪了"，
+     *    而不是一个崭新的空白页。
+     *
+     * ⇒ 修法：冷启动**不新建**，而是返回最近一个有消息的会话。
+     *   新建推迟到"用户真的开始说话"那一刻（见 [ensureSessionForNewMessage]）。
      */
     suspend fun currentSession(): SessionEntity {
         val now = clock()
-        val latest = sessions.listActive(limit = 1).firstOrNull()
-        if (latest != null && !SessionBoundary.shouldStartNewSession(latest.lastMessageAt, now, idleTimeoutMs)) {
-            return latest
+
+        // ★★ 关键："最近"不等于"最近**有消息**的那一个"。
+        //
+        //   2026-10-25 第一次修的时候只做到"不新建"，结果仍然显示空白 ——
+        //   因为列表里最新的是那个"今天 · 0 条"的空壳（之前每次冷启动
+        //   都建了一个），它 `lastMessageAt` 最新，于是被选中。
+        //
+        //   ⇒ 必须**跳过空会话**去找最近一个有消息的。
+        //     这需要多看几条（空壳可能连着好几个）。
+        val candidates = sessions.listActive(limit = CURRENT_SESSION_SCAN)
+
+        // 逐个找第一个"真的有消息"的会话
+        val withMessages = candidates.firstOrNull { s ->
+            runCatching { turns.listBySession(s.id).isNotEmpty() }.getOrDefault(false)
         }
+        if (withMessages != null) return withMessages
+
+        // 全都没有消息：如果存在空会话，复用它（不要再建新的，否则越积越多）
+        candidates.firstOrNull()?.let { return it }
+
+        // 库是空的：新建
         return createSession(now)
+    }
+
+    /**
+     * 用户**即将发言**时，决定这句话该落进哪个会话。
+     *
+     * ★ 与 [currentSession] 的分工（这两个方法解决的是不同问题）：
+     *  - [currentSession]：**打开应用时展示什么** —— 永远展示最近的，
+     *    哪怕它很旧。用户要能看到"我上次聊到哪"。
+     *  - 本方法：**这句话该进哪个会话** —— 这里才该应用空闲阈值，
+     *    否则两天里不相干的事会被并进同一段，L2 归纳会变成一锅粥。
+     *
+     * ⚠️ 一个容易踩的坑：如果在这里无脑复用 [currentSession]，
+     *    那么"昨天那段对话"会被今天的消息续上，会话就永远切不开。
+     */
+    suspend fun ensureSessionForNewMessage(): SessionEntity {
+        val now = clock()
+        val latest = sessions.listActive(limit = 1).firstOrNull()
+
+        if (latest == null) return createSession(now)
+
+        // 空会话（0 条消息）直接复用 —— 它本来就是"还没开始说话"的那个，
+        // 再建一个只会让侧边栏出现一堆"0 条"。
+        val hasMessages = turns.listBySession(latest.id).isNotEmpty()
+        if (!hasMessages) return latest
+
+        return if (SessionBoundary.shouldStartNewSession(latest.lastMessageAt, now, idleTimeoutMs)) {
+            createSession(now)
+        } else {
+            latest
+        }
     }
 
     /** 侧边栏列表：未归档，置顶优先 + 最近发言优先。 */
@@ -180,6 +247,9 @@ class ConversationStore(
     }
 
     companion object {
+        /** 找「最近有消息的会话」时最多看几条（空壳可能连着好几个）。 */
+        private const val CURRENT_SESSION_SCAN = 10
+
         /** 标题来源。⚠️ 字面量，与 `SessionEntity.titleSource` 的取值域一致 */
         const val TITLE_SOURCE_AUTO = "AUTO"
 

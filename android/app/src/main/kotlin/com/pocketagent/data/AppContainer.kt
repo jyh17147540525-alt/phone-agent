@@ -842,7 +842,15 @@ class AppContainer(context: Context) {
      * ⚠️ 记忆层还没接，所以提示词里**没有任何记忆** —— 助理目前不会记住任何事。
      *    这是如实的，不是省略。
      */
-    fun assistantSystemPrompt(): String = assistantPrompt.build()
+    /**
+     * 组装系统提示词。
+     *
+     * @param canAct 这一轮挂不挂工具。**必须与实际情况一致** ——
+     *   纯对话那一轮若还在说"你可以直接操作手机"，模型会许下一个
+     *   这一轮做不到的承诺（2026-10-25 真机：用户说 hello，
+     *   助理回"手机上的操作可以直接说"，而那一轮根本没挂工具）。
+     */
+    fun assistantSystemPrompt(canAct: Boolean = true): String = assistantPrompt.build(canAct)
 
     /** 当前状态。只读 —— 不要读了之后自己维护一份副本（同 dshIntegrationStatus）。 */
     fun mcpBridgeStatus(): McpBridgeStatus = mcpBridgeStatus

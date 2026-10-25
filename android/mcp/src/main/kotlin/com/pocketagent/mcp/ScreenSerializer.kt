@@ -51,12 +51,52 @@ object ScreenSerializer {
     // ─────────────────────────────────────────────────────────────
 
     fun toText(dto: ScreenCaptureDto, maskRegions: List<RedactRegion>): String {
-        val listed = dto.nodes.take(MAX_NODES)
+        // ═══════════════════════════════════════════════════════════
+        //  ★★ 2026-10-25：先过滤掉"没有信息量"的节点
+        // ═══════════════════════════════════════════════════════════
+        //
+        // 真机实测：桌面 109 个节点 → **5941 字**进模型上下文。
+        // 而这些字几乎都是**纯容器**：一堆没有文字、不可点、没有 id 的
+        // FrameLayout / ViewGroup。它们对"该点哪里"毫无帮助，
+        // 却让每次请求的上下文暴涨。
+        //
+        // 代价是真实可测的：上下文越长，模型响应越慢 ——
+        // 用户的原话是"每执行完一步都要等好久"。而工具本身
+        // 只占整步耗时的 5%（实测 screen_read 143ms / 模型往返 6.5s）。
+        // ⇒ 想让它快，唯一有效的杠杆是**少发点字**。
+        //
+        // ⚠️ 过滤的判据必须"保守"：只要节点**有可能**是模型要点的目标就留下。
+        //    判据 = 有文字 / 有描述 / 可点击 / 可输入 / 可滚动 / 有 viewId。
+        //    宁可多留，不可错杀 —— 错杀一个可点节点 = 模型找不到按钮。
+        val meaningful = dto.nodes.filter { node ->
+            node.text?.isNotBlank() == true ||
+                node.contentDescription?.isNotBlank() == true ||
+                // ⚠️ hintText 也要留：空输入框的唯一线索就是 placeholder，
+                //    丢了它模型会找不到"该往哪打字"。
+                node.hintText?.isNotBlank() == true ||
+                node.clickable ||
+                node.longClickable ||
+                node.editable ||
+                node.scrollable ||
+                node.checkable ||
+                !node.viewIdResourceName.isNullOrBlank()
+        }
+
+        // ⚠️ 若过滤后一个都不剩（极端界面），退回原始列表 ——
+        //    返回"节点 0"会让模型以为界面是空的，那比慢更糟。
+        val pool = meaningful.ifEmpty { dto.nodes }
+        val listed = pool.take(MAX_NODES)
+
         return buildString {
             append("【屏幕快照】")
             append(dto.packageName.ifBlank { "(未知应用)" })
             append(' ').append(dto.width).append('×').append(dto.height)
-            append(" · 节点 ").append(dto.nodes.size)
+            append(" · 节点 ").append(pool.size)
+            // ★ 这行让模型知道"我看到的比界面上有的少" ——
+            //   不标注的话它会以为界面就这么简洁。
+            if (pool.size < dto.nodes.size) {
+                append("（已略去 ").append(dto.nodes.size - pool.size).append(" 个无文字容器）")
+            }
             append(" · 来源=").append(sourceLabel(dto.source))
             // ⚠️ 置信度必须出现在头部：树不含视觉信息（图标、图片按钮、自绘文字），
             //    模型据此决定"要不要请用户补充信息"，而不是默认看到的就是全部。
@@ -67,8 +107,8 @@ object ScreenSerializer {
                 append(nodeLine(index + 1, node, maskRegions)).append('\n')
             }
 
-            if (dto.nodes.size > listed.size) {
-                append("（已截断：共 ").append(dto.nodes.size)
+            if (pool.size > listed.size) {
+                append("（已截断：共 ").append(pool.size)
                     .append(" 个节点，仅列出前 ").append(listed.size).append(" 个）")
             }
         }.trimEnd('\n')

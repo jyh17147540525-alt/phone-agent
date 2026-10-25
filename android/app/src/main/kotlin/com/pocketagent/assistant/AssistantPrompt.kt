@@ -60,9 +60,23 @@ class AssistantPromptBuilder(
     /**
      * 组装系统提示词。
      *
-     * @return 装配器的输出 + 一段**能力边界**声明（见 [CAPABILITY_BOUNDARY]）。
+     * @param canAct 这一轮**能不能动手**。
+     *
+     *   ★ 2026-10-25 真机发现：用户说「hello」，助理回
+     *     「你好。有什么需要我帮忙的吗？**手机上的操作可以直接说**」——
+     *     可这一轮走的是**纯对话**路径，根本没有挂任何工具。
+     *
+     *     原因就是提示词里无条件写着"你可以直接操作这台手机"。
+     *     模型照着说的结果，是**承诺了一件这一轮做不到的事** ——
+     *     用户下一句真去让它操作，会发现和刚才说的不一样。
+     *
+     *   ⇒ 能力声明必须与**这一轮实际挂载的工具**一致。
+     *     这也是 `IntentClassifier` 那条"默认纯对话"决定的下游影响：
+     *     既然大部分轮次不挂工具，提示词就不能永远按"能动手"写。
+     *
+     * @return 装配器的输出 + 与 [canAct] 匹配的能力声明
      */
-    fun build(): String {
+    fun build(canAct: Boolean = true): String {
         val spec = persona.runtime.currentSpec()
         val assembled = assembler.assemble(
             AssemblyInput(
@@ -74,7 +88,8 @@ class AssistantPromptBuilder(
                 memories = emptyList(),
             ),
         )
-        return assembled.text + "\n\n" + CAPABILITY_BOUNDARY
+        val capability = if (canAct) CAPABILITY_BOUNDARY else CHAT_ONLY_BOUNDARY
+        return assembled.text + "\n\n" + capability
     }
 
     /**
@@ -156,6 +171,32 @@ class AssistantPromptBuilder(
                 appendLine("- 微信/QQ 等聊天记录、支付页、密码框属于敏感区域，操作会被安全策略拦下（这是设计如此）；")
                 appendLine("- 需要你手动完成的步骤（支付确认、验证码、密码），请如实说明并交给用户；")
                 appendLine("- 每轮最多执行有限步，没做完就告诉用户「可以让我接着来」。")
+            }
+
+        /**
+         * **纯对话**这一轮的能力声明。
+         *
+         * ★ 这一轮**没有挂任何工具**（`IntentClassifier` 判成了 Chat）。
+         *   所以绝不能再说"你可以直接操作这台手机" —— 那是**做不到的承诺**。
+         *
+         * ⚠️ 但也**不能**说"我什么都做不了"：用户下一句真让它办事时，
+         *    系统会自动升级成带工具的执行路径。所以这里的措辞是
+         *    "这一句我按聊天来答；要动手你说一声"。
+         *
+         * ★ 刻意**不列工具名**：这一轮模型看不到工具清单，
+         *   列出来只会让它试图调用一个不存在的函数。
+         */
+        val CHAT_ONLY_BOUNDARY: String =
+            buildString {
+                appendLine("## 这一轮是对话")
+                appendLine("用户这句话不是在让你操作手机，所以**这一轮你只负责回答**，")
+                appendLine("没有可用的工具，也不必描述你能操作什么。")
+                appendLine()
+                appendLine("### 注意")
+                appendLine("- **不要**主动罗列「我能帮你操作手机」之类的能力清单 —— 这一轮做不到，说了就是空承诺。")
+                appendLine("- 如果用户其实是想让你办事（比如他说了一句指令但你没动手），")
+                appendLine("  就简短说一句「要我去做的话，直接说『帮我…』」，**不要自己假装做了**。")
+                appendLine("- 回答要短。用户问什么就答什么，不要追加一堆可选功能。")
             }
     }
 }
