@@ -56,6 +56,7 @@ import com.pocketagent.mcp.OfficeToolsTool
 import com.pocketagent.mcp.PersonaBriefTool
 import com.pocketagent.mcp.ScreenReadTool
 import com.pocketagent.mcp.McpTool
+import com.pocketagent.personalogic.CustomPersona
 import com.pocketagent.rootlogic.PrivilegeMode
 import com.pocketagent.rootlogic.RootProbeResult
 import com.pocketagent.assistant.effectiveMode
@@ -825,6 +826,53 @@ class AppContainer(context: Context) {
     private val assistantPersona by lazy { defaultAssistantPersona() }
 
     /**
+     * 用户自定义角色的存储。
+     *
+     * ★ 2026-10-25：在此之前「自定义角色」**是不成立的** ——
+     *   `PersonaScreen` 的 `onSave` 默认 `{}`，AppShell 调用时没传实现，
+     *   于是用户填完点保存**什么都不会发生**。
+     *   UI 和生效路径之间根本没有线。
+     *
+     *   这个 store 就是那条线。见 [CustomPersonaStore] 的类注释。
+     */
+    private val customPersonaStore: CustomPersonaStore by lazy { CustomPersonaStore(appContext) }
+
+    /** 当前生效的自定义角色。null = 用内置默认人格。 */
+    @Volatile
+    private var activeCustomPersona: CustomPersona? = null
+
+    /** 读一次磁盘上的自定义角色（应用启动时调一次即可）。 */
+    suspend fun loadCustomPersona() {
+        activeCustomPersona = runCatching { customPersonaStore.load() }.getOrNull()
+        Timber.i("自定义角色：%s", activeCustomPersona?.name ?: "未设置（用内置人格）")
+    }
+
+    /**
+     * 保存自定义角色 —— **保存后立刻生效**。
+     *
+     * ⚠️ 这里刻意同步更新 [activeCustomPersona]：只写盘不更新内存的话，
+     *    用户保存后要重启应用才生效 —— 而界面上没有任何提示说明这一点，
+     *    他会以为保存失败，再点几次。
+     */
+    suspend fun saveCustomPersona(persona: CustomPersona) {
+        customPersonaStore.save(persona)
+        activeCustomPersona = persona
+        Timber.i("自定义角色已保存并生效：%s", persona.name)
+    }
+
+    /** 清除自定义角色，回到内置人格。 */
+    suspend fun clearCustomPersona() {
+        customPersonaStore.clear()
+        activeCustomPersona = null
+    }
+
+    /** 当前是否有自定义角色在生效。 */
+    fun hasCustomPersona(): Boolean = activeCustomPersona != null
+
+    /** 当前自定义角色（供界面显示）。 */
+    fun currentCustomPersona(): CustomPersona? = activeCustomPersona
+
+    /**
      * 助理的系统提示词构造器（`PersonaAssembler` 的消费方）。
      *
      * ★ 它让「助理有人格」第一次**真的生效**：在此之前聊天页用的是一个
@@ -850,7 +898,41 @@ class AppContainer(context: Context) {
      *   这一轮做不到的承诺（2026-10-25 真机：用户说 hello，
      *   助理回"手机上的操作可以直接说"，而那一轮根本没挂工具）。
      */
-    fun assistantSystemPrompt(canAct: Boolean = true): String = assistantPrompt.build(canAct)
+    fun assistantSystemPrompt(canAct: Boolean = true): String {
+        // ★★ 2026-10-25：自定义角色在这里**真的生效**。
+        //
+        //   在此之前只有内置人格（`defaultAssistantPersona`），
+        //   用户设的角色永远进不了提示词 —— 因为 UI 与生效路径之间没有线。
+        //
+        //   ⚠️ 结构很重要：自定义角色**替换"我是谁"这一段**，
+        //      而**能力声明必须保留**（那是这一轮挂不挂工具决定的）。
+        //      把两者揉在一起会出现"某个角色不能操作手机"这种荒谬结果。
+        //
+        //   ⚠️ 也刻意**不复用** `build()` 的完整输出再裁剪 ——
+        //      裁剪依赖分隔符位置，而那个位置会随提示词改动漂移，
+        //      漂移后表现为"角色描述后面跟着半句别人格的话"。
+        val custom = activeCustomPersona
+        val capability = assistantCapabilitySection(canAct)
+        return if (custom != null) {
+            custom.describeForPrompt() + "\n\n" + capability
+        } else {
+            assistantPrompt.build(canAct)
+        }
+    }
+
+    /**
+     * 只取「能力声明」那一段（不含人格描述）。
+     *
+     * ★ 从完整提示词里按**已知的标题**切，而不是按固定分隔符切：
+     *   标题是稳定契约（`AssistantPrompt.CAPABILITY_BOUNDARY` 的首行），
+     *   而分隔符只是排版细节。
+     */
+    private fun assistantCapabilitySection(canAct: Boolean): String {
+        val full = assistantPrompt.build(canAct)
+        val marker = if (canAct) "## 当前版本的能力边界" else "## 这一轮是对话"
+        val at = full.indexOf(marker)
+        return if (at >= 0) full.substring(at) else full
+    }
 
     /** 当前状态。只读 —— 不要读了之后自己维护一份副本（同 dshIntegrationStatus）。 */
     fun mcpBridgeStatus(): McpBridgeStatus = mcpBridgeStatus
@@ -1176,6 +1258,14 @@ class AppContainer(context: Context) {
      */
     fun restoreEnabledIntegrations() {
         startupScope.launch {
+            // ★ 2026-10-25：自定义角色也要在启动时加载。
+            //   ⚠️ 它必须**独立于下面那条 `?: return@launch`** ——
+            //     原来那行在"没有插件源配置"时直接 return，
+            //     于是自定义角色会永远加载不到，用户设过的角色
+            //     在重启后**静默失效**（不报错，只是变回默认人格）。
+            runCatching { loadCustomPersona() }
+                .onFailure { Timber.e(it, "自定义角色加载失败") }
+
             val prefs = runCatching { pluginSourceStore.data.first() }.getOrNull() ?: return@launch
             if (prefs[KEY_DSH_ON] == true) runCatching { startDshIntegration() }
             if (prefs[KEY_BRIDGE_ON] == true) runCatching { startMcpBridge() }

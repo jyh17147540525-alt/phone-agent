@@ -52,6 +52,7 @@ PURE_KOTLIN = {
     #   只是"任务莫名中止"、感知档位选错只是"多花一份截图成本"。
     #   没有一条会抛异常，没有一条会在真机上"一眼看出来"。
     #   这类问题唯一可靠的抓手就是能离线跑的确定性测试。
+    "legacy",
     "rootlogic",
     "agentlogic",
     # 文件能力沙箱的纯逻辑：范围模型 / 路径归一化 / 穿越防护 / 操作裁决 / 审计。
@@ -326,6 +327,7 @@ PROJECT_DEPS = {
     #     `AgentBudget` 与 `TaskStateMachine` 都在这里，而项目有一条既有约束 ——
     #     **横切组件（预算/状态机/隐私过滤）必须从循环第一版就长在里面，
     #     不能"最后统一加"**。放在同模块是遵守那条约束最省事的方式。
+    "legacy": [],
     "rootlogic": [],
     "agentlogic": [":filelogic"],
     "capabilitylogic": [":core:common", ":filelogic"],

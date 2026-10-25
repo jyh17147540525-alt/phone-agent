@@ -80,6 +80,9 @@ import com.pocketagent.ui.plugins.PluginsScreen
 import com.pocketagent.rootlogic.PrivilegeMode
 import com.pocketagent.rootlogic.RootProbeResult
 import com.pocketagent.ui.design.PaScreen
+import com.pocketagent.ui.design.PaBanner
+import com.pocketagent.ui.design.PaBannerTone
+import com.pocketagent.ui.persona.PersonaScreen
 import com.pocketagent.ui.settings.PrivilegeModeScreen
 import com.pocketagent.ui.settings.SettingsScreen
 import com.pocketagent.ui.settings.SettingsViewModel
@@ -117,6 +120,9 @@ object Routes {
 
     /** 运行模式（root / 非 root）与能力边界。 */
     const val PRIVILEGE_MODE = "privilege-mode"
+
+    /** 角色设定（自定义角色 / 未亡人模式入口）。 */
+    const val PERSONA = "persona"
 
     // ── 二级页面（隐藏底部导航）──────────────────────────
     const val MARKET = "market"
@@ -168,7 +174,7 @@ private val TABS = listOf(
         owns = setOf(
             Routes.SETTINGS, Routes.SOURCES, Routes.KEYS,
             Routes.MODELS, Routes.DSH, Routes.PERMISSIONS, Routes.CAPABILITIES,
-            Routes.PRIVILEGE_MODE,
+            Routes.PRIVILEGE_MODE, Routes.PERSONA,
         ),
     ),
 )
@@ -385,6 +391,7 @@ fun AppShell(container: AppContainer) {
                         onOpenPermissions = { navController.navigate(Routes.PERMISSIONS) },
                         onOpenCapabilities = { navController.navigate(Routes.CAPABILITIES) },
                         onOpenPrivilegeMode = { navController.navigate(Routes.PRIVILEGE_MODE) },
+                        onOpenPersona = { navController.navigate(Routes.PERSONA) },
                     )
                 }
 
@@ -463,6 +470,46 @@ fun AppShell(container: AppContainer) {
                                 probe = result
                             },
                         )
+                    }
+                }
+
+
+                composable(Routes.PERSONA) {
+                    // ★ 2026-10-25 自我走查发现的断裂：
+                    //   `PersonaScreen` 的 onSave 默认 `{}`，而这里没传实现 ——
+                    //   用户填完点保存**什么都不会发生**，也不报错。
+                    //
+                    //   ⇒ 现在真的写盘，且**保存后立刻生效**（容器里同步更新内存）。
+                    val scope = rememberCoroutineScope()
+                    var savedHint by remember { mutableStateOf<String?>(null) }
+
+                    PaScreen(title = "角色设定", onBack = { navController.popBackStack() }) {
+                        PersonaScreen(
+                            initial = container.currentCustomPersona(),
+                            onSave = { persona ->
+                                scope.launch {
+                                    runCatching { container.saveCustomPersona(persona) }
+                                        .onSuccess { savedHint = "「${persona.name}」已保存，下一条对话就会用它" }
+                                        .onFailure { savedHint = "保存失败：${it.message ?: "未知原因"}" }
+                                }
+                            },
+                            // ⚠️ 未亡人模式的完整配置页是下一步工作。
+                            //    但**不能留空实现** —— 空按钮比没有按钮更糟
+                            //    （用户会反复点，且以为坏了）。
+                            //    现在至少给出明确反馈：我们知道你要什么，
+                            //    但这个功能还没开放，不假装成功。
+                            onRequestLegacy = { relation, name ->
+                                savedHint = "「${name ?: relation.label}」这个方向我知道，" +
+                                    "完整的配置页还没做好 —— 现在还没有开放。"
+                            },
+                        )
+                        savedHint?.let { msg ->
+                            PaBanner(
+                                tone = PaBannerTone.Info,
+                                title = "已保存",
+                                description = msg,
+                            )
+                        }
                     }
                 }
 

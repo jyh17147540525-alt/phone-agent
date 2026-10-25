@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Cable
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
@@ -75,6 +76,7 @@ fun SettingsScreen(
     onOpenPermissions: (() -> Unit)? = null,
     onOpenCapabilities: (() -> Unit)? = null,
     onOpenPrivilegeMode: (() -> Unit)? = null,
+    onOpenPersona: (() -> Unit)? = null,
 ) {
     val (keyBadge, keyTone) = keyBadgeFor(keyStatus)
 
@@ -171,6 +173,15 @@ fun SettingsScreen(
             }
             item {
                 PaListGroup {
+                    PaListDivider()
+                    // ★ 角色设定是**聊天体验的上游**：它决定"和你说话的是谁"。
+                    //   放在权限之前 —— 用户更常来改的是这个。
+                    PaListRow(
+                        icon = Icons.Default.Person,
+                        title = "角色设定",
+                        subtitle = "自定义角色 / 用你记得的样子做一个人",
+                        onClick = onOpenPersona,
+                    )
                     PaListRow(
                         icon = Icons.Default.Shield,
                         title = "权限状态",
