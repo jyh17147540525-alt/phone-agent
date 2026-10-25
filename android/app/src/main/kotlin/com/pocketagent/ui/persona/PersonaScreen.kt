@@ -31,6 +31,7 @@ import com.pocketagent.legacy.RelationKind
 import com.pocketagent.personalogic.CustomPersona
 import com.pocketagent.personalogic.PersonaCompleteness
 import com.pocketagent.personalogic.PersonaGender
+import timber.log.Timber
 import com.pocketagent.ui.design.PaBanner
 import com.pocketagent.ui.design.PaBannerTone
 import com.pocketagent.ui.design.PaButton
@@ -99,16 +100,39 @@ fun PersonaScreen(
     val combinedText = listOf(name, identity, relationTo, catchphrases).joinToString(" ")
     val signal = remember(combinedText) { KinshipDetector.detect(combinedText) }
 
-    val draft = CustomPersona(
-        id = initial?.id ?: "draft",
-        name = name,
-        identity = identity,
-        relationTo = relationTo,
-        addressUser = addressUser,
-        catchphrases = catchphrases.split("、", ",", "，").map { it.trim() }.filter { it.isNotBlank() },
-        gender = gender,
-        flawsRaw = flaws.split("\n").map { it.trim() }.filter { it.isNotBlank() },
-    )
+    // ══════════════════════════════════════════════════════════════
+    //  ★★ 2026-10-25 闪退修复：这里原本直接 `CustomPersona(name = name)`，
+    //     而新建角色时 `name` 是空串 —— `CustomPersona.init` 里的
+    //     `require(name.isNotBlank())` **当场抛异常**，于是
+    //     「一点角色设定页就闪退」。
+    //
+    //  根因是我的设计错误：那个 require 的目的是**阻止保存一个没名字的角色**，
+    //  但它被放在构造函数里，于是它也阻止了**渲染一个还没填名字的表单**。
+    //
+    //  ⇒ 校验该发生在**提交时**，不是**渲染时**。这里的 draft 只是个"预览用"
+    //    的对象，它允许暂时没名字。
+    //
+    //  ⚠️ 这不是绕过校验：`onSave` 那一侧仍然要求 name 非空
+    //     （见下面的按钮 `enabled = name.isNotBlank()` 与 onSave 的实现）。
+    // ══════════════════════════════════════════════════════════════
+    val draft = runCatching {
+        CustomPersona(
+            id = initial?.id ?: "draft",
+            name = name.ifBlank { PLACEHOLDER_NAME },
+            identity = identity,
+            relationTo = relationTo,
+            addressUser = addressUser,
+            catchphrases = catchphrases.split("、", ",", "，").map { it.trim() }.filter { it.isNotBlank() },
+            gender = gender,
+            flawsRaw = flaws.split("\n").map { it.trim() }.filter { it.isNotBlank() },
+        )
+    }.getOrElse {
+        // ⚠️ 兜底：就算将来 `CustomPersona` 加了别的校验，
+        //    也**不能让一个输入框的中间状态把整个页面炸掉**。
+        //    用户正在打字时字段是半成品，而半成品不该是崩溃。
+        Timber.w(it, "角色草稿构造失败（用占位）")
+        CustomPersona(id = "draft", name = PLACEHOLDER_NAME)
+    }
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -389,3 +413,12 @@ private fun PaField(
  * ⚠️ 返回 0 是**保守**的选择：把提示做得更轻，而不是说重话。
  */
 private fun daysSincePassed(): Int = 0
+
+/**
+ * 表单还没填名字时用的占位。
+ *
+ * ⚠️ 它**不会**被保存 —— `onSave` 那一侧仍然要求真名字
+ * （按钮 `enabled = name.isNotBlank()`）。
+ * 它存在的唯一理由：让"还没填"这个中间状态**能渲染**而不是崩溃。
+ */
+private const val PLACEHOLDER_NAME = "（未命名）"
