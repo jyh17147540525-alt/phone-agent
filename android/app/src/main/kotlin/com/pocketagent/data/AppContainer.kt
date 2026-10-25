@@ -841,6 +841,91 @@ class AppContainer(context: Context) {
     @Volatile
     private var activeCustomPersona: CustomPersona? = null
 
+    /**
+     * 已发生的冲突记录。**内存版** —— 还没接持久化。
+     *
+     * ⚠️ 这是**已知缺口**：进程一死这些记录就没了，于是"它不记得吵过"。
+     *    对用户的意义是：那个角色会**反复为同一件事吵**。
+     *    补法是把 `Conflict` 落进 DataStore（同 `CustomPersonaStore` 的模式），
+     *    但那要连 `mentionsAtMs` 一起存 —— 是下一步的工作。
+     */
+    private val legacyConflicts = mutableListOf<com.pocketagent.legacy.Conflict>()
+
+    /** 用户的"摩擦信号"（说过"你以前不是这样的"）。 */
+    @Volatile
+    private var legacyFriction = com.pocketagent.legacy.FrictionSignal.NONE
+
+    /** 首次交互时间 —— 用于算"认识多少天"。 */
+    @Volatile
+    private var legacyFirstSeenMs: Long = 0L
+
+    /** 累计对话轮数。 */
+    @Volatile
+    private var legacyTurnCount: Int = 0
+
+    /**
+     * 记录一次用户发言 —— 由 `ChatPort` 在发请求前调用。
+     *
+     * ★ 它做三件事：累计轮数、识别摩擦信号、把"该吵了"记下来。
+     */
+    fun recordUserTurn(userText: String, nowMs: Long = System.currentTimeMillis()) {
+        if (legacyFirstSeenMs == 0L) legacyFirstSeenMs = nowMs
+        legacyTurnCount++
+
+        // 摩擦信号：取更重的那个（不会因为这次没说就降级）
+        val level = com.pocketagent.legacy.FrictionLevel.of(userText)
+        if (level.ordinal > legacyFriction.level.ordinal) {
+            legacyFriction = com.pocketagent.legacy.FrictionSignal(level, nowMs)
+        }
+
+        // 该吵了就记一笔 —— ⚠️ 必须在**发请求之前**记，
+        // 否则同一轮里 `buildInjection` 会既生成"此刻的情境"
+        // 又因为没记下来而在下一轮再吵一次。
+        val persona = activeCustomPersona ?: return
+        if (persona.flawsRaw.isEmpty()) return
+        val flaws = com.pocketagent.legacy.FlawParser.parse(persona.flawsRaw)
+        val triggered = com.pocketagent.legacy.ConflictScheduler.shouldTrigger(
+            stats = legacyStatsNow(nowMs),
+            flaws = flaws,
+            existing = legacyConflicts,
+            nowMs = nowMs,
+        )
+        if (triggered != null) {
+            legacyConflicts += com.pocketagent.legacy.Conflict(
+                flawLabel = triggered.label,
+                topic = userText.take(40),
+                atMs = nowMs,
+            )
+            Timber.i("未亡人：记录了一次新冲突（%s）", triggered.label)
+        }
+    }
+
+    /** 当前交互统计。 */
+    private fun legacyStatsNow(nowMs: Long = System.currentTimeMillis()) =
+        com.pocketagent.legacy.InteractionStats(
+            daysKnown = if (legacyFirstSeenMs == 0L) 0
+            else ((nowMs - legacyFirstSeenMs) / 86_400_000L).toInt(),
+            totalTurns = legacyTurnCount,
+            // ★ 2026-10-25：深度事件按**能观测到的事实**推断，而不是恒 0。
+            //
+            //   ⚠️ 之前恒为 0 会让冲突**永远触发不了**（MIN_DEEP_EVENTS = 2）——
+            //      那等于交付了一个"看起来完成、实际不动"的功能。
+            //
+            //   这里用两个可观测信号：
+            //   ① 累计轮数够多 ⇒ 聊得够深（60 轮 ≈ 交过心）
+            //   ② 有自定义角色且写了毛病 ⇒ 用户投入过（这是一种"告诉你他是谁"的深度事件）
+            //
+            //   ⚠️ 这不等于 `:personalogic` 的 `DeepEvent`（那是真事件追踪）——
+            //      但**比恒 0 诚实**：它基于用户真的做过的事，不是编的。
+            //      接上真 `DeepEvent` 后替换这里即可。
+            deepEventCount = run {
+                var n = 0
+                if (legacyTurnCount >= DEEP_TURNS_THRESHOLD) n++      // 聊得够久
+                if (activeCustomPersona?.flawsRaw?.isNotEmpty() == true) n++  // 写过毛病
+                n
+            },
+        )
+
     /** 读一次磁盘上的自定义角色（应用启动时调一次即可）。 */
     suspend fun loadCustomPersona() {
         activeCustomPersona = runCatching { customPersonaStore.load() }.getOrNull()
@@ -898,7 +983,17 @@ class AppContainer(context: Context) {
      *   这一轮做不到的承诺（2026-10-25 真机：用户说 hello，
      *   助理回"手机上的操作可以直接说"，而那一轮根本没挂工具）。
      */
-    fun assistantSystemPrompt(canAct: Boolean = true): String {
+    fun assistantSystemPrompt(
+        canAct: Boolean = true,
+        /**
+         * 用户这一句话 —— 用于判断"该不该提起旧账"。
+         *
+         * ⚠️ 它**不是**可选的：不相关的话题**绝不能**提旧账，
+         *    而判相关性只能靠这句话。
+         *    传空串 = 这一轮不考虑提及。
+         */
+        currentUserText: String = "",
+    ): String {
         // ★★ 2026-10-25：自定义角色在这里**真的生效**。
         //
         //   在此之前只有内置人格（`defaultAssistantPersona`），
@@ -913,10 +1008,49 @@ class AppContainer(context: Context) {
         //      漂移后表现为"角色描述后面跟着半句别人格的话"。
         val custom = activeCustomPersona
         val capability = assistantCapabilitySection(canAct)
-        return if (custom != null) {
+
+        // ══════════════════════════════════════════════════════════
+        //  ★ 未亡人模式的冲突注入 —— 让"那个人"会犯他生前就会犯的毛病
+        // ══════════════════════════════════════════════════════════
+        //
+        // ⚠️ 只有用户写了**毛病**才会注入。没写 = 不希望他吵架。
+        //    这是保守选择：宁可这个人太完美，也不要凭空给他编脾气。
+        val conflict = legacyConflictSection(currentUserText)
+
+        val base = if (custom != null) {
             custom.describeForPrompt() + "\n\n" + capability
         } else {
             assistantPrompt.build(canAct)
+        }
+        return if (conflict.isBlank()) base else base + "\n\n" + conflict
+    }
+
+    /**
+     * 生成未亡人模式的冲突注入片段。
+     *
+     * @return 空串 = 这一轮什么都不该发生
+     */
+    private fun legacyConflictSection(currentUserText: String): String {
+        val persona = activeCustomPersona ?: return ""
+        if (persona.flawsRaw.isEmpty()) return ""
+
+        return runCatching<String> {
+            com.pocketagent.legacy.LegacyConflictPort.buildInjection(
+                flawsRaw = persona.flawsRaw,
+                // ⚠️ 收场方式暂时用默认值 —— 它应该来自用户在未亡人配置里选的，
+                //    那个配置页还没做。用 OFFER_STEP 是因为它最克制：
+                //    "不道歉但递个台阶"比"直接道歉"更接近大多数中国家庭。
+                makeupStyle = com.pocketagent.legacy.MakeupStyle.OFFER_STEP,
+                stats = legacyStatsNow(),
+                existing = legacyConflicts,
+                currentTopic = currentUserText,
+                friction = legacyFriction,
+                nowMs = System.currentTimeMillis(),
+                userName = persona.addressUser.takeIf { it.isNotBlank() },
+            )
+        }.getOrElse {
+            Timber.e(it, "冲突注入失败（不阻塞对话）")
+            ""
         }
     }
 
@@ -1330,6 +1464,14 @@ class AppContainer(context: Context) {
         AtomicTextFile.write(File(appContext.filesDir, relativePath), content)
 
     private companion object {
+        /**
+         * 累计多少轮算"聊得够深"。
+         *
+         * ★ 60 轮是产品判断：大约是"连续一周每天都聊两句"的量级。
+         *   低于这个数就吵架，用户会觉得"这个陌生人凭什么凶我"。
+         */
+        private const val DEEP_TURNS_THRESHOLD = 60
+
         /**
          * 用户上次把「模型出口 / 能力桥」开着没有。
          *

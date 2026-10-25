@@ -88,6 +88,11 @@ fun PersonaScreen(
     var catchphrases by remember(initial) {
         mutableStateOf(initial?.catchphrases?.joinToString("、").orEmpty())
     }
+    // ★ 毛病：用户写，每行一条。这是「不完美模拟」的**唯一燃料** ——
+    //   系统不生成脾气，只复现用户说的。
+    var flaws by remember(initial) {
+        mutableStateOf(initial?.flawsRaw?.joinToString("\n").orEmpty())
+    }
     var gender by remember(initial) { mutableStateOf(initial?.gender ?: PersonaGender.UNSPECIFIED) }
 
     // 把所有输入拼起来交给识别器 —— 用户在任何一个框里写到"走了"都该被感知
@@ -102,6 +107,7 @@ fun PersonaScreen(
         addressUser = addressUser,
         catchphrases = catchphrases.split("、", ",", "，").map { it.trim() }.filter { it.isNotBlank() },
         gender = gender,
+        flawsRaw = flaws.split("\n").map { it.trim() }.filter { it.isNotBlank() },
     )
 
     LazyColumn(
@@ -168,6 +174,35 @@ fun PersonaScreen(
                 value = catchphrases,
                 placeholder = "用顿号隔开，如：这事儿啊、慢慢来",
                 onValueChange = { catchphrases = it },
+            )
+        }
+
+        // ══════════════════════════════════════════════════════════
+        //  ★ 毛病 —— 这一栏决定了"能不能吵得像他"
+        // ══════════════════════════════════════════════════════════
+        //
+        // 用户原话："为了尽可能模拟这个，会在用户自定义角色设定的时候，
+        // 要求用户写入这个角色的坏习惯。"
+        //
+        // ⚠️ 为什么必须有这一栏：系统随机编的脾气**一定 OOC**。
+        //    只有用户自己写下来的毛病，"他也会这样"才立得住。
+        item { Spacer(Modifier.height(PaSpace.s)) }
+        item {
+            PaField(
+                label = "他有哪些毛病",
+                value = flaws,
+                placeholder = "每行一条，格式：标签：具体表现\n" +
+                    "例：爱较真：一说到我的工作就数落我，说我不该辞职",
+                singleLine = false,
+                onValueChange = { flaws = it },
+            )
+        }
+        item {
+            Text(
+                text = "写下来之后，这个人才会真的跟你闹别扭 —— " +
+                    "而且闹的都是你写的这些，不是系统编的脾气。",
+                style = PaType.caption,
+                color = PaColor.TextTertiary,
             )
         }
 

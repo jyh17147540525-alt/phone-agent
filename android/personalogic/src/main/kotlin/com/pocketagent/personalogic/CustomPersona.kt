@@ -101,6 +101,22 @@ data class CustomPersona(
     /** 用户希望它记得的事（会被检索，不全量注入） */
     val memories: List<String> = emptyList(),
 
+    /**
+     * 这个人的**毛病** —— 「不完美模拟」的燃料。
+     *
+     * ═══════════════════════════════════════════════════════════
+     *  ⚠️ 为什么这里用字符串而不是 `:legacy` 的 `Flaw` 类型
+     * ═══════════════════════════════════════════════════════════
+     *
+     * `:legacy` 依赖 `:personalogic`（未亡人模式建立在人格之上），
+     * 反过来不行 —— 那会成环。
+     *
+     * ⇒ 这里存**原始文本**（每行一条，格式 `标签：具体表现`），
+     *   由 `:legacy` 侧解析成 `Flaw`。解析失败的行**跳过而不是崩** ——
+     *   用户随手写的一行不该让整个角色存不下来。
+     */
+    val flawsRaw: List<String> = emptyList(),
+
     /** 头像。null = 用名字首字生成的占位 */
     val avatarRes: String? = null,
 ) {
@@ -160,6 +176,12 @@ data class CustomPersona(
         if (dialect.isNotBlank()) append("你说话").append(dialect.trimEnd('。')).append("。")
         if (catchphrases.isNotEmpty()) {
             append("你常说的话：").append(catchphrases.joinToString("、") { "「$it」" }).append("。")
+        }
+        // ⚠️ 毛病**不在**这段里展开 —— 它由 `:legacy` 的 `ConflictScript.flawsBrief`
+        //    单独注入，因为那段要说明"平时不用主动提"。
+        //    这里只留一句"这个人不完美"，避免模型把他演成一个完人。
+        if (flawsRaw.isNotEmpty()) {
+            append("你也有你的毛病，不是个完人 —— 具体是什么，会在相关的时候自然显现。")
         }
     }
 

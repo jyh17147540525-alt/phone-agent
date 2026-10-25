@@ -164,8 +164,21 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
             //   ⚠️ 所以这一句只能在意图判定**之后**组装。原来它在前面，
             //      于是纯对话那一轮的系统提示词里写着"你可以直接操作手机" ——
             //      模型照着说，用户真去让它操作时发现做不到。
+            // ══════════════════════════════════════════════════════
+            //  ★ 先记这一轮 —— 未亡人模式的冲突机制靠它运转
+            // ══════════════════════════════════════════════════════
+            //
+            // ⚠️ 必须**在组装提示词之前**调：`assistantSystemPrompt` 会读取
+            //    `legacyConflicts` 来决定"这轮该不该吵 / 该不该提旧账"。
+            //    顺序反了的话，这一轮记录下来的冲突要下一轮才生效 ——
+            //    而用户会看到"它吵了，但不记得刚吵过"。
+            container.recordUserTurn(userText)
+
             val system = try {
-                container.assistantSystemPrompt(canAct = decision.intent == TurnIntent.Act)
+                container.assistantSystemPrompt(
+                    canAct = decision.intent == TurnIntent.Act,
+                    currentUserText = userText,
+                )
             } catch (e: Exception) {
                 return ChatResult.Failed(
                     "人格提示词组装失败（${e::class.simpleName ?: "未知"}）：" +
