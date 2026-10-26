@@ -143,6 +143,31 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
         }
         val model = config.modelId
 
+        // ══════════════════════════════════════════════════════════
+        //  ★★ 2026-10-26 真机：用户在发消息之后才看到 400
+        // ══════════════════════════════════════════════════════════
+        //
+        // 现场：配了 `glm5.3flash`（少个连字符）并设为"对话用它"，
+        // 于是每次说话都得到「请求被拒绝（400）：模型不存在」——
+        // 而**正确的 `glm-5.3-flash` 就在同一个配置页里**，只是没被选中。
+        //
+        // ⚠️ 这类错误是**必然失败**的：id 抄错 100% 会 400，不存在运气。
+        //    而它发生在用户等了一个网络往返之后。
+        //
+        // ⇒ 在这里**提前拦**，用一句话告诉他"你可能想写的是那个"。
+        //    ⚠️ 但**不替他改** —— 改配置是用户的决定（同 ModelSetupSummary
+        //       的立场：宁可提示，不替用户做主）。
+        runCatching {
+            val all = container.modelRepository()?.all().orEmpty()
+            com.pocketagent.modelrouter.ModelIdSanity
+                .suspiciousChatModel(all, config)
+        }.getOrNull()?.let { finding ->
+            return ChatResult.Failed(
+                finding.message() +
+                    "\n\n（我没有替你改配置 —— 去「设置 → 模型配置」把它改成正确的那条。）",
+            )
+        }
+
         // ── ③ 判断意图 + 组装系统提示词 ──────────────────────────
     //
     // ★ 这是「助理是谁」的**唯一入口**：人格装配器的输出 + 能力边界声明。
