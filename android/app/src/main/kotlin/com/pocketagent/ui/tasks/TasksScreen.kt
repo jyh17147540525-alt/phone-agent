@@ -671,6 +671,10 @@ class TasksViewModel(
 
     val tasks = mutableStateListOf<AgentTaskUi>()
 
+    // 同一时间只允许一个模型请求在飞。
+    // 2026-10-26 真机：3 个请求并发 → 互相抢带宽 + 厂商限流 → 全都"卡住"。
+    private val chatGate = java.util.concurrent.atomic.AtomicBoolean(false)
+
     /** 当前会话 id。null = 还没定下来（库没开，或还没说过话）*/
     private var sessionId: String? = null
 
@@ -945,6 +949,11 @@ class TasksViewModel(
 
     fun abort(id: String) {
         update(id) { it.copy(state = TaskState.Aborted, abortReason = "已由你中止") }
+        // ⚠️ 中止必须**同时释放闸门**。
+        //    否则：用户中止了卡住的请求 → 该请求的线程可能仍在网络里等 →
+        //    闸门不释放 → 后面所有消息永远"排队中"直到 3 分钟超时。
+        //    那会把"能中止"变成"中止了但更糟"。
+        chatGate.set(false)
     }
 
     /**
@@ -956,7 +965,27 @@ class TasksViewModel(
      */
     private fun runChat(taskId: String, prompt: String) {
         Thread {
-            update(taskId) { it.copy(note = "正在等模型回复…", perceptionTier = 0) }
+            // 串行闸门：前一个请求没结束，这一句就排队并如实显示。
+            // 用自旋而非锁：等的是网络请求（通常几秒），且漏解锁不会永久卡死。
+            if (!chatGate.compareAndSet(false, true)) {
+                update(taskId) { it.copy(note = "排队中（前一句还没答完）…") }
+                var waited = 0L
+                while (!chatGate.compareAndSet(false, true)) {
+                    Thread.sleep(120)
+                    waited += 120
+                    if (waited > 180_000L) {
+                        update(taskId) {
+                            it.copy(
+                                state = TaskState.Failed,
+                                note = "排队超时：前面那个请求一直没结束，可以先去中止它。",
+                            )
+                        }
+                        return@Thread
+                    }
+                }
+            }
+            try {
+                update(taskId) { it.copy(note = "正在等模型回复…", perceptionTier = 0) }
 
             val result = try {
                 kotlinx.coroutines.runBlocking {
@@ -1112,6 +1141,9 @@ class TasksViewModel(
                         )
                     }
                 }
+            }
+            } finally {
+                chatGate.set(false)
             }
         }.apply { isDaemon = true }.start()
     }
