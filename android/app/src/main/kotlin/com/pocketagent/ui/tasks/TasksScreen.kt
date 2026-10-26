@@ -987,7 +987,29 @@ class TasksViewModel(
                                 ?.takeIf { id -> runCatching { s.currentPath(id).isNotEmpty() }.getOrDefault(false) }
                                 ?: s.ensureSessionForNewMessage().id
                             sessionId = session
-                            s.append(session, TurnRole.USER, prompt)
+                            // ══════════════════════════════════════════════
+                            //  ★★ 2026-10-26 修的上下文断裂 bug
+                            // ══════════════════════════════════════════════
+                            //
+                            // `append` 原本**没传 `parentTurnId`**，于是每一轮
+                            // 在库里都是一个**孤立节点**（parentTurnId = null）。
+                            //
+                            // 而 `currentPath` 是靠 `activeLeafTurnId` **回溯父链**
+                            // 得到路径的 —— 孤立节点回溯一步就停，于是：
+                            //   第一轮 append 后：路径 1 条 ✓（看着正常）
+                            //   第二轮 append 后：路径**还是 1 条** ✗（第一轮丢了）
+                            //
+                            // 表现就是用户说的"模型只有单次记忆，没有上下文"。
+                            // 它不是"没传上下文"，而是**上下文被自己弄丢了**。
+                            //
+                            // ⇒ 追加时必须把**当前叶子**作为父节点。
+                            val parentId = s.currentPath(session).lastOrNull()?.id
+                            s.append(session, TurnRole.USER, prompt, parentTurnId = parentId)
+                            val pathNow = s.currentPath(session)
+                            Timber.i(
+                                "落库后：session=%s 父=%s 路径 %d 条",
+                                session.take(8), parentId?.take(6) ?: "无", pathNow.size,
+                            )
                             session
                         }.getOrNull()
                     }
@@ -1048,7 +1070,12 @@ class TasksViewModel(
                                 val s = provider()
                                 val id = sessionId
                                 if (s != null && id != null) {
-                                    s.append(id, TurnRole.ASSISTANT, result.text)
+                                    // ⚠️ 同样要接父链（见上面 USER 那条的长注释）：
+                                    //    不接的话，回复和被回复的那句话在库里
+                                    //    也是两个孤立节点 —— `TurnPairing` 会配不成对，
+                                    //    历史渲染不出来（2026-10-25 见过这个症状）。
+                                    val parentId = s.currentPath(id).lastOrNull()?.id
+                                    s.append(id, TurnRole.ASSISTANT, result.text, parentTurnId = parentId)
                                 }
                             }
                         }

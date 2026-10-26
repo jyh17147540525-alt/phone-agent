@@ -143,175 +143,127 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
         }
         val model = config.modelId
 
-        // ── ③ 组装系统提示词 ────────────────────────────────────
-        //
-        // ★ 这是「助理是谁」的**唯一入口**：人格装配器的输出 + 能力边界声明。
-        //   在此之前它是一条写死在界面里的常量 —— 用户改口癖、改称呼，
-        //   模型那边一个字都不会变，而且**没有任何地方会报错**。
-        //
-        // ⚠️ 刻意**不检查** `history` 里有没有 SYSTEM 消息 ——
-        //    "检查并跳过"会让"我塞了但它没生效"变成一种静默失败。
-        //    约定写在这里：**调用方只给 USER / ASSISTANT 消息。**
-        //
-        // ⚠️ 组装失败时**如实报错**，不退化成"没有人格也能聊"：
-        //    后者正是本项目最怕的那种失败 —— 用户以为人格生效了，其实没有。
-            val userText = history.lastOrNull()?.plainText() ?: ""
-            val decision = IntentClassifier.classify(userText)
+        // ── ③ 判断意图 + 组装系统提示词 ──────────────────────────
+    //
+    // ★ 这是「助理是谁」的**唯一入口**：人格装配器的输出 + 能力边界声明。
+    //   在此之前它是一条写死在界面里的常量 —— 用户改口癖、改称呼，
+    //   模型那边一个字都不会变，而且**没有任何地方会报错**。
+    //
+    // ⚠️ 刻意**不检查** `history` 里有没有 SYSTEM 消息 ——
+    //    "检查并跳过"会让"我塞了但它没生效"变成一种静默失败。
+    //    约定写在这里：**调用方只给 USER / ASSISTANT 消息。**
+    //
+    // ⚠️ 组装失败时**如实报错**，不退化成"没有人格也能聊"：
+    //    后者正是本项目最怕的那种失败 —— 用户以为人格生效了，其实没有。
+    val userText = history.lastOrNull()?.plainText() ?: ""
+    val decision = IntentClassifier.classify(userText)
 
-            Timber.i("意图判定：%s（%s）—— 输入 %d 字", decision.intent, decision.reason, userText.length)
+    Timber.i("意图判定：%s（%s）—— 输入 %d 字", decision.intent, decision.reason, userText.length)
 
-            // ★ 能力声明必须与**这一轮实际挂载的工具**一致（见 `AssistantPromptBuilder.build`）。
-            //   ⚠️ 所以这一句只能在意图判定**之后**组装。原来它在前面，
-            //      于是纯对话那一轮的系统提示词里写着"你可以直接操作手机" ——
-            //      模型照着说，用户真去让它操作时发现做不到。
-            // ══════════════════════════════════════════════════════
-            //  ★ 先记这一轮 —— 未亡人模式的冲突机制靠它运转
-            // ══════════════════════════════════════════════════════
-            //
-            // ⚠️ 必须**在组装提示词之前**调：`assistantSystemPrompt` 会读取
-            //    `legacyConflicts` 来决定"这轮该不该吵 / 该不该提旧账"。
-            //    顺序反了的话，这一轮记录下来的冲突要下一轮才生效 ——
-            //    而用户会看到"它吵了，但不记得刚吵过"。
-            container.recordUserTurn(userText)
+    // ★ 未亡人模式的冲突机制靠这一句运转。
+    //   ⚠️ 必须在组装提示词**之前**调：`assistantSystemPrompt` 会读取
+    //      `legacyConflicts` 决定"这轮该不该吵 / 该不该提旧账"。
+    container.recordUserTurn(userText)
 
-            val system = try {
-                container.assistantSystemPrompt(
-                    canAct = decision.intent == TurnIntent.Act,
-                    currentUserText = userText,
-                )
-            } catch (e: Exception) {
-                return ChatResult.Failed(
-                    "人格提示词组装失败（${e::class.simpleName ?: "未知"}）：" +
-                        "${e.message ?: "无详细信息"}。为避免在「没有人格」的状态下继续对话，本次已中止。",
-                )
-            }
-
-        // ⚠️ 这里**不再自己拼 `ChatMessage` 列表**：系统提示词与历史都由
-        //    `PhoneTask` 带进循环（`priorMessages`），循环负责把三者
-        //    （系统 / 历史 / 本轮）按正确顺序组装。
-        //    在这里再拼一次会出现**两份系统提示词** —— 见 `AgentAdapters.llmPort` 的注释。
-
-        // ── ④ 在受控作用域内跑 agent 循环 ────────────────────────
-        // ⚠️ 用**这个模型自己绑的那条 Key**，不是「默认那条」—— 见上面 ② 的注释。
-        //
-        // ═══════════════════════════════════════════════════════
-        //  ★★ 2026-10-19：聊天第一次真的能「动手」
-        // ═══════════════════════════════════════════════════════
-        //
-        // 在此之前这里是"发一次请求，收完整段文本就结束" ——
-        // 于是应用内聊天**永远不会调用任何工具**：`ChatRequest` 不带 `tools`，
-        // 而 `ChatChunk.ToolCallDelta` 被直接丢掉（旧代码在这里写着
-        // "工具调用在本版不处理"）。用户说"帮我打开微信"，模型只能回答
-        // "我做不到" —— 而它明明有一套能读屏、能点击的工具。
-        //
-        // 现在改成走 `PhoneAgentLoop`：它会带上工具清单、接住模型的
-        // function calling、真的去执行、把结果喂回去，直到模型给出答复。
-        //
-        // ⚠️ 两个不变的东西：
-        //   · **不流式**（`ChatResult.Ok` 仍是整段返回）—— 流式是另一刀，
-        //     见 `StreamPump`（数据层已备好，接线未做）；
-        //   · 循环的所有保护（预算 / 步数 / 重复检测 / 安全拒绝不许重试）
-        //     都在 `:agentlogic` 里，有 24 条离线测试钉着。
-        val text = try {
-            // ══════════════════════════════════════════════════════
-            //  ★ 先判意图：默认**纯对话**，只有要办事才挂工具
-            // ══════════════════════════════════════════════════════
-            //
-            // 改之前：每一次对话都把全部 11 个工具挂上去。三个真问题：
-            //  1. **模型被工具带偏** —— 问「今天几号」它可能先 screen_read
-            //     看一眼再答，用户只是随口一问，却付出读屏的代价和延迟。
-            //  2. **每轮都在为用不到的东西付费** —— 11 个工具的 JSON Schema
-            //     每次请求都要发，纯聊天根本不需要。
-            //  3. **安全面被无必要地放大** —— 能调工具就有调错的可能，
-            //     而纯聊天是**零风险**的。
-            //
-            // ⚠️ 判错的代价**不对称**：
-            //   该 Act 判成 Chat → 用户再说一遍，损失一轮
-            //   该 Chat 判成 Act → **助理真的去操作了用户的手机**，不可撤销
-            //   ⇒ 所以 `IntentClassifier` 一律偏保守（拿不准就当 Chat）。
-            //
-            // ⚠️ 纯对话**不经过 agent 循环**：不挂工具就该直接问模型要文字，
-            //   走循环只会让 `PhoneAgentLoop` 拿到一个空工具列表然后
-            //   多跑一圈 —— 那圈唯一的产出是"确认没有工具可调"。
-            // ⚠️ 纯对话**不经过 agent 循环**：不挂工具就该直接问模型要文字，
-            //   走循环只会让 `PhoneAgentLoop` 拿到一个空工具列表然后
-            //   多跑一圈 —— 那圈唯一的产出是"确认没有工具可调"。
-            //
-            // ⚠️ 意图判定与系统提示词组装都已**上移**到 `useKey` 之前
-            //   （见那里的注释：能力声明必须与这一轮挂不挂工具一致）。
-            store.useKey(config.credentialId) { provider, credential ->
-                // ── 纯对话：一次性请求，零工具 ────────────────────
-                if (decision.intent == TurnIntent.Chat) {
-                    return@useKey chatOnly(provider, credential, model, history, system)
-                }
-
-                // ★ 按**实际生效的模式**取工具集，不是全量：
-                //   root 不可用时 `root_exec` 根本不出现在清单里 ——
-                //   模型看不到它，也就不会去调它。
-                //   （见 `AppContainer.toolsForCurrentMode` 的长注释：
-                //     root 工具刻意**不**进 `agentTools`，否则 dsh 那条链路
-                //     也会看到它，等于绕过了用户选的模式。）
-                val tools = container.toolsForCurrentMode()
-                Timber.i(
-                    "本次工具集 %d 个（模式=%s）：%s",
-                    tools.size,
-                    container.effectivePrivilegeMode(),
-                    tools.joinToString("、") { it.name },
-                )
-                // ⚠️ 预算按**聊天**场景放宽：用户在聊天框里说一句
-                //    "给妈妈发消息"，背后可能是 4~5 次工具调用，
-                //    而"打开微信发朋友圈"要开应用 → 找入口 → 写内容 → 发布，
-                //    光找入口就要好几轮。原来的 12 轮真机上不够用。
-                //
-                // ★ 这两个数的关系由 `budgetStepMisconfiguration` 把关
-                //   （见它的长注释：相等会让 StepLimitReached 变成死代码）。
-                //   配置错了就在**这里**炸，而不是让用户看到一串"预算超限"。
-                budgetStepMisconfiguration(
-                    maxTurns = CHAT_MAX_TURNS,
-                    maxSteps = CHAT_MAX_STEPS,
-                )?.let { throw IllegalStateException("聊天预算配置非法：$it") }
-
-                val loop = PhoneAgentLoop(
-                    llm = AgentAdapters.llmPort(
-                        provider = provider,
-                        credential = credential,
-                        model = model,
-                    ),
-                    runner = AgentAdapters.toolRunner(tools),
-                    budgetGuard = BudgetGuard(AgentBudget(maxTurns = CHAT_MAX_TURNS)),
-                )
-                val result = loop.run(
-                    PhoneTask(
-                        id = "chat",
-                        userInput = history.lastOrNull()?.plainText() ?: "",
-                        systemPrompt = system,
-                        tools = AgentAdapters.toolSpecs(tools),
-                        // ⚠️ 只把**用户与助理**的发言带进去（不含系统提示词，
-                        //    也不含本轮输入）—— `PhoneTask` 会把系统与本轮
-                        //    各接一次（见它自己的注释）。
-                        priorMessages = history.dropLast(1).map { it.toAgentMessage() },
-                        maxSteps = CHAT_MAX_STEPS,
-                    ),
-                    // ★ 把循环的真实进度透给界面。
-                    //   界面自己猜不出来它走到第几步 —— 2026-10-19 真机上
-                    //   进度条全程停在「0 / 8」，用户无法区分"在动"和"卡死"。
-                    onStep = onStep,
-                )
-                // ★ 四种结局都要翻成**用户能理解**的一句话（见 explainRun）。
-                explainRun(result)
-            }
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e // 协程取消必须原样上抛，不许吞
-        } catch (e: Exception) {
-            return ChatResult.Failed(explain(e))
-        }
-
-        return when {
-            text == null -> ChatResult.NoCredential
-            text.isBlank() -> ChatResult.Failed("模型返回了空内容。可能是 Key 无效、额度用完，或该模型不支持对话。")
-            else -> ChatResult.Ok(text)
-        }
+    // ★ 能力声明必须与**这一轮实际挂载的工具**一致。
+    //   ⚠️ 所以它只能在意图判定**之后**组装。原来在前面，于是纯对话那一轮
+    //      的系统提示词里写着"你可以直接操作手机" —— 模型照着说，
+    //      用户真去让它操作时发现做不到。
+    val system = try {
+        container.assistantSystemPrompt(
+            canAct = decision.intent == TurnIntent.Act,
+            currentUserText = userText,
+        )
+    } catch (e: Exception) {
+        return ChatResult.Failed(
+            "人格提示词组装失败（${e::class.simpleName ?: "未知"}）：" +
+                "${e.message ?: "无详细信息"}。为避免在「没有人格」的状态下继续对话，本次已中止。",
+        )
     }
+
+    // ── ④ 在受控作用域内跑 ───────────────────────────────────
+    //
+    // ⚠️ 用**这个模型自己绑的那条 Key**，不是「默认那条」—— 见上面 ② 的注释。
+    //
+    // ★★ 2026-10-19：聊天第一次真的能「动手」
+    // 在此之前这里是"发一次请求，收完整段文本就结束" —— 于是应用内聊天
+    // **永远不会调用任何工具**：`ChatRequest` 不带 `tools`，
+    // 而 `ChatChunk.ToolCallDelta` 被直接丢掉。
+    //
+    // ⚠️ 两个不变的东西：
+    //   · **不流式**（`ChatResult.Ok` 仍是整段返回）—— 见 `StreamPump`（未接线）；
+    //   · 循环的所有保护（预算 / 步数 / 重复检测 / 安全拒绝不许重试）
+    //     都在 `:agentlogic` 里。
+    val text = try {
+        store.useKey(config.credentialId) { provider, credential ->
+            // ── 纯对话：一次性请求，零工具 ────────────────────
+            if (decision.intent == TurnIntent.Chat) {
+                // ★ 诊断日志：**上下文到底传了几条**。
+                //   用户反馈"模型似乎只有单次记忆"，而这条日志能一句话回答
+                //   "是没传"还是"传了但模型没用"—— 两者修法完全不同。
+                Timber.i(
+                    "纯对话上下文：%d 条消息（%d 字）",
+                    history.size, history.sumOf { it.plainText().length },
+                )
+                return@useKey chatOnly(provider, credential, model, history, system)
+            }
+
+            // ★ 按**实际生效的模式**取工具集，不是全量：
+            //   root 不可用时 `root_exec` 根本不出现在清单里 ——
+            //   模型看不到它，也就不会去调它。
+            val tools = container.toolsForCurrentMode()
+            Timber.i(
+                "本次工具集 %d 个（模式=%s）：%s",
+                tools.size,
+                container.effectivePrivilegeMode(),
+                tools.joinToString("、") { it.name },
+            )
+
+            // ★ 这两个数的关系由 `budgetStepMisconfiguration` 把关
+            //   （相等会让 StepLimitReached 变成死代码）。
+            budgetStepMisconfiguration(
+                maxTurns = CHAT_MAX_TURNS,
+                maxSteps = CHAT_MAX_STEPS,
+            )?.let { throw IllegalStateException("聊天预算配置非法：$it") }
+
+            val loop = PhoneAgentLoop(
+                llm = AgentAdapters.llmPort(
+                    provider = provider,
+                    credential = credential,
+                    model = model,
+                ),
+                runner = AgentAdapters.toolRunner(tools),
+                budgetGuard = BudgetGuard(AgentBudget(maxTurns = CHAT_MAX_TURNS)),
+            )
+            val result = loop.run(
+                PhoneTask(
+                    id = "chat",
+                    userInput = userText,
+                    systemPrompt = system,
+                    tools = AgentAdapters.toolSpecs(tools),
+                    // ⚠️ 只把**用户与助理**的发言带进去（不含系统提示词、
+                    //    也不含本轮输入）—— `PhoneTask` 会各接一次。
+                    priorMessages = history.dropLast(1).map { it.toAgentMessage() },
+                    maxSteps = CHAT_MAX_STEPS,
+                ),
+                // ★ 把循环的真实进度透给界面。
+                onStep = onStep,
+            )
+            // ★ 四种结局都要翻成**用户能理解**的一句话（见 explainRun）。
+            explainRun(result)
+        }
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e // 协程取消必须原样上抛，不许吞
+    } catch (e: Exception) {
+        return ChatResult.Failed(explain(e))
+    }
+
+    return when {
+        text == null -> ChatResult.NoCredential
+        text.isBlank() -> ChatResult.Failed("模型返回了空内容。可能是 Key 无效、额度用完，或该模型不支持对话。")
+        else -> ChatResult.Ok(text)
+    }
+}
 
     /**
      * **纯对话**路径 —— 一次性请求，**零工具**。
