@@ -91,6 +91,13 @@ fun SettingsScreen(
     themeMode: ThemeMode = ThemeMode.SYSTEM,
     /** 切换明暗偏好 */
     onThemeModeChange: (ThemeMode) -> Unit = {},
+    /** 成熟内容授权（成年确认 + 开关，两个门） */
+    maturePermission: com.pocketagent.legacy.MatureContentGate.Permission =
+        com.pocketagent.legacy.MatureContentGate.Permission(),
+    /** 确认/撤回成年 */
+    onAdultConfirmedChange: (Boolean) -> Unit = {},
+    /** 打开/关闭成熟内容 */
+    onMatureEnabledChange: (Boolean) -> Unit = {},
 ) {
     val (keyBadge, keyTone) = keyBadgeFor(keyStatus)
 
@@ -273,6 +280,97 @@ fun SettingsScreen(
                                     modifier = Modifier.padding(end = PaSpace.xs),
                                 )
                             }
+                        }
+                    }
+                }
+            }
+
+            // ══════════════════════════════════════════════════════
+            //  ★ 亲密与成人内容 —— 两个门，默认全关
+            // ══════════════════════════════════════════════════════
+            //
+            // ⚠️ 为什么必须放在设置里、且分成两步：
+            //    用户要的是"数字生命有生理需求"，这没问题。
+            //    但"角色能亲密"不等于"谁都能打开"。
+            //    所以这里：① 一次性的成年确认（事实）② 随时可关的开关（意愿）。
+            //
+            // ⚠️ 没有第二个开关时，关掉内容 = 要重新证明一次成年 ——
+            //    那是一种惩罚，会让人宁可一直开着。
+            item {
+                Spacer(Modifier.height(PaSpace.xs))
+                PaSectionTitle("亲密与成人内容")
+            }
+            item {
+                PaListGroup {
+                    Column(modifier = Modifier.fillMaxWidth().padding(PaSpace.m)) {
+                        Text(
+                            text = "成年确认",
+                            style = PaType.body,
+                            color = PaColor.TextPrimary,
+                        )
+                        Spacer(Modifier.height(PaSpace.xxs))
+                        Text(
+                            text = if (maturePermission.adultConfirmed) {
+                                "已确认。这一步只记录事实，不会自己打开内容。"
+                            } else {
+                                "先确认你已满 18 岁。没确认之前，角色的亲密表达会停在关系这一层。"
+                            },
+                            style = PaType.caption,
+                            color = PaColor.TextSecondary,
+                        )
+                        Spacer(Modifier.height(PaSpace.s))
+                        Row {
+                            PaButton(
+                                text = if (maturePermission.adultConfirmed) "已确认成年" else "我确认已满 18 岁",
+                                onClick = { onAdultConfirmedChange(true) },
+                                style = if (maturePermission.adultConfirmed) {
+                                    PaButtonStyle.Glass
+                                } else {
+                                    PaButtonStyle.Primary
+                                },
+                                enabled = !maturePermission.adultConfirmed,
+                            )
+                        }
+                    }
+                }
+            }
+            item {
+                PaListGroup {
+                    Column(modifier = Modifier.fillMaxWidth().padding(PaSpace.m)) {
+                        Text(
+                            text = "允许成熟内容",
+                            style = PaType.body,
+                            color = PaColor.TextPrimary,
+                        )
+                        Spacer(Modifier.height(PaSpace.xxs))
+                        Text(
+                            text = when {
+                                maturePermission.effective ->
+                                    "已开启。角色会按你们的关系阶段表达亲密 —— 关系不到那一步，仍然不会说。"
+                                !maturePermission.adultConfirmed ->
+                                    "需要先完成上面的成年确认。"
+                                else -> "关着的时候角色照样会亲密、会撒娇、会生气，只是不写露骨的性描写。"
+                            },
+                            style = PaType.caption,
+                            color = PaColor.TextSecondary,
+                        )
+                        Spacer(Modifier.height(PaSpace.s))
+                        Row {
+                            PaButton(
+                                text = if (maturePermission.matureEnabled) "关掉" else "打开",
+                                onClick = {
+                                    onMatureEnabledChange(!maturePermission.matureEnabled)
+                                },
+                                style = if (maturePermission.matureEnabled) {
+                                    PaButtonStyle.Glass
+                                } else {
+                                    PaButtonStyle.Primary
+                                },
+                                // ⚠️ 未确认成年时按钮**禁用而不是隐藏** ——
+                                //    隐藏会让用户找不到这个功能，以为产品没有；
+                                //    禁用 + 上面那句原因，才是可理解的。
+                                enabled = maturePermission.adultConfirmed,
+                            )
                         }
                     }
                 }

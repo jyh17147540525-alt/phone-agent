@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import com.pocketagent.ui.theme.ThemeMode
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -241,6 +242,9 @@ fun AppShell(
                 container.openCredentialStore()
                 container.conversationRepository()
             },
+            // ★ 传**读取口**而不是快照：用户在设置页改完开关后，
+            //   这里下一次调用必须读到新值。
+            maturePermission = { container.maturePermission() },
         )
     }
 
@@ -393,6 +397,11 @@ fun AppShell(
                     //    徽章若显示旧值，他会以为"开了也没用"，然后再去开一遍。
                     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshPermissions() }
 
+                    // ★ 成熟内容授权：容器是唯一事实来源，Compose 侧只需一个
+                    //   tick 来触发重组（容器返回的是同步内存值，不是 Flow）。
+                    var matureTick by remember { mutableIntStateOf(0) }
+                    val maturePermission = remember(matureTick) { container.maturePermission() }
+
                     SettingsScreen(
                         keyStatus = keyStatus,
                         onOpenKeys = { navController.navigate(Routes.KEYS) },
@@ -409,6 +418,17 @@ fun AppShell(
                         //   容器是唯一事实来源，这里只是读 + 回写。
                         themeMode = themeMode,
                         onThemeModeChange = onThemeModeChange,
+                        // ★ 成熟内容：两个门都必须显式操作。
+                        //   容器同步返回内存里的新值 → `matureTick` 递增 → 重组。
+                        maturePermission = maturePermission,
+                        onAdultConfirmedChange = {
+                            container.setAdultConfirmed(it)
+                            matureTick++
+                        },
+                        onMatureEnabledChange = {
+                            container.setMatureEnabled(it)
+                            matureTick++
+                        },
                     )
                 }
 

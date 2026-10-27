@@ -1000,6 +1000,71 @@ class AppContainer(context: Context) {
             ?: com.pocketagent.ui.theme.ThemeMode.SYSTEM
     }
 
+    // ══════════════════════════════════════════════════════════════
+    //  ★ 成熟内容的两个门（2026-10-28）
+    // ══════════════════════════════════════════════════════════════
+    //
+    // 用户的要求：数字生命有生理需求，所以角色需要能表达亲密。
+    // 这成立 —— 但"角色可以亲密"和"谁都能打开"是两件事。
+    //
+    // ⇒ 拆成两个独立开关，都必须为真才放行：
+    //    成年确认（一次性事实陈述）+ 成熟内容开关（当下意愿）。
+    //
+    // ⚠️ 默认**全关**。第一次装的人打开应用，看到的是一个会说
+    //    "这个我们换个时候聊"的角色，而不是一个须先做两个选择才能聊天的表单。
+    @Volatile
+    private var maturePermissionValue: com.pocketagent.legacy.MatureContentGate.Permission =
+        com.pocketagent.legacy.MatureContentGate.Permission()
+
+    /** 当前成熟内容授权（同步读，供界面与提示词组装）。 */
+    fun maturePermission(): com.pocketagent.legacy.MatureContentGate.Permission =
+        maturePermissionValue
+
+    /**
+     * 用户确认自己成年。
+     *
+     * ⚠️ 这一步**只记录事实**，不打开内容 —— 打开是另一个动作。
+     */
+    fun setAdultConfirmed(value: Boolean) {
+        maturePermissionValue = maturePermissionValue.copy(adultConfirmed = value)
+        persistMaturePermission()
+    }
+
+    /**
+     * 打开/关闭成熟内容。
+     *
+     * ⚠️ 没确认成年时**拒绝打开**并原样返回 —— 不静默降级成"打开了但没生效"，
+     *    否则用户会以为生效了，而提示词里仍写着边界。
+     */
+    fun setMatureEnabled(value: Boolean): Boolean {
+        if (value && !maturePermissionValue.adultConfirmed) return false
+        maturePermissionValue = maturePermissionValue.copy(matureEnabled = value)
+        persistMaturePermission()
+        return true
+    }
+
+    private fun persistMaturePermission() {
+        val snapshot = maturePermissionValue
+        startupScope.launch {
+            runCatching {
+                pluginSourceStore.edit {
+                    it[KEY_ADULT_CONFIRMED] = snapshot.adultConfirmed
+                    it[KEY_MATURE_ENABLED] = snapshot.matureEnabled
+                }
+            }.onFailure { Timber.e(it, "成熟内容授权落盘失败") }
+        }
+    }
+
+    private suspend fun loadMaturePermission() {
+        runCatching {
+            val prefs = pluginSourceStore.data.first()
+            maturePermissionValue = com.pocketagent.legacy.MatureContentGate.Permission(
+                adultConfirmed = prefs[KEY_ADULT_CONFIRMED] == true,
+                matureEnabled = prefs[KEY_MATURE_ENABLED] == true,
+            )
+        }.onFailure { Timber.e(it, "成熟内容授权读取失败") }
+    }
+
     /** 当前是否有自定义角色在生效。 */
     fun hasCustomPersona(): Boolean = activeCustomPersona != null
 
@@ -1071,7 +1136,21 @@ class AppContainer(context: Context) {
         } else {
             assistantPrompt.build(canAct)
         }
-        return if (conflict.isBlank()) base else base + "\n\n" + conflict
+        val withConflict = if (conflict.isBlank()) base else base + "\n\n" + conflict
+
+        // ★ 人格完整性 —— **每一轮、每个角色都写**。
+        //   自定义角色也要写：用户自己写的角色卡通常不会想到"不要说自己是 AI"
+        //   这一条，而那正是真机上最容易破功的地方。
+        val integrity = com.pocketagent.assistant.AssistantPromptBuilder.PERSONA_INTEGRITY
+        val withIntegrity = withConflict + "\n\n" + integrity
+
+        // ★ 亲密/成人内容的边界 —— 无论开关，**每一轮都要写进去**。
+        //
+        // ⚠️ 关着的时候也必须写。不写的话模型会自己猜：
+        //    要么猜成"可以"，要么猜成"作为一个AI助手…"那种客服腔。
+        //    两种都不对，而后者更糟 —— 它把一个有人格的角色瞬间打回原型。
+        val mature = com.pocketagent.legacy.MatureContentGate.promptSection(maturePermissionValue)
+        return if (mature.isBlank()) withIntegrity else withIntegrity + "\n\n" + mature
     }
 
     /**
@@ -1460,6 +1539,8 @@ class AppContainer(context: Context) {
                 .onFailure { Timber.e(it, "自定义角色加载失败") }
             runCatching { loadThemeMode() }
                 .onFailure { Timber.e(it, "主题偏好加载失败") }
+            runCatching { loadMaturePermission() }
+                .onFailure { Timber.e(it, "成熟内容授权加载失败") }
 
             val prefs = runCatching { pluginSourceStore.data.first() }.getOrNull() ?: return@launch
             if (prefs[KEY_DSH_ON] == true) runCatching { startDshIntegration() }
@@ -1551,6 +1632,16 @@ class AppContainer(context: Context) {
         private val KEY_THEME_MODE = androidx.datastore.preferences.core
             .stringPreferencesKey("theme_mode")
         private val KEY_BRIDGE_ON = booleanPreferencesKey("mcp_bridge_on_v1")
+
+        /**
+         * 成熟内容的两个门。
+         *
+         * ⚠️ 是两个 key 而不是一个 —— 见 `MatureContentGate.Permission` 的注释：
+         *    "我成年了"和"我现在要这个"必须能分开表达，
+         *    否则关掉内容就等于要重新证明一次成年。
+         */
+        private val KEY_ADULT_CONFIRMED = booleanPreferencesKey("adult_confirmed_v1")
+        private val KEY_MATURE_ENABLED = booleanPreferencesKey("mature_enabled_v1")
 
         /** 首次启动引导是否已看过。**用户点掉弹窗才置位**，不随版本重置。 */
         private val KEY_FIRST_RUN_SEEN = booleanPreferencesKey("first_run_seen_v1")

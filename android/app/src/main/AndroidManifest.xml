@@ -110,6 +110,22 @@
             </intent-filter>
         </activity>
 
+        <!--
+            ── 应用托管可行性探针（临时器材，结论落地后删）──────────
+
+            ⚠️ 它不实现任何功能，只负责把"系统到底允不允许"写进 logcat。
+            结论见 docs/应用托管方案-v1.0.md。
+
+            用 adb 起：
+              am start -n com.pocketagent.debug/com.pocketagent.assistant.AppHostProbeActivity
+        -->
+        <activity
+            android:name=".assistant.AppHostProbeActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:theme="@android:style/Theme.Black.NoTitleBar" />
+
         <!-- ── 无障碍服务：M0 实验器材（P0-2 / EX-13）─────────────
              ⚠️ 它现在**不读屏、不操作、不缓存任何东西**，见类注释。
 

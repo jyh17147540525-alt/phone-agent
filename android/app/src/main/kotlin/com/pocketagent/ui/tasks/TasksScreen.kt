@@ -593,6 +593,15 @@ data class AgentTaskUi(
      *    "这一轮挂没挂工具"的地方。界面自己猜不出来。
      */
     val isAgentRun: Boolean = false,
+
+    /**
+     * 这一轮附带的一句系统提示（当前只有一种：用户要求了成熟内容但没开启）。
+     *
+     * ⚠️ 与 `note` 分开而不是拼进去：`note` 是**模型的回答**，
+     *    而提示是**应用要对用户说的话**。拼在一起会让用户以为那句话
+     *    是角色说的 —— 而角色不该替产品解释开关在哪。
+     */
+    val hint: String? = null,
 ) {
     companion object {
         /**
@@ -689,9 +698,38 @@ class TasksViewModel(
      * ⚠️ 是 `suspend` 的：首次调用会触发开库，那是个慢操作。
      */
     private val conversations: (suspend () -> ConversationStore?)? = null,
+
+    /**
+     * 成熟内容授权的读取口。
+     *
+     * ★ 用 `() ->`，理由与 [conversations] 相同：`AppContainer`
+     *   是唯一事实来源，用户在设置页改完之后这里必须读到新值 ——
+     *   存一个 `Permission` 快照会永远停在构造时那一刻。
+     *
+     * ⚠️ 默认值是"全关"。预览里没有容器，默认值让预览**不需要额外接线**
+     *    也不会因此崩掉。
+     */
+    private val maturePermission: () -> com.pocketagent.legacy.MatureContentGate.Permission =
+        { com.pocketagent.legacy.MatureContentGate.Permission() },
 ) {
 
     val tasks = mutableStateListOf<AgentTaskUi>()
+
+    /**
+     * 这一轮要不要附一句"开关在哪"的提示。
+     *
+     * ★ 只在**真的要求了**且**没开**的时候返回非空 ——
+     *   开了还提示一遍，等于每次亲密话题都提醒用户"这是被允许的"，
+     *   那句话本身就是破坏气氛的。
+     *
+     * ⚠️ 提示语里**不提"限制""驳回"**：用户没做错事，
+     *    他只是没打开一个默认关闭的开关。
+     */
+    private fun matureHintFor(userText: String): String? {
+        if (maturePermission().effective) return null
+        if (!com.pocketagent.legacy.MatureContentGate.looksLikeAdultRequest(userText)) return null
+        return "这类内容默认关着。想开着的话：设置 → 亲密与成人内容。"
+    }
 
     // 同一时间只允许一个模型请求在飞。
     // 2026-10-26 真机：3 个请求并发 → 互相抢带宽 + 厂商限流 → 全都"卡住"。
@@ -1009,6 +1047,12 @@ class TasksViewModel(
             try {
                 update(taskId) { it.copy(note = "正在等模型回复…", perceptionTier = 0) }
 
+            // ★ 流式：第一片正文到达时**替换**掉"正在等模型回复…"，之后追加。
+            //   用标记而不是"判断 note 等不等于那句话" —— 后者在流式
+            //   过程中会误判（第二片的 note 已经不是那句话了，逻辑正确；
+            //   但一旦模型的第一片正好是同样几个字，就会重复清空）。
+            val streamStarted = java.util.concurrent.atomic.AtomicBoolean(false)
+
             val result = try {
                 kotlinx.coroutines.runBlocking {
                     // ── ① 把用户这一句落库 ──────────────────────────
@@ -1099,11 +1143,23 @@ class TasksViewModel(
                     //   在此之前进度条全程停在「0 / 8」（开始设 0、结束设 1，
                     //   中间从不更新），用户无法区分"在动"和"卡死"。
                     //   ⚠️ 回调可能来自后台线程，`update` 内部做了同步（见它的注释）。
-                    chat!!.send(history + ChatMessage.user(prompt)) { step, desc ->
-                        update(taskId) {
-                            it.copy(step = step, note = desc, perceptionTier = 1)
-                        }
-                    }
+                    chat!!.send(
+                        history = history + ChatMessage.user(prompt),
+                        onStep = { step, desc ->
+                            update(taskId) {
+                                it.copy(step = step, note = desc, perceptionTier = 1)
+                            }
+                        },
+                        onDelta = { delta ->
+                            // ⚠️ 只在 Running 时接字：用户已经中止/失败了，
+                            //    后台仍在到的分片不能把界面重新写回"有内容"。
+                            update(taskId) {
+                                if (it.state != TaskState.Running) return@update it
+                                val base = if (streamStarted.getAndSet(true)) it.note else ""
+                                it.copy(note = base + delta, perceptionTier = 0)
+                            }
+                        },
+                    )
                 }
             } catch (e: Exception) {
                 // 端口承诺不抛异常，但这里仍然兜一道 ——
@@ -1139,6 +1195,7 @@ class TasksViewModel(
                             perceptionTier = 0,
                             // ★ 这一轮到底动没动手 —— 界面靠它选形态
                             isAgentRun = result.isAgentRun,
+                            hint = matureHintFor(it.prompt),
                         )
                     }
                 }

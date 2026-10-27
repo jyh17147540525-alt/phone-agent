@@ -65,6 +65,27 @@ interface ChatPort {
     suspend fun send(
         history: List<ChatMessage>,
         onStep: (step: Int, description: String) -> Unit = { _, _ -> },
+        /**
+         * **正文增量**。纯对话路径每收到一片就回调一次 —— 界面据此逐字显示。
+         *
+         * ═══════════════════════════════════════════════════════════
+         *  ★★ 2026-10-28：为什么必须流式
+         * ═══════════════════════════════════════════════════════════
+         *
+         * 用户原话："对话响应太慢。"
+         *
+         * 实测下来"慢"不等于"模型慢"：一段 200 字的回答，模型 3 秒就
+         * 开始吐字了，但界面要**等全部吐完**才把字画出来 —— 于是用户的
+         * 体感是"按了发送之后盯着'正在等模型回复…'发呆 8 秒"。
+         *
+         * ⇒ 首字延迟才是体感延迟。流式把它从"整段完成"降到"第一片到达"。
+         *
+         * ⚠️ 只对**纯对话**生效。执行类任务（agent 循环）的正文是循环
+         *    跑完之后才定稿的（工具调用的中间话术不能当回答显示），
+         *    强行流式会把"我先看看当前页面"当正文吐给用户。
+         *    那一类靠 `onStep` 报进度。
+         */
+        onDelta: (delta: String) -> Unit = {},
     ): ChatResult
 }
 
@@ -112,6 +133,7 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
     override suspend fun send(
         history: List<ChatMessage>,
         onStep: (step: Int, description: String) -> Unit,
+        onDelta: (delta: String) -> Unit,
     ): ChatResult {
         // ── ① 拿到凭据仓库 ──────────────────────────────────────
         val store = when (val opened = container.openCredentialStore()) {
@@ -248,7 +270,7 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                     "纯对话上下文：%d 条消息（%d 字）",
                     history.size, history.sumOf { it.plainText().length },
                 )
-                return@useKey chatOnly(provider, credential, model, history, system)
+                return@useKey chatOnly(provider, credential, model, history, system, onDelta)
             }
 
             // ★ 按**实际生效的模式**取工具集，不是全量：
@@ -331,6 +353,7 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
         model: String,
         history: List<ChatMessage>,
         system: String,
+        onDelta: (String) -> Unit = {},
     ): String? {
         // ⚠️ tools 传空列表（不是 null）：`ChatRequest` 的默认值就是 emptyList，
         //    而传 null 需要它可空。空列表在这里的语义是"明确不提供工具"。
@@ -343,7 +366,12 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
         val sb = StringBuilder()
         provider.chat(request = request, credential = credential).collect { chunk ->
             when (chunk) {
-                is ChatChunk.Delta -> sb.append(chunk.text)
+                // ★ 追加**并且立刻吐给界面** —— 这两件事必须成对，
+                //   否则会出现"界面显示的字"和"最终落库的字"不一样。
+                is ChatChunk.Delta -> {
+                    sb.append(chunk.text)
+                    onDelta(chunk.text)
+                }
                 // 推理过程不进正文（同 `AgentAdapters` 的既定纪律）
                 is ChatChunk.Reasoning -> Unit
                 // 纯对话不该有工具调用 —— 有的话说明模型忽略了空 tools，

@@ -210,5 +210,22 @@ private fun TurnBubbles(
                 modifier = Modifier.padding(top = PaSpace.xxs),
             )
         }
+
+        // ── 应用要说的话（不是角色说的）──────────────────────
+        //
+        // ★ 视觉上必须与 AI 的正文**明显不同**：小一号、弱化色、
+        //   且**只在回答落地之后**出现。用正文样式画它，用户会以为
+        //   那句话是角色在解释自己的开关 —— 那是破功。
+        AnimatedVisibility(
+            visible = showReply && !task.hint.isNullOrBlank(),
+            enter = fadeIn(PaMotion.standard()),
+        ) {
+            Text(
+                text = task.hint ?: "",
+                style = PaType.caption,
+                color = PaColor.TextTertiary,
+                modifier = Modifier.padding(top = PaSpace.xs),
+            )
+        }
     }
 }
