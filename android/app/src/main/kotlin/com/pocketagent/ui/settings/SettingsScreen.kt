@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
@@ -98,6 +99,8 @@ fun SettingsScreen(
     onAdultConfirmedChange: (Boolean) -> Unit = {},
     /** 打开/关闭成熟内容 */
     onMatureEnabledChange: (Boolean) -> Unit = {},
+    /** 长期记忆库里有多少条原子。0 = 还没记住任何事 */
+    memoryAtomCount: Int = 0,
 ) {
     val (keyBadge, keyTone) = keyBadgeFor(keyStatus)
 
@@ -282,6 +285,31 @@ fun SettingsScreen(
                             }
                         }
                     }
+                }
+            }
+
+            item {
+                Spacer(Modifier.height(PaSpace.xs))
+                PaSectionTitle("记忆")
+            }
+            item {
+                PaListGroup {
+                    // ★ 这一行存在的理由：**让"它记住了"这件事可见**。
+                    //   在此之前记忆是隐形的 —— 用户无法区分"它真的记得我"
+                    //   和"它每次都答得像记得我"。而不可见的记忆，坏掉了也没人知道。
+                    PaListRow(
+                        icon = Icons.Default.Psychology,
+                        title = "长期记忆",
+                        subtitle = if (memoryAtomCount > 0) {
+                            "已记住 $memoryAtomCount 条关于你的事，每轮只挑相关的几条用"
+                        } else {
+                            "聊得多一些之后，它会开始记住关于你的事"
+                        },
+                        trailing = if (memoryAtomCount > 0) "$memoryAtomCount" else null,
+                        // ⚠️ 还没有记忆详情页 —— 传 null（不画箭头），
+                        //    而不是传空 lambda 假装能进（同本文件顶部的纪律）。
+                        onClick = null,
+                    )
                 }
             }
 

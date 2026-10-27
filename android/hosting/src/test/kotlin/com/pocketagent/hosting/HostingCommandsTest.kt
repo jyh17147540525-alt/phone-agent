@@ -91,12 +91,81 @@ class HostingCommandsTest {
     }
 
     @Test
-    fun `自由窗口启动用 monkey 而不是 am start`() {
-        // ★ 用 monkey 的理由：`am start` 需要知道具体 Activity 名，
-        //   而每个应用的 launcher Activity 都不一样。
-        val cmd = HostingCommands.startFreeform("com.tencent.mm")
-        assertTrue("应当用 monkey：$cmd", cmd.startsWith("monkey"))
-        assertTrue("要指定包名：$cmd", cmd.contains("com.tencent.mm"))
+    fun `自由窗口启动必须带 windowingMode 5`() {
+        // ══════════════════════════════════════════════════════════
+        //  ★★ 2026-10-27 真机把这个测试的**结论推翻了**
+        // ══════════════════════════════════════════════════════════
+        //
+        // 上一版这里断言的是 "用 monkey 而不是 am start"，理由是
+        // "am start 需要知道具体 Activity 名"。那个理由本身没错，但结论错了：
+        //
+        // 真机实测（Redmi K60 / Android 15，root）：
+        //   monkey 启动    → Task{... mode=fullscreen}
+        //   am task resize → **什么都不做**（它只在多窗口/自由窗口下有效）
+        //   ⇒ 整条托管链路静默失效，而日志看起来每一步都"成功"了
+        //
+        //   am start --windowingMode 5 -n <component>
+        //                  → Task{... mode=freeform}
+        //   am task resize → mBounds=Rect(720, 120 - 1420, 1020)   ✓
+        //
+        // ⇒ 正确做法是**先问系统要组件名**，再带 `--windowingMode 5` 启动。
+        //   组件名从 `cmd package resolve-activity --brief` 拿，
+        //   于是也不需要硬编码任何 Activity 名。
+        val cmd = HostingCommands.startFreeform("com.tencent.mm/.ui.LauncherUI")
+        assertEquals("am start --windowingMode 5 -n com.tencent.mm/.ui.LauncherUI", cmd)
+        assertTrue("5 必须是 FREEFORM：$cmd", cmd.contains("--windowingMode 5"))
+    }
+
+    @Test
+    fun `windowingMode 的自由窗口常量就是 5`() {
+        // ⚠️ 钉住这个数字：`am` 只认数字，系统改了值只会表现成"又变全屏了"，
+        //    不会报错。这条断言是唯一的报警器。
+        assertEquals(5, HostingCommands.WINDOWING_MODE_FREEFORM)
+    }
+
+    @Test
+    fun `非法组件名不能拼进 root 命令`() {
+        for (bad in listOf(
+            "com.tencent.mm",                 // 没有斜杠
+            "com.tencent.mm/.ui;reboot",      // 命令注入
+            "com.tencent.mm/.ui Launcher",    // 空格
+            "-n com.evil",
+        )) {
+            try {
+                HostingCommands.startFreeform(bad)
+                throw AssertionError("$bad 应当被拒绝")
+            } catch (e: IllegalArgumentException) {
+                // ok
+            }
+        }
+    }
+
+    @Test
+    fun `能从 resolve-activity 输出里取到组件名`() {
+        val out = """
+            priority=0 preferredOrder=0 match=0x108000 specificIndex=-1 isDefault=true
+            com.tencent.mobileqq/.activity.SplashActivity
+        """.trimIndent()
+        assertEquals(
+            "com.tencent.mobileqq/.activity.SplashActivity",
+            HostingCommands.parseLauncherComponent(out),
+        )
+    }
+
+    @Test
+    fun `取不到组件名时返回 null 而不是瞎猜`() {
+        // ⚠️ 返回 null 让调用方**如实报错**。退回全屏启动会把"没托管成功"
+        //    变成"挡在用户屏幕上" —— 那比失败更糟。
+        assertEquals(null, HostingCommands.parseLauncherComponent(""))
+        assertEquals(null, HostingCommands.parseLauncherComponent("No activity found"))
+        assertEquals(null, HostingCommands.parseLauncherComponent("com.foo/.Bar;reboot"))
+    }
+
+    @Test
+    fun `resolve 命令要带 brief 与 LAUNCHER`() {
+        val cmd = HostingCommands.resolveLauncher("com.tencent.mm")
+        assertTrue("要用 --brief 只输出结论：$cmd", cmd.contains("--brief"))
+        assertTrue("要指定 MAIN：$cmd", cmd.contains("android.intent.action.MAIN"))
         assertTrue("要指定 LAUNCHER：$cmd", cmd.contains("android.intent.category.LAUNCHER"))
     }
 

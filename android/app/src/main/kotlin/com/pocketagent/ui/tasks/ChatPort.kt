@@ -326,7 +326,19 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
     return when {
         text == null -> ChatResult.NoCredential
         text.isBlank() -> ChatResult.Failed("模型返回了空内容。可能是 Key 无效、额度用完，或该模型不支持对话。")
-        else -> ChatResult.Ok(text, isAgentRun = didAct)
+        else -> {
+            // ★ 回复已经拿到了，才轮到"记点什么"。
+            //   ⚠️ 必须放在成功返回**之后**：放在前面的话，失败的那几轮
+            //      也会被当成素材，于是记忆里混进"用户问了一句、助理没答"。
+
+            //   完全异步（`scheduleMemoryAbsorb` 内部 launch），不拖慢这一轮。
+            runCatching {
+                val sid = container.conversationRepository()
+                    ?.currentSession()?.id
+                if (sid != null) container.scheduleMemoryAbsorb(sid)
+            }.onFailure { Timber.w(it, "记忆抽取调度失败（不影响对话）") }
+            ChatResult.Ok(text, isAgentRun = didAct)
+        }
     }
 }
 

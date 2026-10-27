@@ -72,6 +72,12 @@ import com.pocketagent.mcp.ToolRegistry
 import com.pocketagent.memorylogic.ContextOffloader
 import com.pocketagent.safety.DefaultSafetyGuard
 import com.pocketagent.modelrouter.ModelRouteCoordinator
+import com.pocketagent.modelrouter.ModelResolution
+import com.pocketagent.modelrouter.ModelRole
+import com.pocketagent.modelrouter.resolveForPurpose
+import com.pocketagent.provider.api.ChatChunk
+import com.pocketagent.provider.api.ChatMessage
+import com.pocketagent.provider.api.ChatRequest
 import com.pocketagent.perception.AccessibilityPerceptionManager
 import com.pocketagent.plugin.api.MarketCatalog
 import com.pocketagent.plugin.api.SubscriptionSource
@@ -1065,6 +1071,151 @@ class AppContainer(context: Context) {
         }.onFailure { Timber.e(it, "成熟内容授权读取失败") }
     }
 
+    // ══════════════════════════════════════════════════════════════
+    //  ★ 记忆层接线（2026-10-28）
+    // ══════════════════════════════════════════════════════════════
+    //
+    // 在此之前 `:memorylogic` 的三个阶段（AtomExtractor / MemoryGate /
+    // MemoryRecall）全部实现且有离线测试，但**零生产引用** ——
+    // 于是助理换个会话就不记得你叫什么，而它在界面上完全看不出来
+    // （模型只是答得像第一次见你）。
+    //
+    // ⚠️ 三件事刻意分开：
+    //    · 读（[memoryPromptSection]）—— 同步，因为它在组装提示词的主路径上
+    //    · 写（[scheduleMemoryAbsorb]）—— 异步，因为要发一次模型请求
+    //    · 存（[atomStore]）—— 文件，JSONL，坏一行不毁全库
+
+    /** 原子记忆的存储。**懒开**：冷启动路径上不该碰磁盘。 */
+    private val atomStore: com.pocketagent.memorylogic.AtomStore by lazy {
+        com.pocketagent.memory.FileAtomStore(
+            File(File(appContext.filesDir, MEMORY_DIR), MEMORY_FILE),
+        )
+    }
+
+    /** 内存缓存。`null` = 还没读过；抽完新记忆后置空，下次读盘。 */
+    @Volatile
+    private var atomCache: List<com.pocketagent.memorylogic.Atom>? = null
+
+    /** 当前库里的全部原子（同步读，供提示词与界面）。 */
+    fun memoryAtoms(): List<com.pocketagent.memorylogic.Atom> {
+        atomCache?.let { return it }
+        val loaded = atomStore.loadAll()
+        atomCache = loaded
+        return loaded
+    }
+
+    /** 库里有多少条记忆（设置页显示用）。 */
+    fun memoryAtomCount(): Int = memoryAtoms().size
+
+    /**
+     * 这一轮该想起的那些事，已格式化成提示词片段。
+     *
+     * @return 空串 = 这一轮什么都不用想起（**不要**补一句"没有记忆"）。
+     */
+    fun memoryPromptSection(query: String): String = runCatching {
+        com.pocketagent.memorylogic.MemoryRecall.promptSection(
+            query = query,
+            atoms = memoryAtoms(),
+            nowMs = System.currentTimeMillis(),
+        )
+    }.getOrElse {
+        Timber.w(it, "记忆检索失败（不影响对话）")
+        ""
+    }
+
+    // ── 写入端 ──────────────────────────────────────────────────
+
+    /** 距上次抽取过了几轮。**故意只在内存里** —— 重启后重新计数没有副作用。 */
+    private var turnsSinceMemoryAbsorb: Int = 0
+
+    private val memoryWriter: com.pocketagent.memory.MemoryWriter by lazy {
+        com.pocketagent.memory.MemoryWriter(
+            llm = memoryLlmPort(),
+            store = atomStore,
+        )
+    }
+
+    /**
+     * 记忆层要调用模型时的**唯一出口**。
+     *
+     * ⚠️ 为什么不让 `MemoryWriter` 自己发请求：`MemoryLlmPort` 的注释写得很清楚 ——
+     *    记忆层不得自行发网络请求（计量、可测、可换档位三条）。
+     *    这里只是把「已装配好的 provider + 已解密的 Key」喂给它。
+     *
+     * ⚠️ 用 `runBlocking`：端口是同步签名（`:memorylogic` 是纯 Kotlin，
+     *    不想为了一个调用把整层改成 suspend）。调用方在 IO 线程上，
+     *    所以阻塞的是那个线程，不是主线程。
+     */
+    private fun memoryLlmPort(): com.pocketagent.memorylogic.MemoryLlmPort =
+        com.pocketagent.memorylogic.MemoryLlmPort { prompt, purpose ->
+            kotlinx.coroutines.runBlocking {
+                val repo = when (val opened = openCredentialStore()) {
+                    is CredentialStoreResult.Ready -> opened.repository
+                    else -> return@runBlocking ""
+                }
+                val config = when (
+                    val r = modelRepository()?.all().orEmpty().resolveForPurpose(ModelRole.CHAT)
+                ) {
+                    is ModelResolution.Found -> r.config
+                    is ModelResolution.None -> return@runBlocking ""
+                }
+                repo.useKey(config.credentialId) { provider, credential ->
+                    val request = ChatRequest(
+                        model = config.modelId,
+                        messages = listOf(ChatMessage.user(prompt)),
+                        tools = emptyList(),
+                    )
+                    val sb = StringBuilder()
+                    provider.chat(request = request, credential = credential).collect { chunk ->
+                        if (chunk is ChatChunk.Delta) {
+                            sb.append(chunk.text)
+                        }
+                    }
+                    sb.toString()
+                } ?: ""
+            }.also {
+                if (it.isBlank()) Timber.w("记忆抽取拿到空返回（用途=%s）", purpose.label)
+            }
+        }
+
+    /**
+     * 一轮对话结束了 —— 也许该顺手记点什么。
+     *
+     * ★ **每 N 轮才真的跑一次**：抽取是一次真实计费的模型调用，
+     *   每轮都跑等于把用量翻一倍，而它产出的东西这一轮用不上。
+     *
+     * ⚠️ 完全异步，且吞掉所有异常：记不住事是遗憾，让对话变红是事故。
+     */
+    fun scheduleMemoryAbsorb(sessionId: String) {
+        turnsSinceMemoryAbsorb++
+        if (turnsSinceMemoryAbsorb < MEMORY_EVERY_TURNS) return
+        turnsSinceMemoryAbsorb = 0
+        val store = conversationRepository() ?: return
+        startupScope.launch {
+            runCatching {
+                val turns = store.recentForModel(sessionId, MEMORY_WINDOW_TURNS)
+                val result = memoryWriter.absorb(turns)
+                if (!result.nothing) atomCache = null
+                Timber.i(
+                    "记忆库更新：本次记下 %d 条，淘汰 %d 条，库内共 %d 条",
+                    result.kept, result.dropped, result.total,
+                )
+            }.onFailure { Timber.w(it, "记忆抽取失败（不影响对话）") }
+        }
+    }
+
+    /**
+     * **虚拟屏宿主** —— 角色干活的那块屏。
+     *
+     * ★ 它是单例、跟着进程走，**不跟 Activity 走**。
+     *   挂 Activity 上的话，Activity 被系统回收时虚拟屏会一起释放，
+     *   而虚拟屏一释放，上面的应用会被系统**挪回用户主屏** ——
+     *   那就是用户明确禁止的事（见 [VirtualScreenHost.stop] 的注释）。
+     */
+    val virtualScreenHost: com.pocketagent.assistant.VirtualScreenHost by lazy {
+        com.pocketagent.assistant.VirtualScreenHost(appContext)
+    }
+
     /** 当前是否有自定义角色在生效。 */
     fun hasCustomPersona(): Boolean = activeCustomPersona != null
 
@@ -1150,7 +1301,13 @@ class AppContainer(context: Context) {
         //    要么猜成"可以"，要么猜成"作为一个AI助手…"那种客服腔。
         //    两种都不对，而后者更糟 —— 它把一个有人格的角色瞬间打回原型。
         val mature = com.pocketagent.legacy.MatureContentGate.promptSection(maturePermissionValue)
-        return if (mature.isBlank()) withIntegrity else withIntegrity + "\n\n" + mature
+        val withMature = if (mature.isBlank()) withIntegrity else withIntegrity + "\n\n" + mature
+
+        // ★ 记忆：**只放这一轮该想起的那几条**。
+        //   ⚠️ 不是全量注入 —— 全量会让提示词膨胀、答非所问，
+        //      而且"记得越多越像不记得"（见 MemoryRecall 的文件头）。
+        val memory = memoryPromptSection(currentUserText)
+        return if (memory.isBlank()) withMature else withMature + "\n\n" + memory
     }
 
     /**
@@ -1416,6 +1573,13 @@ class AppContainer(context: Context) {
     /**
      * 切换模式，并**立刻探一次** root（切换时探，而不是每次调用都探）。
      *
+     * ★ 2026-10-28：加**落盘**。
+     *
+     * ⚠️ 在此之前这里只改内存 —— 于是重启之后永远退回普通模式。
+     *    用户的表现是"我明明设过 root 模式，怎么又变回去了"，
+     *    而界面上没有任何地方说"这个选择不会保留"。
+     *    这是同一条纪律的又一例：**不要把"未实现"伪装成"可用"**。
+     *
      * @return 切换后的实际生效模式 + 探测结论，供界面显示
      */
     fun setPrivilegeMode(mode: PrivilegeMode): Pair<PrivilegeMode, RootProbeResult> {
@@ -1424,7 +1588,35 @@ class AppContainer(context: Context) {
         val probe = if (mode == PrivilegeMode.ROOT) RootProbe.probe() else RootProbeResult.NotRooted
         lastRootProbe = probe
         Timber.i("权限模式：选择=%s 探测=%s 实际=%s", mode, probe::class.simpleName, effectivePrivilegeMode())
+        startupScope.launch {
+            runCatching {
+                pluginSourceStore.edit { it[KEY_PRIVILEGE_MODE] = mode.name }
+            }.onFailure { Timber.e(it, "权限模式落盘失败") }
+        }
         return effectivePrivilegeMode() to probe
+    }
+
+    /**
+     * 启动时读回权限模式，并为 root 选择**重新探一次**。
+     *
+     * ⚠️ 必须重新探：手机可能换了、root 管理器可能升级后丢了授权。
+     *    所以"读回选择"和"确认真的能用"是两步 —— 只读回选择会让界面
+     *    显示成 root 模式而实际降级，那正是 [effectivePrivilegeMode] 要防的事。
+     */
+    private suspend fun loadPrivilegeMode() {
+        val saved: String = runCatching<String?> {
+            pluginSourceStore.data.first()[KEY_PRIVILEGE_MODE]
+        }.getOrNull() ?: return
+        selectedPrivilegeMode = PrivilegeMode.entries.firstOrNull { it.name == saved }
+            ?: PrivilegeMode.NON_ROOT
+        if (selectedPrivilegeMode == PrivilegeMode.ROOT) {
+            lastRootProbe = RootProbe.probe()
+            Timber.i(
+                "权限模式读回：选择=ROOT 探测=%s 实际=%s",
+                lastRootProbe?.let { it::class.simpleName },
+                effectivePrivilegeMode(),
+            )
+        }
     }
 
     /**
@@ -1455,7 +1647,10 @@ class AppContainer(context: Context) {
             //   ⚠️ 刻意**只在 root 模式挂载**：它整条链路都靠 su 跑命令，
             //      普通模式下挂上去只会每次返回 NeedsRoot，白占工具位。
             AppHostTool(
-                runner = HostingAdapter(AppHostingRunner()),
+                // ★ 2026-10-28：从"角落小窗"改成**虚拟屏**。
+                //   用户的原话是硬的：必须在虚拟屏里，不能影响打扰主屏。
+                //   小窗做不到（窗口真的画在用户屏幕上）。
+                runner = HostingAdapter(virtualScreenHost),
                 screenSize = {
                     val dm = appContext.resources.displayMetrics
                     dm.widthPixels to dm.heightPixels
@@ -1541,6 +1736,8 @@ class AppContainer(context: Context) {
                 .onFailure { Timber.e(it, "主题偏好加载失败") }
             runCatching { loadMaturePermission() }
                 .onFailure { Timber.e(it, "成熟内容授权加载失败") }
+            runCatching { loadPrivilegeMode() }
+                .onFailure { Timber.e(it, "权限模式加载失败") }
 
             val prefs = runCatching { pluginSourceStore.data.first() }.getOrNull() ?: return@launch
             if (prefs[KEY_DSH_ON] == true) runCatching { startDshIntegration() }
@@ -1642,6 +1839,30 @@ class AppContainer(context: Context) {
          */
         private val KEY_ADULT_CONFIRMED = booleanPreferencesKey("adult_confirmed_v1")
         private val KEY_MATURE_ENABLED = booleanPreferencesKey("mature_enabled_v1")
+
+        /** 用户选的权限模式（存枚举 name，理由同 KEY_THEME_MODE）。 */
+        private val KEY_PRIVILEGE_MODE = androidx.datastore.preferences.core
+            .stringPreferencesKey("privilege_mode_v1")
+
+        /** 原子记忆落在应用私有目录下的文件名与子目录。 */
+        private const val MEMORY_DIR = "memory"
+        private const val MEMORY_FILE = "atoms.jsonl"
+
+        /**
+         * 每这么多轮对话才做一次记忆抽取。
+         *
+         * ★ 定 6 的理由：抽取是一次**额外计费**的模型调用。
+         *   每轮都抽等于用量翻一倍；太少则"刚说过的事它不记得"。
+         */
+        private const val MEMORY_EVERY_TURNS = 6
+
+        /**
+         * 每次抽取读多少轮。
+         *
+         * ⚠️ 取的是**当前路径**的最近这些轮（`recentForModel`），不是全库 ——
+         *    被用户放弃的分支不该变成记忆。
+         */
+        private const val MEMORY_WINDOW_TURNS = 24
 
         /** 首次启动引导是否已看过。**用户点掉弹窗才置位**，不随版本重置。 */
         private val KEY_FIRST_RUN_SEEN = booleanPreferencesKey("first_run_seen_v1")

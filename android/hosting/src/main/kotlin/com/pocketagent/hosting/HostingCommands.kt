@@ -24,6 +24,13 @@ object HostingCommands {
     /** Android 包名的合法形式。**白名单**，不是"过滤危险字符"。 */
     private val PACKAGE_RE = Regex("^[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z0-9_]+)+$")
 
+    /**
+     * Activity 组件名的合法形式：`包名/类名`，类名可以以 `.` 开头。
+     *
+     * ★ 同样必须是**白名单**：它会拼进 `am start -n <component>` 这条 root 命令。
+     */
+    private val COMPONENT_RE = Regex("^[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z0-9_]+)+/[a-zA-Z0-9_.$]+$")
+
     fun isValidPackage(name: String): Boolean = PACKAGE_RE.matches(name)
 
     /**
@@ -63,18 +70,85 @@ object HostingCommands {
     }
 
     /**
+     * 解析某个包的**启动 Activity 组件名**（形如 `com.foo/.MainActivity`）。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★★ 2026-10-27 真机：为什么必须走这一步
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 原来这里用的是 `monkey -p <pkg> -c LAUNCHER 1`。它能启动，但
+     * **忽略了 `--windowingMode`** —— 应用照样全屏起来，
+     * 随后 `am task resize` 对全屏任务**什么都不做**（它只在多窗口/
+     * 自由窗口模式下有效），于是整条托管链路静默失效。
+     *
+     * 真机实测（Redmi K60 / Android 15）：
+     * ```
+     * am start --windowingMode 5 -n com.tencent.mobileqq/.activity.SplashActivity
+     *   → Task{... mode=freeform}          ← 成了
+     * am task resize 24784 720 120 1420 1020
+     *   → mBounds=Rect(720, 120 - 1420, 1020)  ← 也成了
+     * ```
+     *
+     * ⚠️ 而 `am start --windowingMode 5 -p <pkg>` **解析不出来**
+     *    （`unable to resolve Intent`）。`-p` 只是给 action/category
+     *    加一个包过滤，不负责选 Activity。所以必须先问系统要组件名。
+     */
+    fun resolveLauncher(pkg: String): String {
+        require(isValidPackage(pkg)) { "非法包名：$pkg" }
+        return "cmd package resolve-activity --brief " +
+            "-a android.intent.action.MAIN -c android.intent.category.LAUNCHER $pkg"
+    }
+
+    /**
+     * 从 `resolve-activity --brief` 的输出里取组件名。
+     *
+     * 输出形如两行：
+     * ```
+     * priority=0 preferredOrder=0 match=0x108000 specificIndex=-1 isDefault=true
+     * com.tencent.mobileqq/.activity.SplashActivity
+     * ```
+     * 取**最后一行含 `/` 的**。取不到就返回 null（由调用方如实报错，
+     * 不要退回全屏启动 —— 那会把"没托管成功"变成"挡在用户屏幕上"）。
+     */
+    fun parseLauncherComponent(out: String): String? {
+        val line = out.lineSequence()
+            .map { it.trim() }
+            .lastOrNull { it.contains('/') && !it.contains(' ') && it.contains('.') }
+            ?: return null
+        // 组件名同样走**白名单**：它会被拼进 root 命令
+        return line.takeIf { COMPONENT_RE.matches(it) }
+    }
+
+    /**
      * 以**自由窗口**模式启动应用。
      *
      * ⚠️ `--windowingMode 5` 是 WINDOWING_MODE_FREEFORM 的常量值。
      *    这个数字写死是有意的：`am` 只认数字，不认枚举名。
      *    如果哪天系统改了值，症状会是"启动成全屏了"而不是报错 ——
      *    所以下面有一条测试钉住这个 5。
+     *
+     * @param component 来自 [parseLauncherComponent] 的组件名
      */
-    fun startFreeform(pkg: String): String {
+    fun startFreeform(component: String): String {
+        require(COMPONENT_RE.matches(component)) { "非法组件名：$component" }
+        return "$AM_START_FREEFORM -n $component"
+    }
+
+    /**
+     * 兜底的启动方式：只知道包名、解析不出组件时用它。
+     *
+     * ⚠️ 它**不会**让应用变成自由窗口 —— 调用方必须知道这一点，
+     *    并据此决定要不要继续走下去（见 [startFreeform] 的注释）。
+     */
+    fun startLauncherOnly(pkg: String): String {
         require(isValidPackage(pkg)) { "非法包名：$pkg" }
-        // 用 monkey 拉 LAUNCHER，比 am start 更通用（不用知道 Activity 名）
         return "monkey -p $pkg -c android.intent.category.LAUNCHER 1"
     }
+
+    /** `--windowingMode 5` = WINDOWING_MODE_FREEFORM。**这个 5 有测试钉住。** */
+    const val WINDOWING_MODE_FREEFORM: Int = 5
+
+    private const val AM_START_FREEFORM: String = "am start --windowingMode 5"
 
     /** 恢复全屏。freeform 的 `am task resize` 传全屏 bounds 即可。 */
     fun restoreFullscreen(taskId: Int, screenW: Int, screenH: Int): String =

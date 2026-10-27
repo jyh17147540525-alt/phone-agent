@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -153,7 +154,36 @@ fun TasksScreen(
                         modifier = Modifier.align(Alignment.Center),
                     )
                 } else {
+                    // ══════════════════════════════════════════════════
+                    //  ★★ 2026-10-28：一条一个 item + 自动滚到最新
+                    // ══════════════════════════════════════════════════
+                    //
+                    // 用户的原话："对话的流式 UI 是要从上到下的，
+                    // 角色的最新回复应该在下方回复和加载出现。"
+                    //
+                    // 之前整段对话被塞进 `LazyColumn` 的**一个 item** 里：
+                    // 方向是对的（老的在上、新的在下），但列表不知道"有几条"，
+                    // 于是**永远滚不到最新那条** —— 新回复在下方悄悄出现，
+                    // 用户还在看第一屏，以为"它没回我"。
+                    //
+                    // ⇒ 改成一个条目一个 item，再在"内容变长"时自动跟到底。
+                    //   ⚠️ 只在用户本来就在底部时才跟：他往上翻看历史的时候
+                    //   被拽回底部，是最让人恼火的一种"聪明"。
+                    val listState = rememberLazyListState()
+                    val last = vm.tasks.lastOrNull()
+                    LaunchedEffect(vm.tasks.size, last?.note?.length, last?.state) {
+                        if (vm.tasks.isEmpty()) return@LaunchedEffect
+                        val lastIndex = vm.tasks.lastIndex
+                        val info = listState.layoutInfo
+                        val atBottom = info.visibleItemsInfo.isEmpty() ||
+                            info.visibleItemsInfo.last().index >= lastIndex - 1
+                        if (atBottom) {
+                            listState.animateScrollToItem(lastIndex)
+                        }
+                    }
+
                     LazyColumn(
+                        state = listState,
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(
                             start = PaSpace.screenH,
@@ -161,16 +191,12 @@ fun TasksScreen(
                             top = PaSpace.s,
                             bottom = PaSpace.m,
                         ),
-                        verticalArrangement = Arrangement.spacedBy(PaSpace.s),
+                        verticalArrangement = Arrangement.spacedBy(PaSpace.m),
                     ) {
-                        // ★★ 2026-10-27：改成对话流。
-                        //   纯对话走气泡（用户右、AI 左、无边框），
-                        //   真的办事才用横穿卡片（带进度与中止）。
-                        //   判据是 `task.isAgentRun`，由 `ChatPort` 的意图判定决定。
-                        item {
-                            ConversationList(
-                                tasks = vm.tasks,
-                                onAbort = { vm.abort(it) },
+                        items(vm.tasks, key = { it.id }) { task ->
+                            ConversationTurn(
+                                task = task,
+                                onAbort = { vm.abort(task.id) },
                             )
                         }
                     }

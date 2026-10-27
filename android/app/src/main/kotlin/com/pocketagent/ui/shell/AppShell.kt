@@ -401,6 +401,9 @@ fun AppShell(
                     //   tick 来触发重组（容器返回的是同步内存值，不是 Flow）。
                     var matureTick by remember { mutableIntStateOf(0) }
                     val maturePermission = remember(matureTick) { container.maturePermission() }
+                    // ⚠️ 记忆条数同样要跟着 tick 刷新：用户刚聊完回来，
+                    //    这一行必须显示新的数字，否则"它记住了"这件事又变隐形了。
+                    val memoryCount = remember(matureTick) { container.memoryAtomCount() }
 
                     SettingsScreen(
                         keyStatus = keyStatus,
@@ -429,6 +432,7 @@ fun AppShell(
                             container.setMatureEnabled(it)
                             matureTick++
                         },
+                        memoryAtomCount = memoryCount,
                     )
                 }
 

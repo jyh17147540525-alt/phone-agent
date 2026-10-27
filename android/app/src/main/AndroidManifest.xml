@@ -111,20 +111,22 @@
         </activity>
 
         <!--
-            ── 应用托管可行性探针（临时器材，结论落地后删）──────────
+            ── 虚拟屏验证服务（临时器材，结论落地后删）──────────────
 
-            ⚠️ 它不实现任何功能，只负责把"系统到底允不允许"写进 logcat。
-            结论见 docs/应用托管方案-v1.0.md。
+            ⚠️ 用 **Service** 而不是 Activity：用户明确要求"验证也不能打扰主屏"。
+            用 Activity 做验证等于先把界面摆到用户眼前，本身就违反要求。
 
-            用 adb 起：
-              am start -n com.pocketagent.debug/com.pocketagent.assistant.AppHostProbeActivity
+            用 adb 起（不产生任何可见界面）：
+              am startservice -n com.pocketagent.debug/.assistant.VirtualScreenProbeService
         -->
-        <activity
-            android:name=".assistant.AppHostProbeActivity"
+        <service
+            android:name=".assistant.VirtualScreenProbeService"
             android:exported="true"
-            android:excludeFromRecents="true"
-            android:launchMode="singleTask"
-            android:theme="@android:style/Theme.Black.NoTitleBar" />
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="虚拟屏托管验证（不产生可见界面）" />
+        </service>
 
         <!-- ── 无障碍服务：M0 实验器材（P0-2 / EX-13）─────────────
              ⚠️ 它现在**不读屏、不操作、不缓存任何东西**，见类注释。

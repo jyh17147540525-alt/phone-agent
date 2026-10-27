@@ -85,17 +85,31 @@ fun ConversationList(
         verticalArrangement = Arrangement.spacedBy(PaSpace.m),
     ) {
         tasks.forEach { task ->
-            if (task.isAgentRun) {
-                // 真的动了手 —— 保留完整卡片（进度、步骤、中止）
-                TaskCard(task = task, onAbort = { onAbort(task.id) })
-            } else {
-                // 纯对话 —— 气泡流
-                TurnBubbles(
-                    task = task,
-                    onAbort = { onAbort(task.id) },
-                )
-            }
+            ConversationTurn(task = task, onAbort = { onAbort(task.id) })
         }
+    }
+}
+
+/**
+ * **一轮对话** —— 列表里的一个条目。
+ *
+ * ★ 2026-10-28 从 [ConversationList] 里拆出来：
+ *   整段对话挤在 `LazyColumn` 的**一个 item** 里时，列表根本不知道
+ *   "有几条"，于是**永远无法滚到最新那条** —— 用户看到的是
+ *   打开时的第一屏，新回复在下方悄悄出现，他一无所知。
+ *   拆成一条一个 item 之后，`animateScrollToItem(lastIndex)` 才有意义。
+ */
+@Composable
+internal fun ConversationTurn(
+    task: AgentTaskUi,
+    onAbort: () -> Unit,
+) {
+    if (task.isAgentRun) {
+        // 真的动了手 —— 保留完整卡片（进度、步骤、中止）
+        TaskCard(task = task, onAbort = onAbort)
+    } else {
+        // 纯对话 —— 气泡流
+        TurnBubbles(task = task, onAbort = onAbort)
     }
 }
 
