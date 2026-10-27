@@ -387,10 +387,38 @@ private fun PaField(
             placeholder = {
                 Text(text = placeholder, style = PaType.body, color = PaColor.TextTertiary)
             },
-            textStyle = PaType.body,
+            textStyle = PaType.body.copy(color = PaColor.TextPrimary),
             singleLine = singleLine,
             minLines = if (singleLine) 1 else 3,
             modifier = Modifier.fillMaxWidth(),
+            // ══════════════════════════════════════════════════════════
+            //  ★★ 2026-10-27 修：深色主题下"输入的字体与背景融成一体"
+            // ══════════════════════════════════════════════════════════
+            //
+            // 根因：不指定 `colors` 时，`OutlinedTextField` 用 Material3 的
+            // 默认配色 —— 那套读的是 `MaterialTheme.colorScheme`，
+            // 而我们的主题**刻意只映射了 8 个槽位**（见 AppTheme 注释）。
+            //
+            // 于是：**背景来自 PaColor，文字色来自 Material 默认** ——
+            // 深色下最严重：默认文字色是深色，背景也是深色 ⇒ 字看不见。
+            //
+            // ⚠️ 输入框有 7 类视觉槽位（文字/光标/边框三态/占位/容器），
+            //    漏一个就还是花的。这里一次全部钉死到 PaColor。
+            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                focusedTextColor = PaColor.TextPrimary,
+                unfocusedTextColor = PaColor.TextPrimary,
+                disabledTextColor = PaColor.TextDisabled,
+                cursorColor = PaColor.Accent,
+                focusedPlaceholderColor = PaColor.TextTertiary,
+                unfocusedPlaceholderColor = PaColor.TextTertiary,
+                // 聚焦时用强调色边框 —— 明确的"我正在这里打字"信号
+                focusedBorderColor = PaColor.Accent,
+                unfocusedBorderColor = PaColor.GlassBorder,
+                errorBorderColor = PaColor.Danger,
+                // 容器透明：让页面的暖色/深色底透上来（与卡片同一材质）
+                focusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                unfocusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+            ),
         )
     }
 }

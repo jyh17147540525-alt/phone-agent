@@ -71,7 +71,22 @@ interface ChatPort {
 /** 一轮对话的结论。三分支 —— 见 [ChatResult.NoCredential] 的注释。 */
 sealed interface ChatResult {
 
-    data class Ok(val text: String) : ChatResult
+    /**
+     * 模型给出了答复。
+     *
+     * @param isAgentRun 这一轮**真的动了手**（走过 agent 循环、调用过工具）。
+     *
+     *   ★ 界面靠它决定用哪种形态：
+     *     `false` → 气泡流（ChatGPT 式对话）
+     *     `true`  → 横穿卡片（带进度与中止）
+     *
+     *   ⚠️ 默认 `false`：绝大多数轮次是纯对话，卡片是例外。
+     *      让"例外"需要显式声明，比让"常态"需要声明更不容易出错。
+     */
+    data class Ok(
+        val text: String,
+        val isAgentRun: Boolean = false,
+    ) : ChatResult
 
     /**
      * 还没有可用的默认凭据。
@@ -185,6 +200,9 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
 
     Timber.i("意图判定：%s（%s）—— 输入 %d 字", decision.intent, decision.reason, userText.length)
 
+    // 界面靠它分流形态：气泡流 vs 横穿卡片（见 AgentTaskUi.isAgentRun）
+    val didAct = decision.intent == TurnIntent.Act
+
     // ★ 未亡人模式的冲突机制靠这一句运转。
     //   ⚠️ 必须在组装提示词**之前**调：`assistantSystemPrompt` 会读取
     //      `legacyConflicts` 决定"这轮该不该吵 / 该不该提旧账"。
@@ -286,7 +304,7 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
     return when {
         text == null -> ChatResult.NoCredential
         text.isBlank() -> ChatResult.Failed("模型返回了空内容。可能是 Key 无效、额度用完，或该模型不支持对话。")
-        else -> ChatResult.Ok(text)
+        else -> ChatResult.Ok(text, isAgentRun = didAct)
     }
 }
 

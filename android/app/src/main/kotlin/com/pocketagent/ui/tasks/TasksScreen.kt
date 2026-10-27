@@ -163,10 +163,14 @@ fun TasksScreen(
                         ),
                         verticalArrangement = Arrangement.spacedBy(PaSpace.s),
                     ) {
-                        items(items = vm.tasks, key = { it.id }) { task ->
-                            TaskCard(
-                                task = task,
-                                onAbort = { vm.abort(task.id) },
+                        // ★★ 2026-10-27：改成对话流。
+                        //   纯对话走气泡（用户右、AI 左、无边框），
+                        //   真的办事才用横穿卡片（带进度与中止）。
+                        //   判据是 `task.isAgentRun`，由 `ChatPort` 的意图判定决定。
+                        item {
+                            ConversationList(
+                                tasks = vm.tasks,
+                                onAbort = { vm.abort(it) },
                             )
                         }
                     }
@@ -195,7 +199,7 @@ fun TasksScreen(
  *  - **已中止**：带原因说明（"超出轮次预算"），而不是笼统的"失败"
  */
 @Composable
-private fun TaskCard(
+internal fun TaskCard(
     task: AgentTaskUi,
     onAbort: () -> Unit,
     modifier: Modifier = Modifier,
@@ -571,6 +575,24 @@ data class AgentTaskUi(
     val perceptionTier: Int = 1,
     val note: String = "正在分析…",
     val abortReason: String? = null,
+    /**
+     * 这一轮**真的动了手**吗（跑过 agent 循环、调用过工具）。
+     *
+     * ═══════════════════════════════════════════════════════════
+     *  ★★ 2026-10-27：界面的两种形态靠它分流
+     * ═══════════════════════════════════════════════════════════
+     *
+     * 用户要求"像 ChatGPT/Claude 那样对话"，但**执行类任务仍要保留大卡片**
+     * （那里有进度、步骤、中止，是必需的）。
+     *
+     * 所以判据不能是"任务状态"，只能是"**这一轮到底动没动手**"：
+     *  - `false`（纯对话）→ 气泡流，用户右、AI 左，无边框
+     *  - `true`（真办事）→ 横穿卡片，带进度与中止
+     *
+     * ⚠️ 这个值由 `ChatPort` 的意图判定结果决定 —— 它是唯一知道
+     *    "这一轮挂没挂工具"的地方。界面自己猜不出来。
+     */
+    val isAgentRun: Boolean = false,
 ) {
     companion object {
         /**
@@ -1110,7 +1132,14 @@ class TasksViewModel(
                         }
                     }
                     update(taskId) {
-                        it.copy(state = TaskState.Done, step = 1, note = result.text, perceptionTier = 0)
+                        it.copy(
+                            state = TaskState.Done,
+                            step = 1,
+                            note = result.text,
+                            perceptionTier = 0,
+                            // ★ 这一轮到底动没动手 —— 界面靠它选形态
+                            isAgentRun = result.isAgentRun,
+                        )
                     }
                 }
 
