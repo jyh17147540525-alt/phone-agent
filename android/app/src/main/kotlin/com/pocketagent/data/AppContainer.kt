@@ -60,6 +60,9 @@ import com.pocketagent.personalogic.CustomPersona
 import com.pocketagent.rootlogic.PrivilegeMode
 import com.pocketagent.rootlogic.RootProbeResult
 import com.pocketagent.assistant.effectiveMode
+import com.pocketagent.assistant.AppHostingRunner
+import com.pocketagent.assistant.HostingAdapter
+import com.pocketagent.mcp.AppHostTool
 import com.pocketagent.mcp.RootExecTool
 import com.pocketagent.assistant.RootProbe
 import com.pocketagent.assistant.RootShellRunner
@@ -1368,6 +1371,16 @@ class AppContainer(context: Context) {
                 // ★ 传函数而不是布尔值：用户可能刚在 Magisk 里放行，
                 //   而这个列表是 lazy 单例，构造时的快照会永远过时。
                 rootAvailable = { effectivePrivilegeMode() == PrivilegeMode.ROOT },
+            ),
+            // ★★ 应用托管 —— 让角色在角落的小窗里操作被授权的应用。
+            //   ⚠️ 刻意**只在 root 模式挂载**：它整条链路都靠 su 跑命令，
+            //      普通模式下挂上去只会每次返回 NeedsRoot，白占工具位。
+            AppHostTool(
+                runner = HostingAdapter(AppHostingRunner()),
+                screenSize = {
+                    val dm = appContext.resources.displayMetrics
+                    dm.widthPixels to dm.heightPixels
+                },
             ),
         )
     }

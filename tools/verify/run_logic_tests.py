@@ -159,6 +159,7 @@ MODULES = [
     #   · 检查点漏存 usage → 恢复后预算从零开始，等于没有预算
     #   没有一条抛异常，没有一条在真机上"一眼看出来"。
     #   这类问题唯一可靠的抓手就是确定性离线测试。
+    "android/hosting",
     "android/legacy",
     "android/rootlogic",
     "android/agentlogic",

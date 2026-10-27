@@ -189,6 +189,7 @@ dependencies {
     implementation(project(":memorylogic"))           // 上下文卸载 / 记忆闸门（记住什么）
     implementation(project(":rootlogic"))             // 权限模式 / 能力梯度 / 意图判定
     implementation(project(":legacy"))                // 未亡人：亲人识别 / 生活线 / 哀伤分期
+    implementation(project(":hosting"))               // 应用托管：freeform 小窗 + task resize
     // ⚠️ `:memorylogic` 用的是 `implementation(project(":agentlogic"))`，**不传递** ——
     //    而本模块的 `OffloadPorts.kt` 要构造 `UploadRequest`（`OffloadDraft.request`
     //    的类型），所以必须自己再声明一次。

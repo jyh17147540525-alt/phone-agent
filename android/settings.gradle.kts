@@ -93,6 +93,7 @@ include(":agent")
 // 「判错了会静默做错事」的逻辑，必须能离线钉住。
 // 未亡人模式：亲人识别 / 生活线 / 哀伤分期。
 // 零 Android 依赖 —— 这三样都是"判错了会说出很伤人的话"的逻辑，必须能离线钉住。
+include(":hosting")
 include(":legacy")
 include(":rootlogic")
 include(":agentlogic")

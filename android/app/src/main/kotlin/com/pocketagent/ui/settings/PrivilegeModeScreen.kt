@@ -33,6 +33,8 @@ import com.pocketagent.rootlogic.ModeGatedCapability
 import com.pocketagent.rootlogic.PrivilegeMode
 import com.pocketagent.rootlogic.RootProbeResult
 import com.pocketagent.rootlogic.explain
+import com.pocketagent.ui.design.PaColor
+import com.pocketagent.ui.design.PaType
 import com.pocketagent.ui.design.PaBanner
 import com.pocketagent.ui.design.PaBannerTone
 import com.pocketagent.ui.design.PaListGroup
@@ -150,6 +152,46 @@ fun PrivilegeModeScreen(
 
         items(CapabilityMatrix.all) { cap ->
             CapabilityRow(cap = cap, mode = current)
+        }
+
+        // ── 应用托管：把边界说在最前面 ────────────────────────────
+        //
+        // ★ 用户明确要求"虚拟屏、不干扰主屏"。而真机实测的结果是：
+        //    真正的 VirtualDisplay 需要 Shizuku（未运行），
+        //    而 freeform 小窗**看得见**但藏不起来。
+        //
+        //   ⇒ 把这件事**放在这里说清楚**，而不是等他点了托管才发现。
+        //     藏在文档里等于没说。
+        item {
+            Spacer(Modifier.height(PaSpace.l))
+            PaSectionTitle("应用托管")
+            Spacer(Modifier.height(PaSpace.xxs))
+            Text(
+                text = "让角色在**不占用你当前屏幕**的情况下操作 QQ、微信这类应用。",
+                style = PaType.body,
+                color = PaColor.TextPrimary,
+            )
+        }
+        items(com.pocketagent.hosting.HostingLimitation.items) { item ->
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = null,
+                    tint = PaColor.Warning,
+                )
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(text = item.title, style = PaType.body, color = PaColor.TextPrimary)
+                    Text(
+                        text = item.detail,
+                        style = PaType.caption,
+                        color = PaColor.TextSecondary,
+                    )
+                }
+            }
         }
 
         // ── root 能多得到什么 ────────────────────────────────────
