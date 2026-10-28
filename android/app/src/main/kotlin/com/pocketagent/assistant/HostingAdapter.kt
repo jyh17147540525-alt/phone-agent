@@ -90,31 +90,46 @@ class HostingAdapter(private val host: VirtualScreenHost) : AppHostingPort {
                         )
                     // ★ 顺手落一份到磁盘：这样"这块屏上真有内容"是**可以被查看**的，
                     //   而不是只有一句日志。路径随结果一起返回，便于排查。
+                    // ★★ 给模型装上眼睛：把这一帧存起来，下一轮模型请求
+                    //    会把它当**多模态图片**挂上去（见 AgentAdapters.llmPort）。
+                    //    这比任何文字摘要都直接 —— 模型看到的就是真实画面。
+                    runCatching { host.stashForModel() }
                     val saved = runCatching { host.saveSnapshot() }.getOrNull()
                     AppHostingPort.Ok(
                         "取到一帧虚拟屏画面（${png.size} 字节 PNG，${AppHostTool.VIRTUAL_W}x${AppHostTool.VIRTUAL_H}）。" +
                             (saved?.let { "已存到 $it。" } ?: "") +
                             buildString {
-                                val described = runCatching { host.describeScreen() }.getOrNull()
-                                if (described != null) {
+                                // ★★ 主路径：OCR 把画面读成**文字 + 坐标**。
+                                //    模型能直接照着坐标点，而不是靠猜。
+                                val text = runCatching { host.readScreenText() }.getOrNull()
+                                if (text != null) {
                                     appendLine()
-                                    appendLine(described)
+                                    appendLine(text)
                                     appendLine()
-                                    // ★★ 让角色**真的看到**画面。见 describeScreen 的注释：
-                                    //    这一版给的是亮度布局图（任何模型都能用），
-                                    //    不是多模态图片 —— 因为用户可能配的是纯文本模型。
                                     append(
-                                        "⚠️ 上面是**亮度布局图**（越亮的字符越亮），不是文字识别结果。" +
-                                            "它能告诉你哪里是标题栏、哪里是列表、哪里是大片空白" +
-                                            "（多半还在加载）；**但它读不出界面上的字** —— " +
-                                            "不要假装读到了文字内容。",
+                                        "⚠️ 这些是 OCR 读出来的字，可能有个别错字；" +
+                                            "按 @(x,y) 点就是点在那行字上。",
                                     )
                                 } else {
-                                    append(
-                                        "⚠️ 这一版还不能把画面交给模型看 —— " +
-                                            "你需要靠 tap/swipe 与已知的界面结构来操作；" +
-                                            "不要凭想象描述画面内容。",
-                                    )
+                                    // 兜底：一个字都没读出来时，至少说明这屏是空的还是有内容。
+                                    val described = runCatching { host.describeScreen() }.getOrNull()
+                                    if (described != null) {
+                                        appendLine()
+                                        appendLine(described)
+                                        appendLine()
+                                        append(
+                                            "⚠️ OCR 没读出任何文字，上面是**亮度布局图**" +
+                                                "（越亮的字符越亮）。它能说明这屏是空的、" +
+                                                "还在加载、还是有内容，但**读不出字** —— " +
+                                                "不要假装读到了文字。",
+                                        )
+                                    } else {
+                                        append(
+                                            "⚠️ 这一版还不能把画面交给模型看 —— " +
+                                                "你需要靠 tap/swipe 与已知的界面结构来操作；" +
+                                                "不要凭想象描述画面内容。",
+                                        )
+                                    }
                                 }
                             },
                     )

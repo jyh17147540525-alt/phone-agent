@@ -313,6 +313,8 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                     provider = provider,
                     credential = credential,
                     model = model,
+                    // ★ "眼睛"：`app_host shot` 存下的那一帧，这一轮交给模型看。
+                    pendingImage = { container.virtualScreenHost.takePendingImage() },
                 ),
                 runner = AgentAdapters.toolRunner(tools),
                 budgetGuard = BudgetGuard(AgentBudget(maxTurns = CHAT_MAX_TURNS)),

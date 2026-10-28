@@ -61,8 +61,25 @@ object VirtualScreenCommands {
     fun startOnDisplay(displayId: Int, component: String): String {
         require(displayId > 0) { "displayId 必须为正：$displayId（0 是用户主屏，永远不要往那上面拉）" }
         require(isValidComponent(component)) { "非法组件名：$component" }
-        return "am start --display $displayId -n $component"
+        return "am start --display $displayId --windowingMode $WINDOWING_MODE_FULLSCREEN -n $component"
     }
+
+    /**
+     * 关掉老方案留下的 freeform 全局开关。
+     *
+     * ★ 必须做：`enable_freeform_support=1` 会让**所有**新任务倾向 freeform，
+     *   包括用户自己手动打开的应用 —— 那不是我们该留在人家手机上的状态。
+     *
+     * ⚠️ 用 `settings delete` 而不是 `put 0`：这两个开关在系统里的语义是
+     *   "有没有设置过"，写 0 与"设置过但为假"在部分 ROM 上并不等价。
+     */
+    fun disableFreeform(): List<String> = listOf(
+        "settings delete global enable_freeform_support",
+        "settings delete global force_resizable_activities",
+    )
+
+    /** WINDOWING_MODE_FULLSCREEN。**这个数字有测试钉住。** */
+    const val WINDOWING_MODE_FULLSCREEN: Int = 1
 
     /**
      * 在虚拟屏上点一下。

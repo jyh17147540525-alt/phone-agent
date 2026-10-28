@@ -51,6 +51,9 @@ class VirtualScreenHost(private val context: Context) {
         current = this
     }
 
+    /** OCR 识别器（端侧，图不出设备）。 */
+    private val ocr = com.pocketagent.perception.OcrReader()
+
     private var display: VirtualDisplay? = null
     private var reader: ImageReader? = null
     private var frameThread: android.os.HandlerThread? = null
@@ -195,7 +198,72 @@ class VirtualScreenHost(private val context: Context) {
     }
 
     /**
-     * 把当前画面压成**一段模型读得懂的文本摘要**。
+     * **待交给模型看的那张图** —— 被取走即清空。
+     *
+     * ★ 这就是"给模型装上眼睛"的交付点：`shot` 把这一帧放进来，
+     *   下一轮模型请求会把它作为多模态图片挂上去（见 `AgentAdapters.llmPort`）。
+     *
+     * ⚠️ 只放**一张**：多张会让提示词成本翻倍，而"看当前这一屏"一张就够。
+     */
+    @Volatile
+    private var pendingImageForModel: ByteArray? = null
+
+    /** `shot` 调用时把这一帧存起来，等下一轮模型请求取走。 */
+    fun stashForModel() {
+        pendingImageForModel = snapshotPng()
+    }
+
+    /** 取走待看的那张图（取走即清空，避免每轮都重复上传同一张）。 */
+    fun takePendingImage(): ByteArray? {
+        val img = pendingImageForModel
+        pendingImageForModel = null
+        return img
+    }
+
+    /**
+     * **读屏幕上的字** —— 这是"角色能看清虚拟屏内容"的真正落点。
+     *
+     * ═══════════════════════════════════════════════════════════
+     *  ★★ 2026-10-28：模型一直反馈"看不清"
+     * ═══════════════════════════════════════════════════════════
+     *
+     * 上一版给的是**亮度布局图**（哪里亮哪里暗）。它能说明"这里有一块列表"，
+     * 但**一个字都读不出来** —— 于是模型只能猜，猜错就点错。
+     * 用户看到的就是"它根本看不清里面写了什么"。
+     *
+     * ⇒ 现在用 ML Kit 端侧 OCR 把像素变成**文字 + 坐标**：
+     *   · 任何模型都能读（不需要多模态）
+     *   · 每行带 `@(x,y)`，模型能直接点那个坐标，不用瞎猜位置
+     *   · 图不出设备、不需要网络、不需要额外权限
+     *
+     * ⚠️ 识别不出字就返回 null，**绝不编**：编出来的文字会让模型照着去点。
+     * ⚠️ OCR 是异步的 Task，而本类是同步 API —— 用 `runBlocking` + 超时，
+     *    调用方本来就在后台线程上（工具调用线程）。
+     */
+    fun readScreenText(timeoutMs: Long = OCR_TIMEOUT_MS): String? {
+        val bmp = lastFrame ?: return null
+        val started = android.os.SystemClock.uptimeMillis()
+        val lines = runCatching {
+            kotlinx.coroutines.runBlocking {
+                kotlinx.coroutines.withTimeoutOrNull(timeoutMs) { ocr.recognize(bmp) }
+            }
+        }.onFailure { Timber.w(it, "OCR 调用失败") }.getOrNull()
+        if (lines == null) {
+            // ⚠️ 超时要说出来。第一次识别要加载模型，慢是正常的；
+            //    但"慢到超时"和"读不出字"是两件事，混在一起就查不出来。
+            Timber.w("OCR 超时（>%dms）—— 首次识别需要加载模型", timeoutMs)
+            return null
+        }
+        if (lines.isEmpty()) return null
+        Timber.i("OCR 成功：%d 行，耗时 %dms", lines.size, android.os.SystemClock.uptimeMillis() - started)
+        return buildString {
+            appendLine("画面文字 ${lines.size} 行（格式：文字 @(x,y)，点这个坐标就能点到它）")
+            lines.forEach { appendLine("${it.text} @(${it.centerX},${it.centerY})") }
+        }.trimEnd()
+    }
+
+    /**
+     * 把当前画面压成**一段模型读得懂的文本摘要**（OCR 的兜底）。
      *
      * ═══════════════════════════════════════════════════════════
      *  ★ 为什么不是"直接把图片塞给模型"
@@ -206,12 +274,9 @@ class VirtualScreenHost(private val context: Context) {
      * 本项目是 BYOK —— 用户可能配的是纯文本模型，塞图片过去会整轮报错，
      * 而报错信息不会说"你的模型不支持图片"。
      *
-     * ⇒ 这一版走一条**任何模型都能用**的路：把画面压成亮度网格。
-     *   它给不出文字，但能给出**布局**：哪里是标题栏、哪里是列表、
-     *   哪里是大片空白（说明还在加载）。配合 tap/swipe 已经够用。
-     *   PNG 同时落盘，留给将来的视觉模型。
-     *
-     * ⚠️ 必须如实说明"这不是看图"：不说明的话，模型会编造画面内容。
+     * ⇒ 主路径是 [readScreenText]（OCR，能读字）。本函数是它的**兜底**：
+     *   当 OCR 一个字都没读出来（比如界面全是大图、或者还在加载白屏），
+     *   亮度网格至少还能说明"这屏是空的还是有内容"。
      */
     fun describeScreen(): String? {
         val bmp = lastFrame ?: return null
@@ -357,6 +422,13 @@ class VirtualScreenHost(private val context: Context) {
             Timber.i("虚拟屏：已清掉 %s", pkg)
         }
         hosted.clear()
+        // ⚠️ 把老方案留下的 freeform 全局开关关回去。
+        //    不关的话，用户自己手动打开的应用也会被系统倾向 freeform，
+        //    而那不是我们该留在他手机上的状态。
+        VirtualScreenCommands.disableFreeform().forEach { cmd ->
+            root(cmd)
+        }
+        Timber.i("虚拟屏：已清理 freeform 全局开关")
         // ⚠️ 给 force-stop 一点时间真的落地，再释放屏。
         //    不等的话，release 与 force-stop 会赛跑，偶尔仍会挪回主屏。
         Thread.sleep(300)
@@ -461,5 +533,12 @@ class VirtualScreenHost(private val context: Context) {
 
         /** 亮度网格用的字符梯度（暗 → 亮）。 */
         const val LUMINANCE_RAMP = " .:-=+*#%@"
+
+        /** OCR 超时。超过就当"读不出来"，不让工具调用挂住。
+         *
+         * ★ 30 秒看着很宽，但**第一次识别要加载 ML Kit 的端侧模型**，
+         *   真机首次可能要好几秒。给 8 秒时实测直接超时 → 退回亮度图 →
+         *   模型报告"一个字都读不出来"。那正是用户反复反馈的那个症状。 */
+        const val OCR_TIMEOUT_MS = 30_000L
     }
 }

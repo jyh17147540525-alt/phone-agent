@@ -141,8 +141,30 @@ object AgentAdapters {
         provider: LlmProvider,
         credential: ProviderCredential,
         model: String,
+        /**
+         * **给模型的"眼睛"** —— 取一张待看的截图；取走即清空。
+         *
+         * ═══════════════════════════════════════════════════════════
+         *  ★★ 2026-10-28：模型一直反馈"看不清虚拟屏里的内容"
+         * ═══════════════════════════════════════════════════════════
+         *
+         * 之前把画面压成亮度图 / 试着 OCR，两条路都不够：
+         *   · 亮度图读不出一个字；
+         *   · ML Kit 在这台没有 GMS 的机器上直接抛
+         *     `Failed to run text recognizer text-recognition-chinese`。
+         *
+         * ⇒ 用户的原话是最直接的答案："给模型装上眼睛"。
+         *   把 PNG 作为**多模态图片**塞进这一轮的最后一条消息。
+         *
+         * ⚠️ 但 BYOK 意味着用户可能配的是**纯文本模型**，塞图会整轮 400。
+         *   所以：带图失败 → **自动去掉图重试一次**。宁可这次看不见，
+         *   也不能让整轮对话崩掉（那会表现成"配了图就说话失败"）。
+         */
+        pendingImage: () -> ByteArray? = { null },
     ): AgentLlmPort = AgentLlmPort { request ->
-        val messages = request.messages.map { it.toChatMessage() }
+        val base = request.messages.map { it.toChatMessage() }
+        val shot = runCatching { pendingImage() }.getOrNull()
+        val messages = if (shot == null) base else base.attachImage(shot)
 
         val tools = request.tools.map {
             ToolSpec(
@@ -154,27 +176,47 @@ object AgentAdapters {
 
         var text = StringBuilder()
         // 按 id 归并分片（与网关 SseResponseWriter 同一套语义）
-        val calls = ToolCallAccumulator()
+        // ⚠️ `var` 而不是 `val`：带图失败重试时要换新实例，见下面的 catch。
+        var calls = ToolCallAccumulator()
 
-        provider.chat(
-            request = ChatRequest(model = model, messages = messages, tools = tools),
-            credential = credential,
-        ).collect { chunk ->
-            when (chunk) {
-                is ChatChunk.Delta -> text.append(chunk.text)
-
-                // 推理过程不进正文（同 ChatPort 的既定纪律）
-                is ChatChunk.Reasoning -> Unit
-
-                is ChatChunk.ToolCallDelta -> calls.accept(chunk)
-
-                is ChatChunk.Done -> Unit
+        /**
+         * 跑一轮。带图失败就**去掉图重试一次**。
+         *
+         * ⚠️ 这不是"优化"，是必需：BYOK 下用户可能配的是**纯文本模型**，
+         *   塞图会整轮 400。没有这条退路的话，用户会得到
+         *   "一打开虚拟屏就说话失败"，而报错是"请求被拒绝（400）"——
+         *   完全看不出是图片导致的。
+         */
+        suspend fun runOnce(msgs: List<ChatMessage>) {
+            provider.chat(
+                request = ChatRequest(model = model, messages = msgs, tools = tools),
+                credential = credential,
+            ).collect { chunk ->
+                when (chunk) {
+                    is ChatChunk.Delta -> text.append(chunk.text)
+                    // 推理过程不进正文（同 ChatPort 的既定纪律）
+                    is ChatChunk.Reasoning -> Unit
+                    is ChatChunk.ToolCallDelta -> calls.accept(chunk)
+                    is ChatChunk.Done -> Unit
+                }
             }
         }
 
-        val ready = calls.build()
+        try {
+            runOnce(messages)
+        } catch (e: Exception) {
+            if (shot == null) throw e
+            Timber.w(e, "带图请求失败，去掉截图重试（模型多半不支持视觉）")
+            text = StringBuilder()
+            // ⚠️ 重试必须换一个**新**的累加器：第一轮若已收过半截工具调用，
+            //    拼进第二轮就会变成一个不存在的调用（参数还不全）。
+            calls = ToolCallAccumulator()
+            runOnce(base)
+        }
+
         // ★ 诊断日志：区分"模型没调工具"与"调了但结果为空"。
         //   前者是提示词/模型能力问题，后者是权限/读屏问题 —— 修法完全不同。
+        val ready = calls.build()
         Timber.i(
             "模型回合：正文 %d 字，工具调用 %d 个%s",
             text.length,
@@ -257,4 +299,24 @@ private fun AgentMessage.toChatMessage(): ChatMessage = when (this) {
         content = listOf(ContentPart.ToolResult(toolCallId = callId, content = text)),
         toolCallId = callId,
     )
+}
+
+/**
+ * 把一张截图挂到**最后一条消息**上。
+ *
+ * ★ 为什么挂在最后一条而不是新加一条：
+ *   模型看图的时机是"这一轮我刚 `shot` 完，该看画面了"。
+ *   新加一条 USER 消息会让对话结构变成"用户又说了一句"，
+ *   而实际上用户什么都没说 —— 那会污染历史。
+ *
+ * ⚠️ 只挂 `USER` / `TOOL`，不挂 `SYSTEM`：系统提示词里塞图片，
+ *    多数厂商会直接拒绝。
+ */
+private fun List<ChatMessage>.attachImage(png: ByteArray): List<ChatMessage> {
+    val idx = indexOfLast { it.role == ChatMessage.Role.USER || it.role == ChatMessage.Role.TOOL }
+    if (idx < 0) return this
+    return toMutableList().also { list ->
+        val m = list[idx]
+        list[idx] = m.copy(content = m.content + ContentPart.Image(png, "image/png"))
+    }
 }
