@@ -51,6 +51,16 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!--
+        粗略定位：只用来"查一下当地天气"。
+
+        ⚠️ 刻意**只要粗略**（COARSE），不要精确（FINE）：
+           角色说"今天冷，多穿点"不需要知道你在哪个门牌号。
+           而精确 + 后台定位是**要付电量和隐私代价**的，代价与收益完全不成比例。
+        ⚠️ 这是**运行时权限**：用户拒绝是正常状态，没有位置就不提天气，其余功能照常。
+    -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!--
     ── 以下仍为 M1+ 目标配置，随功能落地逐项启用 ─────────────────
 
     ⚠️ 块内注释纪律（踩过一次真 bug）：

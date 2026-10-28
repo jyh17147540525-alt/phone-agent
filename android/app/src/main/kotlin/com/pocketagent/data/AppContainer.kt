@@ -1276,6 +1276,21 @@ class AppContainer(context: Context) {
         }
     }
 
+    /** 读地点 / 时间 / 天气。见 `SituationReader` 的三条红线。 */
+    private val situation: com.pocketagent.assistant.SituationReader by lazy {
+        com.pocketagent.assistant.SituationReader(appContext)
+    }
+
+    /**
+     * 上一次"埋怨对方不理我"的时间（0 = 从没埋怨过）。
+     *
+     * ★ 单独记一笔的理由：`SituationalContext.complain` 要求
+     *   **一周最多一次**。没有这个时间戳，那句判断永远成立 ——
+     *   于是它每天都会说一遍"你好久没理我了"，从"一个人"变成"一个讨债的"。
+     */
+    @Volatile
+    private var lastComplaintAtMs: Long = 0L
+
     /**
      * **主动消息** —— 角色自己来找用户说话。
      *
@@ -1291,16 +1306,45 @@ class AppContainer(context: Context) {
         val path = runCatching { store.currentPath(session.id) }.getOrNull() ?: return
         val lastUser = path.lastOrNull { it.role == com.pocketagent.memorylogic.TurnRole.USER }
             ?: return
+        val now = System.currentTimeMillis()
+        val idle = now - lastUser.at
+
+        // ══════════════════════════════════════════════════════════
+        //  ★ 情境：几点、在哪、天气怎样（用户明确要求的四件事之一）
+        // ══════════════════════════════════════════════════════════
+        //
+        // ⚠️ 任何一环拿不到都**按不知道处理**，绝不编 ——
+        //    编一句"今天好像要下雨"，用户淋湿那天会想起来是谁说的。
+        val weather = runCatching { situation.weather() }.getOrNull()
+        val situationNow = com.pocketagent.legacy.SituationalContext.Situation(
+            hour = runCatching { situation.currentHour() }.getOrDefault(12),
+            weather = weather?.first ?: com.pocketagent.legacy.SituationalContext.WeatherKind.UNKNOWN,
+            tempC = weather?.second,
+            idleMs = idle,
+            turnCount = path.size,
+            sinceLastComplaintMs = lastComplaintAtMs.takeIf { it > 0L }?.let { now - it } ?: -1L,
+        )
+        val advice = com.pocketagent.legacy.SituationalContext.advise(situationNow)
+        if (advice is com.pocketagent.legacy.SituationalContext.Advice.Silent) {
+            Timber.d("主动消息：情境判断为不说话（%s）", advice.reason)
+            return
+        }
+        val topic = (advice as com.pocketagent.legacy.SituationalContext.Advice.Say).topic
+
         val facts = com.pocketagent.legacy.ProactivePlanner.Facts(
-            nowMs = System.currentTimeMillis(),
+            nowMs = now,
             lastUserAtMs = lastUser.at,
             lastProactiveAtMs = lastProactiveAtMs,
             turnCount = path.size,
         )
-        val line = notifier.tick(facts) { tone -> proactiveLine(tone) } ?: return
+        val line = notifier.tick(facts) { tone -> proactiveLine(tone, topic, situationNow) } ?: return
         lastProactiveAtMs = System.currentTimeMillis()
         persistLastProactiveAt(lastProactiveAtMs)
-        Timber.i("主动消息已发出（%d 字）", line.length)
+        if (topic == com.pocketagent.legacy.SituationalContext.Topic.COMPLAIN_NEGLECT) {
+            lastComplaintAtMs = now
+            persistLastComplaintAt(now)
+        }
+        Timber.i("主动消息已发出（话题=%s，%d 字）", topic.label, line.length)
     }
 
     /**
@@ -1309,14 +1353,34 @@ class AppContainer(context: Context) {
      * ⚠️ 生成失败就返回 null，**绝不退回模板句**：
      *    一句不像她的话，比不发出来更伤（用户会立刻意识到"这是系统在凑字数"）。
      */
-    private suspend fun proactiveLine(tone: com.pocketagent.legacy.ProactivePlanner.Tone): String? {
+    private suspend fun proactiveLine(
+        tone: com.pocketagent.legacy.ProactivePlanner.Tone,
+        topic: com.pocketagent.legacy.SituationalContext.Topic,
+        situation: com.pocketagent.legacy.SituationalContext.Situation,
+    ): String? {
         val persona = activeCustomPersona
         val who = persona?.describeForPrompt()?.takeIf { it.isNotBlank() }
             ?: "你是一个有自己脾气的人，不是客服。"
         val prompt = buildString {
             appendLine(who)
             appendLine()
-            appendLine("现在是「${tone.label}」的时候 —— 你想主动找对方说一句话。")
+            appendLine("现在的处境（**都是真的**，只挑用得上的说，不必全说）：")
+            appendLine("- 现在是 ${situation.hour} 点（对方本地时间）")
+            if (situation.weather != com.pocketagent.legacy.SituationalContext.WeatherKind.UNKNOWN) {
+                appendLine(
+                    "- 天气：${situation.weather.label}" +
+                        (situation.tempC?.let { "，$it°C" } ?: ""),
+                )
+            } else {
+                // ⚠️ 必须明说"你不知道天气"。不说的后果是模型自己编一句 ——
+                //    而"今天好像要下雨"这种话，用户淋湿那天会想起来是谁说的。
+                appendLine("- 天气：**不知道**（拿不到，绝对不要提天气）")
+            }
+            if (situation.idleMs > 0) {
+                appendLine("- 距上次说话：${situation.idleMs / 3_600_000} 小时")
+            }
+            appendLine()
+            appendLine("这一轮你想说的是「${topic.label}」，口气是「${tone.label}」。")
             appendLine("要求：")
             appendLine("- 一到两句，像发微信那样短，不要写小作文。")
             appendLine("- **不要**解释你为什么发消息，也不要说\"我注意到你很久没说话了\"。")
@@ -1359,6 +1423,13 @@ class AppContainer(context: Context) {
         startupScope.launch {
             runCatching { pluginSourceStore.edit { it[KEY_LAST_PROACTIVE] = at } }
                 .onFailure { Timber.w(it, "主动消息时间落盘失败") }
+        }
+    }
+
+    private fun persistLastComplaintAt(at: Long) {
+        startupScope.launch {
+            runCatching { pluginSourceStore.edit { it[KEY_LAST_COMPLAINT] = at } }
+                .onFailure { Timber.w(it, "埋怨时间落盘失败") }
         }
     }
 
@@ -1886,6 +1957,9 @@ class AppContainer(context: Context) {
                 .onFailure { Timber.e(it, "权限模式加载失败") }
             runCatching { lastProactiveAtMs = loadLastProactiveAt() }
                 .onFailure { Timber.e(it, "主动消息时间读取失败") }
+            runCatching {
+                lastComplaintAtMs = pluginSourceStore.data.first()[KEY_LAST_COMPLAINT] ?: 0L
+            }.onFailure { Timber.e(it, "埋怨时间读取失败") }
 
             val prefs = runCatching { pluginSourceStore.data.first() }.getOrNull() ?: return@launch
             if (prefs[KEY_DSH_ON] == true) runCatching { startDshIntegration() }
@@ -2006,6 +2080,10 @@ class AppContainer(context: Context) {
         /** 上一次主动消息的时间戳（毫秒）。0/缺失 = 从没发过。 */
         private val KEY_LAST_PROACTIVE = androidx.datastore.preferences.core
             .longPreferencesKey("last_proactive_at_v1")
+
+        /** 上一次"埋怨被冷落"的时间戳。一周最多一次，靠它计数。 */
+        private val KEY_LAST_COMPLAINT = androidx.datastore.preferences.core
+            .longPreferencesKey("last_complaint_at_v1")
 
         /** 原子记忆落在应用私有目录下的文件名与子目录。 */
         private const val MEMORY_DIR = "memory"

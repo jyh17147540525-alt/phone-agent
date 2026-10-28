@@ -407,6 +407,33 @@ fun AppShell(
                     //    这一行必须显示新的数字，否则"它记住了"这件事又变隐形了。
                     val memoryCount = remember(matureTick) { container.memoryAtomCount() }
 
+                    // ══════════════════════════════════════════════
+                    //  ★ 运行时权限：通知 + 粗略定位
+                    // ══════════════════════════════════════════════
+                    //
+                    // ⚠️ 写进清单 ≠ 拿到。Android 13+ 的通知权限必须由用户
+                    //    点一次；没有它 `notify()` 会被**静默丢弃**，
+                    //    唯一的症状是"角色从来不主动找我"。
+                    val ctx = androidx.compose.ui.platform.LocalContext.current
+                    var notifTick by remember { mutableIntStateOf(0) }
+                    var locationTick by remember { mutableIntStateOf(0) }
+                    fun granted(p: String): Boolean =
+                        ctx.checkSelfPermission(p) ==
+                            android.content.pm.PackageManager.PERMISSION_GRANTED
+                    val notificationGranted = remember(notifTick) {
+                        android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU ||
+                            granted(android.Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                    val locationGranted = remember(locationTick) {
+                        granted(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+                    }
+                    val notifLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                        androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+                    ) { notifTick++ }
+                    val locationLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                        androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+                    ) { locationTick++ }
+
                     SettingsScreen(
                         keyStatus = keyStatus,
                         onOpenKeys = { navController.navigate(Routes.KEYS) },
@@ -435,6 +462,18 @@ fun AppShell(
                             matureTick++
                         },
                         memoryAtomCount = memoryCount,
+                        notificationGranted = notificationGranted,
+                        onRequestNotification = {
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                notifLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                            } else {
+                                notifTick++
+                            }
+                        },
+                        locationGranted = locationGranted,
+                        onRequestLocation = {
+                            locationLauncher.launch(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+                        },
                     )
                 }
 

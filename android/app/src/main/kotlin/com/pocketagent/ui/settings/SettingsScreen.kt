@@ -101,6 +101,14 @@ fun SettingsScreen(
     onMatureEnabledChange: (Boolean) -> Unit = {},
     /** 长期记忆库里有多少条原子。0 = 还没记住任何事 */
     memoryAtomCount: Int = 0,
+    /** 通知权限是否已授予（Android 13+ 必须由用户点出来，不能只写在清单里） */
+    notificationGranted: Boolean = false,
+    /** 点"开启通知" */
+    onRequestNotification: () -> Unit = {},
+    /** 粗略定位是否已授予（查天气用） */
+    locationGranted: Boolean = false,
+    /** 点"允许大致位置" */
+    onRequestLocation: () -> Unit = {},
 ) {
     val (keyBadge, keyTone) = keyBadgeFor(keyStatus)
 
@@ -398,6 +406,87 @@ fun SettingsScreen(
                                 //    隐藏会让用户找不到这个功能，以为产品没有；
                                 //    禁用 + 上面那句原因，才是可理解的。
                                 enabled = maturePermission.adultConfirmed,
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ══════════════════════════════════════════════════════
+            //  ★ 通知与主动消息 —— 角色能不能自己来找你
+            // ══════════════════════════════════════════════════════
+            //
+            // ⚠️ 这两项都是**运行时权限**：写进清单不等于拿到。
+            //    Android 13+ 的通知权限必须由用户点一次；没有它，
+            //    `notify()` 会被静默丢弃 —— 界面上什么都看不出来，
+            //    只有"角色从来不主动找我"这一个症状。
+            item {
+                Spacer(Modifier.height(PaSpace.xs))
+                PaSectionTitle("通知与主动消息")
+            }
+            item {
+                PaListGroup {
+                    Column(modifier = Modifier.fillMaxWidth().padding(PaSpace.m)) {
+                        Text(
+                            text = "通知权限",
+                            style = PaType.body,
+                            color = PaColor.TextPrimary,
+                        )
+                        Spacer(Modifier.height(PaSpace.xxs))
+                        Text(
+                            text = if (notificationGranted) {
+                                "已开启。角色会在合适的时机自己给你发消息 —— 不会太频繁。"
+                            } else {
+                                "没开的话，角色说的话发不出去（系统会直接丢掉），而界面上不会有任何提示。"
+                            },
+                            style = PaType.caption,
+                            color = PaColor.TextSecondary,
+                        )
+                        Spacer(Modifier.height(PaSpace.s))
+                        Row {
+                            PaButton(
+                                text = if (notificationGranted) "已开启" else "开启通知",
+                                onClick = onRequestNotification,
+                                style = if (notificationGranted) {
+                                    PaButtonStyle.Glass
+                                } else {
+                                    PaButtonStyle.Primary
+                                },
+                                enabled = !notificationGranted,
+                            )
+                        }
+                    }
+                }
+            }
+            item {
+                PaListGroup {
+                    Column(modifier = Modifier.fillMaxWidth().padding(PaSpace.m)) {
+                        Text(
+                            text = "大致位置",
+                            style = PaType.body,
+                            color = PaColor.TextPrimary,
+                        )
+                        Spacer(Modifier.height(PaSpace.xxs))
+                        Text(
+                            text = if (locationGranted) {
+                                "已开启。只用来查当地天气，坐标会四舍五入到约 11 公里。"
+                            } else {
+                                "只用来查天气。不开也能用 —— 只是它不会跟你提天气。"
+                            },
+                            style = PaType.caption,
+                            color = PaColor.TextSecondary,
+                        )
+                        Spacer(Modifier.height(PaSpace.s))
+                        Row {
+                            PaButton(
+                                text = if (locationGranted) "已开启" else "允许大致位置",
+                                onClick = onRequestLocation,
+                                style = if (locationGranted) {
+                                    PaButtonStyle.Glass
+                                } else {
+                                    PaButtonStyle.Primary
+                                },
+                                enabled = !locationGranted,
                             )
                         }
                     }
