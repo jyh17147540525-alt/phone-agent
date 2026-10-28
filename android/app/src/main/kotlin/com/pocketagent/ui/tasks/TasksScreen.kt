@@ -26,6 +26,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -226,30 +230,44 @@ fun TasksScreen(
                 androidx.activity.result.contract.ActivityResultContracts.GetContent(),
             ) { uri -> uri?.let { vm.attach(it.toString(), "文件") } }
             var actionHint by remember { mutableStateOf<String?>(null) }
+            var actionsExpanded by remember { mutableStateOf(false) }
+            var recording by remember { mutableStateOf(false) }
 
             Column(modifier = Modifier.fillMaxWidth()) {
-                ComposerActionRow(
-                    onAction = { action ->
-                        when (action) {
-                            ComposerAction.IMAGE -> {
-                                actionHint = null
-                                pickImage.launch("image/*")
+                // ★ 功能图标默认**收起**，点左边的 + 才展开（豆包的做法）。
+                //   常驻一排灰图标会一直占掉一行高度，而其中四个现在还用不了。
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = actionsExpanded,
+                    enter = androidx.compose.animation.expandVertically(
+                        com.pocketagent.ui.design.PaMotion.fast(),
+                    ) + androidx.compose.animation.fadeIn(),
+                    exit = androidx.compose.animation.shrinkVertically(
+                        com.pocketagent.ui.design.PaMotion.fast(),
+                    ) + androidx.compose.animation.fadeOut(),
+                ) {
+                    ComposerActionRow(
+                        onAction = { action ->
+                            when (action) {
+                                ComposerAction.IMAGE -> {
+                                    actionHint = null
+                                    pickImage.launch("image/*")
+                                }
+                                ComposerAction.FILE -> {
+                                    actionHint = null
+                                    pickFile.launch("*/*")
+                                }
+                                else -> {
+                                    // ★ 未接通的动作**必须有一句回应** ——
+                                    //   点了没反应会被当成"应用坏了"。
+                                    actionHint = action.pendingNote
+                                }
                             }
-                            ComposerAction.FILE -> {
-                                actionHint = null
-                                pickFile.launch("*/*")
-                            }
-                            else -> {
-                                // ★ 未接通的动作**必须有一句回应** ——
-                                //   点了没反应会被当成"应用坏了"。
-                                actionHint = action.pendingNote
-                            }
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = PaSpace.screenH),
-                )
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = PaSpace.screenH),
+                    )
+                }
                 // 已选附件：显示成一行小字，并**如实说明**它会怎么被用
                 vm.attachment?.let { att ->
                     ComposerHint(
@@ -257,11 +275,33 @@ fun TasksScreen(
                     )
                 }
                 actionHint?.let { ComposerHint(text = it) }
+                if (recording) {
+                    ComposerHint(text = "正在录音…松开手指结束")
+                }
 
                 TaskComposer(
                     value = vm.draft,
                     onValueChange = vm::onDraftChange,
                     onSend = vm::submit,
+                    leading = {
+                        ExpandActionsButton(
+                            expanded = actionsExpanded,
+                            onToggle = { actionsExpanded = !actionsExpanded },
+                        )
+                    },
+                    // ⚠️ 长按只在**输入框为空**时用来录音。
+                    //    有文字时长按应该是选字/移动光标 —— 抢掉那个手势
+                    //    会让"改一句话"变得非常难用。这条取舍写在这里，不藏着。
+                    onHoldStart = if (vm.draft.isEmpty()) ({
+                        recording = vm.startRecording() == null
+                        if (!recording) actionHint = vm.lastRecorderError
+                    }) else null,
+                    onHoldEnd = if (vm.draft.isEmpty()) ({
+                        if (recording) {
+                            recording = false
+                            actionHint = vm.finishRecording()?.let { null } ?: vm.lastRecorderError
+                        }
+                    }) else null,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = PaSpace.screenH)
@@ -510,23 +550,67 @@ private fun TaskComposer(
     onValueChange: (String) -> Unit,
     onSend: () -> Unit,
     modifier: Modifier = Modifier,
+    /** 左边的 + 号（展开功能图标）。 */
+    leading: @Composable () -> Unit = {},
+    /**
+     * 长按开始 / 松开结束（按住说话）。
+     *
+     * ⚠️ 传 null = 这个状态下不接管长按手势（有文字时应该让它去选字）。
+     */
+    onHoldStart: (() -> Unit)? = null,
+    onHoldEnd: (() -> Unit)? = null,
 ) {
     val shape = RoundedCornerShape(PaRadius.m)
     val canSend = value.isNotBlank()
+    var holding by remember { mutableStateOf(false) }
 
     Row(
         modifier = modifier
             .clip(shape)
             .background(PaColor.GlassTintStrong)
             .glassEdge(shape)
-            .padding(start = PaSpace.m, end = PaSpace.xs, top = PaSpace.xs, bottom = PaSpace.xs)
+            .padding(start = PaSpace.xs, end = PaSpace.xs, top = PaSpace.xs, bottom = PaSpace.xs)
             .imePadding(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // ★ 左边那个 + 号（豆包的位置）
+        leading()
+        Spacer(Modifier.width(PaSpace.xxs))
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .weight(1f)
+                .then(
+                    // ⚠️ 只在**允许按住说话**时才接管长按手势：
+                    //    有文字时长按应该是选字，抢掉它会让"改一句话"很难用。
+                    if (onHoldStart != null && onHoldEnd != null) {
+                        Modifier.pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val down = awaitFirstDown(requireUnconsumed = false)
+                                    // ★ `awaitLongPressOrCancellation` 用系统自己的长按判定
+                                    //   （含移动容差），比手写 withTimeoutOrNull 稳 ——
+                                    //   手写版本在 AwaitPointerEventScope 里根本编不过
+                                    //   （受限挂起作用域，不能调普通 withTimeoutOrNull）。
+                                    val longPressed = awaitLongPressOrCancellation(down.id)
+                                    if (longPressed != null) {
+                                        holding = true
+                                        onHoldStart()
+                                        // 等真正松手
+                                        waitForUpOrCancellation()
+                                        if (holding) {
+                                            holding = false
+                                            onHoldEnd()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        Modifier
+                    },
+                ),
             textStyle = TextStyle(
                 fontSize = PaType.body.fontSize,
                 lineHeight = PaType.body.lineHeight,
@@ -791,6 +875,22 @@ class TasksViewModel(
      */
     private val maturePermission: () -> com.pocketagent.legacy.MatureContentGate.Permission =
         { com.pocketagent.legacy.MatureContentGate.Permission() },
+
+    /**
+     * 录音接口（由容器注入；null = 预览里没有录音器）。
+     *
+     * ★ 为什么是两个 lambda 而不是直接给 `VoiceRecorder`：
+     *   本类刻意不依赖 Android 容器（预览与离线测试里没有它）。
+     */
+    private val startVoice: (() -> String?)? = null,
+    private val stopVoice: (() -> Pair<String, Long>?)? = null,
+
+    /**
+     * 把回复念出来（内部自己判断"朗读开关"是否开着）。
+     *
+     * ⚠️ 默认空实现：预览里不该出声。
+     */
+    private val speakReply: (String) -> Unit = {},
 
     /**
      * 把压缩段融进记忆分层。
@@ -1096,6 +1196,47 @@ class TasksViewModel(
         attachment = null
     }
 
+    /** 录音失败/不可用时给用户看的那句话。 */
+    var lastRecorderError: String? = null
+        private set
+
+    /**
+     * 开始录音。@return null = 开始成功；否则是一句原因
+     */
+    fun startRecording(): String? {
+        val starter = startVoice ?: run {
+            lastRecorderError = "这一版还没有接上录音（预览环境）"
+            return lastRecorderError
+        }
+        val err = starter()
+        lastRecorderError = err
+        return err
+    }
+
+    /**
+     * 结束录音并把这段语音挂成附件。
+     *
+     * ⚠️ 提示词里必须写清"这是录音文件，你还听不到内容"——
+     *    不写清楚模型会假装自己听懂了。这一版**没有**语音识别（STT）：
+     *    本机没有 GMS，系统自带的 `SpeechRecognizer` 用不了；
+     *    接云端 STT 等于要用户再配一套 Key。所以先如实交文件。
+     */
+    fun finishRecording(): String? {
+        val stopper = stopVoice ?: return "这一版还没有接上录音（预览环境）"
+        val clip = stopper()
+        if (clip == null) {
+            // 太短 = 误触。不当成错误，也不弹提示。
+            return null
+        }
+        val (path, ms) = clip
+        attachment = Attachment(
+            uri = path,
+            kind = "语音（${"%.1f".format(ms / 1000.0)} 秒）",
+        )
+        lastRecorderError = null
+        return null
+    }
+
     fun onDraftChange(text: String) {
         draft = text
     }
@@ -1361,6 +1502,10 @@ class TasksViewModel(
 
             when (result) {
                 is ChatResult.Ok -> {
+                    // ★ 念出来（朗读开关由容器判断；默认关，静音时不念）。
+                    //   ⚠️ 放在落库之后、界面更新之前也无所谓顺序 —— 它是异步的，
+                    //      而且失败不会影响这一轮的显示。
+                    runCatching { speakReply(result.text) }
                     // ★ 把答复也落库 —— 否则下次打开只剩用户那句话，
                     //   看起来像是对着空气说话。
                     conversations?.let { provider ->

@@ -1281,6 +1281,99 @@ class AppContainer(context: Context) {
         com.pocketagent.assistant.SituationReader(appContext)
     }
 
+    // ══════════════════════════════════════════════════════════════
+    //  ★ 语音：说给你听（TTS）+ 按住说话（录音）
+    // ══════════════════════════════════════════════════════════════
+
+    /** 把回复念出来。 */
+    val ttsSpeaker: com.pocketagent.assistant.TtsSpeaker by lazy {
+        com.pocketagent.assistant.TtsSpeaker(appContext)
+    }
+
+    /** 录语音消息。 */
+    val voiceRecorder: com.pocketagent.assistant.VoiceRecorder by lazy {
+        com.pocketagent.assistant.VoiceRecorder(appContext)
+    }
+
+    /** 麦克风权限是否已授予（界面用来决定要不要先要权限）。 */
+    fun hasMicPermission(): Boolean =
+        appContext.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    /**
+     * 是否自动朗读回复。
+     *
+     * ⚠️ **默认关**。突然出声是打扰；而"想在没人的时候听它说话"是明确意愿。
+     *    默认开启的产品，用户第一件事就是去关掉它 —— 然后连正常通知也不看了。
+     */
+    @Volatile
+    private var ttsEnabledValue: Boolean = false
+
+    fun ttsEnabled(): Boolean = ttsEnabledValue
+
+    fun setTtsEnabled(on: Boolean) {
+        ttsEnabledValue = on
+        if (!on) ttsSpeaker.stop()
+        startupScope.launch {
+            runCatching { pluginSourceStore.edit { it[KEY_TTS_ON] = on } }
+                .onFailure { Timber.e(it, "朗读开关落盘失败") }
+        }
+    }
+
+    /**
+     * 念一段（异步，失败静默）。
+     *
+     * ⚠️ 只念**给用户看的那部分**：正文里有 Markdown、括号动作、工具话术，
+     *    原样念出来会变成"星号星号粗体"这种怪声。
+     *    所以先做一次朗读清洗（见 [spokenForm]）。
+     */
+    fun speakAsync(text: String) {
+        val clean = spokenForm(text)
+        if (clean.isBlank()) return
+        // ★ 静音时不念：在已经把声音关掉的手机上突然出声，比不念更糟。
+        if (ttsSpeaker.mediaVolume() <= 0f) {
+            Timber.d("朗读跳过：媒体音量为 0")
+            return
+        }
+        startupScope.launch {
+            runCatching {
+                val repo = when (val opened = openCredentialStore()) {
+                    is CredentialStoreResult.Ready -> opened.repository
+                    else -> return@launch
+                }
+                repo.useDefaultTtsKey { provider, credential ->
+                    ttsSpeaker.speak(
+                        provider = provider,
+                        credential = credential,
+                        request = com.pocketagent.provider.api.SpeechRequest(
+                            text = clean,
+                            // ⚠️ 必须显式要 PCM：默认是 MP3，而 AudioTrack 播不了
+                            //    压缩格式 —— 会变成一段刺耳的噪声。
+                            format = com.pocketagent.provider.api.AudioFormat.PCM,
+                        ),
+                    )
+                }
+            }.onFailure { Timber.d(it, "朗读失败（不打扰用户）") }
+        }
+    }
+
+    /**
+     * 把回复正文变成**适合念出来**的样子。
+     *
+     * ⚠️ 只做删减，不改语义：Markdown 记号、URL、括号里的舞台动作
+     *    （"（凑近眯眼看）"）都不该被念出来 —— 用户会听见一串
+     *    "星号 星号 粗体"。这属于"同一段内容，两种读者"。
+     */
+    fun spokenForm(text: String): String = text
+        .replace(Regex("```[\\s\\S]*?```"), "，代码略，")
+        .replace(Regex("`([^`]*)`"), "$1")
+        .replace(Regex("[*_#>~]+"), "")
+        .replace(Regex("https?://\\S+"), "，链接略，")
+        .replace(Regex("[（(][^）)]{0,30}[）)]"), "")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+        .take(SPEAK_MAX_CHARS)
+
     /**
      * 上一次"埋怨对方不理我"的时间（0 = 从没埋怨过）。
      *
@@ -1960,6 +2053,9 @@ class AppContainer(context: Context) {
             runCatching {
                 lastComplaintAtMs = pluginSourceStore.data.first()[KEY_LAST_COMPLAINT] ?: 0L
             }.onFailure { Timber.e(it, "埋怨时间读取失败") }
+            runCatching {
+                ttsEnabledValue = pluginSourceStore.data.first()[KEY_TTS_ON] == true
+            }.onFailure { Timber.e(it, "朗读开关读取失败") }
 
             val prefs = runCatching { pluginSourceStore.data.first() }.getOrNull() ?: return@launch
             if (prefs[KEY_DSH_ON] == true) runCatching { startDshIntegration() }
@@ -2084,6 +2180,12 @@ class AppContainer(context: Context) {
         /** 上一次"埋怨被冷落"的时间戳。一周最多一次，靠它计数。 */
         private val KEY_LAST_COMPLAINT = androidx.datastore.preferences.core
             .longPreferencesKey("last_complaint_at_v1")
+
+        /** 自动朗读回复的开关（默认关）。 */
+        private val KEY_TTS_ON = booleanPreferencesKey("tts_auto_speak_v1")
+
+        /** 一次朗读最多念多少字 —— 长回答念一半就够，念完是折磨。 */
+        private const val SPEAK_MAX_CHARS = 220
 
         /** 原子记忆落在应用私有目录下的文件名与子目录。 */
         private const val MEMORY_DIR = "memory"

@@ -247,6 +247,20 @@ fun AppShell(
             maturePermission = { container.maturePermission() },
             // ★ 压缩段 → 记忆分层。见 TasksViewModel 里 absorbCompressed 的注释。
             absorbCompressed = { segments -> container.absorbCompressedSegments(segments) },
+            // ★ 按住说话：录音器在容器里（要 Context），本类只拿到两个 lambda。
+            startVoice = {
+                if (!container.hasMicPermission()) {
+                    "没有麦克风权限。去「设置 → 通知与主动消息」允许录音。"
+                } else {
+                    container.voiceRecorder.start()
+                }
+            },
+            stopVoice = {
+                val clip = container.voiceRecorder.stop() ?: return@TasksViewModel null
+                clip.file.absolutePath to clip.durationMs
+            },
+            // ★ 朗读：开关在容器里判断（默认关），这里只负责把文本交出去。
+            speakReply = { text -> if (container.ttsEnabled()) container.speakAsync(text) },
         )
     }
 
@@ -433,6 +447,15 @@ fun AppShell(
                     val locationLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
                         androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
                     ) { locationTick++ }
+                    var micTick by remember { mutableIntStateOf(0) }
+                    var ttsTick by remember { mutableIntStateOf(0) }
+                    val micGranted = remember(micTick) {
+                        granted(android.Manifest.permission.RECORD_AUDIO)
+                    }
+                    val ttsOn = remember(ttsTick) { container.ttsEnabled() }
+                    val micLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                        androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+                    ) { micTick++ }
 
                     SettingsScreen(
                         keyStatus = keyStatus,
@@ -473,6 +496,13 @@ fun AppShell(
                         locationGranted = locationGranted,
                         onRequestLocation = {
                             locationLauncher.launch(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+                        },
+                        micGranted = micGranted,
+                        onRequestMic = { micLauncher.launch(android.Manifest.permission.RECORD_AUDIO) },
+                        ttsEnabled = ttsOn,
+                        onToggleTts = {
+                            container.setTtsEnabled(it)
+                            ttsTick++
                         },
                     )
                 }

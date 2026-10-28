@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Image
@@ -20,9 +21,11 @@ import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.pocketagent.ui.design.PaColor
@@ -74,7 +77,6 @@ enum class ComposerAction(
  *
  * ★ 视觉上刻意贴近豆包：
  *   · 圆形浅底 + 20dp 线图标 + 无文字（文字只在无障碍标签里）
- *   · 只在**输入区上方**占一行，不抢正文的位置
  *   · 窄屏可横向滚动 —— 六个图标在 360dp 宽的机器上放不下，
  *     挤成一团比滚动更难用
  */
@@ -93,6 +95,55 @@ fun ComposerActionRow(
         for (action in ComposerAction.entries) {
             ActionChip(action = action, onClick = { onAction(action) })
         }
+    }
+}
+
+/**
+ * 输入框**左边那个 + 号**。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  ★ 用户的口径变了：功能不该一直摊在输入框上方
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * "我觉得这些是在输入框的左边，加一个加号的图标，用户点击后会出现这些功能。"
+ *
+ * 之前把六个图标常驻在输入框上方 —— 那会一直占掉一行高度，
+ * 而其中四个现在还用不了。收起成 `+` 之后：
+ *   · 平时只有一个按钮，写作时才不被一排灰图标分心；
+ *   · 点开才出现那六个；再点一次收起。
+ *
+ * ★ 展开时 `+` 旋转 45° 变成 `×` —— 这是最省事的"状态可见"，
+ *   不需要额外一行文字说"点这里收起"。
+ */
+@Composable
+fun ExpandActionsButton(
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // ⚠️ 必须 `import androidx.compose.runtime.getValue` —— 少了它 `by` 委托编不过，
+    //    而错误信息（"State<Float> 没有 getValue"）不会提到是缺 import。
+    val rotation: Float by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (expanded) 45f else 0f,
+        animationSpec = com.pocketagent.ui.design.PaMotion.fast(),
+        label = "composerPlusRotation",
+    )
+    Box(
+        modifier = modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(if (expanded) PaColor.AccentSoft else PaColor.GlassTintStrong)
+            .clickable(onClickLabel = if (expanded) "收起功能" else "更多功能", onClick = onToggle),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Default.Add,
+            contentDescription = if (expanded) "收起功能" else "更多功能",
+            tint = if (expanded) PaColor.Accent else PaColor.TextSecondary,
+            modifier = Modifier
+                .size(22.dp)
+                .rotate(rotation),
+        )
     }
 }
 

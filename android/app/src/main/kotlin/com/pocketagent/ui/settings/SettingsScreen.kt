@@ -109,6 +109,14 @@ fun SettingsScreen(
     locationGranted: Boolean = false,
     /** 点"允许大致位置" */
     onRequestLocation: () -> Unit = {},
+    /** 麦克风是否已授予（按住说话用） */
+    micGranted: Boolean = false,
+    /** 点"允许录音" */
+    onRequestMic: () -> Unit = {},
+    /** 是否自动朗读回复 */
+    ttsEnabled: Boolean = false,
+    /** 切换自动朗读 */
+    onToggleTts: (Boolean) -> Unit = {},
 ) {
     val (keyBadge, keyTone) = keyBadgeFor(keyStatus)
 
@@ -487,6 +495,70 @@ fun SettingsScreen(
                                     PaButtonStyle.Primary
                                 },
                                 enabled = !locationGranted,
+                            )
+                        }
+                    }
+                }
+            }
+
+            item {
+                PaListGroup {
+                    Column(modifier = Modifier.fillMaxWidth().padding(PaSpace.m)) {
+                        Text(
+                            text = "按住说话（麦克风）",
+                            style = PaType.body,
+                            color = PaColor.TextPrimary,
+                        )
+                        Spacer(Modifier.height(PaSpace.xxs))
+                        Text(
+                            text = if (micGranted) {
+                                "已开启。在输入框里长按可以录一条语音发给角色。"
+                            } else {
+                                "不开就没法发语音消息。只在按住输入框那一下录音，不做后台录音。"
+                            },
+                            style = PaType.caption,
+                            color = PaColor.TextSecondary,
+                        )
+                        Spacer(Modifier.height(PaSpace.s))
+                        Row {
+                            PaButton(
+                                text = if (micGranted) "已开启" else "允许录音",
+                                onClick = onRequestMic,
+                                style = if (micGranted) PaButtonStyle.Glass else PaButtonStyle.Primary,
+                                enabled = !micGranted,
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ══════════════════════════════════════════════════════
+            //  ★ 朗读回复（TTS）
+            // ══════════════════════════════════════════════════════
+            item {
+                PaListGroup {
+                    Column(modifier = Modifier.fillMaxWidth().padding(PaSpace.m)) {
+                        Text(
+                            text = "朗读回复",
+                            style = PaType.body,
+                            color = PaColor.TextPrimary,
+                        )
+                        Spacer(Modifier.height(PaSpace.xxs))
+                        Text(
+                            text = if (ttsEnabled) {
+                                "已开启。角色会把回复念出来（需要配一条语音 Key）。"
+                            } else {
+                                "默认关闭 —— 突然出声是打扰。想听的时候再开。"
+                            },
+                            style = PaType.caption,
+                            color = PaColor.TextSecondary,
+                        )
+                        Spacer(Modifier.height(PaSpace.s))
+                        Row {
+                            PaButton(
+                                text = if (ttsEnabled) "关掉" else "开启朗读",
+                                onClick = { onToggleTts(!ttsEnabled) },
+                                style = if (ttsEnabled) PaButtonStyle.Glass else PaButtonStyle.Primary,
                             )
                         }
                     }

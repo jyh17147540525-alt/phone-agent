@@ -61,6 +61,14 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <!--
+        麦克风：只用于**按住说话**录一条语音消息。
+
+        ⚠️ 不在后台录、不常开、不监听唤醒词 —— 只在用户按住输入框那一下。
+        ⚠️ 运行时权限：拒绝是正常状态，没有它就没有语音消息，其余功能照常。
+    -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!--
     ── 以下仍为 M1+ 目标配置，随功能落地逐项启用 ─────────────────
 
     ⚠️ 块内注释纪律（踩过一次真 bug）：

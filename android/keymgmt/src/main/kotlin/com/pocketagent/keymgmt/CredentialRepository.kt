@@ -424,10 +424,43 @@ class CredentialRepository(
         }
     }
 
+    /**
+     * 用**默认的语音** Key 跑一段合成。
+     *
+     * ═══════════════════════════════════════════════════════════
+     *  ★ 为什么不能复用 [useDefaultKey]
+     * ═══════════════════════════════════════════════════════════
+     *
+     * 对话 Key 与语音 Key 是**两条不同的凭据**（按 `CredentialPurpose` 分开存）：
+     * 很多厂商的语音接口与对话接口不是同一个 Key、甚至不是同一个厂商。
+     * 拿对话那条去合成语音，得到的是"鉴权失败" —— 而用户明明
+     * 在语音页校验通过过。那种"两个页面说法不一致"是最难查的一类问题。
+     *
+     * ⚠️ 与 [useDefaultKey] 一致：作用域结束（含异常路径）明文立即清零。
+     *
+     * @return null 表示**没有配过语音 Key**（不是错误，是"还没配"）
+     */
+    suspend fun <T> useDefaultTtsKey(
+        block: suspend (provider: TtsProvider, credential: ProviderCredential) -> T,
+    ): T? {
+        val entity = dao.defaultByPurpose(CredentialPurpose.TTS.name) ?: return null
+        val provider = ttsProviders.firstOrNull { it.id == entity.providerId } ?: return null
+
+        return crypto.withDecryptedKey(
+            EncryptedBlob(ciphertext = entity.ciphertext, iv = entity.iv)
+        ) { plain ->
+            val credential = ProviderCredential(plain, entity.baseUrlOverride)
+            try {
+                block(provider, credential)
+            } finally {
+                credential.clear()
+            }
+        }
+    }
+
     // ─────────────────────────────────────────────────────────────
     //  内部工具
     // ─────────────────────────────────────────────────────────────
-
     /**
      * 解密一条凭据、跑校验、无论成败都清零。
      *
