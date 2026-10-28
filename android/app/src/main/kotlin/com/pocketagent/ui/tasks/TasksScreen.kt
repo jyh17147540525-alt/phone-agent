@@ -212,15 +212,62 @@ fun TasksScreen(
                 }
             }
 
-            TaskComposer(
-                value = vm.draft,
-                onValueChange = vm::onDraftChange,
-                onSend = vm::submit,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = PaSpace.screenH)
-                    .padding(bottom = PaSpace.s),
-            )
+            // ══════════════════════════════════════════════════════
+            //  ★ 功能入口（照豆包那一排图标）+ 输入框
+            // ══════════════════════════════════════════════════════
+            //
+            // ⚠️ 两类图标在**行为**上必须分开（见 ComposerAction.wired）：
+            //    图片/文件 是真的打开系统选择器；
+            //    语音/通话/屏幕共享 现在没接通，点了要**明说**，不能静默。
+            val pickImage = androidx.activity.compose.rememberLauncherForActivityResult(
+                androidx.activity.result.contract.ActivityResultContracts.GetContent(),
+            ) { uri -> uri?.let { vm.attach(it.toString(), "图片") } }
+            val pickFile = androidx.activity.compose.rememberLauncherForActivityResult(
+                androidx.activity.result.contract.ActivityResultContracts.GetContent(),
+            ) { uri -> uri?.let { vm.attach(it.toString(), "文件") } }
+            var actionHint by remember { mutableStateOf<String?>(null) }
+
+            Column(modifier = Modifier.fillMaxWidth()) {
+                ComposerActionRow(
+                    onAction = { action ->
+                        when (action) {
+                            ComposerAction.IMAGE -> {
+                                actionHint = null
+                                pickImage.launch("image/*")
+                            }
+                            ComposerAction.FILE -> {
+                                actionHint = null
+                                pickFile.launch("*/*")
+                            }
+                            else -> {
+                                // ★ 未接通的动作**必须有一句回应** ——
+                                //   点了没反应会被当成"应用坏了"。
+                                actionHint = action.pendingNote
+                            }
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = PaSpace.screenH),
+                )
+                // 已选附件：显示成一行小字，并**如实说明**它会怎么被用
+                vm.attachment?.let { att ->
+                    ComposerHint(
+                        text = "已附带${att.kind}：${att.displayName}（发送时会把这个路径交给角色，它可以自己打开看）",
+                    )
+                }
+                actionHint?.let { ComposerHint(text = it) }
+
+                TaskComposer(
+                    value = vm.draft,
+                    onValueChange = vm::onDraftChange,
+                    onSend = vm::submit,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = PaSpace.screenH)
+                        .padding(bottom = PaSpace.s),
+                )
+            }
         }
     }
 }
@@ -1020,13 +1067,55 @@ class TasksViewModel(
     var draft by mutableStateOf("")
         private set
 
+    /**
+     * 用户选中的附件（图片 / 文件）。
+     *
+     * ★ 存的是 **content:// URI 字符串**，不是文件内容：
+     *   - 拿内容要么先复制进私有目录（占空间），要么整块读进内存（大图会 OOM）；
+     *   - 而角色本身有文件工具，给它**路径**比给它一份副本更有用 ——
+     *     它可以自己决定要不要打开、用什么方式打开。
+     *
+     * ⚠️ 也正因为是路径，提示词里必须写清楚"这是路径不是内容"，
+     *   否则模型会假装自己已经看过那张图。
+     */
+    data class Attachment(val uri: String, val kind: String) {
+        /** 显示用：URI 最后一段，去掉查询串。 */
+        val displayName: String
+            get() = uri.substringAfterLast('/').substringBefore('?').ifBlank { uri.take(24) }
+    }
+
+    var attachment by mutableStateOf<Attachment?>(null)
+        private set
+
+    /** 选好附件（由界面在选择器回调里调）。 */
+    fun attach(uri: String, kind: String) {
+        attachment = Attachment(uri = uri, kind = kind)
+    }
+
+    fun clearAttachment() {
+        attachment = null
+    }
+
     fun onDraftChange(text: String) {
         draft = text
     }
 
     fun submit() {
-        val prompt = draft.trim()
-        if (prompt.isEmpty()) return
+        val typed = draft.trim()
+        val att = attachment
+        // ⚠️ 只有附件、没有文字时也要能发：用户选了一张图什么都不说，
+        //    意思就是"你看看这个"。要求他再打一句话是无谓的门槛。
+        if (typed.isEmpty() && att == null) return
+        val prompt = buildString {
+            if (typed.isNotEmpty()) append(typed)
+            if (att != null) {
+                if (typed.isNotEmpty()) append('\n')
+                // ★ 如实说明这是**路径**：不写清楚的话，模型会假装已经看过内容。
+                append("（我附了一个${att.kind}：${att.uri} —— 这是路径，不是内容；")
+                append("需要的话你自己去打开看）")
+            }
+        }
+        attachment = null
 
         // ★ 分母用**聊天链路的真实额度**，不是 `AgentTaskUi` 的默认值。
         //   2026-10-19 真机上这里显示「0 / 8」而循环实际给的是 16 ——
