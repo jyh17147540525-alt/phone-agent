@@ -1,6 +1,7 @@
 package com.pocketagent.ui.persona
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -96,6 +97,22 @@ fun PersonaScreen(
     }
     var gender by remember(initial) { mutableStateOf(initial?.gender ?: PersonaGender.UNSPECIFIED) }
 
+    // ── 立体度的第二组（2026-10-28）────────────────────────────
+    var verbosity by remember(initial) {
+        mutableStateOf(initial?.verbosity ?: com.pocketagent.personalogic.PersonaVerbosity.NORMAL)
+    }
+    var dailyLife by remember(initial) { mutableStateOf(initial?.dailyLife.orEmpty()) }
+    var interests by remember(initial) { mutableStateOf(initial?.interests?.joinToString("、").orEmpty()) }
+    var taboos by remember(initial) { mutableStateOf(initial?.taboos?.joinToString("、").orEmpty()) }
+    var sharedRefs by remember(initial) {
+        mutableStateOf(initial?.sharedReferences?.joinToString("、").orEmpty())
+    }
+    var initiative by remember(initial) {
+        mutableStateOf(initial?.initiative ?: com.pocketagent.personalogic.PersonaInitiative.NORMAL)
+    }
+    var sleepHour by remember(initial) { mutableStateOf((initial?.sleepHour ?: 23).toString()) }
+    var wakeHour by remember(initial) { mutableStateOf((initial?.wakeHour ?: 7).toString()) }
+
     // 把所有输入拼起来交给识别器 —— 用户在任何一个框里写到"走了"都该被感知
     val combinedText = listOf(name, identity, relationTo, catchphrases).joinToString(" ")
     val signal = remember(combinedText) { KinshipDetector.detect(combinedText) }
@@ -125,6 +142,15 @@ fun PersonaScreen(
             catchphrases = catchphrases.split("、", ",", "，").map { it.trim() }.filter { it.isNotBlank() },
             gender = gender,
             flawsRaw = flaws.split("\n").map { it.trim() }.filter { it.isNotBlank() },
+            // ★ 立体度第二组：**草稿也要带上**，否则预览效果评估会与实际不符。
+            verbosity = verbosity,
+            dailyLife = dailyLife,
+            interests = interests.split("、", ",", "，").map { it.trim() }.filter { it.isNotBlank() },
+            taboos = taboos.split("、", ",", "，").map { it.trim() }.filter { it.isNotBlank() },
+            sharedReferences = sharedRefs.split("、", ",", "，").map { it.trim() }.filter { it.isNotBlank() },
+            initiative = initiative,
+            sleepHour = sleepHour.toIntOrNull()?.coerceIn(0, 23) ?: 23,
+            wakeHour = wakeHour.toIntOrNull()?.coerceIn(0, 23) ?: 7,
         )
     }.getOrElse {
         // ⚠️ 兜底：就算将来 `CustomPersona` 加了别的校验，
@@ -202,8 +228,117 @@ fun PersonaScreen(
         }
 
         // ══════════════════════════════════════════════════════════
-        //  ★ 毛病 —— 这一栏决定了"能不能吵得像他"
+        //  ★★ 立体度第二组 —— 去掉"AI 味"的那几栏
         // ══════════════════════════════════════════════════════════
+        //
+        // 判断标准只有一条：**这一栏能不能改变它在某一轮里说的话？**
+        //   · 说话长度 → 直接决定篇幅（AI 味的头号来源是"每次都三段论"）
+        //   · 日常     → 解决"AI 永远随时在线"的违和感
+        //   · 兴趣/雷点 → 人有所不谈
+        //   · 共同经历 → 只有你俩懂的梗，比十行形容词更能让关系显得真实
+        item { Spacer(Modifier.height(PaSpace.s)) }
+        item {
+            Text("让他更像个人", style = PaType.body, color = PaColor.TextPrimary)
+            Spacer(Modifier.height(PaSpace.xxs))
+            Text(
+                "下面这几栏不填也能用，但填了之后他会明显不一样。",
+                style = PaType.caption,
+                color = PaColor.TextSecondary,
+            )
+        }
+        item {
+            // 说话长度：三选一
+            Text("说话长短", style = PaType.caption, color = PaColor.TextSecondary)
+            Spacer(Modifier.height(PaSpace.xxs))
+            Row {
+                for (v in com.pocketagent.personalogic.PersonaVerbosity.entries) {
+                    PaButton(
+                        text = v.label,
+                        onClick = { verbosity = v },
+                        style = if (verbosity == v) PaButtonStyle.Primary else PaButtonStyle.Glass,
+                        modifier = Modifier.padding(end = PaSpace.xs),
+                    )
+                }
+            }
+        }
+        item {
+            PaField(
+                label = "他平时在干嘛",
+                value = dailyLife,
+                placeholder = "例：在一家小公司写代码，最近老加班，通勤要一小时",
+                onValueChange = { dailyLife = it },
+            )
+        }
+        item {
+            PaField(
+                label = "爱聊什么",
+                value = interests,
+                placeholder = "用顿号分隔。例：老电影、游戏、做饭",
+                onValueChange = { interests = it },
+            )
+        }
+        item {
+            PaField(
+                label = "不爱聊什么",
+                value = taboos,
+                placeholder = "用顿号分隔。例：催婚、体重、前公司",
+                onValueChange = { taboos = it },
+            )
+        }
+        item {
+            PaField(
+                label = "你们之间才懂的说法",
+                value = sharedRefs,
+                placeholder = "用顿号分隔。例：那天那家店、第三排、老王",
+                singleLine = false,
+                onValueChange = { sharedRefs = it },
+            )
+        }
+        item {
+            Text("主动程度", style = PaType.caption, color = PaColor.TextSecondary)
+            Spacer(Modifier.height(PaSpace.xxs))
+            Row {
+                for (v in com.pocketagent.personalogic.PersonaInitiative.entries) {
+                    PaButton(
+                        text = v.label,
+                        onClick = { initiative = v },
+                        style = if (initiative == v) PaButtonStyle.Primary else PaButtonStyle.Glass,
+                        modifier = Modifier.padding(end = PaSpace.xs),
+                    )
+                }
+            }
+        }
+        item {
+            Row {
+                Box(Modifier.weight(1f)) {
+                    PaField(
+                        label = "几点睡",
+                        value = sleepHour,
+                        placeholder = "23",
+                        onValueChange = { sleepHour = it.filter(Char::isDigit).take(2) },
+                    )
+                }
+                Spacer(Modifier.width(PaSpace.s))
+                Box(Modifier.weight(1f)) {
+                    PaField(
+                        label = "几点起",
+                        value = wakeHour,
+                        placeholder = "7",
+                        onValueChange = { wakeHour = it.filter(Char::isDigit).take(2) },
+                    )
+                }
+            }
+        }
+        item {
+            Text(
+                "作息只影响语气（困了会敷衍、刚醒会短），不影响他能不能回你 —— " +
+                    "你随时找他，他都在。",
+                style = PaType.caption,
+                color = PaColor.TextTertiary,
+            )
+        }
+
+
         //
         // 用户原话："为了尽可能模拟这个，会在用户自定义角色设定的时候，
         // 要求用户写入这个角色的坏习惯。"

@@ -1526,6 +1526,53 @@ class AppContainer(context: Context) {
         }
     }
 
+    /**
+     * **此刻的处境** —— 让角色知道"现在几点、外面什么天气"。
+     *
+     * ═══════════════════════════════════════════════════════════
+     *  ★ 用户问："目前角色能知道用户所在地的天气预报吗"
+     * ═══════════════════════════════════════════════════════════
+     *
+     * 在此之前**不能** —— 天气只在主动消息那条路径上查过一次，
+     * 而**聊天时**的提示词里既没有时间也没有天气。于是角色在对话里
+     * 说"今天冷不冷"只能靠猜。
+     *
+     * ⇒ 现在把它拼进系统提示词。但必须守两条：
+     *  1. **同步、不等网络**：只读 `SituationReader` 的缓存；
+     *     缓存冷了就干脆不提天气（预热在启动时做）。
+     *  2. **拿不到就明说不知道**，不给模型留编的余地 ——
+     *     一句"今天好像要下雨"，用户淋湿那天会想起来是谁说的。
+     */
+    private fun situationSection(): String {
+        val hour = runCatching { situation.currentHour() }.getOrNull() ?: return ""
+        val weather = runCatching { situation.cachedWeather() }.getOrNull()
+        return buildString {
+            appendLine("## 你现在所处的时刻")
+            appendLine("- 对方本地时间：${hour} 点")
+            if (weather != null) {
+                val (kind, temp) = weather
+                appendLine(
+                    "- 当地天气：${kind.label}" + (temp?.let { "，${it}°C" } ?: ""),
+                )
+                appendLine("  可以自然地带一句（比如雨天让人带伞），但不要每次都提。")
+            } else {
+                // ⚠️ 明确写"不知道"，并且**专门处理"对方直接问天气"这种情况**。
+                //    真机踩过：只写"不要提天气"，用户一问"现在天气怎么样"，
+                //    模型照样报了"晴，25 度" —— 而真实是"多云 16 度"。
+                //    含糊的禁令挡不住直接提问，必须给它一句能照说的话。
+                appendLine("- 当地天气：**不知道**（拿不到）")
+                appendLine(
+                    "  如果对方直接问天气，就照实说拿不到（例如「我这边看不到天气」），" +
+                        "**不要给出任何温度、晴雨判断**，也不要编。",
+                )
+            }
+            appendLine(
+                "- 说话前先想一秒：现在是 ${hour} 点，这个点的人该是什么状态？" +
+                    "凌晨三点不该精神抖擞，午饭时间不该长篇大论。",
+            )
+        }.trimEnd()
+    }
+
     /** 当前是否有自定义角色在生效。 */
     fun hasCustomPersona(): Boolean = activeCustomPersona != null
 
@@ -1617,7 +1664,11 @@ class AppContainer(context: Context) {
         //   ⚠️ 不是全量注入 —— 全量会让提示词膨胀、答非所问，
         //      而且"记得越多越像不记得"（见 MemoryRecall 的文件头）。
         val memory = memoryPromptSection(currentUserText)
-        return if (memory.isBlank()) withMature else withMature + "\n\n" + memory
+        val withMemory = if (memory.isBlank()) withMature else withMature + "\n\n" + memory
+
+        // ★ 处境（几点、什么天气）—— 每一轮都写，因为它每一轮都在变。
+        val where = situationSection()
+        return if (where.isBlank()) withMemory else withMemory + "\n\n" + where
     }
 
     /**
@@ -2066,6 +2117,10 @@ class AppContainer(context: Context) {
         //      这里只负责按节奏叫它 —— 不在这里写任何"多久算久"的判断，
         //      否则那条最容易越界的规则就脱离了可验证的轨道。
         startupScope.launch {
+            // ★ 先把天气缓存焐热一次：聊天路径只读缓存、不等网络，
+            //   所以这里没预热的话，前半小时角色永远说"我不知道天气"。
+            runCatching { situation.weather() }
+                .onFailure { Timber.d(it, "天气预热失败（不影响对话）") }
             while (true) {
                 kotlinx.coroutines.delay(PROACTIVE_TICK_MS)
                 runCatching { proactiveTick() }

@@ -8,6 +8,8 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.pocketagent.personalogic.CustomPersona
 import com.pocketagent.personalogic.PersonaGender
+import com.pocketagent.personalogic.PersonaInitiative
+import com.pocketagent.personalogic.PersonaVerbosity
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
@@ -90,6 +92,16 @@ class CustomPersonaStore(private val context: Context) {
         put("avatarRes", p.avatarRes)
         put("catchphrases", buildJsonArray { p.catchphrases.forEach { add(JsonPrimitive(it)) } })
         put("memories", buildJsonArray { p.memories.forEach { add(JsonPrimitive(it)) } })
+        // ── 立体度的第二组（2026-10-28）────────────────────────
+        put("flawsRaw", buildJsonArray { p.flawsRaw.forEach { add(JsonPrimitive(it)) } })
+        put("verbosity", p.verbosity.name)
+        put("dailyLife", p.dailyLife)
+        put("interests", buildJsonArray { p.interests.forEach { add(JsonPrimitive(it)) } })
+        put("taboos", buildJsonArray { p.taboos.forEach { add(JsonPrimitive(it)) } })
+        put("sharedReferences", buildJsonArray { p.sharedReferences.forEach { add(JsonPrimitive(it)) } })
+        put("initiative", p.initiative.name)
+        put("sleepHour", p.sleepHour)
+        put("wakeHour", p.wakeHour)
     }.toString()
 
     /**
@@ -117,6 +129,22 @@ class CustomPersonaStore(private val context: Context) {
             avatarRes = o["avatarRes"]?.jsonPrimitive?.content,
             catchphrases = o["catchphrases"]?.stringList().orEmpty(),
             memories = o["memories"]?.stringList().orEmpty(),
+            // ── 立体度的第二组（2026-10-28）────────────────────
+            // ⚠️ 每个都带默认值：老用户存的是没有这些字段的 JSON，
+            //    缺字段**必须**退回默认而不是整条失效。
+            flawsRaw = o["flawsRaw"]?.stringList().orEmpty(),
+            verbosity = o["verbosity"]?.jsonPrimitive?.content
+                ?.let { n -> PersonaVerbosity.entries.firstOrNull { it.name == n } }
+                ?: PersonaVerbosity.NORMAL,
+            dailyLife = o["dailyLife"]?.jsonPrimitive?.content.orEmpty(),
+            interests = o["interests"]?.stringList().orEmpty(),
+            taboos = o["taboos"]?.stringList().orEmpty(),
+            sharedReferences = o["sharedReferences"]?.stringList().orEmpty(),
+            initiative = o["initiative"]?.jsonPrimitive?.content
+                ?.let { n -> PersonaInitiative.entries.firstOrNull { it.name == n } }
+                ?: PersonaInitiative.NORMAL,
+            sleepHour = o["sleepHour"]?.jsonPrimitive?.content?.toIntOrNull() ?: 23,
+            wakeHour = o["wakeHour"]?.jsonPrimitive?.content?.toIntOrNull() ?: 7,
         )
     }.getOrNull()
 

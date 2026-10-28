@@ -10,9 +10,36 @@ import kotlinx.serialization.Serializable
  *    "不指定"这一档 —— 很多角色（比如"我的老同学"）不需要性别，
  *    强行二选一会逼用户做一个他没想过的决定。
  */
+/**
+ * **说话长度** —— 去掉 AI 味的第一根杠杆。
+ *
+ * ★ 为什么它比"语气""风格"更重要：
+ *   真人回微信绝大多数时候只有一两句。而模型的默认行为是
+ *   "先总结、再分点、最后补充" —— 那个结构本身就宣告了它是 AI。
+ *   把篇幅压下来，剩下的像不像，靠内容去解决。
+ */
 @Serializable
-enum class PersonaGender(val label: String) {
-    UNSPECIFIED("不指定"),
+enum class PersonaVerbosity(val label: String, val promptHint: String) {
+    BRIEF("惜字如金", "一到两句话就够。不要分点、不要解释、不要追问「还有什么需要」。"),
+    NORMAL("正常", "一般两三句。只有对方明确要解释时才展开。"),
+    CHATTY("话多", "可以说四五句，允许跑题、允许自己扯到别的事上。"),
+}
+
+/**
+ * **主动程度** —— 它多久来找你一次。
+ *
+ * ⚠️ 只影响**频率**，不影响"该不该来"（那由 `:legacy` 的
+ *   `ProactivePlanner` 判，避免用户把角色调成"每分钟都来"）。
+ */
+@Serializable
+enum class PersonaInitiative(val label: String) {
+    QUIET("很少主动"),
+    NORMAL("正常"),
+    CLINGY("爱找人说话"),
+}
+
+@Serializable
+enum class PersonaGender(val label: String) {    UNSPECIFIED("不指定"),
     MALE("男"),
     FEMALE("女"),
     ;
@@ -119,6 +146,74 @@ data class CustomPersona(
 
     /** 头像。null = 用名字首字生成的占位 */
     val avatarRes: String? = null,
+
+    // ══════════════════════════════════════════════════════════════
+    //  ★★ 2026-10-28：让角色"立体"的第二组字段
+    // ══════════════════════════════════════════════════════════════
+    //
+    // 用户原话："除了名字、人物设定、与用户的关系、怎么称呼用户、口癖、
+    // 以及毛病外，还要加入哪些，才能让角色的立体度起来，多维起来，
+    // 而且说话办事的风格越来越像人，而没有机械感的 AI 味？"
+    //
+    // ★ 判断标准只有一条：**这一栏能不能改变它在某一轮里说的话？**
+    //   改不了的栏位只是装饰 —— 填了会让用户以为有效果，实际什么都没变，
+    //   那比不能填更糟。
+    //
+    // 按"最能去掉 AI 味"排序：
+    //   ① 说话长度（AI 味的头号来源是"每次都三段论"）
+    //   ② 日常（它此刻在干嘛 —— AI 永远"随时在线"）
+    //   ③ 兴趣与雷点（人有所不谈）
+    //   ④ 共同经历（只有你俩懂的梗 —— 这是"像人"最强的一维）
+    //   ⑤ 主动程度（决定它多久来找你）
+    //   ⑥ 作息（凌晨还精神抖擞是 AI；人困了会敷衍）
+
+    /**
+     * 说话长度偏好。
+     *
+     * ⚠️ AI 味最重的不是用词，是**篇幅**：不管问什么都回三段。
+     *   真人回微信大多是一两句，偶尔才长篇。
+     */
+    val verbosity: PersonaVerbosity = PersonaVerbosity.NORMAL,
+
+    /**
+     * 它自己的**日常** —— 此刻在干嘛、平时忙什么。
+     *
+     * ★ 这一栏解决的是"AI 永远在线"那种违和感：
+     *   一个刚下班的人，和一个凌晨三点还在秒回的人，是两种生物。
+     *   填了它，模型才可能在回答里带出"我刚从地铁上来"这种真实感。
+     */
+    val dailyLife: String = "",
+
+    /** 爱聊的话题。空 = 什么都聊 */
+    val interests: List<String> = emptyList(),
+
+    /**
+     * **不谈的话题 / 会不高兴的点**。
+     *
+     * ★ 人有所不谈。一个什么都愿意聊、什么都不生气的角色，
+     *   不是好脾气，是没有性格。
+     */
+    val taboos: List<String> = emptyList(),
+
+    /**
+     * **只有你们俩懂的梗**（共同经历的指代）。
+     *
+     * ★ 这是"像人"最强的一维：一句外人听不懂的暗号，
+     *   比十行形容词更能让一段关系显得真实存在过。
+     */
+    val sharedReferences: List<String> = emptyList(),
+
+    /** 主动程度。决定它多久来找你一次（配合 `ProactivePlanner`）。 */
+    val initiative: PersonaInitiative = PersonaInitiative.NORMAL,
+
+    /**
+     * 作息：几点睡、几点起（0-23）。
+     *
+     * ⚠️ 只影响**语气**（困了会敷衍、刚醒会短），
+     *    不影响"能不能回" —— 用户随时可以找它，它不许装睡不理人。
+     */
+    val sleepHour: Int = 23,
+    val wakeHour: Int = 7,
 ) {
 
     init {
@@ -182,6 +277,30 @@ data class CustomPersona(
         //    这里只留一句"这个人不完美"，避免模型把他演成一个完人。
         if (flawsRaw.isNotEmpty()) {
             append("你也有你的毛病，不是个完人 —— 具体是什么，会在相关的时候自然显现。")
+        }
+        // ── 立体度的第二组（2026-10-28）────────────────────────
+        if (dailyLife.isNotBlank()) {
+            append("你平时").append(dailyLife.trimEnd('。')).append("。")
+        }
+        if (interests.isNotEmpty()) {
+            append("你爱聊").append(interests.joinToString("、")).append("。")
+        }
+        if (taboos.isNotEmpty()) {
+            // ★ 写法很重要：不能写成"你不能聊X"（那像系统限制），
+            //   要写成"你不爱聊"（那是性格）。同一件事，两种说法在模型那里
+            //   会得到完全不同的表演。
+            append("你不爱聊").append(taboos.joinToString("、"))
+            append("，被问到时你会岔开，或者直接说不聊这个。")
+        }
+        if (sharedReferences.isNotEmpty()) {
+            append("你和对方之间有些只有你们懂的说法：")
+            append(sharedReferences.joinToString("、") { "「$it」" })
+            append("。提到的时候自然带出来，不要解释它是什么。")
+        }
+        append("你说话").append(verbosity.promptHint)
+        if (sleepHour != wakeHour) {
+            append("你的作息是 ${wakeHour} 点到 ${sleepHour} 点清醒 —— ")
+            append("在那个时间段之外你会困，回得会短、会含糊，但**不会不理人**。")
         }
     }
 
