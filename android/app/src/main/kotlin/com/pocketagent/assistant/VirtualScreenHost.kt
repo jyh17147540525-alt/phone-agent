@@ -195,6 +195,66 @@ class VirtualScreenHost(private val context: Context) {
     }
 
     /**
+     * 把当前画面压成**一段模型读得懂的文本摘要**。
+     *
+     * ═══════════════════════════════════════════════════════════
+     *  ★ 为什么不是"直接把图片塞给模型"
+     * ═══════════════════════════════════════════════════════════
+     *
+     * 用户的要求是"让角色能看到虚拟屏里的内容"。最理想的实现是把 PNG
+     * 当多模态图片交给模型，但那条路有个硬前提：**所选模型必须支持视觉**。
+     * 本项目是 BYOK —— 用户可能配的是纯文本模型，塞图片过去会整轮报错，
+     * 而报错信息不会说"你的模型不支持图片"。
+     *
+     * ⇒ 这一版走一条**任何模型都能用**的路：把画面压成亮度网格。
+     *   它给不出文字，但能给出**布局**：哪里是标题栏、哪里是列表、
+     *   哪里是大片空白（说明还在加载）。配合 tap/swipe 已经够用。
+     *   PNG 同时落盘，留给将来的视觉模型。
+     *
+     * ⚠️ 必须如实说明"这不是看图"：不说明的话，模型会编造画面内容。
+     */
+    fun describeScreen(): String? {
+        val bmp = lastFrame ?: return null
+        val cols = 16
+        val rows = 24
+        return buildString {
+            appendLine("画面 ${bmp.width}x${bmp.height}（亮度图，不是文字识别结果）")
+            for (r in 0 until rows) {
+                for (c in 0 until cols) {
+                    val x = (c * bmp.width / cols).coerceIn(0, bmp.width - 1)
+                    val y = (r * bmp.height / rows).coerceIn(0, bmp.height - 1)
+                    append(LUMINANCE_RAMP[luminanceOf(bmp.getPixel(x, y)) * (LUMINANCE_RAMP.length - 1) / 255])
+                }
+                append('\n')
+            }
+            // 顶部/底部平均亮度能区分"有标题栏"和"全空白"两种完全不同的状态
+            appendLine("顶部亮度=${avgLuminance(bmp, 0, bmp.height / 6)}")
+            append("底部亮度=${avgLuminance(bmp, bmp.height * 5 / 6, bmp.height)}")
+        }
+    }
+
+    private fun luminanceOf(px: Int): Int =
+        ((px shr 16 and 0xFF) * 299 + (px shr 8 and 0xFF) * 587 + (px and 0xFF) * 114) / 1000
+
+    private fun avgLuminance(bmp: Bitmap, fromY: Int, toY: Int): Int {
+        var sum = 0L
+        var n = 0
+        val stepX = (bmp.width / 24).coerceAtLeast(1)
+        val stepY = ((toY - fromY) / 24).coerceAtLeast(1)
+        var y = fromY
+        while (y < toY) {
+            var x = 0
+            while (x < bmp.width) {
+                sum += luminanceOf(bmp.getPixel(x, y))
+                n++
+                x += stepX
+            }
+            y += stepY
+        }
+        return if (n == 0) 0 else (sum / n).toInt()
+    }
+
+    /**
      * 把当前虚拟屏画面存到应用私有目录，返回路径。
      *
      * ★ 存在的理由很具体：要能**证明**这块屏上真的有东西。
@@ -398,5 +458,8 @@ class VirtualScreenHost(private val context: Context) {
          *    这种偶发最难查：十次里成九次，剩下那一次用户就看见了。
          */
         const val KILL_SETTLE_MS = 700L
+
+        /** 亮度网格用的字符梯度（暗 → 亮）。 */
+        const val LUMINANCE_RAMP = " .:-=+*#%@"
     }
 }

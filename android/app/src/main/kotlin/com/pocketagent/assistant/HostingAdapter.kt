@@ -94,8 +94,29 @@ class HostingAdapter(private val host: VirtualScreenHost) : AppHostingPort {
                     AppHostingPort.Ok(
                         "取到一帧虚拟屏画面（${png.size} 字节 PNG，${AppHostTool.VIRTUAL_W}x${AppHostTool.VIRTUAL_H}）。" +
                             (saved?.let { "已存到 $it。" } ?: "") +
-                            "⚠️ 当前版本还**不能把这张图交给模型看** —— 你需要靠 tap/swipe " +
-                            "与已知的界面结构来操作；不要凭想象描述画面内容。",
+                            buildString {
+                                val described = runCatching { host.describeScreen() }.getOrNull()
+                                if (described != null) {
+                                    appendLine()
+                                    appendLine(described)
+                                    appendLine()
+                                    // ★★ 让角色**真的看到**画面。见 describeScreen 的注释：
+                                    //    这一版给的是亮度布局图（任何模型都能用），
+                                    //    不是多模态图片 —— 因为用户可能配的是纯文本模型。
+                                    append(
+                                        "⚠️ 上面是**亮度布局图**（越亮的字符越亮），不是文字识别结果。" +
+                                            "它能告诉你哪里是标题栏、哪里是列表、哪里是大片空白" +
+                                            "（多半还在加载）；**但它读不出界面上的字** —— " +
+                                            "不要假装读到了文字内容。",
+                                    )
+                                } else {
+                                    append(
+                                        "⚠️ 这一版还不能把画面交给模型看 —— " +
+                                            "你需要靠 tap/swipe 与已知的界面结构来操作；" +
+                                            "不要凭想象描述画面内容。",
+                                    )
+                                }
+                            },
                     )
                 }
 

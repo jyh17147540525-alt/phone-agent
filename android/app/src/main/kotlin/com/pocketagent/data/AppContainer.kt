@@ -1216,6 +1216,152 @@ class AppContainer(context: Context) {
         com.pocketagent.assistant.VirtualScreenHost(appContext)
     }
 
+    /**
+     * 把**压缩上下文**的段落融进记忆分层（用户明确要求的那一步）。
+     *
+     * ★ 为什么压缩段要变成 `Atom`：
+     *   压缩段本身只对**当前会话**有用；而"我们三周前聊过这件事"要能跨会话
+     *   被想起来，就必须进原子库 —— 那是 `MemoryRecall` 唯一会读的地方。
+     *
+     * ⚠️ 类别用 `STAGE_CONCLUSION`（阶段结论），不是 `FACT`：
+     *   它是"一段对话的浓缩"，不是一条可验证的事实。类别搞错会让将来的
+     *   画像蒸馏把压缩段当成事实去用（`AtomKind` 的注释写明了 L3 只吃
+     *   PREFERENCE / CONSTRAINT）。
+     *
+     * ⚠️ 置信度比模型直接抽取的低 —— 压缩是**有损**的，它只该在
+     *   "没有更好证据"时被想起，而不是压过原始提取。
+     */
+    fun absorbCompressedSegments(
+        segments: List<com.pocketagent.memorylogic.ContextCompressor.Segment>,
+    ) {
+        if (segments.isEmpty()) return
+        val now = System.currentTimeMillis()
+        val atoms = segments.mapNotNull { seg ->
+            val text = seg.text.trim()
+            if (text.isBlank() || seg.sourceTurnIds.isEmpty()) return@mapNotNull null
+            runCatching {
+                com.pocketagent.memorylogic.Atom(
+                    id = com.pocketagent.memorylogic.Atom.idOf(
+                        com.pocketagent.memorylogic.AtomKind.STAGE_CONCLUSION,
+                        text,
+                    ),
+                    kind = com.pocketagent.memorylogic.AtomKind.STAGE_CONCLUSION,
+                    text = text,
+                    sourceTurnIds = seg.sourceTurnIds,
+                    confidence = COMPRESSED_ATOM_CONFIDENCE,
+                    at = now,
+                )
+            }.getOrNull()
+        }
+        if (atoms.isEmpty()) return
+        runCatching {
+            atomStore.mergeIn(atoms)
+            atomCache = null
+            Timber.i("压缩记忆：%d 段已融入记忆分层（库内共 %d 条）", atoms.size, memoryAtoms().size)
+        }.onFailure { Timber.w(it, "压缩记忆落库失败（不影响对话）") }
+    }
+
+    /**
+     * 上一次主动消息的时间戳（0 = 从没发过）。
+     *
+     * ⚠️ 内存 + DataStore 两级，与 `themeModeValue` 同一模式：
+     *    读要同步（判断就在眼前），写异步落盘。
+     */
+    @Volatile
+    private var lastProactiveAtMs: Long = 0L
+
+    private val notifier: com.pocketagent.assistant.ProactiveNotifier by lazy {
+        com.pocketagent.assistant.ProactiveNotifier(appContext).also {
+            it.personaName = activeCustomPersona?.name
+        }
+    }
+
+    /**
+     * **主动消息** —— 角色自己来找用户说话。
+     *
+     * ★ 用户原话："角色可以自行给用户发消息，不用等用户发消息后才能被动回复。"
+     *
+     * ⚠️ 这条路径上**每一个判断都在可离线验证的地方**：
+     *    `:legacy` 的 `ProactivePlanner` 决定"能不能发"（11 条测试），
+     *    [ProactiveNotifier] 只负责发。本函数只做"取事实 → 交出去"。
+     */
+    private suspend fun proactiveTick() {
+        val store = conversationRepository() ?: return
+        val session = runCatching { store.currentSession() }.getOrNull() ?: return
+        val path = runCatching { store.currentPath(session.id) }.getOrNull() ?: return
+        val lastUser = path.lastOrNull { it.role == com.pocketagent.memorylogic.TurnRole.USER }
+            ?: return
+        val facts = com.pocketagent.legacy.ProactivePlanner.Facts(
+            nowMs = System.currentTimeMillis(),
+            lastUserAtMs = lastUser.at,
+            lastProactiveAtMs = lastProactiveAtMs,
+            turnCount = path.size,
+        )
+        val line = notifier.tick(facts) { tone -> proactiveLine(tone) } ?: return
+        lastProactiveAtMs = System.currentTimeMillis()
+        persistLastProactiveAt(lastProactiveAtMs)
+        Timber.i("主动消息已发出（%d 字）", line.length)
+    }
+
+    /**
+     * 让**模型**按人设写这句主动消息。
+     *
+     * ⚠️ 生成失败就返回 null，**绝不退回模板句**：
+     *    一句不像她的话，比不发出来更伤（用户会立刻意识到"这是系统在凑字数"）。
+     */
+    private suspend fun proactiveLine(tone: com.pocketagent.legacy.ProactivePlanner.Tone): String? {
+        val persona = activeCustomPersona
+        val who = persona?.describeForPrompt()?.takeIf { it.isNotBlank() }
+            ?: "你是一个有自己脾气的人，不是客服。"
+        val prompt = buildString {
+            appendLine(who)
+            appendLine()
+            appendLine("现在是「${tone.label}」的时候 —— 你想主动找对方说一句话。")
+            appendLine("要求：")
+            appendLine("- 一到两句，像发微信那样短，不要写小作文。")
+            appendLine("- **不要**解释你为什么发消息，也不要说\"我注意到你很久没说话了\"。")
+            appendLine("- 不索取回应、不催促、不追问。说完就完了。")
+            appendLine("- 用你的人设说法，别用客服腔。")
+            appendLine()
+            appendLine("只输出这句话本身，不要任何前缀、引号或解释。")
+        }
+        return runCatching {
+            val repo = when (val opened = openCredentialStore()) {
+                is CredentialStoreResult.Ready -> opened.repository
+                else -> return null
+            }
+            val config = when (
+                val r = modelRepository()?.all().orEmpty()
+                    .resolveForPurpose(ModelRole.CHAT)
+            ) {
+                is ModelResolution.Found -> r.config
+                is ModelResolution.None -> return null
+            }
+            repo.useKey(config.credentialId) { provider, credential ->
+                val request = ChatRequest(
+                    model = config.modelId,
+                    messages = listOf(ChatMessage.user(prompt)),
+                    tools = emptyList(),
+                )
+                val sb = StringBuilder()
+                provider.chat(request = request, credential = credential).collect { chunk ->
+                    if (chunk is ChatChunk.Delta) sb.append(chunk.text)
+                }
+                sb.toString().trim().take(180).takeIf { it.isNotBlank() }
+            }
+        }.getOrNull()
+    }
+
+    private suspend fun loadLastProactiveAt(): Long =
+        runCatching { pluginSourceStore.data.first()[KEY_LAST_PROACTIVE] }.getOrNull() ?: 0L
+
+    private fun persistLastProactiveAt(at: Long) {
+        startupScope.launch {
+            runCatching { pluginSourceStore.edit { it[KEY_LAST_PROACTIVE] = at } }
+                .onFailure { Timber.w(it, "主动消息时间落盘失败") }
+        }
+    }
+
     /** 当前是否有自定义角色在生效。 */
     fun hasCustomPersona(): Boolean = activeCustomPersona != null
 
@@ -1738,10 +1884,23 @@ class AppContainer(context: Context) {
                 .onFailure { Timber.e(it, "成熟内容授权加载失败") }
             runCatching { loadPrivilegeMode() }
                 .onFailure { Timber.e(it, "权限模式加载失败") }
+            runCatching { lastProactiveAtMs = loadLastProactiveAt() }
+                .onFailure { Timber.e(it, "主动消息时间读取失败") }
 
             val prefs = runCatching { pluginSourceStore.data.first() }.getOrNull() ?: return@launch
             if (prefs[KEY_DSH_ON] == true) runCatching { startDshIntegration() }
             if (prefs[KEY_BRIDGE_ON] == true) runCatching { startMcpBridge() }
+        }
+        // ★ 主动消息：进程活着的时候每 20 分钟看一眼要不要去找用户。
+        //   ⚠️ 判断"能不能发"全在 `:legacy` 的 `ProactivePlanner`（有离线测试），
+        //      这里只负责按节奏叫它 —— 不在这里写任何"多久算久"的判断，
+        //      否则那条最容易越界的规则就脱离了可验证的轨道。
+        startupScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(PROACTIVE_TICK_MS)
+                runCatching { proactiveTick() }
+                    .onFailure { Timber.w(it, "主动消息检查失败（不影响其他功能）") }
+            }
         }
     }
 
@@ -1844,6 +2003,10 @@ class AppContainer(context: Context) {
         private val KEY_PRIVILEGE_MODE = androidx.datastore.preferences.core
             .stringPreferencesKey("privilege_mode_v1")
 
+        /** 上一次主动消息的时间戳（毫秒）。0/缺失 = 从没发过。 */
+        private val KEY_LAST_PROACTIVE = androidx.datastore.preferences.core
+            .longPreferencesKey("last_proactive_at_v1")
+
         /** 原子记忆落在应用私有目录下的文件名与子目录。 */
         private const val MEMORY_DIR = "memory"
         private const val MEMORY_FILE = "atoms.jsonl"
@@ -1863,6 +2026,17 @@ class AppContainer(context: Context) {
          *    被用户放弃的分支不该变成记忆。
          */
         private const val MEMORY_WINDOW_TURNS = 24
+
+        /** 主动消息的检查节奏。见 `initialize` 里那个循环的注释。 */
+        private const val PROACTIVE_TICK_MS = 20 * 60 * 1000L
+
+        /**
+         * 压缩段变成原子时的置信度。
+         *
+         * ⚠️ 低于模型直接抽取的常见值（0.7～0.9）：压缩是有损的，
+         *    它只该在"没有更好证据"时被想起来。
+         */
+        private const val COMPRESSED_ATOM_CONFIDENCE = 0.6
 
         /** 首次启动引导是否已看过。**用户点掉弹窗才置位**，不随版本重置。 */
         private val KEY_FIRST_RUN_SEEN = booleanPreferencesKey("first_run_seen_v1")

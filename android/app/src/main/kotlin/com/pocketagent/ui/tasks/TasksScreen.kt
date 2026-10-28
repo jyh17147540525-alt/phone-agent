@@ -171,7 +171,16 @@ fun TasksScreen(
                     //   被拽回底部，是最让人恼火的一种"聪明"。
                     val listState = rememberLazyListState()
                     val last = vm.tasks.lastOrNull()
-                    LaunchedEffect(vm.tasks.size, last?.note?.length, last?.state) {
+                    // ⚠️ 用 `scrollToItem`（立即）而不是 `animateScrollToItem`：
+                    //    动画会被紧跟其后的重组打断，表现就是**停在顶部不动** ——
+                    //    真机第一次实测就是这个症状（列表有 27 条，屏上只有头两条）。
+                    //    新增一条时立刻到底；流式增长时才用动画跟。
+                    LaunchedEffect(vm.tasks.size) {
+                        if (vm.tasks.isNotEmpty()) {
+                            listState.scrollToItem(vm.tasks.lastIndex)
+                        }
+                    }
+                    LaunchedEffect(last?.note?.length, last?.state) {
                         if (vm.tasks.isEmpty()) return@LaunchedEffect
                         val lastIndex = vm.tasks.lastIndex
                         val info = listState.layoutInfo
@@ -723,9 +732,7 @@ class TasksViewModel(
      *
      * ⚠️ 是 `suspend` 的：首次调用会触发开库，那是个慢操作。
      */
-    private val conversations: (suspend () -> ConversationStore?)? = null,
-
-    /**
+    private val conversations: (suspend () -> ConversationStore?)? = null,    /**
      * 成熟内容授权的读取口。
      *
      * ★ 用 `() ->`，理由与 [conversations] 相同：`AppContainer`
@@ -737,6 +744,19 @@ class TasksViewModel(
      */
     private val maturePermission: () -> com.pocketagent.legacy.MatureContentGate.Permission =
         { com.pocketagent.legacy.MatureContentGate.Permission() },
+
+    /**
+     * 把压缩段融进记忆分层。
+     *
+     * ★ 为什么要注入一个 lambda 而不是让本类直接拿 `AppContainer`：
+     *   本类刻意**不依赖 Android 容器**（预览与离线测试里没有它）。
+     *   而 `AppContainer.absorbCompressedSegments` 要碰文件和 DataStore ——
+     *   那条线属于数据层。这里只负责"把段交出去"。
+     *
+     * ⚠️ 默认空实现：预览里压缩照常算、提示词照常拼，只是不落库。
+     */
+    private val absorbCompressed:
+        (List<com.pocketagent.memorylogic.ContextCompressor.Segment>) -> Unit = {},
 ) {
 
     val tasks = mutableStateListOf<AgentTaskUi>()
@@ -945,8 +965,13 @@ class TasksViewModel(
         // ⚠️ 直接改 `tasks`，不 post 到主线程 —— 与既有的 `update()` 一致
         //    （它也是在后台线程里改这个列表）。改成 post 会让两种写法并存，
         //    而"到底哪个线程在改它"变成需要读两处才能回答的问题。
-        // 倒序插入：`tasks` 是**新的在前**（`submit` 用的是 `add(0, ...)`）
-        pairs.asReversed().forEach { pair ->
+        //
+        // ★★ 2026-10-28：改成**正序追加**。
+        //    原来是 `asReversed()` + `add(0, ...)`（两次反转让净效果变成正序），
+        //    而 `submit` 那边是 `add(0, ...)`（新的插最前）—— 两处方向相反，
+        //    于是"历史是正序、新消息是倒序"，用户看到的就是顺序会自己变。
+        //    ⇒ 现在全链路只有一个方向：**老的在上，最新的在最下面**。
+        pairs.forEach { pair ->
             // ⚠️ `pair.prompt` 是**跨模块**属性，Kotlin 不对它做智能转换 ——
             //    必须取到局部变量再用（否则 `pair.prompt.id` 编译不过：
             //    "Smart cast to 'Turn' is impossible"）。
@@ -962,7 +987,6 @@ class TasksViewModel(
                 val reply = pair.reply ?: return@forEach
                 Timber.w("历史消息：孤儿回复 %s（无对应提问），仍展示", reply.id)
                 tasks.add(
-                    0,
                     AgentTaskUi(
                         id = reply.id,
                         prompt = "（这一轮的提问没有保存下来）",
@@ -978,7 +1002,6 @@ class TasksViewModel(
             }
             val replyTurn = pair.reply
             tasks.add(
-                0,
                 AgentTaskUi(
                     id = promptTurn.id,
                     prompt = promptTurn.text,
@@ -1014,7 +1037,22 @@ class TasksViewModel(
             prompt = prompt,
             maxSteps = CHAT_MAX_STEPS,
         )
-        tasks.add(0, task)
+        // ══════════════════════════════════════════════════════════
+        //  ★★ 2026-10-28：这里原来是 `tasks.add(0, task)` —— 顺序 bug 的根
+        // ══════════════════════════════════════════════════════════
+        //
+        // 用户原话："有时候是从上到下，有时候是从下到上。"
+        //
+        // 原因就是这一行：**新消息被插到了列表最前面**。
+        // 而历史恢复（`restorePairs`）是**一条条 append** 的（老→新）。
+        // 于是同一个界面出现两种顺序：
+        //   · 刚打开的会话：老在上、新在下   ✓
+        //   · 你刚发一句话：新的跑到最上面   ✗
+        // 两个方向同时存在，看起来就像"顺序会自己变"。
+        //
+        // ⇒ 统一成**追加**：老的在上，最新的永远在最下面。
+        //   配套的自动滚动在 UI 层（`animateScrollToItem(lastIndex)`）。
+        tasks.add(task)
         draft = ""
 
         if (chat == null) {
@@ -1135,6 +1173,44 @@ class TasksViewModel(
                         }.getOrNull()
                     }
 
+                    // ══════════════════════════════════════════════
+                    //  ★★ 2026-10-28：上下文压缩（分段 → 记忆分层）
+                    // ══════════════════════════════════════════════
+                    //
+                    // 用户原话："加入上下文压缩功能，压缩后的上下文将会分段
+                    // 融入记忆分层系统，而且压缩后的信息内容将会是**只有模型
+                    // 能看懂的表达方式**，这一能节省上下文的开支，
+                    // 也能让模型记忆力更强。"
+                    //
+                    // ⚠️ 压缩在**会话路径**上做（`currentPath`），不是全库：
+                    //    被用户放弃的分支不该变成记忆。
+                    // ⚠️ 压缩是**纯函数**（`:memorylogic` 的 `ContextCompressor`）：
+                    //    它有 14 条离线测试钉着"不该丢的东西没丢"。
+                    val compressed = if (store != null && sid != null) {
+                        runCatching {
+                            val path = store.currentPath(sid)
+                            if (!com.pocketagent.memorylogic.ContextCompressor.shouldCompress(path)) {
+                                ""
+                            } else {
+                                val r = com.pocketagent.memorylogic.ContextCompressor.compress(path)
+                                // ★ 分段融入记忆分层：压缩段同时进原子库，
+                                //   于是"很久以前聊过的事"以后还能被 `MemoryRecall` 想起来，
+                                //   而不是只在这一次对话里有效。
+                                absorbCompressed(r.segments)
+                                Timber.i(
+                                    "上下文压缩：%d 段，%d 字 → %d 字（省 %d）",
+                                    r.segments.size, r.beforeChars, r.afterChars, r.savedChars,
+                                )
+                                com.pocketagent.memorylogic.ContextCompressor.promptSection(r)
+                            }
+                        }.getOrElse {
+                            Timber.w(it, "上下文压缩失败（按不压缩继续）")
+                            ""
+                        }
+                    } else {
+                        ""
+                    }
+
                     // ── ② 取上下文 ──────────────────────────────────
                     //
                     // ★ 这是本次接线真正的收益：在此之前每次只发**当前这一句**，
@@ -1171,6 +1247,7 @@ class TasksViewModel(
                     //   ⚠️ 回调可能来自后台线程，`update` 内部做了同步（见它的注释）。
                     chat!!.send(
                         history = history + ChatMessage.user(prompt),
+                        compressedMemory = compressed,
                         onStep = { step, desc ->
                             update(taskId) {
                                 it.copy(step = step, note = desc, perceptionTier = 1)

@@ -86,6 +86,17 @@ interface ChatPort {
          *    那一类靠 `onStep` 报进度。
          */
         onDelta: (delta: String) -> Unit = {},
+        /**
+         * **压缩记忆**段落（来自 `:memorylogic` 的 `ContextCompressor`）。
+         *
+         * ★ 用户要的是"上下文压缩后分段融入记忆分层"。压缩是**会话级**的，
+         *   所以它不能塞进全局的 `assistantSystemPrompt`（那会被别的会话看到）。
+         *   由调用方按当前会话算好、传进来。
+         *
+         * ⚠️ 空串 = 这一轮没有压缩记忆，**不要补一句"（无）"** ——
+         *   那会让模型以为自己失忆了。
+         */
+        compressedMemory: String = "",
     ): ChatResult
 }
 
@@ -134,6 +145,7 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
         history: List<ChatMessage>,
         onStep: (step: Int, description: String) -> Unit,
         onDelta: (delta: String) -> Unit,
+        compressedMemory: String,
     ): ChatResult {
         // ── ① 拿到凭据仓库 ──────────────────────────────────────
         val store = when (val opened = container.openCredentialStore()) {
@@ -246,6 +258,11 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
         )
     }
 
+    // ★ 压缩记忆：会话级的，接在人格提示词**后面**。
+    //   不放进 `assistantSystemPrompt` 的理由见接口参数的注释。
+    val systemWithMemory =
+        if (compressedMemory.isBlank()) system else system + "\n\n" + compressedMemory
+
     // ── ④ 在受控作用域内跑 ───────────────────────────────────
     //
     // ⚠️ 用**这个模型自己绑的那条 Key**，不是「默认那条」—— 见上面 ② 的注释。
@@ -270,7 +287,7 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                     "纯对话上下文：%d 条消息（%d 字）",
                     history.size, history.sumOf { it.plainText().length },
                 )
-                return@useKey chatOnly(provider, credential, model, history, system, onDelta)
+                return@useKey chatOnly(provider, credential, model, history, systemWithMemory, onDelta)
             }
 
             // ★ 按**实际生效的模式**取工具集，不是全量：
@@ -304,7 +321,7 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                 PhoneTask(
                     id = "chat",
                     userInput = userText,
-                    systemPrompt = system,
+                    systemPrompt = systemWithMemory,
                     tools = AgentAdapters.toolSpecs(tools),
                     // ⚠️ 只把**用户与助理**的发言带进去（不含系统提示词、
                     //    也不含本轮输入）—— `PhoneTask` 会各接一次。

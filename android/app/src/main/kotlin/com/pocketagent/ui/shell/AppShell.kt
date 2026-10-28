@@ -245,6 +245,8 @@ fun AppShell(
             // ★ 传**读取口**而不是快照：用户在设置页改完开关后，
             //   这里下一次调用必须读到新值。
             maturePermission = { container.maturePermission() },
+            // ★ 压缩段 → 记忆分层。见 TasksViewModel 里 absorbCompressed 的注释。
+            absorbCompressed = { segments -> container.absorbCompressedSegments(segments) },
         )
     }
 
