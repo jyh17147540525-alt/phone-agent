@@ -607,6 +607,13 @@ fun AppShell(
                     val personaBrief = remember {
                         container.currentCustomPersona()?.describeForPrompt().orEmpty()
                     }
+                    // ★★ 用户要的"常驻"：进页面就开始在后台补写，
+                    //    而不是等他点开每一个节点才现写。
+                    //    ⚠️ 用 LaunchedEffect(Unit)：只在本页存活期内跑一次，
+                    //      切走就取消（后台任务不该在用户离开后继续烧额度）。
+                    LaunchedEffect(Unit) {
+                        container.prefetchDiaries(userAddress = who, personaBrief = personaBrief)
+                    }
                     com.pocketagent.ui.memory.MemoryGraphScreen(
                         atoms = atoms,
                         modifier = Modifier,

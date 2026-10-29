@@ -1771,6 +1771,70 @@ class AppContainer(context: Context) {
         return text
     }
 
+    /**
+     * **把还没写过的随笔全部补上**（后台慢慢来）。
+     *
+     * ═══════════════════════════════════════════════════════════
+     *  ★ 用户要的是"常驻"
+     * ═══════════════════════════════════════════════════════════
+     *
+     * "面向用户的那些是**常驻**的，生成后，用户每次打开都能看见。"
+     *
+     * 之前只有"点开的那个"才生成 —— 于是用户每换一个节点都要等几秒。
+     * 那不算常驻。
+     *
+     * ⚠️ 三条纪律：
+     *  1. **一次只写一篇、串行**。轮次并发的模型请求会互相抢带宽 +
+     *     厂商限流，而且这是后台任务，凭据/额度上都不该抢前台对话。
+     *  2. **每篇之间留间隔**。刷得太快会被厂商判成滥用。
+     *  3. **用户在看的那篇优先**。他刚点开，不能让后台把顺序占了。
+     *
+     * ⚠️ 只给**重点事件 + 最近的**若干条写：全库上千条会跑几个小时，
+     *    而用户先看的必然是重要的和最近的。剩下的按需生成（点开时那条路径还在）。
+     */
+    fun prefetchDiaries(
+        userAddress: String,
+        personaBrief: String,
+        limit: Int = DIARY_PREFETCH_LIMIT,
+    ) {
+        loadDiaryCacheIfNeeded()
+        val pending = memoryAtoms()
+            .sortedWith(
+                compareByDescending<com.pocketagent.memorylogic.Atom> {
+                    com.pocketagent.memorylogic.MemoryGraph.weightOf(it)
+                }.thenByDescending { it.at },
+            )
+            .filter { diaryCache[it.id] == null }
+            .take(limit)
+        if (pending.isEmpty()) {
+            Timber.i("记忆随笔：全部已生成（缓存 %d 篇），无需补写", diaryCache.size)
+            return
+        }
+        Timber.i("记忆随笔：后台补写 %d 篇（缓存已有 %d）", pending.size, diaryCache.size)
+
+        startupScope.launch {
+            for (atom in pending) {
+                // 用户在等的已经生成好了？那这篇就不急，跳过下次再说。
+                if (diaryCache[atom.id] != null) continue
+                runCatching {
+                    generateDiary(
+                        atom = atom,
+                        userAddress = userAddress,
+                        personaBrief = personaBrief,
+                        dayHint = com.pocketagent.memorylogic.MemoryDiary.relativeDay(
+                            atom.at,
+                            System.currentTimeMillis(),
+                        ),
+                    )
+                }
+                // ★ 强制间隔：厂商对短时间内的连续请求会限流，
+                //   而限流的错误信息不会说"你刷太快了"。
+                kotlinx.coroutines.delay(DIARY_PREFETCH_GAP_MS)
+            }
+            Timber.i("记忆随笔：后台补写完成（缓存共 %d 篇）", diaryCache.size)
+        }
+    }
+
     /** 当前是否有自定义角色在生效。 */
     fun hasCustomPersona(): Boolean = activeCustomPersona != null
 
@@ -2458,6 +2522,22 @@ class AppContainer(context: Context) {
 
         /** 一次朗读最多念多少字 —— 长回答念一半就够，念完是折磨。 */
         private const val SPEAK_MAX_CHARS = 220
+
+        /**
+         * 后台补写随笔的上限（条）。
+         *
+         * ⚠️ 不给全库写：上千条会跑几个小时，而用户先看的必然是
+         *    重要的和最近的。剩下的按需生成（点开时那条路径还在）。
+         */
+        private const val DIARY_PREFETCH_LIMIT = 40
+
+        /**
+         * 补写时每篇之间的间隔。
+         *
+         * ⚠️ 厂商对短时间内的连续请求会限流，而限流的错误信息
+         *    不会说"你刷太快了" —— 它只会表现为"这些随笔生成失败"。
+         */
+        private const val DIARY_PREFETCH_GAP_MS = 2_500L
 
         /**
          * 关系阶段的轮次门槛。
