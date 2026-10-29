@@ -107,6 +107,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import timber.log.Timber
@@ -1673,6 +1675,45 @@ class AppContainer(context: Context) {
     /** 已生成的随笔缓存：atomId → 文本。 */
     private val diaryCache = java.util.concurrent.ConcurrentHashMap<String, String>()
 
+    /**
+     * **内置随笔**（assets/memory_diaries.json）。
+     *
+     * ═══════════════════════════════════════════════════════════
+     *  ★ 用户的原话
+     * ═══════════════════════════════════════════════════════════
+     *
+     * "你全部事件都要帮忙重写一下呀，不然太吃我那边的算力了，
+     *  以后新的节点再由 app 里接的 api 模型生成。"
+     *
+     * ⇒ 已有记忆的随笔**随包发出去**，一次生成、永久可用；
+     *   只有**新产生的**节点才走用户的 API。
+     *
+     * ⚠️ 它只是**展示层素材**：不进原子库、不进 MemoryRecall。
+     *    这一点与动态生成的那批完全一致（见 `DiarySeparationTest`）。
+     */
+    private val builtinDiaries: Map<String, String> by lazy { loadBuiltinDiaries() }
+
+    private fun loadBuiltinDiaries(): Map<String, String> = runCatching {
+        val text = appContext.assets.open("memory_diaries.json")
+            .bufferedReader(Charsets.UTF_8)
+            .use { it.readText() }
+        // ⚠️ 这里必须用 import 进来的短名，不能写全限定名 ——
+        //    `x.parseToJsonElement(t).kotlinx.serialization...jsonObject`
+        //    这种链式写法 Kotlin 解析不了（会被当成对结果取属性）。
+        val obj: kotlinx.serialization.json.JsonObject =
+            kotlinx.serialization.json.Json.parseToJsonElement(text).jsonObject
+        val out = HashMap<String, String>(obj.size)
+        for ((k, v) in obj) {
+            val s = runCatching { v.jsonPrimitive.content }.getOrNull()
+            if (!s.isNullOrBlank()) out[k] = s
+        }
+        Timber.i("内置记忆随笔：载入 %d 篇", out.size)
+        out
+    }.getOrElse {
+        Timber.w(it, "内置记忆随笔读取失败（新节点仍会按需生成）")
+        emptyMap()
+    }
+
     private val diaryFile: File by lazy {
         File(File(appContext.filesDir, MEMORY_DIR), "diaries.txt")
     }
@@ -1697,6 +1738,9 @@ class AppContainer(context: Context) {
 
     /** 已缓存的随笔（同步读，界面直接用）。 */
     fun cachedDiary(atomId: String): String? {
+        // ★ 顺序很重要：**内置优先**，其次才是动态生成的缓存。
+        //   内置的那批是随包发出去的，不需要联网、不花 token、永远在。
+        builtinDiaries[atomId]?.let { return it }
         loadDiaryCacheIfNeeded()
         return diaryCache[atomId]
     }
@@ -1727,6 +1771,8 @@ class AppContainer(context: Context) {
         dayHint: String,
     ): String? {
         loadDiaryCacheIfNeeded()
+        // ★ 内置的已经有了，不走 API（省用户的算力）。
+        builtinDiaries[atom.id]?.let { return it }
         diaryCache[atom.id]?.let { return it }
 
         val prompt = com.pocketagent.memorylogic.MemoryDiaryPrompt.build(
@@ -1804,8 +1850,10 @@ class AppContainer(context: Context) {
                     com.pocketagent.memorylogic.MemoryGraph.weightOf(it)
                 }.thenByDescending { it.at },
             )
-            .filter { diaryCache[it.id] == null }
+            // ★ 内置随笔已有的不算"待补写" —— 它们不需要花用户的 token。
+            .filter { builtinDiaries[it.id] == null && diaryCache[it.id] == null }
             .take(limit)
+
         if (pending.isEmpty()) {
             Timber.i("记忆随笔：全部已生成（缓存 %d 篇），无需补写", diaryCache.size)
             return
