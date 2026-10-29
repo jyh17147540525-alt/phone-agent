@@ -179,7 +179,14 @@ fun TasksScreen(
                     //    动画会被紧跟其后的重组打断，表现就是**停在顶部不动** ——
                     //    真机第一次实测就是这个症状（列表有 27 条，屏上只有头两条）。
                     //    新增一条时立刻到底；流式增长时才用动画跟。
-                    LaunchedEffect(vm.tasks.size) {
+                    //
+                    // ★ 2026-10-29：视口高度也要进 key。
+                    //   横竖屏切换后视口变了，必须重新贴到底；只 key `tasks.size`
+                    //   的话条数没变 → 不重滚 → 用户看到的是"聊天记录不见了"
+                    //   （其实只是滚到了别处）。
+                    val viewportH =
+                        androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp
+                    LaunchedEffect(vm.tasks.size, viewportH) {
                         if (vm.tasks.isNotEmpty()) {
                             listState.scrollToItem(vm.tasks.lastIndex)
                         }

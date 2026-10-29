@@ -117,10 +117,22 @@
         tools:targetApi="36">
 
         <!-- ── 主界面 ──────────────────────────────────────── -->
+        <!--
+            ⚠️ 2026-10-29：横屏"聊天记录消失"。
+            根因是**旋转重建了 Activity**，而聊天状态（`TasksViewModel.tasks`、
+            正在进行的请求、滚动位置）全部挂在 `remember` 上 —— 重建即丢，
+            只能等异步的历史回读把界面填回去，于是中间那一段看起来就是空的。
+
+            ⇒ 声明自己处理这几类配置变化，旋转时**不重建**。
+              对单 Activity + Compose 的应用这是保住内存状态的标准做法。
+              代价：横竖屏都要自己确认布局成立（当前是 `Column + weight(1f)`，
+              两套尺寸下都正常）。
+        -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|density|uiMode|fontScale|navigation|touchscreen"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

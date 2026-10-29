@@ -126,6 +126,9 @@ object Routes {
     /** 角色设定（自定义角色 / 未亡人模式入口）。 */
     const val PERSONA = "persona"
 
+    /** 长期记忆的 3D 星图。 */
+    const val MEMORY_GRAPH = "memory-graph"
+
     // ── 二级页面（隐藏底部导航）──────────────────────────
     const val MARKET = "market"
     const val IMPORT = "import"
@@ -485,6 +488,7 @@ fun AppShell(
                             matureTick++
                         },
                         memoryAtomCount = memoryCount,
+                        onOpenMemory = { navController.navigate(Routes.MEMORY_GRAPH) },
                         notificationGranted = notificationGranted,
                         onRequestNotification = {
                             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
@@ -585,6 +589,20 @@ fun AppShell(
                     }
                 }
 
+
+                // ══════════════════════════════════════════════════
+                //  ★ 记忆星图 —— 3D 可旋转、可缩放的记忆团
+                // ══════════════════════════════════════════════════
+                composable(Routes.MEMORY_GRAPH) {
+                    // ⚠️ 记忆库是**同步读**的（`memoryAtoms()` 内存缓存 + 文件），
+                    //    但这里用 `remember` 接住，避免每次重组都重新读一遍。
+                    val atoms = remember { container.memoryAtoms() }
+                    com.pocketagent.ui.memory.MemoryGraphScreen(
+                        atoms = atoms,
+                        modifier = Modifier,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
 
                 composable(Routes.PERSONA) {
                     // ★ 2026-10-25 自我走查发现的断裂：

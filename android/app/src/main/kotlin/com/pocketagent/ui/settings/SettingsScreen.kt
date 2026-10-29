@@ -101,6 +101,8 @@ fun SettingsScreen(
     onMatureEnabledChange: (Boolean) -> Unit = {},
     /** 长期记忆库里有多少条原子。0 = 还没记住任何事 */
     memoryAtomCount: Int = 0,
+    /** 打开记忆星图 */
+    onOpenMemory: (() -> Unit)? = null,
     /** 通知权限是否已授予（Android 13+ 必须由用户点出来，不能只写在清单里） */
     notificationGranted: Boolean = false,
     /** 点"开启通知" */
@@ -322,9 +324,9 @@ fun SettingsScreen(
                             "聊得多一些之后，它会开始记住关于你的事"
                         },
                         trailing = if (memoryAtomCount > 0) "$memoryAtomCount" else null,
-                        // ⚠️ 还没有记忆详情页 —— 传 null（不画箭头），
-                        //    而不是传空 lambda 假装能进（同本文件顶部的纪律）。
-                        onClick = null,
+                        // ★ 2026-10-28：点开进入**记忆星图**（3D 可旋转记忆团）。
+                        //   之前这里是 null（不画箭头）—— 用户要的就是从这里进去。
+                        onClick = onOpenMemory,
                     )
                 }
             }
