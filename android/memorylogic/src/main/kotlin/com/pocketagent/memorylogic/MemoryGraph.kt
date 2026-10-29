@@ -55,8 +55,51 @@ object MemoryGraph {
         val isKeyEvent: Boolean get() = weight >= KEY_THRESHOLD
     }
 
-    /** 两个点之间的关系。 */
-    data class Edge(val fromAtomId: String, val toAtomId: String, val strength: Double)
+    /**
+     * 两个点之间的**关系类型**。
+     *
+     * ★ 2026-10-29 用户指出的错误：
+     *   "每个节点之间的连接你没有根据因果关系来分。"
+     *
+     *   上一版连边用的是「共用溯源」和「同类且时间相邻」——
+     *   那只是**共现**（出现在同一段对话里），不是**因果**。
+     *   共现连出来的图是一团"什么都连着"的毛线球，
+     *   用户看不出"因为什么，所以什么"。
+     *
+     * ⇒ 现在每条边都必须说明**它是什么关系**，而不只是"它们有关":
+     */
+    enum class Relation(val label: String) {
+        /** 前因 → 后果（有文本上的因果线索） */
+        CAUSES("导致"),
+
+        /** 约束的成因（一条事实解释了一条约束/偏好从哪来） */
+        EXPLAINS("解释"),
+
+        /** 只是先后发生（有语料连着，但没有因果线索） */
+        PRECEDES("先于"),
+    }
+
+    /**
+     * 一条边，**有方向**：`from` 是因，`to` 是果。
+     *
+     * ⚠️ 有方向这件事在数据上必须表达出来：无向边画出来的图
+     *    天然暗示"互相影响"，而"因为胃病所以不能吃辣"是单向的。
+     */
+    data class Edge(
+        val fromAtomId: String,
+        val toAtomId: String,
+        val strength: Double,
+        val relation: Relation,
+    )
+
+    /** 一个点的**因**与**果**（界面用来回答"为什么会这样"）。 */
+    fun causesOf(graph: Graph, atomId: String): List<Atom> =
+        graph.edges.filter { it.toAtomId == atomId }
+            .mapNotNull { e -> graph.nodes.firstOrNull { it.atom.id == e.fromAtomId }?.atom }
+
+    fun effectsOf(graph: Graph, atomId: String): List<Atom> =
+        graph.edges.filter { it.fromAtomId == atomId }
+            .mapNotNull { e -> graph.nodes.firstOrNull { it.atom.id == e.toAtomId }?.atom }
 
     data class Graph(val nodes: List<Node>, val edges: List<Edge>) {
         val isEmpty: Boolean get() = nodes.isEmpty()
@@ -165,41 +208,128 @@ object MemoryGraph {
     }
 
     /**
-     * 连边。
+     * 连边 —— **按因果关系，不只按共现**。
      *
-     * ★ 三条规则，按强度递减：
-     *  1. **共用溯源**（两件事由同一段对话得出）→ 强度高
-     *  2. **同类且时间相邻**（一天内）→ 中等
-     *  3. 不连其他边 —— 全连会变成一团糊，看不出结构
+     * ═══════════════════════════════════════════════════════════════
+     *  ★ 2026-10-29 用户指出的错误
+     * ═══════════════════════════════════════════════════════════════
      *
-     * ⚠️ 上限 [MAX_EDGES_PER_NODE]：一个人气高的节点连 50 条边，
-     *   画面上就是一根毛线球，反而看不出哪些是重点。
+     * 上一版只有「共用溯源」和「同类且时间相邻」。那是**共现**，不是因果：
+     * 一段对话里同时提到"喜欢猫"和"住在杭州"，它们被连成一条线，
+     * 而两者之间其实没有任何关系。图因此长成一团什么都连着的毛线球。
+     *
+     * ⇒ 现在按优先级判四件事，每条边都带 [Relation]：
+     *
+     * | 判据 | 关系 | 例子 |
+     * |---|---|---|
+     * | 因果词（因为/所以/导致/于是…）且**时间在前** | CAUSES | "因为胃疼" → "不能吃辣" |
+     * | 事实解释了某条约束/偏好的来源 | EXPLAINS | "他做过胃镜" → "他不能吃辣" |
+     * | 同时提到、且**同类**、时间相邻一天内 | PRECEDES | "喜欢猫" → "养了两只猫" |
+     * | 其余 | **不连** | —— |
+     *
+     * ⚠️ 方向必须真的判对：`CAUSES` 的箭头是"因 → 果"。
+     *   判反了比不连还糟 —— 用户会看到"不能吃辣，所以他胃疼"。
      */
     private fun buildEdges(atoms: List<Atom>): List<Edge> {
         val out = mutableListOf<Edge>()
         val perNode = HashMap<String, Int>()
-        fun add(a: Atom, b: Atom, strength: Double) {
-            if ((perNode[a.id] ?: 0) >= MAX_EDGES_PER_NODE) return
-            if ((perNode[b.id] ?: 0) >= MAX_EDGES_PER_NODE) return
-            out += Edge(a.id, b.id, strength)
-            perNode[a.id] = (perNode[a.id] ?: 0) + 1
-            perNode[b.id] = (perNode[b.id] ?: 0) + 1
+
+        // 先按时间升序：有了顺序，才能判"谁在前"。
+        val ordered = atoms.sortedWith(compareBy({ it.at }, { it.id }))
+
+        fun add(from: Atom, to: Atom, strength: Double, relation: Relation) {
+            if ((perNode[from.id] ?: 0) >= MAX_EDGES_PER_NODE) return
+            if ((perNode[to.id] ?: 0) >= MAX_EDGES_PER_NODE) return
+            out += Edge(from.id, to.id, strength, relation)
+            perNode[from.id] = (perNode[from.id] ?: 0) + 1
+            perNode[to.id] = (perNode[to.id] ?: 0) + 1
         }
-        for (i in atoms.indices) {
-            for (j in i + 1 until atoms.size) {
-                val a = atoms[i]
-                val b = atoms[j]
-                val shared = a.sourceTurnIds.any { it in b.sourceTurnIds }
-                val sameKindClose = a.kind == b.kind &&
-                    kotlin.math.abs(a.at - b.at) <= DAY_MS
-                when {
-                    shared -> add(a, b, 1.0)
-                    sameKindClose -> add(a, b, 0.35)
+
+        for (i in ordered.indices) {
+            for (j in i + 1 until ordered.size) {
+                val earlier = ordered[i]
+                val later = ordered[j]
+                val shared = earlier.sourceTurnIds.any { it in later.sourceTurnIds }
+
+                // ① 因果：后一条带因果词，且前一条是它提到的对象 → 因在前
+                if (shared && hasCausalCue(later.text)) {
+                    add(earlier, later, 1.0, Relation.CAUSES)
+                    continue
                 }
+                // 因果词出现在前一条里也算（"因为X，所以后来Y"）
+                if (shared && hasCausalCue(earlier.text) && !hasCausalCue(later.text)) {
+                    add(earlier, later, 0.9, Relation.CAUSES)
+                    continue
+                }
+
+                // ② 解释：一条 FACT 解释了后面某条 CONSTRAINT/PREFERENCE
+                val explains = shared &&
+                    earlier.kind == AtomKind.FACT &&
+                    (later.kind == AtomKind.CONSTRAINT || later.kind == AtomKind.PREFERENCE)
+                if (explains) {
+                    add(earlier, later, 0.85, Relation.EXPLAINS)
+                    continue
+                }
+
+                // ③ 只是先后：同类、一天内、**而且文字上真的在说同一件事**
+                //
+                // ⚠️ 这里原来只看"同类 + 一天内"，于是"他喜欢猫"和
+                //   "他住在杭州"也被连成一条线 —— 那还是共现，不是关系。
+                //   加了文字重合之后，只有真的在说同一个对象的才连得上。
+                val adjacent = shared &&
+                    earlier.kind == later.kind &&
+                    (later.at - earlier.at) <= DAY_MS &&
+                    textsOverlap(earlier.text, later.text)
+                if (adjacent) {
+                    add(earlier, later, 0.35, Relation.PRECEDES)
+                }
+                // ④ 其余不连 —— 宁可不画，也不要画一条假关系
             }
         }
         return out
     }
+
+    /**
+     * 这段话里有没有**因果线索**。
+     *
+     * ⚠️ 刻意用保守的词表：宁可漏判（退化成"先于"），
+     *   也不要把"我喜欢狗，但是不养"判成因果 —— 那条边会让用户
+     *   在图上看到一条不存在的关系，而图上没有任何东西能纠正他。
+     */
+    fun hasCausalCue(text: String): Boolean = CAUSAL_CUES.any { text.contains(it) }
+
+    /**
+     * 两段文字是否在说**同一个对象**（二元组重合率）。
+     *
+     * ★ 用二元组而不是分词：中文没空格，而本项目不引分词库
+     *   （纯 Kotlin 模块不许加第三方依赖，且词典会让行为随版本漂移）。
+     *   `MemoryRecall` 里的记忆检索用的也是同一套做法。
+     *
+     * ⚠️ 阈值 0.18 刻意偏低：这一条只用来挡掉"完全无关却被共现连起来"，
+     *   不需要精确判断同义。宁可多留几条弱边，也不要把真的关联判掉。
+     */
+    fun textsOverlap(a: String, b: String): Boolean {
+        val ga = grams(a)
+        val gb = grams(b)
+        if (ga.isEmpty() || gb.isEmpty()) return false
+        val hit = ga.count { it in gb }
+        return hit.toDouble() / minOf(ga.size, gb.size) >= 0.18
+    }
+
+    private fun grams(text: String): Set<String> {
+        val cleaned = buildString {
+            for (c in text) if (c.isLetterOrDigit()) append(c.lowercaseChar())
+        }
+        if (cleaned.length < 2) return emptySet()
+        val out = HashSet<String>(cleaned.length)
+        for (i in 0 until cleaned.length - 1) out += cleaned.substring(i, i + 2)
+        return out
+    }
+
+    private val CAUSAL_CUES = listOf(
+        "因为", "所以", "导致", "于是", "因此", "结果", "害得", "才",
+        "由于", "既然", "以至于", "弄得",
+    )
 
     /**
      * 一轮力学松弛。

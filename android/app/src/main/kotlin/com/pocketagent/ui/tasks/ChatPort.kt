@@ -250,6 +250,13 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
         container.assistantSystemPrompt(
             canAct = decision.intent == TurnIntent.Act,
             currentUserText = userText,
+            // ★ 去味诊断的输入：最近的助理回复。
+            //   ⚠️ 从 `history` 里取，不另外存一份 —— 那份副本会和
+            //      真实对话历史漂移，而漂移之后诊断的就是"它没说过的话"。
+            recentReplies = history
+                .filter { it.role == ChatMessage.Role.ASSISTANT }
+                .takeLast(8)
+                .map { it.plainText() },
         )
     } catch (e: Exception) {
         return ChatResult.Failed(

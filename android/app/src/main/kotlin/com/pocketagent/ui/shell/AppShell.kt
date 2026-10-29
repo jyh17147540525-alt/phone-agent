@@ -377,6 +377,8 @@ fun AppShell(
                     TasksScreen(
                         viewModel = tasksViewModel,
                         onOpenSettings = { goToTab(Routes.SETTINGS) },
+                        // ★ 聊天页直接进角色设定：改完返回，下一句就生效。
+                        onOpenPersona = { navController.navigate(Routes.PERSONA) },
                     )
                 }
 

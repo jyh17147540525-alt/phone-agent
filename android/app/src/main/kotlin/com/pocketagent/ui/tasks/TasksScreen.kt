@@ -35,6 +35,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -107,6 +108,21 @@ import kotlinx.coroutines.delay
 fun TasksScreen(
     modifier: Modifier = Modifier,
     onOpenSettings: () -> Unit = {},
+
+    /**
+     * 打开**角色设定**。
+     *
+     * ★ 2026-10-29 用户的原话："角色卡聊天过程中似乎不能修改角色的设定，
+     *   这很不好，不能根据现实的聊天感受来调整角色的设定。"
+     *
+     * 之前唯一的入口在「设置 → 角色设定」—— 用户得先退出聊天、进设置、
+     * 再翻到那一行。而"聊着聊着觉得她不该这样说话"是个**当下的念头**，
+     * 让他在四层导航之后才能改，等于逼他把这个念头丢掉。
+     *
+     * ⇒ 在聊天页顶栏直接给一个入口。改完返回，**下一句就生效**
+     *   （`assistantSystemPrompt` 每轮现读 `activeCustomPersona`，不缓存）。
+     */
+    onOpenPersona: () -> Unit = {},
     /**
      * 任务状态持有者，**由外壳注入**。
      *
@@ -141,6 +157,13 @@ fun TasksScreen(
         leadingContentDescription = "历史对话",
         onLeadingClick = vm::openDrawer,
         actions = {
+            // ★ 角色设定入口 —— 就在顶栏，聊着聊着觉得不对可以立刻改。
+            //   见 `onOpenPersona` 参数的注释。
+            PaIconButton(
+                icon = Icons.Default.Person,
+                onClick = onOpenPersona,
+                contentDescription = "角色设定",
+            )
             PaIconButton(
                 icon = Icons.Default.Tune,
                 onClick = onOpenSettings,

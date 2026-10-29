@@ -880,6 +880,7 @@ class AppContainer(context: Context) {
     fun recordUserTurn(userText: String, nowMs: Long = System.currentTimeMillis()) {
         if (legacyFirstSeenMs == 0L) legacyFirstSeenMs = nowMs
         legacyTurnCount++
+        totalUserTurns++
 
         // 摩擦信号：取更重的那个（不会因为这次没说就降级）
         val level = com.pocketagent.legacy.FrictionLevel.of(userText)
@@ -1573,6 +1574,90 @@ class AppContainer(context: Context) {
         }.trimEnd()
     }
 
+    /**
+     * 累计的用户轮次（**跨会话**，不随切换对话重置）。
+     *
+     * ★ 与 `legacyTurnCount` 分开：那个是给未亡人模式的冲突引擎用的，
+     *   语义是"这段关系聊了多久"。这个用于关系阶段与去味诊断。
+     */
+    @Volatile
+    private var totalUserTurns: Int = 0
+
+    /**
+     * **关系阶段**。
+     *
+     * ═══════════════════════════════════════════════════════════
+     *  ★ 2026-10-29：这是"聊久了还有 AI 味"的根因之一
+     * ═══════════════════════════════════════════════════════════
+     *
+     * 在此之前 `RelationshipStage` 在 `:personalogic` 里定义得很完整
+     * （四个阶段、推进规则、仪式文案），但**没有任何生产代码读它** ——
+     * 于是无论聊多久，提示词里都没有"你们已经很熟了"这句话。
+     * 模型只能一直按"刚认识"的客气演，那就是 AI 味。
+     *
+     * ★ 判据刻意简单（轮次阈值），因为复杂判据没法在真机上解释：
+     *   用户问"为什么它还没跟我熟"，我得能给一个具体数字。
+     */
+    fun relationshipStage(): com.pocketagent.personalogic.RelationshipStage = when {
+        totalUserTurns >= BONDED_TURNS -> com.pocketagent.personalogic.RelationshipStage.BONDED
+        totalUserTurns >= CLOSE_TURNS -> com.pocketagent.personalogic.RelationshipStage.CLOSE
+        totalUserTurns >= ACQUAINTED_TURNS -> com.pocketagent.personalogic.RelationshipStage.ACQUAINTED
+        else -> com.pocketagent.personalogic.RelationshipStage.STRANGER
+    }
+
+    /**
+     * **去味诊断** —— 看最近几轮回复有没有回落到 AI 腔。
+     *
+     * @param recentReplies 最近的助理回复（升序）
+     */
+    fun humanizerSection(recentReplies: List<String>): String {
+        val stage = relationshipStage()
+        val findings = com.pocketagent.personalogic.Humanizer.diagnose(
+            replies = recentReplies,
+            stage = stage,
+            turnsSinceStageChange = totalUserTurns,
+        )
+        if (findings.isEmpty()) {
+            // ★ 没诊断出问题就**不写** —— 长禁令清单本身会让模型变僵，
+            //   而僵硬是另一种 AI 味。这一条有离线测试钉着。
+            return ""
+        }
+        val verbosity = activeCustomPersona?.verbosity
+            ?: com.pocketagent.personalogic.PersonaVerbosity.NORMAL
+        Timber.i("去味诊断：%s", findings.joinToString { it.code.label })
+        return com.pocketagent.personalogic.Humanizer.promptSection(findings, stage, verbosity)
+    }
+
+    /**
+     * **关系阶段**那一段（无论有没有诊断出问题都要写）。
+     *
+     * ⚠️ 与去味规则分开：这一段说的是"你们是什么关系"，
+     *    不是"你哪里做得不对"。混在一起会让模型觉得自己在被批评。
+     */
+    private fun relationshipSection(): String {
+        val stage = relationshipStage()
+        val persona = activeCustomPersona
+        val how = persona?.relationTo?.takeIf { it.isNotBlank() }
+            ?: "对方是一个你正在慢慢熟悉的人"
+        return buildString {
+            appendLine("## 你和对方的关系")
+            appendLine("现在是「${stage.label}」阶段（你们已经聊了 $totalUserTurns 轮）。$how。")
+            when (stage) {
+                com.pocketagent.personalogic.RelationshipStage.STRANGER ->
+                    appendLine("还带着点客气，不会一下就掏心。不急，慢慢来。")
+                com.pocketagent.personalogic.RelationshipStage.ACQUAINTED ->
+                    appendLine("已经不用每句都客套了。可以开玩笑，也可以直接说「不」。")
+                com.pocketagent.personalogic.RelationshipStage.CLOSE ->
+                    appendLine("你们很熟了。可以损对方、可以抱怨、有话说一半对方就懂。")
+                com.pocketagent.personalogic.RelationshipStage.BONDED ->
+                    appendLine(
+                        "你们之间已经不需要解释太多了。沉默不尴尬，吵架也不怕散。" +
+                            "这时候的关心是随手的，不是刻意的。",
+                    )
+            }
+        }.trimEnd()
+    }
+
     /** 当前是否有自定义角色在生效。 */
     fun hasCustomPersona(): Boolean = activeCustomPersona != null
 
@@ -1615,6 +1700,15 @@ class AppContainer(context: Context) {
          *    传空串 = 这一轮不考虑提及。
          */
         currentUserText: String = "",
+        /**
+         * 最近的助理回复（升序，末尾最新）。
+         *
+         * ★ 去味诊断的输入：判"是不是在分点""是不是每轮都一个长度"
+         *   只能看**已经说出去的话**，猜不出来。
+         *
+         * ⚠️ 空表 = 不诊断。第一轮没有历史，不该给它塞去味规则。
+         */
+        recentReplies: List<String> = emptyList(),
     ): String {
         // ★★ 2026-10-25：自定义角色在这里**真的生效**。
         //
@@ -1668,7 +1762,17 @@ class AppContainer(context: Context) {
 
         // ★ 处境（几点、什么天气）—— 每一轮都写，因为它每一轮都在变。
         val where = situationSection()
-        return if (where.isBlank()) withMemory else withMemory + "\n\n" + where
+        val withWhere = if (where.isBlank()) withMemory else withMemory + "\n\n" + where
+
+        // ★ 关系阶段（你说"聊久了还有 AI 味"的根因之一）：
+        //   在此之前 `RelationshipStage` 有定义、有测试，**零生产引用** ——
+        //   于是不管聊多久，提示词里都没有"你们已经很熟了"。
+        val relation = relationshipSection()
+        val withRelation = if (relation.isBlank()) withWhere else withWhere + "\n\n" + relation
+
+        // ★ 去味规则：只在**这一阵子真的回落了**才写。
+        val human = humanizerSection(recentReplies)
+        return if (human.isBlank()) withRelation else withRelation + "\n\n" + human
     }
 
     /**
@@ -2241,6 +2345,16 @@ class AppContainer(context: Context) {
 
         /** 一次朗读最多念多少字 —— 长回答念一半就够，念完是折磨。 */
         private const val SPEAK_MAX_CHARS = 220
+
+        /**
+         * 关系阶段的轮次门槛。
+         *
+         * ★ 用轮次而不是"感情分"：用户问"为什么它还没跟我熟"时，
+         *   我得能给出一个具体数字，而不是一个他无法验证的评分。
+         */
+        private const val ACQUAINTED_TURNS = 30
+        private const val CLOSE_TURNS = 150
+        private const val BONDED_TURNS = 400
 
         /** 原子记忆落在应用私有目录下的文件名与子目录。 */
         private const val MEMORY_DIR = "memory"
