@@ -9,6 +9,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.pocketagent.personalogic.CustomPersona
 import com.pocketagent.personalogic.PersonaGender
 import com.pocketagent.personalogic.PersonaInitiative
+import com.pocketagent.personalogic.PersonaInput
 import com.pocketagent.personalogic.PersonaVerbosity
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -66,8 +67,23 @@ class CustomPersonaStore(private val context: Context) {
         .map { prefs -> prefs[KEY]?.let { decode(it) } }
         .first()
 
-    /** 保存（覆盖）。 */
+    /**
+     * 保存（覆盖）。
+     *
+     * ⚠️ **拒绝写入占位角色**。
+     *
+     * 这不是洁癖，是一次真实事故的封条：旧版本在构造失败的兜底路径上
+     * 会把 `CustomPersona(id="draft", name="（未命名）")` 写进盘，
+     * 而用户那边看到的是「刚填的设定全没了」——因为它存的确实是空壳。
+     *
+     * ⇒ 现在只要 `name` 是空/占位，这里**抛异常**。
+     *   `AppShell` 的 `runCatching` 会把它变成界面上的一句失败提示 ——
+     *   **宁可报错，也不许安静地存一份假数据**。
+     */
     suspend fun save(persona: CustomPersona) {
+        require(!PersonaInput.isPlaceholder(persona.name)) {
+            "拒绝保存没有名字的角色（占位「${persona.name}」不是真数据）"
+        }
         context.personaStore.edit { prefs ->
             prefs[KEY] = encode(persona)
         }
@@ -114,7 +130,17 @@ class CustomPersonaStore(private val context: Context) {
     private fun decode(raw: String): CustomPersona? = runCatching {
         val o = Json.parseToJsonElement(raw).jsonObject
         val name = o["name"]?.jsonPrimitive?.content ?: return null
-        if (name.isBlank()) return null
+        // ══════════════════════════════════════════════════════════
+        //  ★ 自愈：盘上的"占位空壳"当作没设过
+        // ══════════════════════════════════════════════════════════
+        // 旧版本曾把 `{"id":"draft","name":"（未命名）",…}` 写进盘
+        // （构造失败 → 兜底壳 → 被保存）。那条记录**不是用户的设定**，
+        // 但它非空，所以以前会被当成一个正常的空角色读回来 ——
+        // 于是每次启动都"有一个什么都没填的角色"，
+        // 用户以为自己的设定被清空了。
+        //
+        // ⇒ 认出来就返回 null，回落到内置人格 + 空表单。
+        if (PersonaInput.isPlaceholder(name)) return null
         CustomPersona(
             id = o["id"]?.jsonPrimitive?.content ?: "custom",
             name = name,

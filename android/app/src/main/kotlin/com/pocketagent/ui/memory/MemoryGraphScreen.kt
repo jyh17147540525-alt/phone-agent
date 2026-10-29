@@ -112,6 +112,30 @@ fun MemoryGraphScreen(
         MemoryGraph.build(atoms)
     }
 
+    // ══════════════════════════════════════════════════════════════
+    //  ★ 画布标签的文本来源：**只认随笔，不认抽取原文**
+    // ══════════════════════════════════════════════════════════════
+    //
+    // ⚠️ 一次性把已有随笔读进内存（同步、极快），
+    //    这样画布绘制时不用每次回调 —— Canvas 的 draw 每帧都在跑。
+    val cachedDiaryById = remember(graph) {
+        graph.nodes.associate { it.atom.id to runCatching { cachedDiary(it.atom) }.getOrNull() }
+            .filterValues { !it.isNullOrBlank() }
+            .mapValues { it.value.orEmpty() }
+    }
+
+    /**
+     * 画布上那个标签的文本。
+     *
+     * ⚠️ **只能取自随笔**，绝不用 `atom.text` —— 那是喂给模型的抽取原文。
+     *   随笔还没生成就返回 null（不标），宁可少一个标签。
+     */
+    fun labelOf(atomId: String): String? {
+        val diary = cachedDiaryById[atomId] ?: return null
+        val head = diary.trim().take(14)
+        return head.ifBlank { null }
+    }
+
     var yaw by remember { mutableFloatStateOf(0.4f) }
     var pitch by remember { mutableFloatStateOf(-0.18f) }
     var zoom by remember { mutableFloatStateOf(1f) }
@@ -187,22 +211,32 @@ fun MemoryGraphScreen(
                     },
             ) {
                 drawGraph(graph, yaw, pitch, zoom, selected?.atom?.id, colors)
-                // 重点事件的名字：**只标最重的几条**，全标会糊成一片。
-                // ⚠️ 真机第一次全标，结果 27 个重点事件的名字叠在一起，
-                //    整块画布变成一段读不了的字墙。
+                // ══════════════════════════════════════════════════
+                //  ★★ 2026-10-29 用户："在节点附近会出现一些记忆，
+                //  但这个是给模型看的，不是给用户看的，麻烦修改一下"
+                // ══════════════════════════════════════════════════
+                //
+                // 之前这里画的是 `n.atom.text.take(12)` —— 那是**抽取原文**，
+                // 是喂给 `MemoryRecall` 的机器素材（还带着 `U>` / `A<` 的味道）。
+                // 摊在画布上等于把内核字段直接印在界面上。
+                //
+                // ⇒ 改用 `labelOf`：优先显示**她写的那篇随笔**的头几个字。
+                //   随笔还没有的话就**不标**（宁可少一个标签，
+                //   也不要把机器素材露出去）。
                 val w = size.width
                 val h = size.height
                 val drawn = mutableListOf<Offset>()
                 for (n in graph.keyEvents.sortedByDescending { it.weight }.take(MAX_LABELS)) {
                     val p = project(n, yaw, pitch, zoom, w, h) ?: continue
                     if (p.alpha < 0.35f) continue
+                    val label = labelOf(n.atom.id) ?: continue
                     val at = Offset(p.x + 10f, p.y - 8f)
                     // 位置挨太近就跳过：宁可少标一个，也不要叠成一团
                     if (drawn.any { hypot(it.x - at.x, it.y - at.y) < LABEL_MIN_GAP_PX }) continue
                     drawn += at
                     drawText(
                         textMeasurer = measurer,
-                        text = n.atom.text.take(12),
+                        text = label,
                         topLeft = at,
                         style = TextStyle(
                             // ⚠️ `drawText` 没有 alpha 参数 —— 透明度只能写进颜色，
@@ -324,7 +358,15 @@ private fun MemoryDetailCard(
         atMs = atom.at,
         nowMs = System.currentTimeMillis(),
     )
-    val body = generated?.takeIf { it.isNotBlank() } ?: fallback.ifBlank { atom.text }
+    // ⚠️ 最后一层兜底**不是** `atom.text`。
+    //
+    // 用户的要求是"原文对用户隐藏" —— 那是一条**没有例外**的规则。
+    // 之前写的是 `fallback.ifBlank { atom.text }`：规则版随笔理论上不会返回空，
+    // 但它一旦返回空，屏幕上出现的就会是抽取原文（连 `U>` / `A<` 一起）。
+    // 「理论上不会发生」不是理由 —— 兜底必须也守同一条边界。
+    val body = generated?.takeIf { it.isNotBlank() }
+        ?: fallback.takeIf { it.isNotBlank() }
+        ?: "（这段还留在记忆里，她还没写下来）"
     Column(
         modifier = modifier
             .fillMaxWidth()

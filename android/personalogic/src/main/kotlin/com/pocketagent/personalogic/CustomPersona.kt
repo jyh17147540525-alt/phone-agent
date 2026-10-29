@@ -218,7 +218,14 @@ data class CustomPersona(
 
     init {
         require(name.isNotBlank()) { "角色必须有名字 —— 没有名字模型会自己编一个" }
-        require(name.length <= MAX_NAME) { "名字过长（${name.length}），上限 $MAX_NAME" }
+        // ⚠️ 数**字符**（code point），不是 `String.length`。
+        //    `length` 数的是 UTF-16 单元：一个 emoji 占两个单元。
+        //    用 `length` 判断会让"24 个字"这个名字在带 emoji 时变成 12 个字 ——
+        //    而这个不一致曾经直接导致保存失败：
+        //    `PersonaInput.clampName` 按字符截到 24，构造却按单元判 48 > 24 ⇒ 抛。
+        //    校验口径必须**只有一处**，否则两边永远对不上。
+        val chars = name.codePointCount(0, name.length)
+        require(chars <= MAX_NAME) { "名字过长（${chars} 字），上限 $MAX_NAME" }
         require(catchphrases.size <= MAX_CATCHPHRASES) {
             "口癖最多 $MAX_CATCHPHRASES 条 —— 太多会挤占上下文，且模型会混着用"
         }

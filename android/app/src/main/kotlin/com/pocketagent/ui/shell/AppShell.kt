@@ -653,7 +653,14 @@ fun AppShell(
                             onSave = { persona ->
                                 scope.launch {
                                     runCatching { container.saveCustomPersona(persona) }
-                                        .onSuccess { savedHint = "「${persona.name}」已保存，下一条对话就会用它" }
+                                        .onSuccess {
+                                            // ★ 把"存了什么"说出来，而不是只报"已保存"。
+                                            //   用户被"报成功、存的却是空壳"坑过一次，
+                                            //   所以这里要能当场核对：名字 + 有效栏数。
+                                            savedHint = "「${persona.name}」已保存：" +
+                                                "${com.pocketagent.personalogic.PersonaInput.filledFields(persona)} 栏有内容，" +
+                                                "下一条对话就会用它"
+                                        }
                                         .onFailure { savedHint = "保存失败：${it.message ?: "未知原因"}" }
                                 }
                             },

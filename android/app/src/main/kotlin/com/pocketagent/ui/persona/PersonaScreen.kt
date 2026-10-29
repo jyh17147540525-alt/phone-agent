@@ -32,7 +32,7 @@ import com.pocketagent.legacy.RelationKind
 import com.pocketagent.personalogic.CustomPersona
 import com.pocketagent.personalogic.PersonaCompleteness
 import com.pocketagent.personalogic.PersonaGender
-import timber.log.Timber
+import com.pocketagent.personalogic.PersonaInput
 import com.pocketagent.ui.design.PaBanner
 import com.pocketagent.ui.design.PaBannerTone
 import com.pocketagent.ui.design.PaButton
@@ -118,47 +118,64 @@ fun PersonaScreen(
     val signal = remember(combinedText) { KinshipDetector.detect(combinedText) }
 
     // ══════════════════════════════════════════════════════════════
-    //  ★★ 2026-10-25 闪退修复：这里原本直接 `CustomPersona(name = name)`，
-    //     而新建角色时 `name` 是空串 —— `CustomPersona.init` 里的
-    //     `require(name.isNotBlank())` **当场抛异常**，于是
-    //     「一点角色设定页就闪退」。
-    //
-    //  根因是我的设计错误：那个 require 的目的是**阻止保存一个没名字的角色**，
-    //  但它被放在构造函数里，于是它也阻止了**渲染一个还没填名字的表单**。
-    //
-    //  ⇒ 校验该发生在**提交时**，不是**渲染时**。这里的 draft 只是个"预览用"
-    //    的对象，它允许暂时没名字。
-    //
-    //  ⚠️ 这不是绕过校验：`onSave` 那一侧仍然要求 name 非空
-    //     （见下面的按钮 `enabled = name.isNotBlank()` 与 onSave 的实现）。
+    //  ★★ 2026-10-29 第二次修「保存后设定消失」——这次修的是**成因**
     // ══════════════════════════════════════════════════════════════
-    val draft = runCatching {
-        CustomPersona(
-            id = initial?.id ?: "draft",
-            name = name.ifBlank { PLACEHOLDER_NAME },
-            identity = identity,
-            relationTo = relationTo,
-            addressUser = addressUser,
-            catchphrases = catchphrases.split("、", ",", "，").map { it.trim() }.filter { it.isNotBlank() },
-            gender = gender,
-            flawsRaw = flaws.split("\n").map { it.trim() }.filter { it.isNotBlank() },
-            // ★ 立体度第二组：**草稿也要带上**，否则预览效果评估会与实际不符。
-            verbosity = verbosity,
-            dailyLife = dailyLife,
-            interests = interests.split("、", ",", "，").map { it.trim() }.filter { it.isNotBlank() },
-            taboos = taboos.split("、", ",", "，").map { it.trim() }.filter { it.isNotBlank() },
-            sharedReferences = sharedRefs.split("、", ",", "，").map { it.trim() }.filter { it.isNotBlank() },
-            initiative = initiative,
-            sleepHour = sleepHour.toIntOrNull()?.coerceIn(0, 23) ?: 23,
-            wakeHour = wakeHour.toIntOrNull()?.coerceIn(0, 23) ?: 7,
-        )
-    }.getOrElse {
-        // ⚠️ 兜底：就算将来 `CustomPersona` 加了别的校验，
-        //    也**不能让一个输入框的中间状态把整个页面炸掉**。
-        //    用户正在打字时字段是半成品，而半成品不该是崩溃。
-        Timber.w(it, "角色草稿构造失败（用占位）")
-        CustomPersona(id = "draft", name = PLACEHOLDER_NAME)
-    }
+    //
+    // 第一次的修法（留住原因 + 禁用按钮）是错的：它把
+    // 「用户输入撞到我们自己的 24 字/8 条限制」当成了**用户要修的问题**。
+    // 用户是在描述一个人，没有哪种写法是错的。
+    //
+    // 真机根因（对着设备上的 `custom_persona.preferences_pb` 确认）：
+    //   ① 组合期用 `CustomPersona(...)` 造预览对象，外面包 `runCatching`
+    //   ② 输入越过 init 的 `require`（名字 > 24 字 / 口癖 > 8 条）⇒ 抛异常
+    //   ③ 兜底 = 空壳 `CustomPersona(id="draft", name="（未命名）")`
+    //   ④ 按钮可用性看的是**输入框原文**，仍然可点
+    //   ⑤ 点保存 ⇒ **空壳被写进盘**
+    //   ⑥ 保存后 `initial` 变成那个空壳 ⇒ 表单按 `initial` 重填 ⇒
+    //      用户看到的就是「刚填的全没了」
+    //
+    // ⇒ 现在的构造走 `PersonaInput.toPersona`，它**永不抛异常**：
+    //   超长名字按字符截断、口癖取前 8 条、作息夹到 0..23。
+    //   于是既不需要 `runCatching`，也不需要把错误写进 state ——
+    //   而"在组合期写 state"本身会触发无限重组，那也是要避免的。
+    //
+    // ⚠️ 空壳这条路已经彻底封死：占位名在 store 那一侧会被**拒绝保存**
+    //    （`CustomPersonaStore.save`），盘上已有的空壳会被 `decode` 当作
+    //    "没设过" —— 三处都拦，因为这个 bug 的实质就是
+    //    "占位被当成真数据存了进去"。
+    //
+    // ★ 表单没展示的字段（自称/方言/记忆/头像）从 `initial` 透传：
+    //   用户改个名字不该顺手把他写过的方言删掉。
+    // ★ 唯一的组装入口：草稿与保存都走这里。
+    //   两处各造一次必然漂移（上一版就是这样：草稿和保存用的不是同一套逻辑）。
+    fun assemble(id: String, rawName: String) = PersonaInput.toPersona(
+        // ⚠️ 预览用的 id 只在"新建"时需要一个稳定值 ——
+        //    用时间戳会让每次重组都换 id，而保存时**另外**生成正式 id。
+        id = id,
+        name = rawName,
+        identity = identity,
+        relationTo = relationTo,
+        addressUser = addressUser,
+        addressSelf = initial?.addressSelf.orEmpty(),
+        dialect = initial?.dialect.orEmpty(),
+        gender = gender,
+        avatarRes = initial?.avatarRes,
+        catchphrases = catchphrases,
+        memories = initial?.memories.orEmpty(),
+        flaws = flaws,
+        // ★ 立体度第二组：**草稿也要带上**，否则预览效果评估会与实际不符。
+        verbosity = verbosity,
+        dailyLife = dailyLife,
+        interests = interests,
+        taboos = taboos,
+        sharedReferences = sharedRefs,
+        initiative = initiative,
+        sleepHour = sleepHour,
+        wakeHour = wakeHour,
+    )
+
+    /** 这一帧的画面 —— 名字没填时是占位，**只用于渲染**。 */
+    val draft = assemble(initial?.id ?: DRAFT_ID, name)
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -190,7 +207,17 @@ fun PersonaScreen(
                 label = "名字",
                 value = name,
                 placeholder = "他会怎么介绍自己",
-                onValueChange = { name = it },
+                // ⚠️ 输入期就截断，而不是提交时判为非法。
+                //    过长的粘贴会**当场**停在 24 字，用户立刻看见；
+                //    而不是填完一按保存、设定整个变空（那正是原来的 bug）。
+                onValueChange = { name = PersonaInput.clampName(it) },
+            )
+            Spacer(Modifier.height(PaSpace.xxs))
+            Text(
+                text = "最多 ${CustomPersona.MAX_NAME} 字 —— 名字就是个称呼。" +
+                    "想写一整段设定，写进下面那栏。",
+                style = PaType.caption,
+                color = PaColor.TextTertiary,
             )
         }
         item {
@@ -225,6 +252,19 @@ fun PersonaScreen(
                 placeholder = "用顿号隔开，如：这事儿啊、慢慢来",
                 onValueChange = { catchphrases = it },
             )
+            // ★ 口癖是唯一有数量上限的栏位（上限现在由 `PersonaInput` 执行，
+            //   不再由构造函数抛异常执行）。超出的**只取前几条** ——
+            //   但必须当场说出来，否则用户会以为写进去的都生效了。
+            val allPhrases = PersonaInput.splitList(catchphrases)
+            if (allPhrases.size > CustomPersona.MAX_CATCHPHRASES) {
+                Spacer(Modifier.height(PaSpace.xxs))
+                Text(
+                    text = "写了 ${allPhrases.size} 条，只用前 ${CustomPersona.MAX_CATCHPHRASES} 条 —— " +
+                        "太多会让模型混着用，反而不像他。",
+                    style = PaType.caption,
+                    color = PaColor.Warning,
+                )
+            }
         }
 
         // ══════════════════════════════════════════════════════════
@@ -439,9 +479,21 @@ fun PersonaScreen(
         item {
             PaButton(
                 text = "保存角色",
-                onClick = { if (name.isNotBlank()) onSave(draft) },
+                onClick = {
+                    // ★ 用**输入框当前值**重新组装一次。
+                    //   `assemble` 不会抛异常，所以这里不存在"点了没反应"——
+                    //   要么真的存进去，要么由 store 明确报错（占位名会被拒）。
+                    val trimmed = name.trim()
+                    if (trimmed.isEmpty()) return@PaButton
+                    onSave(
+                        assemble(
+                            id = initial?.id ?: "custom-${System.currentTimeMillis()}",
+                            rawName = trimmed,
+                        )
+                    )
+                },
                 style = PaButtonStyle.Primary,
-                enabled = name.isNotBlank(),
+                enabled = name.trim().isNotEmpty(),
             )
         }
     }
@@ -578,10 +630,10 @@ private fun PaField(
 private fun daysSincePassed(): Int = 0
 
 /**
- * 表单还没填名字时用的占位。
+ * 新建角色时，预览用草稿的稳定 id。
  *
- * ⚠️ 它**不会**被保存 —— `onSave` 那一侧仍然要求真名字
- * （按钮 `enabled = name.isNotBlank()`）。
- * 它存在的唯一理由：让"还没填"这个中间状态**能渲染**而不是崩溃。
+ * ⚠️ 它**不会**被保存到盘上：保存路径另外生成 `custom-<时间戳>`。
+ * 它存在的唯一理由：让"还没保存"这一帧有一个稳定的 id，
+ * 而不是每次重组都换一个时间戳（那会让 `remember(initial)` 之类的键来回跳）。
  */
-private const val PLACEHOLDER_NAME = "（未命名）"
+private const val DRAFT_ID = "custom-draft"
