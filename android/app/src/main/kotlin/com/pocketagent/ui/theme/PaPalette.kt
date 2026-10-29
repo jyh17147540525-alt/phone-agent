@@ -72,6 +72,19 @@ class PaPalette(
  */
 val LocalPalette = staticCompositionLocalOf { LightPalette }
 
+/**
+ * 当前是不是深色主题。
+ *
+ * ★ 为什么需要它：有些绘制（记忆星云、极光背景）不是"取一个品牌色"，
+ *   而是要**按明暗选一整套色板** —— 浅底靠"深"吸引注意力，暗底靠"亮"，
+ *   两者不是同一套颜色调亮或调暗就能互通的。
+ *
+ * ⚠️ 刻意不提供"从 `LocalPalette.Canvas` 反推明暗"那种捷径：
+ *   亮度阈值是个魔数，换主题就失效，而且失效时是**静默**的
+ *   （只是某一天星云在浅色下又看不清了）。
+ */
+val LocalIsDark = staticCompositionLocalOf { false }
+
 /** **浅色** —— Claude 风格的暖米底。默认主题。 */
 val LightPalette = PaPalette(
     Canvas = Color(0xFFF5F2EC),

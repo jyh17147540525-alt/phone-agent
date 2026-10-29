@@ -163,7 +163,10 @@ fun PocketAgentTheme(
     val palette = if (isDark) DarkPalette else LightPalette
     val colors = if (isDark) darkColors() else lightColors()
 
-    CompositionLocalProvider(LocalPalette provides palette) {
+    CompositionLocalProvider(
+        LocalPalette provides palette,
+        LocalIsDark provides isDark,
+    ) {
         MaterialTheme(
             colorScheme = colors,
             typography = AppTypography,

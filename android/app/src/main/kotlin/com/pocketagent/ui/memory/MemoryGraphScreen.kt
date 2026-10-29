@@ -38,6 +38,8 @@ import com.pocketagent.ui.design.PaRadius
 import com.pocketagent.ui.design.PaScreen
 import com.pocketagent.ui.design.PaSpace
 import com.pocketagent.ui.design.PaType
+import com.pocketagent.ui.theme.LocalIsDark
+import com.pocketagent.ui.theme.LocalPalette
 import kotlinx.coroutines.delay
 import kotlin.math.cos
 import kotlin.math.hypot
@@ -85,6 +87,14 @@ fun MemoryGraphScreen(
     modifier: Modifier = Modifier,
     /** 返回上一页。**必须传** —— 二级页面没有底部导航，不给返回就没法出去。 */
     onBack: (() -> Unit)? = null,
+    /**
+     * 角色怎么称呼用户（用于日记体里的"与他/她" → "与你"）。
+     *
+     * ⚠️ 为空时退到"你"：日记里出现"用户"两个字，读起来立刻像数据库导出。
+     */
+    userName: String = "",
+    /** 角色自己的名字（日记落款用；空 = 不落款）。 */
+    personaName: String = "",
 ) {
     // ⚠️ 布局很贵（O(n²) × 90 轮），只在记忆真的变了时重算。
     val graph = remember(atoms.size, atoms.firstOrNull()?.id, atoms.lastOrNull()?.id) {
@@ -107,6 +117,28 @@ fun MemoryGraphScreen(
     }
 
     PaScreen(title = "长期记忆", modifier = modifier, onBack = onBack) {
+        // ══════════════════════════════════════════════════════════
+        //  ★★ 2026-10-29 用户："记忆星云在浅色主题下会很模糊"
+        // ══════════════════════════════════════════════════════════
+        //
+        // 根因很直接：星图的配色是**给暗底写的** ——
+        // 浅蓝 `B9D4FF` / 荧光绿 `7CFFB2` 在奶油色背景上
+        // 对比度只有 1.2:1 左右，基本等于看不见。
+        //
+        // ⚠️ 关键判断：换成"浅色版配色"**不等于统一减淡**。
+        //   暗底靠"亮"来吸引注意力，浅底要靠"深"。
+        //   所以这里不是把颜色调亮，而是把整套色板按主题换掉：
+        //     · 点   → 深靛蓝（在奶油底上清晰）
+        //     · 重点 → 深青绿（异色，但够暗）
+        //     · 选中 → 赤陶（与主题强调色同族）
+        //     · 边   → 深灰蓝
+        //   而且浅色下光晕要**加大不透明度**才看得出来 ——
+        //   在浅底上淡淡的一层白光等于没有。
+        val colors = MemoryGraphPalette.forPalette(
+            LocalPalette.current,
+            isDark = LocalIsDark.current,
+        )
+
         Box(modifier = Modifier.fillMaxSize()) {
             Canvas(
                 modifier = Modifier
@@ -143,7 +175,7 @@ fun MemoryGraphScreen(
                         )
                     },
             ) {
-                drawGraph(graph, yaw, pitch, zoom, selected?.atom?.id)
+                drawGraph(graph, yaw, pitch, zoom, selected?.atom?.id, colors)
                 // 重点事件的名字：**只标最重的几条**，全标会糊成一片。
                 // ⚠️ 真机第一次全标，结果 27 个重点事件的名字叠在一起，
                 //    整块画布变成一段读不了的字墙。
@@ -164,7 +196,10 @@ fun MemoryGraphScreen(
                         style = TextStyle(
                             // ⚠️ `drawText` 没有 alpha 参数 —— 透明度只能写进颜色，
                             //    传 alpha= 会直接编译不过。
-                            color = Color(0xFFB9D4FF).copy(alpha = 0.85f * p.alpha),
+                            //
+                            // ★ 用主题色而不是写死的浅蓝：写死的那套在浅色主题下
+                            //   几乎看不见（用户报的"模糊"就是这个）。
+                            color = colors.label.copy(alpha = 0.9f * p.alpha),
                             fontSize = 10.sp,
                         ),
                     )
@@ -194,6 +229,7 @@ fun MemoryGraphScreen(
             selected?.let { node ->
                 MemoryDetailCard(
                     node = node,
+                    userName = userName,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(PaSpace.m),
@@ -218,10 +254,39 @@ fun MemoryGraphScreen(
     }
 }
 
-/** 选中后弹出的那条记忆。 */
+/**
+ * 选中后弹出的那条记忆 —— **以日记体呈现**。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  ★★ 2026-10-29 用户要求
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * "用户每一次点开记忆节点查看具体内容时，得用角色自己的口吻，
+ *  第一人称表述记忆内容……以日记和随笔的形式呈现出来。"
+ * "这只是面向用户的，不能修改底层的记忆架构和逻辑。"
+ *
+ * ⇒ 这里显示的是 [com.pocketagent.memorylogic.MemoryDiary] 的**改写结果**，
+ *   而原子库里那句原话**一个字都没动**（`MemoryDiary` 是纯函数，有测试钉住）。
+ *
+ * ★ 原文仍然可达，但降到最后一行小字：
+ *   用户偶尔会想确认"它记的到底是什么"，所以不能只给文学化的版本。
+ *   但**主视觉必须是日记** —— 那是他点开这个节点想看到的东西。
+ */
 @Composable
-private fun MemoryDetailCard(node: MemoryGraph.Node, modifier: Modifier = Modifier) {
+private fun MemoryDetailCard(
+    node: MemoryGraph.Node,
+    userName: String,
+    modifier: Modifier = Modifier,
+) {
     val atom = node.atom
+    val palette = MemoryGraphPalette.forPalette(LocalPalette.current, isDark = LocalIsDark.current)
+    val diary = com.pocketagent.memorylogic.MemoryDiary.write(
+        text = atom.text,
+        kindLabel = atom.kind.label,
+        userAddress = userName,
+        atMs = atom.at,
+        nowMs = System.currentTimeMillis(),
+    )
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -237,18 +302,39 @@ private fun MemoryDetailCard(node: MemoryGraph.Node, modifier: Modifier = Modifi
             Text(
                 text = atom.kind.label,
                 style = PaType.caption.copy(fontWeight = FontWeight.Medium),
-                color = if (node.isKeyEvent) KEY_COLOR else Color(0xFF8FB8FF),
+                // ★ 也用主题色：写死的浅蓝在浅色主题下看不清。
+                color = if (node.isKeyEvent) palette.key else palette.dot,
             )
             Text(
                 text = if (node.isKeyEvent) "  ·  重点事件" else "",
                 style = PaType.caption,
-                color = KEY_COLOR,
+                color = palette.key,
             )
         }
         Spacer(Modifier.height(PaSpace.xs))
-        // ★ 给原文，不给摘要 —— 用户来这里是为了确认"它到底记住了什么"。
-        Text(text = atom.text, style = PaType.body, color = PaColor.TextPrimary)
+        // ★★ 主视觉是**日记**，不是原始记录。
+        //   用户点开这个节点，想看到的是"她记得那一天"，不是数据库那一行。
+        Text(
+            text = diary.ifBlank { atom.text },
+            style = PaType.body,
+            color = PaColor.TextPrimary,
+        )
         Spacer(Modifier.height(PaSpace.xs))
+        // ★ 原文仍然可达 —— 但降成小字。
+        //   用户偶尔要确认"它记的到底是什么"，不能只给文学化的版本；
+        //   而那不该是主视觉。
+        if (diary.isNotBlank() && diary != atom.text) {
+            Text(
+                // ⚠️ 原文也要过一遍 `readable`：压缩段里带的是 `U>` / `A<`
+                //    那种模型专用记号，原样显示等于把"只有模型看得懂的东西"
+                //    摊在用户面前。但它保留完整内容（不裁到 600 字之外的部分
+                //    也照原样截断，长度以 readable 的上限为准）。
+                text = "原文：" + com.pocketagent.memorylogic.MemoryDiary.readable(atom.text),
+                style = PaType.caption,
+                color = PaColor.TextTertiary,
+            )
+            Spacer(Modifier.height(PaSpace.xxs))
+        }
         Text(
             text = "置信度 ${(atom.confidence * 100).toInt()}% · 来自 ${atom.sourceTurnIds.size} 轮对话",
             style = PaType.caption,
@@ -334,6 +420,7 @@ private fun DrawScope.drawGraph(
     pitch: Float,
     zoom: Float,
     selectedId: String?,
+    colors: MemoryGraphPalette,
 ) {
     val w = size.width
     val h = size.height
@@ -345,7 +432,7 @@ private fun DrawScope.drawGraph(
         val a = projected[e.fromAtomId] ?: continue
         val b = projected[e.toAtomId] ?: continue
         drawLine(
-            color = Color(0xFF7FA8E8).copy(alpha = 0.10f + 0.22f * e.strength.toFloat()),
+            color = colors.edge.copy(alpha = 0.10f + 0.22f * e.strength.toFloat()),
             start = Offset(a.x, a.y),
             end = Offset(b.x, b.y),
             strokeWidth = 0.9f,
@@ -361,31 +448,34 @@ private fun DrawScope.drawGraph(
 
         // 光晕（重点事件 + 选中）
         if (n.isKeyEvent || isSelected) {
-            val glow = if (n.isKeyEvent) KEY_COLOR else SELECT_COLOR
+            val glow = if (n.isKeyEvent) colors.key else colors.selected
+            // ⚠️ 不透明度来自主题：浅底上淡淡一层"亮晕"等于没有，
+            //    所以浅色版用的是更浓的**深色晕**。见 MemoryGraphPalette。
             drawCircle(
-                color = glow.copy(alpha = 0.10f * p.alpha),
+                color = glow.copy(alpha = colors.glowOuterAlpha * p.alpha),
                 radius = r * 3.2f,
                 center = Offset(p.x, p.y),
             )
             drawCircle(
-                color = glow.copy(alpha = 0.20f * p.alpha),
+                color = glow.copy(alpha = colors.glowInnerAlpha * p.alpha),
                 radius = r * 1.9f,
                 center = Offset(p.x, p.y),
             )
         }
         drawCircle(
             color = when {
-                isSelected -> SELECT_COLOR
-                n.isKeyEvent -> KEY_COLOR
-                else -> DOT_COLOR
+                isSelected -> colors.selected
+                n.isKeyEvent -> colors.key
+                else -> colors.dot
             }.copy(alpha = p.alpha),
             radius = r,
             center = Offset(p.x, p.y),
         )
-        // 重点事件的核心再亮一层，暗底上才有"光点"感
+        // 重点事件的核心再亮一层 —— 暗底上才有"光点"感。
+        // ⚠️ 浅底不用白色（在奶油底上等于没有），用同色更深一档。
         if (n.isKeyEvent) {
             drawCircle(
-                color = Color.White.copy(alpha = 0.85f * p.alpha),
+                color = colors.keyCore.copy(alpha = 0.85f * p.alpha),
                 radius = r * 0.45f,
                 center = Offset(p.x, p.y),
             )
@@ -427,6 +517,7 @@ private const val MAX_LABELS = 5
 /** 两个名字至少隔这么远，否则跳过（宁可少标一个也不要叠）。 */
 private const val LABEL_MIN_GAP_PX = 118f
 
-private val DOT_COLOR = Color(0xFFB9D4FF)
-private val KEY_COLOR = Color(0xFF7CFFB2)
-private val SELECT_COLOR = Color(0xFFFFC48A)
+// ⚠️ 这里原来有三个写死的颜色常量（DOT/KEY/SELECT）。
+//    它们只在暗色主题下成立 —— 浅色主题下浅蓝浅绿在奶油底上
+//    对比度约 1.2:1，就是用户报的"模糊"。
+//    ⇒ 已全部移进 `MemoryGraphPalette`（两套色板），这里不再有颜色常量。
