@@ -586,6 +586,39 @@ private fun ChatMessage.toAgentMessage(): AgentMessage = when (role) {
                 "两者完全不同。"
         }
 
+        // ══════════════════════════════════════════════════════════
+        //  ★★ 2026-10-29：厂商侧的审核拦截必须单独说清楚
+        // ══════════════════════════════════════════════════════════
+        //
+        // 在此之前 `ProviderException.ContentFiltered` **没有任何地方处理** ——
+        // 它一路落到最后那句"（这是模型服务返回的原始错误，不是你的操作问题）"，
+        // 于是用户看到的是厂商的英文原文（`content_filter` / `data_inspection_failed`
+        // / `Output data may contain inappropriate content`）。
+        //
+        // 为什么这条对"深度对话"特别重要：这类拦截**不是本地的**，
+        // 是模型服务商那一侧的。用户在本应用里打开了成熟内容开关、
+        // 关系阶段也够了，但请求发到厂商那里被拦 —— 他只会看到一串英文，
+        // 然后以为是应用坏了，反复重发。
+        //
+        // ⇒ 必须说清三件事：**是谁拦的**、**不是你的设置问题**、**能怎么办**。
+        //   ⚠️ 不能含糊成"内容不合规" —— 那听起来像在指责用户。
+        val filteredNow = "content_filter" in lower ||
+            "content policy" in lower || "content management policy" in lower ||
+            "data_inspection_failed" in lower || "inappropriate" in lower ||
+            "safety" in lower || "敏感" in raw || "违规" in raw ||
+            "审核" in raw || "不合规" in raw
+        if (filteredNow) {
+            return "这句话被**模型服务商**拦下来了，不是你这边设置的问题。\n\n" +
+                "本应用的成熟内容开关是开着的，请求也确实发出去了 —— " +
+                "但服务商在它那一侧做了内容审核，把这次请求或回复挡掉了。\n\n" +
+                "能做的三件事：\n" +
+                "• 换个说法再说一次（同样的意思，措辞不同，常常就能过）\n" +
+                "• 在「设置 → 模型配置」换一个审核更宽松的模型/服务商\n" +
+                "• 只在这一轮里避开被拦的那个词\n\n" +
+                "⚠️ 这不是「重试就好」的错误 —— 同一个说法重发，多半还是被拦。\n\n" +
+                "服务商原话：$raw"
+        }
+
         val modelMissing = "模型不存在" in raw ||
             ("model" in lower && "not found" in lower)
         if (modelMissing) {

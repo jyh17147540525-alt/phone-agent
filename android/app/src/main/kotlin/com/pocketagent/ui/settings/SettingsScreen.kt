@@ -99,6 +99,15 @@ fun SettingsScreen(
     onAdultConfirmedChange: (Boolean) -> Unit = {},
     /** 打开/关闭成熟内容 */
     onMatureEnabledChange: (Boolean) -> Unit = {},
+    /** 当前关系阶段名（如"初识"）。空 = 还没有会话 */
+    relationshipStageLabel: String = "",
+    /** 关系推进进度的一句话说明（"再有 N 轮就到「熟悉」"） */
+    relationshipProgress: String = "",
+    /** 当前推进节奏 */
+    stageSpeed: com.pocketagent.personalogic.StageSpeed =
+        com.pocketagent.personalogic.StagePacing.DEFAULT_SPEED,
+    /** 切换推进节奏 */
+    onStageSpeedChange: (com.pocketagent.personalogic.StageSpeed) -> Unit = {},
     /** 长期记忆库里有多少条原子。0 = 还没记住任何事 */
     memoryAtomCount: Int = 0,
     /** 打开记忆星图 */
@@ -391,8 +400,11 @@ fun SettingsScreen(
                         Spacer(Modifier.height(PaSpace.xxs))
                         Text(
                             text = when {
+                                // ⚠️ 不再说"关系不到那一步仍然不会说" ——
+                                //    那句话在阈值走不到的时候等于"永远不行"。
+                                //    现在要说清**怎么才能到**，并给出进度。
                                 maturePermission.effective ->
-                                    "已开启。角色会按你们的关系阶段表达亲密 —— 关系不到那一步，仍然不会说。"
+                                    "已开启。角色会按你们的关系阶段表达 —— 现在是「${relationshipStageLabel}」。"
                                 !maturePermission.adultConfirmed ->
                                     "需要先完成上面的成年确认。"
                                 else -> "关着的时候角色照样会亲密、会撒娇、会生气，只是不写露骨的性描写。"
@@ -416,6 +428,72 @@ fun SettingsScreen(
                                 //    隐藏会让用户找不到这个功能，以为产品没有；
                                 //    禁用 + 上面那句原因，才是可理解的。
                                 enabled = maturePermission.adultConfirmed,
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ══════════════════════════════════════════════════════
+            //  ★★ 关系推进 —— 「怎么才能到那一步」必须可见、可调
+            // ══════════════════════════════════════════════════════
+            //
+            // ⚠️ 这一块是本项目的核心纪律：**不许有"不报错的假动作"**。
+            //
+            // 原来成熟内容开关打开了，但用户无法知道：
+            //   · 现在到哪一档了
+            //   · 还差多少
+            //   · 能不能调快
+            // 而阶段阈值是写死的 30/150/400 —— 150 轮意味着一两个月。
+            // 于是他看到的是"开了也没用"，且**没有任何线索说明为什么**。
+            //
+            // ⇒ 三件事一起给出：当前阶段、还差多少、节奏可调。
+            if (maturePermission.effective) {
+                item {
+                    PaListGroup {
+                        Column(modifier = Modifier.fillMaxWidth().padding(PaSpace.m)) {
+                            Text(
+                                text = "关系推进",
+                                style = PaType.body,
+                                color = PaColor.TextPrimary,
+                            )
+                            Spacer(Modifier.height(PaSpace.xxs))
+                            Text(
+                                text = relationshipProgress.ifBlank {
+                                    "再多聊几句就会开始推进。"
+                                },
+                                style = PaType.caption,
+                                color = PaColor.TextSecondary,
+                            )
+                            Spacer(Modifier.height(PaSpace.s))
+                            Text(
+                                text = "推进节奏",
+                                style = PaType.caption,
+                                color = PaColor.TextSecondary,
+                            )
+                            Spacer(Modifier.height(PaSpace.xxs))
+                            Row {
+                                for (s in com.pocketagent.personalogic.StageSpeed.entries) {
+                                    PaButton(
+                                        text = s.label,
+                                        onClick = { onStageSpeedChange(s) },
+                                        style = if (stageSpeed == s) {
+                                            PaButtonStyle.Primary
+                                        } else {
+                                            PaButtonStyle.Glass
+                                        },
+                                        modifier = Modifier.padding(end = PaSpace.xs),
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(PaSpace.xs))
+                            Text(
+                                // ★ 说清代价：这不是"后台偷偷加速"，
+                                //   它改变的是关系推进所需的轮数。
+                                text = "节奏只改变「多少轮算熟」—— 不会跳过过程，" +
+                                    "也不会让角色在初识就崩人设。",
+                                style = PaType.caption,
+                                color = PaColor.TextTertiary,
                             )
                         }
                     }

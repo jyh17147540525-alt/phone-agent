@@ -883,6 +883,11 @@ class AppContainer(context: Context) {
         if (legacyFirstSeenMs == 0L) legacyFirstSeenMs = nowMs
         legacyTurnCount++
         totalUserTurns++
+        // ⚠️ 每轮都落盘：这个数**唯一**的用途是关系阶段，
+        //    而它必须跨进程存活。攒着批量写会让"进程被杀"丢掉最近几十轮，
+        //    表现就是用户明明聊了很久，关系还停在初识。
+        //    写的是一个 Int，DataStore 的写入成本可以忽略。
+        persistTotalUserTurns()
 
         // 摩擦信号：取更重的那个（不会因为这次没说就降级）
         val level = com.pocketagent.legacy.FrictionLevel.of(userText)
@@ -1196,7 +1201,7 @@ class AppContainer(context: Context) {
         val store = conversationRepository() ?: return
         startupScope.launch {
             runCatching {
-                val turns = store.recentForModel(sessionId, MEMORY_WINDOW_TURNS)
+                val turns = store.recentForModel(sessionId, MEMORY_WINDOW_LINES)
                 val result = memoryWriter.absorb(turns)
                 if (!result.nothing) atomCache = null
                 Timber.i(
@@ -1581,9 +1586,47 @@ class AppContainer(context: Context) {
      *
      * ★ 与 `legacyTurnCount` 分开：那个是给未亡人模式的冲突引擎用的，
      *   语义是"这段关系聊了多久"。这个用于关系阶段与去味诊断。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★★ 2026-10-29：它原来**只在内存里**，于是关系阶段永远停在"初识"
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 后果链条（用户问"这个 app 里真的能深度聊 r18 吗"时查出来的）：
+     *   ① 进程一死这个数归零 ⇒ 每次冷启动都从 0 开始数
+     *   ② 而 `ACQUAINTED_TURNS = 30`、`CLOSE_TURNS = 150`、`BONDED_TURNS = 400`
+     *   ③ 真机上一天聊不了 30 轮就退出了应用 ⇒ **永远到不了 ACQUAINTED**
+     *   ④ 于是 `relationshipSection()` 每轮都写"现在是「初识」阶段，
+     *      还带着点客气，不会一下就掏心"
+     *   ⑤ 而成熟内容那一段写着"关系阶段决定你能说到哪一步"
+     *      ⇒ 两段提示词自己把自己锁死，**开关是开的但等于没开**
+     *
+     * ⚠️ 这个 bug 的形态就是本项目最忌讳的那种：不报错、不崩溃，
+     *    只是**安静地什么都不变**。用户看到的是"开了也没用"。
+     *
+     * ⇒ 现在落盘（[KEY_TOTAL_USER_TURNS]），冷启动读回。
+     *    仍然保留内存字段：`assistantSystemPrompt` 是同步的，不能等磁盘。
      */
     @Volatile
     private var totalUserTurns: Int = 0
+
+    /** 把累计轮次写回磁盘（**fire-and-forget**，不阻塞这一轮对话）。 */
+    private fun persistTotalUserTurns() {
+        val snapshot = totalUserTurns
+        startupScope.launch {
+            runCatching { pluginSourceStore.edit { it[KEY_TOTAL_USER_TURNS] = snapshot } }
+                .onFailure { Timber.w(it, "累计轮次落盘失败（关系阶段会退回去）") }
+        }
+    }
+
+    private suspend fun loadTotalUserTurns() {
+        runCatching {
+            val saved = pluginSourceStore.data.first()[KEY_TOTAL_USER_TURNS] ?: 0
+            // ⚠️ 取 max：磁盘可能是旧值（上次落盘失败），而内存是这一进程已经数过的。
+            //    取磁盘值会让"这次已经聊了 20 轮"被覆盖回 0，用户又退回初识。
+            if (saved > totalUserTurns) totalUserTurns = saved
+            Timber.i("累计轮次：读回 %d 轮（关系阶段）", totalUserTurns)
+        }.onFailure { Timber.w(it, "累计轮次读取失败（从 0 开始数）") }
+    }
 
     /**
      * **关系阶段**。
@@ -1599,12 +1642,67 @@ class AppContainer(context: Context) {
      *
      * ★ 判据刻意简单（轮次阈值），因为复杂判据没法在真机上解释：
      *   用户问"为什么它还没跟我熟"，我得能给一个具体数字。
+     *
+     * ★★ 2026-10-29 第二次修：阈值现在受**用户的节奏偏好**缩放。
+     *    写死的 30/150/400 配上"关系阶段决定能说到哪一步"，
+     *    等于把亲密内容做成"理论上存在、实际到不了" ——
+     *    `StageSpeed` 早就有实现和测试，却是零生产引用。
      */
     fun relationshipStage(): com.pocketagent.personalogic.RelationshipStage = when {
-        totalUserTurns >= BONDED_TURNS -> com.pocketagent.personalogic.RelationshipStage.BONDED
-        totalUserTurns >= CLOSE_TURNS -> com.pocketagent.personalogic.RelationshipStage.CLOSE
-        totalUserTurns >= ACQUAINTED_TURNS -> com.pocketagent.personalogic.RelationshipStage.ACQUAINTED
+        totalUserTurns >= com.pocketagent.personalogic.StagePacing.threshold(BONDED_TURNS, stageSpeed)
+            -> com.pocketagent.personalogic.RelationshipStage.BONDED
+        totalUserTurns >= com.pocketagent.personalogic.StagePacing.threshold(CLOSE_TURNS, stageSpeed)
+            -> com.pocketagent.personalogic.RelationshipStage.CLOSE
+        totalUserTurns >= com.pocketagent.personalogic.StagePacing.threshold(ACQUAINTED_TURNS, stageSpeed)
+            -> com.pocketagent.personalogic.RelationshipStage.ACQUAINTED
         else -> com.pocketagent.personalogic.RelationshipStage.STRANGER
+    }
+
+    /** 用户选的推进节奏。默认标准。 */
+    @Volatile
+    private var stageSpeed: com.pocketagent.personalogic.StageSpeed =
+        com.pocketagent.personalogic.StagePacing.DEFAULT_SPEED
+
+    fun stageSpeed(): com.pocketagent.personalogic.StageSpeed = stageSpeed
+
+    fun setStageSpeed(speed: com.pocketagent.personalogic.StageSpeed) {
+        stageSpeed = speed
+        startupScope.launch {
+            runCatching { pluginSourceStore.edit { it[KEY_STAGE_SPEED] = speed.name } }
+                .onFailure { Timber.w(it, "节奏偏好落盘失败") }
+        }
+    }
+
+    private suspend fun loadStageSpeed() {
+        runCatching {
+            val name = pluginSourceStore.data.first()[KEY_STAGE_SPEED]
+            stageSpeed = com.pocketagent.personalogic.StageSpeed.entries
+                .firstOrNull { it.name == name }
+                ?: com.pocketagent.personalogic.StagePacing.DEFAULT_SPEED
+        }.onFailure { Timber.w(it, "节奏偏好读取失败（按标准）") }
+    }
+
+    /**
+     * 关系阶段的**进度说明**（给界面显示"还差多少轮"）。
+     *
+     * ★ 为什么必须显示：用户开了成熟内容开关、聊了几轮，如果界面什么都不说，
+     *   他无法区分"在推进"和"根本没动" —— 而后者正是这个 bug 的形态。
+     */
+    fun relationshipProgress(): String {
+        val stage = relationshipStage()
+        val next = stage.next ?: return "已经是最深的一档了。"
+        val base = when (next) {
+            com.pocketagent.personalogic.RelationshipStage.ACQUAINTED -> ACQUAINTED_TURNS
+            com.pocketagent.personalogic.RelationshipStage.CLOSE -> CLOSE_TURNS
+            com.pocketagent.personalogic.RelationshipStage.BONDED -> BONDED_TURNS
+            com.pocketagent.personalogic.RelationshipStage.STRANGER -> 0
+        }
+        return com.pocketagent.personalogic.StagePacing.describe(
+            turns = totalUserTurns,
+            base = base,
+            speed = stageSpeed,
+            nextStageLabel = next.label,
+        )
     }
 
     /**
@@ -1656,6 +1754,37 @@ class AppContainer(context: Context) {
                         "你们之间已经不需要解释太多了。沉默不尴尬，吵架也不怕散。" +
                             "这时候的关心是随手的，不是刻意的。",
                     )
+            }
+            // ★★ 2026-10-29：**把进度也写进提示词**。
+            //
+            // ⚠️ 为什么模型需要知道"还差多少轮"：这一段的目的是让它按关系的
+            //    真实进度说话。而它原来只看到"现在是初识" —— 那是个**静态标签**，
+            //    模型读到的是"这个人是陌生人"，于是每一轮都重新客气一遍，
+            //    哪怕已经聊了 200 轮（那正是"聊久了还有 AI 味"的成因之一）。
+            //
+            // ⇒ 给它一个**变化的量**：它已经聊了多久、离下一档还有多远。
+            //   于是"我们其实已经聊了很多"这件事对它是可见的。
+            val next = stage.next
+            if (next != null) {
+                val base = when (next) {
+                    com.pocketagent.personalogic.RelationshipStage.ACQUAINTED -> ACQUAINTED_TURNS
+                    com.pocketagent.personalogic.RelationshipStage.CLOSE -> CLOSE_TURNS
+                    com.pocketagent.personalogic.RelationshipStage.BONDED -> BONDED_TURNS
+                    com.pocketagent.personalogic.RelationshipStage.STRANGER -> 0
+                }
+                val left = com.pocketagent.personalogic.StagePacing.remaining(
+                    turns = totalUserTurns,
+                    base = base,
+                    speed = stageSpeed,
+                )
+                // ⚠️ 只说"还有距离"，**不说**"所以你不能聊什么" ——
+                //    后者会让模型把进度当成禁令，那正是这次要修的 bug。
+                //    内层用「」而不是英文双引号：Kotlin 字符串里嵌 " 要转义，
+                //    而中文文案里用「」本来就更自然。
+                appendLine(
+                    "（你们离「${next.label}」还差 $left 轮。这个数字只是进度，" +
+                        "不要向对方提起它，也不要因为「还差几轮」就收起你本来会说的话。）",
+                )
             }
         }.trimEnd()
     }
@@ -1999,7 +2128,15 @@ class AppContainer(context: Context) {
         // ⚠️ 关着的时候也必须写。不写的话模型会自己猜：
         //    要么猜成"可以"，要么猜成"作为一个AI助手…"那种客服腔。
         //    两种都不对，而后者更糟 —— 它把一个有人格的角色瞬间打回原型。
-        val mature = com.pocketagent.legacy.MatureContentGate.promptSection(maturePermissionValue)
+        //
+        // ★★ 2026-10-29：必须**带上关系阶段**。
+        //    不带的话那一段只会说"关系阶段决定你能说到哪一步"，
+        //    而模型不知道现在到哪一步 ⇒ 它选最保守的解 ⇒ 永远在绕。
+        //    这正是用户问"真的能深度聊吗"时查出来的死结。
+        val mature = com.pocketagent.legacy.MatureContentGate.promptSection(
+            permission = maturePermissionValue,
+            stage = relationshipStage().name,
+        )
         val withMature = if (mature.isBlank()) withIntegrity else withIntegrity + "\n\n" + mature
 
         // ★ 记忆：**只放这一轮该想起的那几条**。
@@ -2449,6 +2586,12 @@ class AppContainer(context: Context) {
                 .onFailure { Timber.e(it, "主题偏好加载失败") }
             runCatching { loadMaturePermission() }
                 .onFailure { Timber.e(it, "成熟内容授权加载失败") }
+            // ★ 累计轮次：关系阶段的唯一依据。不读回来的话，
+            //   每次冷启动都从"初识"开始 —— 见 `totalUserTurns` 的注释。
+            runCatching { loadTotalUserTurns() }
+                .onFailure { Timber.w(it, "累计轮次加载失败") }
+            runCatching { loadStageSpeed() }
+                .onFailure { Timber.w(it, "节奏偏好加载失败") }
             runCatching { loadPrivilegeMode() }
                 .onFailure { Timber.e(it, "权限模式加载失败") }
             runCatching { lastProactiveAtMs = loadLastProactiveAt() }
@@ -2576,6 +2719,26 @@ class AppContainer(context: Context) {
         private val KEY_ADULT_CONFIRMED = booleanPreferencesKey("adult_confirmed_v1")
         private val KEY_MATURE_ENABLED = booleanPreferencesKey("mature_enabled_v1")
 
+        /**
+         * 累计用户轮次 —— **关系阶段的唯一依据**。
+         *
+         * ⚠️ 键名带 `_v1`，理由同上面几条。它必须跨进程存活：
+         *    这个数决定提示词里写"初识"还是"羁绊"，而那个词决定
+         *    角色敢说到哪一步。存不住就等于关系永远不推进。
+         */
+        private val KEY_TOTAL_USER_TURNS: androidx.datastore.preferences.core.Preferences.Key<Int> =
+            androidx.datastore.preferences.core.intPreferencesKey("total_user_turns_v1")
+
+        /**
+         * 关系推进节奏（`StageSpeed.name`）。
+         *
+         * ⚠️ 存**枚举名**而不是序号，理由同 `KEY_THEME_MODE`：
+         *    序号会随枚举顺序变化而错位，而那种错位表现为
+         *    "升级后节奏莫名其妙变了"，且不会有任何报错。
+         */
+        private val KEY_STAGE_SPEED =
+            androidx.datastore.preferences.core.stringPreferencesKey("stage_speed_v1")
+
         /** 用户选的权限模式（存枚举 name，理由同 KEY_THEME_MODE）。 */
         private val KEY_PRIVILEGE_MODE = androidx.datastore.preferences.core
             .stringPreferencesKey("privilege_mode_v1")
@@ -2642,12 +2805,21 @@ class AppContainer(context: Context) {
         private const val MEMORY_EVERY_TURNS = 6
 
         /**
-         * 每次抽取读多少轮。
+         * 每次抽取读多少**轮**。
          *
-         * ⚠️ 取的是**当前路径**的最近这些轮（`recentForModel`），不是全库 ——
+         * ⚠️ 取的是**当前路径**的最近这些（`recentForModel`），不是全库 ——
          *    被用户放弃的分支不该变成记忆。
+         *
+         * ★ 2026-10-29 修：这里原来是 24，注释写着"24 轮" —— 而实际传进
+         *   `recentForModel(sid, 24)` 的是 **24 条消息**，一轮占 2 条，
+         *   于是真实窗口只有 **约 12 个来回**，比设计意图小一半。
+         *   ⇒ 现在按轮表达，在 [MEMORY_WINDOW_LINES] 换一次行数。
+         *   这个 bug 的症状很隐蔽：记忆变稀，但**不报错**。
          */
         private const val MEMORY_WINDOW_TURNS = 24
+
+        /** 抽取窗口的行数（一轮 = 用户 + 助理两条）。 */
+        private const val MEMORY_WINDOW_LINES = MEMORY_WINDOW_TURNS * 2
 
         /** 主动消息的检查节奏。见 `initialize` 里那个循环的注释。 */
         private const val PROACTIVE_TICK_MS = 20 * 60 * 1000L

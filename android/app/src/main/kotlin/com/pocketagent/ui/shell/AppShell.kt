@@ -422,6 +422,12 @@ fun AppShell(
                     //   tick 来触发重组（容器返回的是同步内存值，不是 Flow）。
                     var matureTick by remember { mutableIntStateOf(0) }
                     val maturePermission = remember(matureTick) { container.maturePermission() }
+                    // ★★ 关系推进：阶段、进度、节奏 —— 全部来自容器（唯一事实来源）。
+                    //   ⚠️ 也要挂在 `matureTick` 上：用户聊完回来，进度必须变；
+                    //      否则"它到底在不在推进"这件事又变隐形了。
+                    val stageLabel = remember(matureTick) { container.relationshipStage().label }
+                    val stageProgress = remember(matureTick) { container.relationshipProgress() }
+                    val currentSpeed = remember(matureTick) { container.stageSpeed() }
                     // ⚠️ 记忆条数同样要跟着 tick 刷新：用户刚聊完回来，
                     //    这一行必须显示新的数字，否则"它记住了"这件事又变隐形了。
                     val memoryCount = remember(matureTick) { container.memoryAtomCount() }
@@ -487,6 +493,16 @@ fun AppShell(
                         },
                         onMatureEnabledChange = {
                             container.setMatureEnabled(it)
+                            matureTick++
+                        },
+                        // ★ 关系推进：让"怎么才能到那一步"可见、可调。
+                        //   ⚠️ 在此之前阶段是写死的 30/150/400 轮，而界面上
+                        //      什么都不显示 —— 用户只能看到"开了也没用"。
+                        relationshipStageLabel = stageLabel,
+                        relationshipProgress = stageProgress,
+                        stageSpeed = currentSpeed,
+                        onStageSpeedChange = { speed ->
+                            container.setStageSpeed(speed)
                             matureTick++
                         },
                         memoryAtomCount = memoryCount,

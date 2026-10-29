@@ -825,13 +825,41 @@ data class AgentTaskUi(
         const val DEFAULT_MAX_STEPS = PhoneTask.DEFAULT_MAX_STEPS
 
         /**
-         * 每次发给模型的**历史轮数上限**。
+         * 每次发给模型的**历史轮数上限**（一轮 = 一问一答）。
          *
-         * ⚠️ 它是**成本闸**，不只是体验参数：上下文越长，每次请求越贵 ——
-         *    而花的是用户自己的钱。20 轮足够"接着聊"，
-         *    更早的内容应该由 L1/L2 记忆（设计稿 §4）来承载，而不是靠堆上下文。
+         * ══════════════════════════════════════════════════════════
+         *  ★★ 2026-10-29：这个名字原来在骗人 —— 它数的是**条数**
+         * ══════════════════════════════════════════════════════════
+         *
+         * 原来的值是 20，注释写着"20 轮足够接着聊"。而实际调用是
+         * `store.recentForModel(sid, 20)` ⇒ `currentPath.takeLast(20)` ——
+         * 那是 **20 条消息**，而一轮对话占 **2 条**（用户 + 助理，
+         * 带工具时还有 TOOL 条）。于是真实上下文只有 **约 10 个来回**。
+         *
+         * 症状：用户说"这个 app 能不能深度聊"，而它聊到第 10 个来回
+         * 就开始忘记前面的约定 —— 因为**确实没发给模型**。
+         * 更糟的是这类 bug 看起来像"模型记性差"，排查时不会去看常量。
+         *
+         * ⇒ 现在按**轮**表达，换算在 [historyLimit] 里做一次。
+         *    数字从 20（条）提到 20（轮）= 40 条，是修正而非放大。
+         *
+         * ⚠️ 它仍然是**成本闸**：上下文越长每次请求越贵，而花的是用户的钱。
+         *    所以不能简单调大 —— 更早的内容归 L1/L2 记忆承载（设计稿 §4）。
          */
         const val HISTORY_LIMIT = 20
+
+        /**
+         * 把「轮」换算成 `recentForModel` 要的行数。
+         *
+         * ⚠️ 乘 2 之后**再加一**：一轮是"用户 + 助理"，但如果当前这一条
+         *    用户消息刚落库、助理还没回，那么这半轮也算一条 ——
+         *    不 +1 的话最后那半轮会被切掉，模型看到的最后一句是它自己的话。
+         *
+         * ⚠️ 也刻意**不按 TOOL 条预扣**：工具轮次是偶发的，
+         *    按最坏情况预扣会把常规对话的上下文砍掉一半。
+         *    多几条的代价只是钱，少几条的代价是"它忘了"。
+         */
+        fun historyLimit(turns: Int = HISTORY_LIMIT): Int = turns * 2 + 1
 
         /**
          * 侧边栏一次列多少条。
@@ -1483,7 +1511,9 @@ class TasksViewModel(
                     //   否则用户的话会在上下文里出现两次。
                     val history = if (store != null && sid != null) {
                         runCatching {
-                            store.recentForModel(sid, AgentTaskUi.HISTORY_LIMIT)
+                            // ⚠️ `historyLimit()` 把"轮"换成"条" —— 见它的注释：
+                            //   直接传 HISTORY_LIMIT 会让 20 轮变成 20 条（约 10 轮）。
+                            store.recentForModel(sid, AgentTaskUi.historyLimit())
                                 .filter { it.role != TurnRole.TOOL }
                                 .dropLastWhile { it.role == TurnRole.USER && it.text == prompt }
                                 .map { turn ->
