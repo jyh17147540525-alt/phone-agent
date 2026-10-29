@@ -1740,9 +1740,32 @@ class AppContainer(context: Context) {
     fun cachedDiary(atomId: String): String? {
         // ★ 顺序很重要：**内置优先**，其次才是动态生成的缓存。
         //   内置的那批是随包发出去的，不需要联网、不花 token、永远在。
-        builtinDiaries[atomId]?.let { return it }
+        builtinDiaries[atomId]?.let { return personalize(it) }
         loadDiaryCacheIfNeeded()
         return diaryCache[atomId]
+    }
+
+    /**
+     * 把随笔里的 `{who}` 换成**角色设定卡里的称呼**。
+     *
+     * ═══════════════════════════════════════════════════════════
+     *  ★ 用户的要求
+     * ═══════════════════════════════════════════════════════════
+     *
+     * "角色对用户的称呼你要参考角色设定卡里的。"
+     *
+     * 内置的 103 篇是**我离线重写**的，不可能知道用户后来填了什么称呼，
+     * 所以它们统一写成占位符 `{who}`，读的时候现换。
+     *
+     * ⚠️ 顺序：`addressUser` → `addressSelf` 都不合适时退到「你」。
+     *   角色的自称（addressSelf）是"她怎么称呼自己"，不是"怎么称呼用户"，
+     *   但在用户没填 addressUser 的情况下，用名字也比写死一个昵称好。
+     */
+    private fun personalize(text: String): String {
+        if (!text.contains(WHO_PLACEHOLDER)) return text
+        val name = activeCustomPersona?.addressUser?.takeIf { it.isNotBlank() }
+            ?: "你"
+        return text.replace(WHO_PLACEHOLDER, name)
     }
 
     private fun persistDiary(atomId: String, text: String) {
@@ -1772,7 +1795,7 @@ class AppContainer(context: Context) {
     ): String? {
         loadDiaryCacheIfNeeded()
         // ★ 内置的已经有了，不走 API（省用户的算力）。
-        builtinDiaries[atom.id]?.let { return it }
+        builtinDiaries[atom.id]?.let { return personalize(it) }
         diaryCache[atom.id]?.let { return it }
 
         val prompt = com.pocketagent.memorylogic.MemoryDiaryPrompt.build(
@@ -2570,6 +2593,15 @@ class AppContainer(context: Context) {
 
         /** 一次朗读最多念多少字 —— 长回答念一半就够，念完是折磨。 */
         private const val SPEAK_MAX_CHARS = 220
+
+        /**
+         * 内置随笔里的称呼占位符。
+         *
+         * ⚠️ 那 103 篇是离线重写的，不可能知道用户后来在角色卡里填了什么称呼，
+         *    所以统一写占位符、读的时候现换。**不能写死某个昵称** ——
+         *    用户换角色之后，随笔里出现别人的名字会立刻出戏。
+         */
+        private const val WHO_PLACEHOLDER = "{who}"
 
         /**
          * 后台补写随笔的上限（条）。

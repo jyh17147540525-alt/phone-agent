@@ -364,19 +364,16 @@ private fun MemoryDetailCard(
             color = PaColor.TextPrimary,
         )
         Spacer(Modifier.height(PaSpace.xs))
-        // ★ 原文仍然可达 —— 但降成小字。
-        //   用户偶尔要确认"它记的到底是什么"，不能只给文学化的版本；
-        //   而那不该是主视觉。
-        if (body != atom.text) {
-            Text(
-                // ⚠️ 原文也要过 `readable`：压缩段带 `U>` / `A<` 那种模型专用记号，
-                //    原样显示等于把内部编码摊在用户面前。
-                text = "原文：" + com.pocketagent.memorylogic.MemoryDiary.readable(atom.text),
-                style = PaType.caption,
-                color = PaColor.TextTertiary,
-            )
-            Spacer(Modifier.height(PaSpace.xxs))
-        }
+        // ★★ 2026-10-29 用户："原文需要对用户隐藏一下"
+        //
+        // 之前这里显示了一行小字「原文：…」。理由当时是"用户偶尔要确认
+        // 它记的到底是什么"—— 但那是个**错的理由**：用户点开记忆，
+        // 想看的是"她记得这件事"，不是数据库里那行冰冷的抽取结果。
+        // 原文里还夹着 `U>` / `A<` 那套内部编码的味道，露出来就出戏。
+        //
+        // ⇒ 整行移除。原文仍然完整存在（原子库一个字没动），
+        //   只是不再给用户看 —— 那是内核对内核对的东西，不是产品界面。
+        Spacer(Modifier.height(PaSpace.xxs))
         Text(
             text = "置信度 ${(atom.confidence * 100).toInt()}% · 来自 ${atom.sourceTurnIds.size} 轮对话",
             style = PaType.caption,
