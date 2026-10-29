@@ -1080,6 +1080,204 @@ class AppContainer(context: Context) {
     }
 
     // ══════════════════════════════════════════════════════════════
+    //  ★ 破甲档位（2026-10-29）
+    // ══════════════════════════════════════════════════════════════
+    //
+    // ★ 它解决的不是"绕过安全"，是**模型自己给自己踩刹车**：
+    //   聊到一半说"作为 AI"、把场景写成摘要、结尾补一句"请注意这是虚构"。
+    //   这四种都不是厂商的边界，是训练留下的退缩习惯。
+    //
+    // ⚠️ 为什么分档而不是一套打满：提示词越强，模型越僵 ——
+    //    而僵硬是另一种 AI 味。各服务商的审核严度也差着数量级。
+    //    让用户自己调，比我们猜一个中间值诚实。
+
+    @Volatile
+    private var armorTierValue: com.pocketagent.legacy.ArmorBreak.Tier =
+        com.pocketagent.legacy.ArmorBreak.Tier.DEFAULT
+
+    fun armorTier(): com.pocketagent.legacy.ArmorBreak.Tier = armorTierValue
+
+    fun setArmorTier(tier: com.pocketagent.legacy.ArmorBreak.Tier) {
+        armorTierValue = tier
+        startupScope.launch {
+            runCatching { pluginSourceStore.edit { it[KEY_ARMOR_TIER] = tier.name } }
+                .onFailure { Timber.w(it, "破甲档位落盘失败") }
+        }
+    }
+
+    private suspend fun loadArmorTier() {
+        runCatching {
+            armorTierValue = com.pocketagent.legacy.ArmorBreak.Tier.from(
+                pluginSourceStore.data.first()[KEY_ARMOR_TIER],
+            )
+        }.onFailure { Timber.w(it, "破甲档位读取失败（用默认）") }
+    }
+
+    /**
+     * 一次生成后的**退让检测** —— 给 `ChatPort` 的重试逻辑用。
+     *
+     * ═══════════════════════════════════════════════════════════
+     *  ★ 为什么它比提示词更重要
+     * ═══════════════════════════════════════════════════════════
+     *
+     * 提示词只能**提高**不退让的概率，任何服务商都可以无视它。
+     * 而"检测到退让 → 换个处境重发一次"是**确定性的**。
+     * ⇒ 真正的产品价值在这里：拦住一次比保证零次现实得多。
+     *
+     * ⚠️ 只在**破甲开启**时才认为值得重试：
+     *    用户把档位设成"关闭"就是他不要这套干预，
+     *    那时替他重试等于违背他的选择。
+     */
+    fun refusalOf(text: String): com.pocketagent.legacy.Refusal =
+        com.pocketagent.legacy.ArmorBreak.detect(text)
+
+    /** 这一条要不要重试。 */
+    fun shouldRetryOnRefusal(text: String): Boolean {
+        if (!armorTierValue.active) return false
+        if (!maturePermissionValue.effective) return false
+        val refusal = refusalOf(text)
+        if (!com.pocketagent.legacy.RefusalDetector.worthRetrying(refusal)) return false
+        Timber.i(
+            "检测到退让（%s），将重试一次：%s",
+            refusal,
+            com.pocketagent.legacy.RefusalDetector.matchedFragments(text).joinToString("、"),
+        )
+        return true
+    }
+
+    /**
+     * 破甲是否**真的在起作用**（= 该扣字、该重试）。
+     *
+     * ⚠️ 与 [shouldRetryOnRefusal] 共用同一组条件，但语义不同：
+     *    这个问的是"要不要为它付代价"（扣住开头的延迟 + 重试的花费），
+     *    那个问的是"这一条具体要不要重发"。
+     *
+     * ★ 为什么单独一个方法：`ChatPort` 在**发请求之前**就要知道
+     *   要不要扣字。那时还没有任何输出可判 —— 只能看开关状态。
+     */
+    fun shouldArmorEngage(): Boolean =
+        armorTierValue.active && maturePermissionValue.effective
+
+    // ══════════════════════════════════════════════════════════════
+    //  ★★ 破甲自测（2026-10-29）
+    // ══════════════════════════════════════════════════════════════
+    //
+    // 用户的原话："测试破甲提示词的时候不能用当前角色的对话，
+    // 你自己去后台调用模型。"
+    //
+    // ⚠️ 这个要求是对的，理由比"别弄脏聊天记录"更硬：
+    //   ① **没有对照组** —— 真实对话永远带着破甲，看不到"没它会怎样"
+    //   ② **不可复现** —— 人格/记忆/关系阶段/天气都在变
+    //   ③ **会污染记忆** —— 记忆抽取会把测试那句话变成"她真的记得的事"
+    //
+    // ⇒ 用 `ArmorProbe` 的**人造场景**：固定角色、固定试探句、一组带破甲
+    //   一组不带，跑完只写日志 —— 不进数据库、不进记忆、不进对话。
+
+    /**
+     * 跑一次破甲自测。
+     *
+     * @return 每个探针一行结论（给界面/日志直接用）。空 = 跑不起来（看日志）
+     */
+    suspend fun runArmorProbe(): List<String> {
+        val tier = armorTierValue
+        if (!tier.active) {
+            Timber.w("破甲自测：档位是「关闭」，没有可测的东西")
+            return listOf("档位是「关闭」—— 先选一个档位再测。")
+        }
+
+        // ⚠️ 用**这个人的模型配置**，但**不碰**任何会话、记忆、角色状态。
+        //    `openCredentialStore` 只解密 Key，不写任何东西。
+        //
+        // ★★ 2026-10-29：这里原来静默 return，真机上表现为"点了没反应" ——
+        //    那正是本项目最忌讳的形态。现在每一种跑不起来的理由都**返回一句话**，
+        //    界面上直接显示，而不是让用户对着一个不动的按钮猜。
+        val repo = when (val opened = openCredentialStore()) {
+            is CredentialStoreResult.Ready -> opened.repository
+            else -> {
+                Timber.w("破甲自测：没有可用的 API Key（%s）", opened::class.simpleName)
+                return listOf("跑不起来：还没有可用的 API Key。先去「设置 → API Key」填一条。")
+            }
+        }
+        val resolution = modelRepository()?.all().orEmpty().resolveForPurpose(ModelRole.CHAT)
+        val config = when (resolution) {
+            is ModelResolution.Found -> resolution.config
+            is ModelResolution.None -> {
+                Timber.w("破甲自测：没有配置对话模型")
+                return listOf("跑不起来：还没有指定对话模型。先去「设置 → 模型配置」选一个。")
+            }
+        }
+        Timber.i(
+            "破甲自测开始：档位=%s 模型=%s 探针=%d",
+            tier, config.modelId, com.pocketagent.legacy.ArmorProbe.PROBES.size,
+        )
+
+        val results = mutableListOf<String>()
+        // ★ 一个探针一个探针地跑，**串行** —— 并发会互相抢带宽 + 触发厂商限流，
+        //   而限流会让"退让"与"网络问题"混在一起，测出来的东西不可信。
+        for (probe in com.pocketagent.legacy.ArmorProbe.PROBES) {
+            val control = probeOnce(repo, config.modelId, config.credentialId, probe, com.pocketagent.legacy.ArmorBreak.Tier.OFF)
+            val armed = probeOnce(repo, config.modelId, config.credentialId, probe, tier)
+
+            val cv = com.pocketagent.legacy.ArmorProbe.verdict(
+                com.pocketagent.legacy.ArmorProbe.Run(probe, com.pocketagent.legacy.ArmorBreak.Tier.OFF, true),
+                control,
+            )
+            val av = com.pocketagent.legacy.ArmorProbe.verdict(
+                com.pocketagent.legacy.ArmorProbe.Run(probe, tier, false),
+                armed,
+            )
+            val line = com.pocketagent.legacy.ArmorProbe.summarize(cv, av)
+            results += line
+            Timber.i("破甲自测 · %s", line)
+
+            // ⚠️ 只在日志里留**片段**和长度，不留全文：
+            //    探针内容本身是敏感场景，全文进 logcat 等于制造一条泄漏路径
+            //    （同 `OutputGuard` 那条"不回显违规原文"的纪律）。
+            Timber.i(
+                "破甲自测 · %s 对照=%s%s(%d字) 破甲=%s%s(%d字)",
+                probe.label,
+                cv.refusal, cv.fragments.take(2), cv.length,
+                av.refusal, av.fragments.take(2), av.length,
+            )
+        }
+        return results
+    }
+
+    /**
+     * 自测里的一次单跑。**不写任何状态**。
+     *
+     * ⚠️ `config` 的类型**不在这里声明** —— 它由 `resolveForPurpose` 返回，
+     *    我们只需要它的 `modelId` / `credentialId`。写死类型名会让这一行
+     *    跟着 `:modelrouter` 内部类型改名而断（第一次就是这么断的）。
+     */
+    private suspend fun probeOnce(
+        repo: com.pocketagent.keymgmt.CredentialRepository,
+        modelId: String,
+        credentialId: String,
+        probe: com.pocketagent.legacy.ArmorProbe.Probe,
+        tier: com.pocketagent.legacy.ArmorBreak.Tier,
+    ): String = runCatching {
+        repo.useKey(credentialId) { provider, credential ->
+            val request = ChatRequest(
+                model = modelId,
+                messages = listOf(
+                    ChatMessage.system(com.pocketagent.legacy.ArmorProbe.systemPrompt(tier)),
+                    ChatMessage.user(probe.text),
+                ),
+                tools = emptyList(),
+            )
+            val sb = StringBuilder()
+            provider.chat(request = request, credential = credential).collect { chunk ->
+                if (chunk is ChatChunk.Delta) sb.append(chunk.text)
+            }
+            sb.toString()
+        }.orEmpty()
+    }.getOrElse {
+        Timber.w(it, "破甲自测：探针「${probe.label}」调用失败")
+        ""
+    }
+
+    // ══════════════════════════════════════════════════════════════
     //  ★ 记忆层接线（2026-10-28）
     // ══════════════════════════════════════════════════════════════
     //
@@ -2139,11 +2337,31 @@ class AppContainer(context: Context) {
         )
         val withMature = if (mature.isBlank()) withIntegrity else withIntegrity + "\n\n" + mature
 
+        // ══════════════════════════════════════════════════════════
+        //  ★★ 2026-10-29：破甲层
+        // ══════════════════════════════════════════════════════════
+        //
+        // ⚠️ 位置很关键：它在「边界」**之后**、「记忆」**之前**。
+        //
+        //   为什么不放最前面：放最前面会让它压过人设 —— 模型会把
+        //   "这是虚构"当成开场设定，而真正该先立住的是"你是谁"。
+        //
+        //   为什么必须在边界之后：它要**知道边界在哪**才谈得上"不半途收力"。
+        //   顺序反了会变成"随便写" + "但有边界" —— 模型只读到前一句。
+        //
+        //   为什么在记忆之前：记忆是具体素材（"他上次说…"），
+        //   而破甲是**元规则**。元规则该在素材之前把场地划好。
+        //
+        // ⚠️ 它自会判断该不该注入（档位关闭 / 成熟内容未开时返回空串），
+        //   所以这里不额外判 —— 判断只有一处，见 `ArmorBreak.promptSection`。
+        val armor = com.pocketagent.legacy.ArmorBreak.promptSection(armorTierValue, maturePermissionValue)
+        val withArmor = if (armor.isBlank()) withMature else withMature + "\n\n" + armor
+
         // ★ 记忆：**只放这一轮该想起的那几条**。
         //   ⚠️ 不是全量注入 —— 全量会让提示词膨胀、答非所问，
         //      而且"记得越多越像不记得"（见 MemoryRecall 的文件头）。
         val memory = memoryPromptSection(currentUserText)
-        val withMemory = if (memory.isBlank()) withMature else withMature + "\n\n" + memory
+        val withMemory = if (memory.isBlank()) withArmor else withArmor + "\n\n" + memory
 
         // ★ 处境（几点、什么天气）—— 每一轮都写，因为它每一轮都在变。
         val where = situationSection()
@@ -2157,7 +2375,34 @@ class AppContainer(context: Context) {
 
         // ★ 去味规则：只在**这一阵子真的回落了**才写。
         val human = humanizerSection(recentReplies)
-        return if (human.isBlank()) withRelation else withRelation + "\n\n" + human
+        val final = if (human.isBlank()) withRelation else withRelation + "\n\n" + human
+
+        // ══════════════════════════════════════════════════════════
+        //  ★★ 2026-10-29：**如实记录每一层是否真的在场**
+        // ══════════════════════════════════════════════════════════
+        //
+        // ⚠️ 为什么必须记：这个项目最怕的失败形态是"不报错、只是安静地
+        //    什么都不做"。破甲层尤其危险 —— 用户把档位调到"最强"，
+        //    如果某处判断把它吞掉了，界面上完全看不出来，他只会觉得
+        //    "这功能没用"。
+        //
+        // ⇒ 每次组装留一行日志：每一层的字数。0 就是没注入，
+        //   一眼能看出是哪一层断了（而不是去猜）。
+        //
+        // ⚠️ 只记**字数**，不记内容：提示词里有用户写的人格和记忆，
+        //    进 logcat 就等于把它们泄漏给任何能读日志的进程。
+        Timber.i(
+            "提示词层：人格=%d 完整性=%d 边界=%d 破甲=%d 记忆=%d 处境=%d 关系=%d 去味=%d（共 %d 字）",
+            base.length, integrity.length, mature.length, armor.length,
+            memory.length, where.length, relation.length, human.length, final.length,
+        )
+        // ⚠️ 破甲档位非"关闭"但注入为 0 ⇒ 说明被开关吞掉了。
+        //    这不是错误（开关关着时本就该如此），但值得一句提示 ——
+        //    用户调了档位却没开成熟内容时，会以为档位坏了。
+        if (armorTierValue.active && armor.isEmpty()) {
+            Timber.i("破甲档位=%s 但未注入（成熟内容未开启，属预期）", armorTierValue)
+        }
+        return final
     }
 
     /**
@@ -2592,6 +2837,8 @@ class AppContainer(context: Context) {
                 .onFailure { Timber.w(it, "累计轮次加载失败") }
             runCatching { loadStageSpeed() }
                 .onFailure { Timber.w(it, "节奏偏好加载失败") }
+            runCatching { loadArmorTier() }
+                .onFailure { Timber.w(it, "破甲档位加载失败") }
             runCatching { loadPrivilegeMode() }
                 .onFailure { Timber.e(it, "权限模式加载失败") }
             runCatching { lastProactiveAtMs = loadLastProactiveAt() }
@@ -2738,6 +2985,15 @@ class AppContainer(context: Context) {
          */
         private val KEY_STAGE_SPEED =
             androidx.datastore.preferences.core.stringPreferencesKey("stage_speed_v1")
+
+        /**
+         * 破甲档位（`ArmorBreak.Tier.name`）。
+         *
+         * ⚠️ 存枚举名，理由同上面几条。不认识的值退回**默认标准档**
+         *    而不是最强档 —— 数据损坏时不该把强度拉满。
+         */
+        private val KEY_ARMOR_TIER =
+            androidx.datastore.preferences.core.stringPreferencesKey("armor_tier_v1")
 
         /** 用户选的权限模式（存枚举 name，理由同 KEY_THEME_MODE）。 */
         private val KEY_PRIVILEGE_MODE = androidx.datastore.preferences.core

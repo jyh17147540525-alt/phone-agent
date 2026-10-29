@@ -23,6 +23,7 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import com.pocketagent.ui.theme.ThemeMode
+import timber.log.Timber
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -428,6 +429,13 @@ fun AppShell(
                     val stageLabel = remember(matureTick) { container.relationshipStage().label }
                     val stageProgress = remember(matureTick) { container.relationshipProgress() }
                     val currentSpeed = remember(matureTick) { container.stageSpeed() }
+                    // ★ 破甲档位：容器是唯一事实来源，同上面几条。
+                    val armorTier = remember(matureTick) { container.armorTier() }
+                    // ★ 自测状态：跑一次会**真的调用模型**（3 个探针 × 2 组 = 6 次），
+                    //   所以要有"正在测"的状态，不能让用户以为点了没反应。
+                    val settingsScope = rememberCoroutineScope()
+                    var probeResult by remember { mutableStateOf<List<String>>(emptyList()) }
+                    var probeRunning by remember { mutableStateOf(false) }
                     // ⚠️ 记忆条数同样要跟着 tick 刷新：用户刚聊完回来，
                     //    这一行必须显示新的数字，否则"它记住了"这件事又变隐形了。
                     val memoryCount = remember(matureTick) { container.memoryAtomCount() }
@@ -504,6 +512,37 @@ fun AppShell(
                         onStageSpeedChange = { speed ->
                             container.setStageSpeed(speed)
                             matureTick++
+                        },
+                        // ★ 角色稳定性（破甲）：减少"作为AI""写成摘要"这类退让。
+                        armorTier = armorTier,
+                        onArmorTierChange = { tier ->
+                            container.setArmorTier(tier)
+                            matureTick++
+                        },
+                        // ★ 自测：**用好几个固定场景跑 A/B 对照**，
+                        //   不碰用户的角色卡、不写对话、不进记忆库。
+                        armorProbeResult = probeResult,
+                        armorProbeRunning = probeRunning,
+                        onRunArmorProbe = {
+                            if (!probeRunning) {
+                                probeRunning = true
+                                probeResult = emptyList()
+                                Timber.i("破甲自测：点了按钮，开始跑")
+                                settingsScope.launch {
+                                    // ⚠️ 用**完整堆栈**记异常：静默吞掉会让
+                                    //   "点了没反应"变成无法排查的形态。
+                                    var lines: List<String>
+                                    try {
+                                        lines = container.runArmorProbe()
+                                    } catch (t: Throwable) {
+                                        Timber.e(t, "破甲自测抛异常")
+                                        lines = listOf("自测抛异常：${t::class.simpleName}: ${t.message}")
+                                    }
+                                    Timber.i("破甲自测：结束，%d 行结果", lines.size)
+                                    probeResult = lines
+                                    probeRunning = false
+                                }
+                            }
                         },
                         memoryAtomCount = memoryCount,
                         onOpenMemory = { navController.navigate(Routes.MEMORY_GRAPH) },

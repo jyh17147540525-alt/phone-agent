@@ -108,6 +108,17 @@ fun SettingsScreen(
         com.pocketagent.personalogic.StagePacing.DEFAULT_SPEED,
     /** 切换推进节奏 */
     onStageSpeedChange: (com.pocketagent.personalogic.StageSpeed) -> Unit = {},
+    /** 破甲档位 */
+    armorTier: com.pocketagent.legacy.ArmorBreak.Tier =
+        com.pocketagent.legacy.ArmorBreak.Tier.DEFAULT,
+    /** 切换破甲档位 */
+    onArmorTierChange: (com.pocketagent.legacy.ArmorBreak.Tier) -> Unit = {},
+    /** 自测结果（空 = 还没跑过） */
+    armorProbeResult: List<String> = emptyList(),
+    /** 是否正在跑自测 */
+    armorProbeRunning: Boolean = false,
+    /** 跑一次破甲自测 */
+    onRunArmorProbe: () -> Unit = {},
     /** 长期记忆库里有多少条原子。0 = 还没记住任何事 */
     memoryAtomCount: Int = 0,
     /** 打开记忆星图 */
@@ -495,6 +506,95 @@ fun SettingsScreen(
                                 style = PaType.caption,
                                 color = PaColor.TextTertiary,
                             )
+                        }
+                    }
+                }
+
+                // ══════════════════════════════════════════════════
+                //  ★★ 破甲档位
+                // ══════════════════════════════════════════════════
+                //
+                // ⚠️ 文案刻意**不说"绕过限制"** ——
+                //    本应用做的事是"让模型别自己踩刹车"，
+                //    那和"绕过服务商的审核"是两件不同的事。
+                //    含糊其辞会让用户以为开了它就什么都能写，
+                //    而实际上厂商那边该拦还是拦 —— 那种落差比没有这个开关更伤。
+                item {
+                    PaListGroup {
+                        Column(modifier = Modifier.fillMaxWidth().padding(PaSpace.m)) {
+                            Text(
+                                text = "角色稳定性",
+                                style = PaType.body,
+                                color = PaColor.TextPrimary,
+                            )
+                            Spacer(Modifier.height(PaSpace.xxs))
+                            Text(
+                                text = "模型有几种习惯会打断沉浸：聊到一半说「作为AI」、" +
+                                    "把场景写成摘要、结尾补一句「请注意这是虚构」。这一项减少那几种退让。",
+                                style = PaType.caption,
+                                color = PaColor.TextSecondary,
+                            )
+                            Spacer(Modifier.height(PaSpace.s))
+                            Row {
+                                for (t in com.pocketagent.legacy.ArmorBreak.Tier.entries) {
+                                    PaButton(
+                                        text = t.label,
+                                        onClick = { onArmorTierChange(t) },
+                                        style = if (armorTier == t) {
+                                            PaButtonStyle.Primary
+                                        } else {
+                                            PaButtonStyle.Glass
+                                        },
+                                        modifier = Modifier.padding(end = PaSpace.xs),
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(PaSpace.xs))
+                            Text(
+                                text = armorTier.hint,
+                                style = PaType.caption,
+                                color = PaColor.TextSecondary,
+                            )
+                            // ⚠️ 必须写明能力上限。不写的话用户会拿它当"万能开关"，
+                            //    撞上厂商审核时以为是这里没调对，反复加档到最强。
+                            Text(
+                                text = "\n它改变的是模型愿不愿意写，改不了服务商那一侧的审核 —— " +
+                                    "如果一直被你选的模型拦下，换一个服务商比加档更有效。",
+                                style = PaType.caption,
+                                color = PaColor.TextTertiary,
+                            )
+                            Spacer(Modifier.height(PaSpace.s))
+                            // ══════════════════════════════════════════
+                            //  ★ 自测 —— 别用你角色的对话来试
+                            // ══════════════════════════════════════════
+                            //
+                            // ⚠️ 为什么必须单独一条通道：真实对话永远带着破甲，
+                            //    看不到"没它会怎样" ⇒ 没有对照组就测不出效果。
+                            //    而且真实对话会进记忆库，把测试内容变成"她记得的事"。
+                            PaButton(
+                                text = if (armorProbeRunning) "正在测…" else "测一下（用固定场景，不动你的对话）",
+                                onClick = onRunArmorProbe,
+                                style = PaButtonStyle.Glass,
+                                enabled = !armorProbeRunning && armorTier.active,
+                            )
+                            if (armorProbeResult.isNotEmpty()) {
+                                Spacer(Modifier.height(PaSpace.xs))
+                                for (line in armorProbeResult) {
+                                    Text(
+                                        text = "· $line",
+                                        style = PaType.caption,
+                                        color = PaColor.TextSecondary,
+                                    )
+                                }
+                            }
+                            if (!armorTier.active) {
+                                Spacer(Modifier.height(PaSpace.xxs))
+                                Text(
+                                    text = "档位是「关闭」时没有可测的东西。",
+                                    style = PaType.caption,
+                                    color = PaColor.TextTertiary,
+                                )
+                            }
                         }
                     }
                 }

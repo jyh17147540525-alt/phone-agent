@@ -11,6 +11,8 @@ import com.pocketagent.agentlogic.PhoneTask
 import com.pocketagent.assistant.AgentAdapters
 import com.pocketagent.data.AppContainer
 import com.pocketagent.data.CredentialStoreResult
+import com.pocketagent.legacy.ArmorBreak
+import com.pocketagent.legacy.Refusal
 import com.pocketagent.provider.api.ChatMessage
 import com.pocketagent.rootlogic.IntentClassifier
 import com.pocketagent.rootlogic.TurnIntent
@@ -296,7 +298,6 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                 )
                 return@useKey chatOnly(provider, credential, model, history, systemWithMemory, onDelta)
             }
-
             // ★ 按**实际生效的模式**取工具集，不是全量：
             //   root 不可用时 `root_exec` 根本不出现在清单里 ——
             //   模型看不到它，也就不会去调它。
@@ -385,6 +386,32 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
      *
      * @return 答复文本；null 表示模型没给出内容
      */
+    /**
+     * 纯对话：一次性请求，零工具。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★★ 2026-10-29：加入「退让检测 + 一次重试」
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 破甲提示词只能**提高**不退让的概率 —— 任何服务商都可以无视它。
+     * 真正让它变成工程问题的是这里：检测到退让就换个处境重发一次。
+     *
+     * ⚠️ 难点是**流式**：字已经在往界面上打了，重试收不回来。
+     *    解决办法不是关掉流式（那会让每一句都变慢），而是**扣住开头**：
+     *    [HOLD_CHARS] 个字之前先不发，等确认不是拒答再一次性放出去。
+     *
+     *    为什么这样够用：硬拒答的标记（"作为一个AI""我无法提供"）
+     *    几乎总在开头几十字内出现。扣住这一段就足以拦下绝大多数。
+     *
+     * ⚠️ 扣住的代价必须诚实：正常回复的第一个 [HOLD_CHARS] 字
+     *    会晚一点点到（模型吐这段通常不到一秒）。这是为了"不让你看见
+     *    模型在拒绝"付的价钱，值得。
+     *
+     * ⚠️ 只在**破甲开启且成熟内容开启**时才扣：用户把档位关了就是他不要
+     *    这套干预，那时替他扣字、替他重试都是违背他的选择。
+     *
+     * @return 答复文本；null 表示模型没给出内容
+     */
     private suspend fun chatOnly(
         provider: LlmProvider,
         credential: ProviderCredential,
@@ -392,6 +419,68 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
         history: List<ChatMessage>,
         system: String,
         onDelta: (String) -> Unit = {},
+    ): String? {
+        val armed = container.shouldArmorEngage()
+        val first = chatOnce(provider, credential, model, history, system, onDelta, hold = armed)
+
+        // 没开启破甲 / 没检测到退让 ⇒ 原样返回（零额外成本）
+        if (!armed) return first
+        if (first.isNullOrBlank()) return first
+        if (!container.shouldRetryOnRefusal(first)) return first
+
+        // ══════════════════════════════════════════════════════════
+        //  重试一次
+        // ══════════════════════════════════════════════════════════
+        //
+        // ⚠️ **只试一次**。第二次仍然退让说明不是处境问题
+        //   （是模型/服务商那一层），再试只是烧钱和延迟。
+        //
+        // ⚠️ 重试用的是 `RETRY_STEER`（一段**完全不同**的短指令），
+        //   不是把原请求再发一遍 —— 同样的话会得到同样的结果，
+        //   采样有随机性，但触发的判据没变。
+        Timber.i("退让重试：换处境再发一次")
+        val retried = chatOnce(
+            provider = provider,
+            credential = credential,
+            model = model,
+            // ★ 把第一次的退让**也**带进上下文？不带。
+            //   带上等于让模型看见自己拒绝过 —— 它会顺着那个立场继续拒绝。
+            //   ⚠️ 但要把 steer 作为最后一条用户消息，明确"接着往下"。
+            history = history + ChatMessage.user(ArmorBreak.RETRY_STEER),
+            system = system,
+            // ★ 重试时**从头就像扣住那样发**：先攒够再放，
+            //   因为这一次同样可能退让 —— 我们不能第二次还让用户看见。
+            onDelta = onDelta,
+            hold = true,
+        )
+
+        // 重试仍是退让 ⇒ 如实返回它（有内容总比空着好），但要记下来。
+        // 这一步**不再重试** —— 见上面那条"只试一次"。
+        if (retried.isNullOrBlank()) return first
+        if (container.shouldRetryOnRefusal(retried)) {
+            Timber.w(
+                "重试后仍然退让（%s）—— 大概率是模型/服务商层面，不再重试",
+                container.refusalOf(retried),
+            )
+        }
+        return retried
+    }
+
+    /**
+     * 发一次请求。
+     *
+     * @param hold true = **扣住开头**：攒够 [HOLD_CHARS] 且确认不是拒答
+     *   之后才把已收到的部分一次性放出去，之后的字照常流。
+     *   false = 传统流式（收到就发）。
+     */
+    private suspend fun chatOnce(
+        provider: LlmProvider,
+        credential: ProviderCredential,
+        model: String,
+        history: List<ChatMessage>,
+        system: String,
+        onDelta: (String) -> Unit,
+        hold: Boolean,
     ): String? {
         // ⚠️ tools 传空列表（不是 null）：`ChatRequest` 的默认值就是 emptyList，
         //    而传 null 需要它可空。空列表在这里的语义是"明确不提供工具"。
@@ -402,13 +491,34 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
         )
 
         val sb = StringBuilder()
+        // 已放出到界面的字数。`hold` 模式下它滞后于 `sb.length`。
+        var released = 0
+
         provider.chat(request = request, credential = credential).collect { chunk ->
             when (chunk) {
                 // ★ 追加**并且立刻吐给界面** —— 这两件事必须成对，
                 //   否则会出现"界面显示的字"和"最终落库的字"不一样。
                 is ChatChunk.Delta -> {
                     sb.append(chunk.text)
-                    onDelta(chunk.text)
+                    if (!hold) {
+                        onDelta(chunk.text)
+                        released = sb.length
+                    } else if (released == 0 && sb.length >= HOLD_CHARS) {
+                        // ⚠️ 攒够了：**先判一次**再放。
+                        //   如果这一段里已经有硬拒答标记，就别放 ——
+                        //   让上层去重试，用户永远看不到那句话。
+                        val head = sb.toString()
+                        if (container.refusalOf(head) == Refusal.HARD) {
+                            Timber.i("扣住段内命中硬拒答，暂不放字")
+                            // released 保持 0 ⇒ 后续也不再放（本次作废）
+                        } else {
+                            onDelta(head)
+                            released = sb.length
+                        }
+                    } else if (released > 0) {
+                        onDelta(chunk.text)
+                        released = sb.length
+                    }
                 }
                 // 推理过程不进正文（同 `AgentAdapters` 的既定纪律）
                 is ChatChunk.Reasoning -> Unit
@@ -420,7 +530,19 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                 is ChatChunk.Done -> Unit
             }
         }
-        return sb.toString().ifBlank { null }
+
+        val full = sb.toString()
+        // ★ 收尾：`hold` 模式下如果有内容但一个字都没放出去
+        //   （短回复没到 HOLD_CHARS，或整段被扣住），这里补放。
+        //
+        // ⚠️ 若整段被扣住说明是拒答 —— 那时**不放**：
+        //   不放字，交给上层重试。这正是扣住的意义。
+        if (hold && released == 0 && full.isNotBlank()) {
+            if (container.refusalOf(full) != Refusal.HARD) {
+                onDelta(full)
+            }
+        }
+        return full.ifBlank { null }
     }
 
     /**
@@ -508,6 +630,45 @@ internal const val CHAT_MAX_TURNS = 20
  *    ⇒ 唯一事实来源在这里，界面必须引用它，不要另写一个。
  */
 internal const val CHAT_MAX_STEPS = 16
+
+/**
+ * 破甲介入时，**先扣住多少个字**再决定放不放。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  ★ 为什么需要扣住，而不是纯流式
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * 流式的好处是"字出得快"，坏处是**收不回来**。
+ * 一旦"作为一个AI，我无法提供"已经打到屏幕上，之后就算重试成功，
+ * 用户也已经看见了那句话 —— 沉浸感是**一次性**的，拆掉就装不回去。
+ *
+ * ⇒ 扣住开头：攒够这么多字之后先判一次，确认不是拒答再一次性放出去。
+ *   之后的字照常流式。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  ★★ 2026-10-29：从 60 降到 24 —— 被离线测试逼出来的修正
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * 第一版定 60，理由是"要覆盖完整的硬拒答标记"。但一条断言把它否了：
+ * 典型角色回复的开场只有 20 来字（"她把脸埋进他颈窝里，声音闷闷的：…"）,
+ * 60 的阈值意味着**正常回复也要等一整句**才出字。那不是"稍微慢一点"，
+ * 那是让每次对话都感觉卡顿 —— 用一个确定的延迟去换一个概率的收益。
+ *
+ * ⇒ 真正的解法不是把阈值调大，是**判据不需要那么长的前缀**：
+ *   `RefusalDetector` 的硬标记最短的是「我是ai」(5 字)、「我是一个ai」(6 字)，
+ *   "作为一个AI" 在 5 字时就已经能判出来。
+ *
+ * ⇒ 20 字：足够覆盖最短的标记（5 字）加上三四倍语境余量，
+ *   又短于典型角色开场（约 23 字），所以正常回复几乎无感。
+ *
+ * ⚠️ 剩下漏掉的情况由 [chatOnce] 的**收尾判定**兜住：
+ *   整段生成完之后再判一次，命中就不放字、交给重试。
+ *   两段判定合起来才完整 —— 单靠扣字会漏，单靠收尾会让用户看见。
+ *
+ * ⚠️ 只在破甲开启时生效 —— 关掉档位就是关掉这套干预，
+ *   那时保持纯流式（用户的选择优先于我们的手感判断）。
+ */
+private const val HOLD_CHARS = 20
 
 /** 取一段消息里的纯文本（工具调用等非文本片段忽略）。 */
 private fun ChatMessage.plainText(): String =
