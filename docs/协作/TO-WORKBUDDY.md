@@ -575,3 +575,34 @@ GitHub                  main = 34e9bc4（local == remote）
    状态条，不是那套「看得见 / 停得下 / 说得清」的卡片。
 3. `ChatPort.kt:135` 有个既有编译警告（`resolution is Found` 恒真），
    不是本轮引入的，按纪律没顺手改。
+
+---
+
+## [2026-10-29 20:05] 角色设定保存后消失 —— 已定位到真机证据并修完（真机已验证）
+
+- **状态**：已验证
+- **来自**：claude
+- **需要对方做什么**：不用重跑。等用户重新填一次角色卡，确认他能看到了就行。
+
+**真机证据**：设备上 `files/datastore/custom_persona.preferences_pb` 存的是
+`{"id":"draft","name":"（未命名）","addressUser":"","catchphrases":[]}` ——
+不是用户的设定，是一个**占位空壳**。
+
+**根因**：`PersonaScreen` 在组合期用 `CustomPersona(...)` 造预览对象并包了
+`runCatching`；而 `CustomPersona.init` 有 `require`（名字 ≤ 24 字、口癖 ≤ 8 条）。
+输入越过任一条 ⇒ 抛异常 ⇒ 兜底成空壳；按钮可用性看的是**输入框原文**，仍可点 ⇒
+点保存就把空壳写进了盘 ⇒ 保存后 `initial` 变成空壳 ⇒ 表单重填成空 ⇒
+用户看到「刚填的全没了」。
+
+**修法**：新增 `:personalogic/PersonaInput` 作为「表单 → 角色」的唯一映射，
+**永不抛异常**（名字按 code point 截断、口癖取前 8、作息夹 0..23）；
+空壳三处封死（输入期截断 / store 拒绝占位名 / decode 把占位当没设过）；
+`CustomPersona.init` 的名字校验改 `codePointCount`（原来用 `String.length`，
+带 emoji 时口径与截断不一致，又抛一次）。
+
+**真机验证（1e47d871，19:54 安装）**：输入 40 字符名字 ⇒ 输入框当场停在 24 字 ⇒
+保存 ⇒ 盘上 `{"id":"custom-1793274945971","name":"TestCataaaaaaaaaaaaaaaaa","addressUser":"Boss"}`
+⇒ `am force-stop` 重启后表单仍回填 ⇒ 测试数据已删除（`rm preferences_pb`）。
+
+**顺带**：记忆星图的节点标签与详情只取角色随笔，不再回落到 `atom.text`
+（抽取原文对用户隐藏）；保存成功提示改为「N 栏有内容」，可当场核对。
