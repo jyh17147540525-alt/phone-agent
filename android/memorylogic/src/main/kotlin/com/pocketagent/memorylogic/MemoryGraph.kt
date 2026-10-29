@@ -104,6 +104,33 @@ object MemoryGraph {
     data class Graph(val nodes: List<Node>, val edges: List<Edge>) {
         val isEmpty: Boolean get() = nodes.isEmpty()
         val keyEvents: List<Node> get() = nodes.filter { it.isKeyEvent }
+
+        /**
+         * **初始节点** —— 星云绽放时第一颗亮起来的点。
+         *
+         * ═══════════════════════════════════════════════════════════
+         *  ★ 用户要的"从中间初始节点开始向外扩散"
+         * ═══════════════════════════════════════════════════════════
+         *
+         * 挑选规则是**确定的**，不随机 —— 理由同文件头：
+         * 位置和身份在用户心里都是锚点，每次打开第一颗星都不一样
+         * 会让"这是我的记忆"变成"这是一个动画"。
+         *
+         * 优先级：
+         *  ① 最重的那个（通常是一条 CONSTRAINT 或阶段结论）——
+         *     它本来就是这段记忆的核心
+         *  ② 同分时取**最早**的那条：记忆是从某一天开始长起来的，
+         *     最早的核心比最新的核心更符合"源头"的感觉
+         *  ③ 再同分按 id：保证纯函数
+         *
+         * ⚠️ 空图返回 null —— 调用方不该对空图谈"初始节点"。
+         */
+        val seed: Node?
+            get() = nodes.minWithOrNull(
+                compareByDescending<Node> { it.weight }
+                    .thenBy { it.atom.at }
+                    .thenBy { it.atom.id },
+            )
     }
 
     /** 重点事件的门槛。 */

@@ -33,6 +33,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.sp
 import com.pocketagent.memorylogic.Atom
 import com.pocketagent.memorylogic.MemoryGraph
+import com.pocketagent.memorylogic.NebulaBloom
 import com.pocketagent.ui.design.PaColor
 import com.pocketagent.ui.design.PaRadius
 import com.pocketagent.ui.design.PaScreen
@@ -46,7 +47,7 @@ import kotlin.math.hypot
 import kotlin.math.sin
 
 /**
- * **长期记忆 · 记忆星图** —— 可任意角度旋转、可缩放的 3D 记忆团。
+ * **记忆星云** —— 可任意角度旋转、可缩放的 3D 记忆团。
  *
  * ═══════════════════════════════════════════════════════════════
  *  ★ 用户要的是什么
@@ -55,6 +56,8 @@ import kotlin.math.sin
  * "点开后会出现一个 3D 的记忆节点可交互记忆团……重点事件由大的异色光点
  *  标注，用户点击对应的光点会出现相关的记忆事件。"
  * "记得是可任意角度旋转、可随意放大缩小的。"
+ * "每次 app 启动，记忆星云会从中间初始节点开始向外扩散。
+ *  给用户一种记忆加载出来的感觉。"
  *
  * ═══════════════════════════════════════════════════════════════
  *  ★ 几处刻意的取舍
@@ -80,6 +83,10 @@ import kotlin.math.sin
  *
  * 6. **点中之后给原文，不给摘要**。
  *    用户来这里是为了确认"它到底记住了什么"，给摘要等于让他猜。
+ *
+ * 7. **★★ 绽放动画只在"进页面"时跑一次，不是每次重组都跑**。
+ *    见 `bloom` 的 `remember` 键：它绑在图上。
+ *    绑错键的后果是每次点选节点都重新绽放一遍 —— 那会让人想砸手机。
  */
 @Composable
 fun MemoryGraphScreen(
@@ -143,6 +150,121 @@ fun MemoryGraphScreen(
     var selected by remember { mutableStateOf<MemoryGraph.Node?>(null) }
     val measurer = rememberTextMeasurer()
 
+    // ══════════════════════════════════════════════════════════════
+    //  ★★ 2026-10-29 用户："每次 app 启动，记忆星云会从中间初始节点
+    //    开始向外扩散。给用户一种记忆加载出来的感觉。"
+    // ══════════════════════════════════════════════════════════════
+    //
+    // 实现要点（都在 `:memorylogic/NebulaBloom` 里，有 22 条离线测试）：
+    //   · 种子点第 0 毫秒就出现，先停 120ms 立住（这一停就是"加载感"）
+    //   · 其余点的延迟 **正比于它离种子的距离** ⇒ 同一时刻亮起来的是
+    //     一个壳层，看起来是真的从内向外推，而不是随机打点
+    //   · 位置用"世界坐标 × 半径系数"实现，所以天然从球心出发，
+    //     而且旋转/缩放同时生效（在屏幕空间做就得自己推投影，两套逻辑必然漂移）
+    //
+    // ⚠️ `remember` 的键是 **graph**：动画只跟"这张图"绑定一次。
+    //    键错成 `selected` 或什么都不写，会让每次点选节点都重新绽放 ——
+    //    那是会让人想砸手机的体验。
+    var bloom by remember(graph) { mutableFloatStateOf(0f) }
+    // 摊平成 id → 进度，避免在 draw 里每次做线性查找。
+    var bloomById by remember(graph) { mutableStateOf<Map<String, Float>>(emptyMap()) }
+    // 这些标记直接读 `NebulaBloom` 的常量 —— 界面不该另写一套时间。
+    LaunchedEffect(graph) {
+        val seed = graph.seed
+        if (seed == null) {
+            // 空图：没有可绽放的东西，直接标成结束（否则会一直重绘）。
+            bloom = 1f
+            bloomById = emptyMap()
+            return@LaunchedEffect
+        }
+
+        // ══════════════════════════════════════════════════════════
+        //  ★★ 2026-10-29 真机量出来的坑：**转场会吃掉绽放的前半段**
+        // ══════════════════════════════════════════════════════════
+        //
+        // NavHost 的进入转场是 380ms（`PaMotion.Page`）的
+        // fadeIn + slide + scale。绽放若在这一帧就开始计时，
+        // 用户看到的第一眼已经是**400ms 之后**的画面 —— 种子点那一段
+        // 「先在中间亮起来、停一下」正好整个落在转场里，谁都看不见。
+        //
+        // 真机证据（screencap 连拍 + 亮点计数）：
+        //   bloom2 = 789 个亮点（已不是"只有种子"）
+        //   bloom3 = 3041（几乎就位）
+        //   bloom4~6 = 3080/3075/3166（完全稳定）
+        // ⇒ 绽放确实在跑，但**在页面可见之前就跑完了**。
+        //
+        // ⇒ 先等转场结束再起表。这不是为了好看 ——
+        //    "从中间初始节点开始向外扩散"是用户明确要的东西，
+        //    它被转场吃掉就等于没做。
+        //
+        // ══════════════════════════════════════════════════════════
+        //  ★★ 等"页面真的可见"再起表 —— 两段延迟，缺一不可
+        // ══════════════════════════════════════════════════════════
+        //
+        // 真机量了两次，第一次只等转场（`PaDuration.Page` = 380ms）**不够**：
+        //   连拍 10 帧，帧2 的亮点最小距中心 292px、最远 1276px
+        //   ⇒ 那一帧里能看见的全是**上一页残留的文字**，一颗星都没有。
+        //   帧3 就已经 3383 个亮点（几乎就位）。
+        //
+        // 说明动画在"页面可见"之前就跑完了。原因有两层：
+        //   ① NavHost 的 enterTransition（380ms，fade+slide+scale）
+        //   ② 之后还有一次**首帧组合 + 测量 + 布局**（不可忽略，实测 200ms+）
+        //
+        // ⇒ 等转场 + 再等一帧以上，让"第一帧真的画出来"之后再起表。
+        //
+        // ⚠️ 这里用两段 `withFrameNanos()` 而不是写死毫秒数：
+        //    "等到真的画过一帧"只有 frame 时钟能回答，
+        //    用固定毫秒数去猜必然在慢设备上又错位。
+        delay(com.pocketagent.ui.design.PaDuration.Page.toLong())
+        // 让出两帧：第一帧把这一页画出来，第二帧确保它已经在屏幕上。
+        //
+        // ⚠️ 用 `withFrameNanos`（Compose 的帧时钟）而不是再 `delay`：
+        //    "等到真的画过一帧"只有帧时钟能回答，猜毫秒数在慢设备上必然又错位。
+        androidx.compose.runtime.withFrameNanos { }
+        androidx.compose.runtime.withFrameNanos { }
+
+        // ══════════════════════════════════════════════════════════
+        //  ★★ 用**真实时钟**推进，不用"每帧加 16"
+        // ══════════════════════════════════════════════════════════
+        //
+        // ⚠️ 第一版是 `delay(16); elapsed += 16`，真机上表现成"跳"：
+        //    亮点计数 290 → 3068 → 3997，中间没有过渡帧。
+        //
+        // 原因有两层：
+        //  ① `delay(16)` 只是"至少等 16ms"。合成一帧忙的时候它可能 50ms 才回来，
+        //     而 `elapsed` 只加 16 ⇒ **动画实际比时钟慢三倍**，
+        //     看起来像卡顿后突然跳到位。
+        //  ② 更隐蔽的：循环里那个 `val delay = ...` **遮蔽了 `delay()` 函数**，
+        //     在那个作用域里 `delay(16)` 解析到的是 Long 变量 —— 这行其实
+        //     靠 Kotlin 的重载才没崩，但可读性已经完全坏了。
+        //
+        // ⇒ 现在用 `System.nanoTime()` 的真实经过时间驱动。
+        //   掉帧时动画会**自己追上**进度，而不是越落越远。
+        //   这也顺带让"总时长"成为对用户的承诺（1.24 秒就是 1.24 秒）。
+        val startedNs = System.nanoTime()
+        while (true) {
+            val elapsedMs = ((System.nanoTime() - startedNs) / 1_000_000L)
+            // ★ 每帧算一次每个点的进度。200 个点的 map 构造足够快，
+            //   而且它是 draw 的唯一输入 —— 不去在 draw 里调函数。
+            val progressById = HashMap<String, Float>(graph.nodes.size)
+            for (n in graph.nodes) {
+                val startMs = if (n.atom.id == seed.atom.id) {
+                    0L
+                } else {
+                    NebulaBloom.startDelayMs(
+                        isSeed = false,
+                        distanceFromSeed = NebulaBloom.normalizedDistance(seed, n),
+                    )
+                }
+                progressById[n.atom.id] = NebulaBloom.progressAt(elapsedMs, startMs)
+            }
+            bloomById = progressById
+            bloom = (elapsedMs.toFloat() / NebulaBloom.TOTAL_MS).coerceIn(0f, 1f)
+            if (NebulaBloom.isFinished(elapsedMs)) break
+            delay(16)
+        }
+    }
+
     // 极慢自转：看得出是 3D，又不至于晕。
     LaunchedEffect(autoRotate, graph) {
         while (autoRotate) {
@@ -204,13 +326,14 @@ fun MemoryGraphScreen(
                                 val hit = hitTest(
                                     graph, tap, yaw, pitch, zoom,
                                     size.width.toFloat(), size.height.toFloat(),
+                                    bloomById = bloomById,
                                 )
                                 selected = hit
                             },
                         )
                     },
             ) {
-                drawGraph(graph, yaw, pitch, zoom, selected?.atom?.id, colors)
+                drawGraph(graph, yaw, pitch, zoom, selected?.atom?.id, colors, bloomById)
                 // ══════════════════════════════════════════════════
                 //  ★★ 2026-10-29 用户："在节点附近会出现一些记忆，
                 //  但这个是给模型看的，不是给用户看的，麻烦修改一下"
@@ -227,7 +350,11 @@ fun MemoryGraphScreen(
                 val h = size.height
                 val drawn = mutableListOf<Offset>()
                 for (n in graph.keyEvents.sortedByDescending { it.weight }.take(MAX_LABELS)) {
-                    val p = project(n, yaw, pitch, zoom, w, h) ?: continue
+                    // ★ 标签跟着它那个点一起绽放：点还没落位就不标字，
+                    //   否则会出现"文字先出来、星还在飞"的错位。
+                    val nodeBloom = bloomById[n.atom.id] ?: 1f
+                    if (nodeBloom <= 0f) continue
+                    val p = project(n, yaw, pitch, zoom, w, h, nodeBloom) ?: continue
                     if (p.alpha < 0.35f) continue
                     val label = labelOf(n.atom.id) ?: continue
                     val at = Offset(p.x + 10f, p.y - 8f)
@@ -443,15 +570,43 @@ private fun project(
     zoom: Float,
     w: Float,
     h: Float,
+    /**
+     * 绽放进度 0..1。
+     *
+     * ═══════════════════════════════════════════════════════════
+     *  ★★ 为什么乘在**世界坐标**上而不是屏幕偏移
+     * ═══════════════════════════════════════════════════════════
+     *
+     * 世界坐标乘 0 就是球心 —— 于是：
+     *   · 所有点天然从正中间出发（用户要的"从中间初始节点开始"）
+     *   · 旋转和缩放**同时生效**（它本来就是同一条投影链路）
+     *
+     * ⚠️ 如果在屏幕空间做"从中心偏移"：得自己再推一遍投影，
+     *    两套投影逻辑必然漂移 —— 表现出来是"转起来之后，飞出来的点
+     *    走的不是直线"。
+     *
+     * ⚠️ 默认 1f = 已就位：这样旧调用点和测试都不用改，
+     *    而且语义正确（不传进度就是"没有动画"）。
+     */
+    bloom: Float = 1f,
 ): Projected? {
     if (w <= 0f || h <= 0f) return null
+    // ⚠️ 进度为 0 = 还没出现。返回 null 让调用方跳过 ——
+    //    不能靠 alpha=0 硬画，那会让 hitTest 仍然点得到看不见的点。
+    if (bloom <= 0f) return null
+
+    val factor = NebulaBloom.radiusFactor(bloom)
+    val cx = node.x * factor
+    val cyw = node.y * factor
+    val cz = node.z * factor
+
     val cy = cos(yaw); val sy = sin(yaw)
     val cp = cos(pitch); val sp = sin(pitch)
 
     // 绕 Y 轴
-    val x1 = (node.x * cy - node.z * sy).toFloat()
-    val z1 = (node.x * sy + node.z * cy).toFloat()
-    val y1 = node.y.toFloat()
+    val x1 = (cx * cy - cz * sy).toFloat()
+    val z1 = (cx * sy + cz * cy).toFloat()
+    val y1 = cyw.toFloat()
     // 绕 X 轴
     val y2 = y1 * cp - z1 * sp
     val z2 = y1 * sp + z1 * cp
@@ -465,9 +620,13 @@ private fun project(
         y = h / 2f + y2 * radius * scale,
         // ★ 点的**像素大小**也要跟着缩放走，否则放大后点还是那么小，
         //   看起来像"图放大了但星点没放大"。
-        scale = scale * zoom.coerceAtLeast(0.35f),
-        // 远的点更暗：这是"深度"的视觉线索
-        alpha = (0.35f + 0.65f * (scale / 1.4f).coerceIn(0f, 1f)).coerceIn(0f, 1f),
+        //
+        // ★ 再乘上出生尺寸：点从"略小"长到全尺寸，是"长出来"而不是"弹出来"。
+        scale = scale * zoom.coerceAtLeast(0.35f) * NebulaBloom.sizeFactor(bloom),
+        // 远的点更暗：这是"深度"的视觉线索。
+        // ★ 再乘上绽放淡入：前 35% 淡入，之后不透明（全程半透明像幽灵）。
+        alpha = (0.35f + 0.65f * (scale / 1.4f).coerceIn(0f, 1f)).coerceIn(0f, 1f) *
+            NebulaBloom.alpha(bloom),
     )
 }
 
@@ -479,11 +638,24 @@ private fun hitTest(
     zoom: Float,
     w: Float,
     h: Float,
+    /** 每个点的绽放进度。**飞行途中的点不可点** —— 见下面的注释。 */
+    bloomById: Map<String, Float> = emptyMap(),
 ): MemoryGraph.Node? {
     var best: MemoryGraph.Node? = null
     var bestDist = HIT_RADIUS_PX
     for (n in graph.nodes) {
-        val p = project(n, yaw, pitch, zoom, w, h) ?: continue
+        // ══════════════════════════════════════════════════════════
+        //  ★★ 为什么飞行途中不许点
+        // ══════════════════════════════════════════════════════════
+        // 绽放动画开头，所有点都挤在球心那一小团里。
+        // 那时如果允许点，用户点到的**永远不是他看见的那颗** ——
+        // 他会点"中间偏左"，然后弹出一条完全不相干的记忆，
+        // 而界面上看起来一切正常。这类 bug 极难自查。
+        //
+        // ⇒ 过半（`NebulaBloom.isTappable`）才算落位可点。
+        val bloom = bloomById[n.atom.id] ?: 1f
+        if (!NebulaBloom.isTappable(bloom)) continue
+        val p = project(n, yaw, pitch, zoom, w, h, bloom) ?: continue
         val d = hypot(p.x - tap.x, p.y - tap.y)
         if (d < bestDist) {
             bestDist = d
@@ -502,18 +674,31 @@ private fun DrawScope.drawGraph(
     zoom: Float,
     selectedId: String?,
     colors: MemoryGraphPalette,
+    /** 每个点的绽放进度（id → 0..1）。不在表里的按"已就位"处理。 */
+    bloomById: Map<String, Float> = emptyMap(),
 ) {
     val w = size.width
     val h = size.height
 
-    val projected = graph.nodes.associate { it.atom.id to project(it, yaw, pitch, zoom, w, h) }
+    fun bloomOf(id: String): Float = bloomById[id] ?: 1f
+
+    val projected = graph.nodes.associate {
+        it.atom.id to project(it, yaw, pitch, zoom, w, h, bloomOf(it.atom.id))
+    }
 
     // 先画边（在点下面）
     for (e in graph.edges) {
         val a = projected[e.fromAtomId] ?: continue
         val b = projected[e.toAtomId] ?: continue
+        // ★ 边的可见度取两端进度的**较小值**：一条边要等两头都出现才成立。
+        //   取下限而不是上限，是为了让"边"也参与扩散 ——
+        //   否则点还没出来，线已经连好了，看着像先有网后有星。
+        val edgeBloom = minOf(bloomOf(e.fromAtomId), bloomOf(e.toAtomId))
+        if (edgeBloom <= 0f) continue
         drawLine(
-            color = colors.edge.copy(alpha = 0.10f + 0.22f * e.strength.toFloat()),
+            color = colors.edge.copy(
+                alpha = (0.10f + 0.22f * e.strength.toFloat()) * NebulaBloom.alpha(edgeBloom),
+            ),
             start = Offset(a.x, a.y),
             end = Offset(b.x, b.y),
             strokeWidth = 0.9f,
@@ -527,7 +712,8 @@ private fun DrawScope.drawGraph(
         val baseR = if (n.isKeyEvent) KEY_GLOW_R else DOT_R
         val r = baseR * p.scale
 
-        // 光晕（重点事件 + 选中）
+        // ⚠️ 光晕也用点的 alpha —— 它已经包含"绽放淡入"了。
+        //    如果这里另算一份，会出现"点还没出来、光晕先亮"的鬼影。
         if (n.isKeyEvent || isSelected) {
             val glow = if (n.isKeyEvent) colors.key else colors.selected
             // ⚠️ 不透明度来自主题：浅底上淡淡一层"亮晕"等于没有，
