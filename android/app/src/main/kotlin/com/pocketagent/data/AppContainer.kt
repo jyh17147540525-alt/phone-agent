@@ -1658,6 +1658,119 @@ class AppContainer(context: Context) {
         }.trimEnd()
     }
 
+    // ══════════════════════════════════════════════════════════════
+    //  ★ 记忆随笔：由角色模型亲手写（不是规则拼）
+    // ══════════════════════════════════════════════════════════════
+    //
+    // 用户原话："每个节点里呈现给用户的内容，都应该由 api 里的角色模型
+    // 生成的，就像安排角色写了一篇日记和随笔一样。"
+    //
+    // ⚠️ 生成的随笔**只在展示层**：
+    //   · 存进 `diaryCache`（内存 + 文件），**不回写原子库**
+    //   · 不会被 `MemoryRecall` 读到，也不会被下一次抽取当素材
+    //     （否则记忆会变成"她对自己记忆的复述"，越复述越走形）
+
+    /** 已生成的随笔缓存：atomId → 文本。 */
+    private val diaryCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    private val diaryFile: File by lazy {
+        File(File(appContext.filesDir, MEMORY_DIR), "diaries.txt")
+    }
+
+    @Volatile
+    private var diaryLoaded = false
+
+    private fun loadDiaryCacheIfNeeded() {
+        if (diaryLoaded) return
+        diaryLoaded = true
+        runCatching {
+            if (!diaryFile.isFile) return@runCatching
+            diaryFile.forEachLine { line ->
+                val at = line.indexOf('\u0001')
+                if (at > 0) {
+                    diaryCache[line.substring(0, at)] = line.substring(at + 1)
+                }
+            }
+            Timber.i("记忆随笔缓存：读回 %d 篇", diaryCache.size)
+        }.onFailure { Timber.w(it, "记忆随笔缓存读取失败") }
+    }
+
+    /** 已缓存的随笔（同步读，界面直接用）。 */
+    fun cachedDiary(atomId: String): String? {
+        loadDiaryCacheIfNeeded()
+        return diaryCache[atomId]
+    }
+
+    private fun persistDiary(atomId: String, text: String) {
+        startupScope.launch {
+            runCatching {
+                diaryFile.parentFile?.mkdirs()
+                // 一行一篇，`\u0001` 分隔 id 与正文（正文里不会出现它）
+                diaryFile.appendText("$atomId\u0001${text.replace("\n", " ")}\n")
+            }.onFailure { Timber.w(it, "记忆随笔落盘失败") }
+        }
+    }
+
+    /**
+     * **让角色为这条记忆写一篇随笔**。
+     *
+     * ★ 这是"每个节点都由模型生成"的落点。
+     *   走的是用户配的**对话模型**（不是另外一套）——
+     *   因为要的就是**这个角色的口吻**。
+     *
+     * @return 随笔；null = 生成失败（调用方回退到规则版，不让界面空着）
+     */
+    suspend fun generateDiary(
+        atom: com.pocketagent.memorylogic.Atom,
+        userAddress: String,
+        personaBrief: String,
+        dayHint: String,
+    ): String? {
+        loadDiaryCacheIfNeeded()
+        diaryCache[atom.id]?.let { return it }
+
+        val prompt = com.pocketagent.memorylogic.MemoryDiaryPrompt.build(
+            rawMemory = atom.text,
+            kindLabel = atom.kind.label,
+            userAddress = userAddress,
+            personaBrief = personaBrief,
+            dayHint = dayHint,
+        )
+        val raw = runCatching {
+            val repo = when (val opened = openCredentialStore()) {
+                is CredentialStoreResult.Ready -> opened.repository
+                else -> return null
+            }
+            val config = when (
+                val r = modelRepository()?.all().orEmpty().resolveForPurpose(ModelRole.CHAT)
+            ) {
+                is ModelResolution.Found -> r.config
+                is ModelResolution.None -> return null
+            }
+            repo.useKey(config.credentialId) { provider, credential ->
+                val request = ChatRequest(
+                    model = config.modelId,
+                    messages = listOf(ChatMessage.user(prompt)),
+                    tools = emptyList(),
+                )
+                val sb = StringBuilder()
+                provider.chat(request = request, credential = credential).collect { chunk ->
+                    if (chunk is ChatChunk.Delta) sb.append(chunk.text)
+                }
+                sb.toString()
+            }
+        }.onFailure { Timber.w(it, "记忆随笔生成失败（回退到规则版）") }.getOrNull()
+
+        val text = raw
+            ?.let { com.pocketagent.memorylogic.MemoryDiaryPrompt.clean(it) }
+            ?.takeIf { it.isNotBlank() }
+            ?: return null
+        diaryCache[atom.id] = text
+        persistDiary(atom.id, text)
+        Timber.i("记忆随笔已生成：%d 字（%s）", text.length, atom.kind.label)
+        return text
+    }
+
     /** 当前是否有自定义角色在生效。 */
     fun hasCustomPersona(): Boolean = activeCustomPersona != null
 

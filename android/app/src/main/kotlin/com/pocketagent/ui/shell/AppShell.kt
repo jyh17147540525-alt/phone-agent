@@ -599,10 +599,35 @@ fun AppShell(
                     // ⚠️ 记忆库是**同步读**的（`memoryAtoms()` 内存缓存 + 文件），
                     //    但这里用 `remember` 接住，避免每次重组都重新读一遍。
                     val atoms = remember { container.memoryAtoms() }
+                    // ★ 称呼由角色卡决定 —— 随笔里"你"要变成她实际叫的那个称呼。
+                    val who = remember {
+                        container.currentCustomPersona()?.addressUser?.takeIf { it.isNotBlank() }
+                            ?: "你"
+                    }
+                    val personaBrief = remember {
+                        container.currentCustomPersona()?.describeForPrompt().orEmpty()
+                    }
                     com.pocketagent.ui.memory.MemoryGraphScreen(
                         atoms = atoms,
                         modifier = Modifier,
                         onBack = { navController.popBackStack() },
+                        userName = who,
+                        personaName = container.currentCustomPersona()?.name.orEmpty(),
+                        // ★ 缓存的随笔：有就立刻显示，不等模型。
+                        cachedDiary = { atom -> container.cachedDiary(atom.id) },
+                        // ★ 没有缓存时让**角色模型**写一篇。
+                        //   ⚠️ 走的是用户配的对话模型 —— 要的就是这个角色的口吻。
+                        generateDiary = { atom ->
+                            container.generateDiary(
+                                atom = atom,
+                                userAddress = who,
+                                personaBrief = personaBrief,
+                                dayHint = com.pocketagent.memorylogic.MemoryDiary.relativeDay(
+                                    atom.at,
+                                    System.currentTimeMillis(),
+                                ),
+                            )
+                        },
                     )
                 }
 
