@@ -50,7 +50,28 @@ class InstalledPluginsViewModel(
      */
     fun refresh() {
         viewModelScope.launch {
-            _state.update { it.copy(loading = true) }
+            // ══════════════════════════════════════════════════════
+            //  ★★ 2026-10-30：**已有数据时不进 loading 态**
+            // ══════════════════════════════════════════════════════
+            //
+            // 用户："各个页面之间的切换有种突兀感"。
+            //
+            // 这里原本无条件 `loading = true`。而 `PluginsScreen` 每次
+            // 进入页面都会调 refresh（那是**必要**的 —— 从市场装完插件
+            // 返回时必须重新扫盘，否则用户看不到刚装的）。
+            //
+            // 于是每次「插件 → 市场 → 返回」都会闪一下：
+            //   有数据 → 清空成 loading → 数据回来
+            // 那个闪就是突兀感。它和动画曲线无关，是**内容消失了一瞬**。
+            //
+            // ⇒ 区分"首次加载"与"后台刷新"：
+            //   · 没有数据  ⇒ 进 loading（此时本来就该显示加载态）
+            //   · 已有数据  ⇒ **不动 UI**，扫完直接替换
+            //
+            // ⚠️ 仍然要扫盘（不能因为"有数据"就跳过），
+            //   否则刚装的插件永远不出现。变的只是"要不要闪那一下"。
+            val hasData = _state.value.plugins.isNotEmpty()
+            if (!hasData) _state.update { it.copy(loading = true) }
             val list = withContext(Dispatchers.IO) { installer.installedPlugins() }
             _state.update { it.copy(loading = false, plugins = list) }
         }

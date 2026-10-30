@@ -169,11 +169,20 @@ fun SettingsScreen(
         //    硬切的边界会让人想到"这里有个容器"，
         //    渐隐让人感觉"内容从上面流下来"。
         //
-        // ★ 用 `ScrollingEdge` 而不是手动传两个布尔：
-        //   它内部用 `derivedStateOf`，只在"还能不能滚"真的翻转时才重组。
-        //   直接读 `listState.canScrollForward` 会让这个装饰**每帧重组** ——
-        //   那是"加了个装饰结果变卡"。
-        val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+        // ⚠️ 2026-10-30：必须用 `rememberSaveable` 而不是 `rememberLazyListState()`。
+        //
+        // `rememberLazyListState()` 内部是 `remember` —— 页面被 NavHost 复用时
+        // 它确实活着，但**切 tab 会销毁再重建**（见 `goToTab` 的
+        // `popUpTo(saveState = true)`）。于是：
+        //   · 用户滚到设置页中间 → 点底栏「任务」→ 再回「设置」
+        //   · 页面**从顶部重新开始**
+        // 那种"又回到最上面"的感觉，就是突兀感的第三个来源。
+        //
+        // ⇒ `rememberSaveable(saver = LazyListState.Saver)` 会把滚动位置
+        //   存进 saved state，重建时恢复。
+        val listState = androidx.compose.runtime.saveable.rememberSaveable(
+            saver = androidx.compose.foundation.lazy.LazyListState.Saver,
+        ) { androidx.compose.foundation.lazy.LazyListState() }
         ScrollingEdge(state = listState) {
         LazyColumn(
             state = listState,

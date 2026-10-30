@@ -1,4 +1,4 @@
-package com.pocketagent.ui.shell
+﻿package com.pocketagent.ui.shell
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -141,6 +141,16 @@ object Routes {
     // 第 0 档能力的入口。它是"用户真的能用一次"的那一页 ——
     // 在此之前裁决/规划/通道/编排四层都有测试，但没有任何界面能调用它们。
     const val CAPABILITIES = "capabilities"
+
+    /**
+     * **顶层 tab 的集合** —— 判断"这一跳是不是平级互换"。
+     *
+     * ★ 2026-10-30：转场要分成两套（平级交叉淡入 / 层级方向位移），
+     *   而分开它们的唯一依据就是"两端是不是都在这一组里"。
+     *
+     * ⚠️ 必须**同时**判起点和终点，理由见 `isTabSwap` 的注释。
+     */
+    val TOP_LEVEL: Set<String> = setOf(TASKS, PLUGINS, SETTINGS)
 }
 
 /**
@@ -274,6 +284,73 @@ fun AppShell(
     val enterOffsetX = with(density) { PaTransition.ENTER_OFFSET_X.dp.roundToPx() }
     val exitOffsetX = with(density) { PaTransition.EXIT_OFFSET_X.dp.roundToPx() }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  ★ 转场也要尊重"系统关掉动画"
+    // ═══════════════════════════════════════════════════════════════
+    //
+    // ⚠️ 光靠 `PaReveal` 自己判断是不够的 —— **路由转场不经过它**。
+    //    用户在开发者选项里把动画关掉，路由切换还会坚持跑 180~280ms，
+    //    那是"每次操作都慢半拍"，比不做动画更难受。
+    //
+    // ⇒ 在这里读一次，关掉时把转场时长压到 0（`PaMotion` 的 tween 接受 0，
+    //   表现为**立刻切换**）。
+    val motionPref = com.pocketagent.ui.design.LocalMotionPreference.current
+    val tabSpec: androidx.compose.animation.core.FiniteAnimationSpec<Float> =
+        if (motionPref.animationsOn) PaMotion.fast() else androidx.compose.animation.core.snap()
+    val layerSpec: androidx.compose.animation.core.FiniteAnimationSpec<Float> =
+        if (motionPref.animationsOn) PaMotion.standard() else androidx.compose.animation.core.snap()
+    // ⚠️ `slideIn/OutHorizontally` 的 spec 类型是 `FiniteAnimationSpec<IntOffset>`，
+    //    不能与上面的 Float 共用 —— 传错是编译期报错（这次就报了）。
+    val slideSpec: androidx.compose.animation.core.FiniteAnimationSpec<androidx.compose.ui.unit.IntOffset> =
+        if (motionPref.animationsOn) PaMotion.standard() else androidx.compose.animation.core.snap()
+
+    // ═══════════════════════════════════════════════════════════════
+    //   ★★ 2026-10-30：转场重做 —— 用户："各个页面之间的切换有种突兀感"
+    // ═══════════════════════════════════════════════════════════════
+    //
+    // 先说清楚**突兀感到底来自哪里**。不是曲线不够顺，是**结构错了**：
+    //
+    //  ① **tab 平级切换用了横向滑动**。
+    //     横向滑动的语义是"进入下一层 / 返回上一层"（那是钻取）。
+    //     但「任务 ↔ 插件 ↔ 设置」是**平级**关系 —— 横向滑动会让大脑
+    //     短暂地以为自己在钻取，然后发现又回到了同一层。那种错位
+    //     就是"突兀"的主要成分。
+    //     ★ iOS 的 tab bar 切换**从不横向滑动**，只有交叉淡入（或干脆瞬切）。
+    //
+    //  ② **两层动画叠在一起**。
+    //     `PaScreen` 里的 `PaReveal` 会在内容上再跑一次 260ms 浮现，
+    //     而 NavHost 的转场同时在跑 380ms。
+    //     两个动画时间不同、曲线不同 → 内容先到、动画后完 → 抖动。
+    //
+    //  ③ **380ms 对 tab 太长**。
+    //     iOS 的 tab 切换感知上几乎是"立刻"（淡入约 200ms 内）。
+    //     380ms 会让人觉得"每次点底栏都要等"。
+    //
+    // ⇒ 三件事一起改：
+    //    · tab 之间：**只交叉淡入，不位移、不缩放**，时长压到
+    //      `PaDuration.Fast`（180ms）—— 快到像是"换了一下"而不是"切过去了"
+    //    · 层级钻取：保留方向感（微位移 + 淡入），那是正确的语义
+    //    · 内容浮现：**在 NavHost 转场期间不要跑**（见 `PaScreen` 的注释）
+    //
+    // ⚠️ 判断"是不是 tab 切换"必须看**起点和终点都在 TABS 里**，
+    //    不能只看终点：从「设置 → 插件源」再点底栏「任务」也是 tab 切换，
+    //    但那一跳的起点是二级页。那种情况下横向滑动反而**是对的**
+    //    （用户确实从深层回到了顶层）。见 [isTabSwap]。
+
+    /**
+     * 这一跳是不是**平级 tab 互换**。
+     *
+     * ⚠️ 必须两头都在顶层 tab 里才算。只判终点会让
+     *    「二级页 → 顶层」也走交叉淡入，而那一步用户确实期待"退回去"。
+     */
+    fun isTabSwap(initial: androidx.navigation.NavBackStackEntry?, target: androidx.navigation.NavBackStackEntry?): Boolean =
+        com.pocketagent.agentui.TransitionKind.of(
+            fromRoute = initial?.destination?.route,
+            toRoute = target?.destination?.route,
+            topLevel = Routes.TOP_LEVEL,
+            isPop = false,
+        ) == com.pocketagent.agentui.TransitionKind.Kind.TAB_SWAP
+
     /** 当前是否停在顶层 tab 上 —— 决定底栏显不显示 */
     val isTopLevel = TABS.any { it.route == currentRoute }
 
@@ -346,30 +423,82 @@ fun AppShell(
                 startDestination = Routes.TASKS,
                 modifier = Modifier.weight(1f),
 
-                // ── 转场 ────────────────────────────────────────
-                // 位移刻意很小（24dp），靠"淡入 + 轻微缩放"制造"内容浮现"的观感。
-                // 大位移滑动在手机上会晕，而且会暴露真实的切换耗时 —— 见 PaTransition。
+                // ══════════════════════════════════════════════════════
+                //  转场：**两套语义，不是一个动画改参数**
+                // ══════════════════════════════════════════════════════
                 //
-                // 退出比进入**快得多**（180ms vs 380ms）：旧内容必须迅速让位，
-                // 否则两层内容长时间叠在一起，看起来是"卡住了"而不是"在切换"。
+                // 用户："各个页面之间的切换有种突兀感"。
+                // 根因是**平级和层级用了同一种动画** —— 见文件里
+                // `isTabSwap` 上方那段注释的完整分析。
+                //
+                // ┌────────────┬──────────────────────────────────────┐
+                // │ tab 互换    │ 纯交叉淡入，180ms，**零位移零缩放**      │
+                // │ 层级钻取    │ 微位移 + 淡入 + 微缩放，280ms           │
+                // └────────────┴──────────────────────────────────────┘
+                //
+                // ⚠️ tab 那一档刻意**不做任何位移**：位移的语义是"空间位置变了"。
+                //    平级互换时空间没变，只是"这一层换成了另一层"。
+                //    加了位移就会让大脑误以为在钻取 —— 那就是突兀感的来源。
+
                 enterTransition = {
-                    fadeIn(animationSpec = PaMotion.page()) +
-                        slideInHorizontally(animationSpec = PaMotion.page()) { enterOffsetX } +
-                        scaleIn(animationSpec = PaMotion.page(), initialScale = PaTransition.ENTER_SCALE)
+                    if (isTabSwap(initialState, targetState)) {
+                        // ★ 只淡入。180ms：快到像"换了一下"，不像"切过去了"。
+                        fadeIn(animationSpec = tabSpec)
+                    } else {
+                        // 层级的进入：内容从右侧微移进来（方向感是对的）
+                        fadeIn(animationSpec = layerSpec) +
+                            slideInHorizontally(animationSpec = slideSpec) {
+                                enterOffsetX
+                            } +
+                            scaleIn(
+                                animationSpec = layerSpec,
+                                initialScale = PaTransition.ENTER_SCALE,
+                            )
+                    }
                 },
+
                 exitTransition = {
-                    fadeOut(animationSpec = PaMotion.fast()) +
-                        scaleOut(animationSpec = PaMotion.page(), targetScale = PaTransition.EXIT_SCALE)
+                    if (isTabSwap(initialState, targetState)) {
+                        // ⚠️ 交叉淡入的关键是**退出的时长要和进入一致**。
+                        //    退出更快（180 vs 380）会让两层内容短暂"叠"在一起 ——
+                        //    那正是"卡了一下"的来源。
+                        fadeOut(animationSpec = tabSpec)
+                    } else {
+                        // 旧内容迅速让位（比进入快）：否则两层长时间重叠
+                        fadeOut(animationSpec = tabSpec) +
+                            scaleOut(
+                                animationSpec = layerSpec,
+                                targetScale = PaTransition.EXIT_SCALE,
+                            )
+                    }
                 },
-                // 返回时方向相反：新页面从左侧的"深处"浮现，旧页面向右退出
+
                 popEnterTransition = {
-                    fadeIn(animationSpec = PaMotion.page()) +
-                        scaleIn(animationSpec = PaMotion.page(), initialScale = PaTransition.EXIT_SCALE)
+                    if (isTabSwap(initialState, targetState)) {
+                        fadeIn(animationSpec = tabSpec)
+                    } else {
+                        // 返回：上一层从左侧"深处"浮回来
+                        fadeIn(animationSpec = layerSpec) +
+                            scaleIn(
+                                animationSpec = layerSpec,
+                                initialScale = PaTransition.EXIT_SCALE,
+                            )
+                    }
                 },
+
                 popExitTransition = {
-                    fadeOut(animationSpec = PaMotion.fast()) +
-                        slideOutHorizontally(animationSpec = PaMotion.page()) { exitOffsetX } +
-                        scaleOut(animationSpec = PaMotion.page(), targetScale = PaTransition.ENTER_SCALE)
+                    if (isTabSwap(initialState, targetState)) {
+                        fadeOut(animationSpec = tabSpec)
+                    } else {
+                        fadeOut(animationSpec = tabSpec) +
+                            slideOutHorizontally(animationSpec = slideSpec) {
+                                exitOffsetX
+                            } +
+                            scaleOut(
+                                animationSpec = layerSpec,
+                                targetScale = PaTransition.ENTER_SCALE,
+                            )
+                    }
                 },
             ) {
 
@@ -865,12 +994,31 @@ fun AppShell(
             // 滑出的同时 NavHost 的 weight 会跟着变大，内容区**平滑扩展** ——
             // 因为 AnimatedVisibility 的高度是逐帧动画的，Compose 每帧重新测量。
             // 所以这里不会出现内容跳动。
+            //
+            // ══════════════════════════════════════════════════════
+            //  ★★ 2026-10-30：时长必须**与页面转场对齐**（380 → 280）
+            // ══════════════════════════════════════════════════════
+            //
+            // 用户："各个页面之间的切换有种突兀感"。
+            //
+            // 这里是那份突兀感里**最明显的一处**，而且原因很具体：
+            //   · 页面转场：进二级页时 280ms 完成
+            //   · 底栏滑出：`PaMotion.page()` = **380ms**
+            // ⇒ 页面已经换完了，底栏还在往下滑，多滑了 100ms。
+            //
+            // 用户不会说"底栏慢了 100ms"，他会说"这一下有点拖"。
+            // 而这种"两件东西收尾不同步"是最难自查的 —— 盯着代码看
+            // 两个动画都"有动画、都不错"，只有把它们的时间放在一起比
+            // 才发现差了 100ms。
+            //
+            // ⇒ 用 `standard()`（280ms），与层级的进入/退出**同档**。
+            //   底栏和页面内容从此是**一次动作**，不是两次。
             AnimatedVisibility(
                 visible = isTopLevel,
-                enter = slideInVertically(animationSpec = PaMotion.page()) { it } +
-                    fadeIn(animationSpec = PaMotion.fast()),
-                exit = slideOutVertically(animationSpec = PaMotion.page()) { it } +
-                    fadeOut(animationSpec = PaMotion.fast()),
+                enter = slideInVertically(animationSpec = slideSpec) { it } +
+                    fadeIn(animationSpec = tabSpec),
+                exit = slideOutVertically(animationSpec = slideSpec) { it } +
+                    fadeOut(animationSpec = tabSpec),
             ) {
                 PaBottomBar(
                     items = TABS.map { PaNavItem(label = it.label, icon = it.icon) },

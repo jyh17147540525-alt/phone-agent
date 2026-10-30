@@ -78,11 +78,27 @@ fun PaBottomBar(
         ) {
             val itemWidth = maxWidth / items.size
 
-            // 指示器滑动的动画。用 standard 而不是 bouncy ——
-            // 底栏是高频操作，回弹会让人烦；bouncy 只留给低频的"惊喜"时刻
+            // ══════════════════════════════════════════════════════
+            //  ★★ 2026-10-30：指示器时长必须**跟页面对齐**
+            // ══════════════════════════════════════════════════════
+            //
+            // 用户："各个页面之间的切换有种突兀感"。
+            // 回查发现这里原本用 `PaMotion.standard()`（280ms），
+            // 而页面在 tab 之间切换已改成 180ms 的交叉淡入 ——
+            // 于是**页面先换完，那个高亮方块还在追**，追了 100ms。
+            //
+            // ⚠️ 这种"两件东西收尾不同步"是最容易被感觉到、
+            //    也最难被归因的突兀。人不会说"指示器慢了"，
+            //    只会说"这里有点不舒服"。
+            //
+            // ⇒ 用 `fast()`（180ms）与页面转场**同一个时长**。
+            //   两者同时开始、同时结束，视觉上是一次动作。
+            //
+            // ★ 仍然不用 bouncy：底栏是高频操作，回弹会让人烦
+            //   （见 `PaMotion.bouncy` 的注释）。
             val indicatorOffset by animateDpAsState(
                 targetValue = itemWidth * selectedIndex,
-                animationSpec = PaMotion.standard(),
+                animationSpec = PaMotion.fast(),
                 label = "navIndicatorOffset",
             )
 
@@ -124,9 +140,12 @@ private fun NavItemView(
 ) {
     val interaction = remember { MutableInteractionSource() }
 
+    // ⚠️ 2026-10-30：与指示器、页面转场统一成 180ms。
+    //    这三件东西（图标变色 / 方块滑动 / 页面淡入）在用户眼里
+    //    是**同一个动作**，收尾不同步就会显得"哪里慢了半拍"。
     val tint by animateColorAsState(
         targetValue = if (selected) PaColor.Accent else PaColor.TextTertiary,
-        animationSpec = PaMotion.standard(),
+        animationSpec = PaMotion.fast(),
         label = "navItemTint",
     )
 
