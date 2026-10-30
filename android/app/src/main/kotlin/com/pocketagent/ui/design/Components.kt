@@ -89,8 +89,26 @@ fun PaScreen(
             onLeadingClick = onLeadingClick,
             actions = actions,
         )
+        // ══════════════════════════════════════════════════════════
+        //  ★★ 2026-10-30：**内容区整页进场一次**
+        // ══════════════════════════════════════════════════════════
+        //
+        // 为什么放在 `PaScreen` 而不是每个页面自己包：
+        //   全站 20 多个二级页都走这个函数 ⇒ **一次覆盖全部**，
+        //   而且以后新加的页面自动获得，不会漏。
+        //
+        // ⚠️ 顶栏**不参与**这个动画：它已经在 NavHost 的转场里淡入过了。
+        //   再叠一层会让顶栏比内容晚出现 —— 看起来像"头先到、身体后到"。
+        //
+        // ⚠️ 只包内容区、且**整页一次**（index=0）：
+        //   页面里的列表多是 `LazyColumn`，它的 item 会被回收重建。
+        //   逐项动画会在用户滚动时**反复重播**（见 `PaReveal` 的注释）。
+        //
+        // ★ 系统里关掉动画、或处于省电模式时，`PaReveal` 会自己退化成
+        //   直接显示 / 纯淡入 —— 这里不用判断（判断只有一处，
+        //   见 `MotionPreference`）。
         Box(modifier = Modifier.weight(1f)) {
-            content()
+            PaReveal(index = 0) { content() }
         }
     }
 }
@@ -211,6 +229,8 @@ fun PaButton(
         animationSpec = PaMotion.fast(),
         label = "paButtonScale",
     )
+    // ★ 触感：见下面 onClick 里的注释（只有 Primary/Danger 会震）。
+    val haptics = rememberHaptics()
 
     val shape = RoundedCornerShape(PaRadius.s)
 
@@ -248,7 +268,18 @@ fun PaButton(
                 interactionSource = interaction,
                 indication = null,
                 enabled = enabled,
-                onClick = onClick,
+                onClick = {
+                    // ★ 按钮按下给一记极轻的触感 —— 这是"跟手"的一半。
+                    //   ⚠️ 只有 Primary / Danger 这类"会改变状态"的按钮给；
+                    //     Text / Glass 变体多用于次要操作（取消、展开），
+                    //     每次都震会让人烦躁。
+                    //   ⚠️ 判断放在这里而不是调用点：26 个按钮调用点不可能逐个改，
+                    //     而"哪些该震"是一条**设计规则**，属于设计系统。
+                    if (style == PaButtonStyle.Primary || style == PaButtonStyle.Danger) {
+                        haptics.confirm()
+                    }
+                    onClick()
+                },
             )
             .padding(horizontal = if (style == PaButtonStyle.Text) PaSpace.xs else PaSpace.m),
         horizontalArrangement = Arrangement.Center,

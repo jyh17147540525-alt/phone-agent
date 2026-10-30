@@ -192,7 +192,22 @@ private fun TurnBubbles(
 
         AnimatedVisibility(
             visible = showReply,
-            enter = fadeIn(PaMotion.standard()) + expandVertically(PaMotion.standard()),
+            // ══════════════════════════════════════════════════════
+            //  ★★ 2026-10-30：回复出现用**弹性**，不用标准曲线
+            // ══════════════════════════════════════════════════════
+            //
+            // ⚠️ 这是全站唯一该用 bouncy 的地方，理由是它满足三个条件：
+            //   ① **低频**（每轮对话一次，不是每次触摸）
+            //   ② **值得期待**（等了几秒，回复终于来了）
+            //   ③ **不阻塞操作**（它自己长出来，用户不需要精确点它）
+            //
+            // ★ 弹性在这里的作用是"内容压实了、有了重量"——
+            //   而不是"弹了一下"。所以配的是**很轻**的过冲（见 PaMotion.bouncy
+            //   的阻尼 0.5），并且仍然先淡入。
+            //
+            // ⚠️ 反例（都不要用 bouncy）：底栏切换、开关、列表滚动。
+            //   那些是高频操作，回弹会让人烦。
+            enter = fadeIn(PaMotion.standard()) + expandVertically(PaMotion.bouncy()),
         ) {
             Row(modifier = Modifier.fillMaxWidth().padding(top = PaSpace.xs)) {
                 Text(

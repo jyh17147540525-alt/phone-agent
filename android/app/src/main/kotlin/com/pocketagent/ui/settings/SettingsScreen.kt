@@ -40,6 +40,7 @@ import com.pocketagent.ui.design.PaListRow
 import com.pocketagent.ui.design.PaScreen
 import com.pocketagent.ui.design.PaSectionTitle
 import com.pocketagent.ui.design.PaSpace
+import com.pocketagent.ui.design.ScrollingEdge
 
 /**
  * 设置页。
@@ -160,7 +161,22 @@ fun SettingsScreen(
     }
 
     PaScreen(title = "设置", modifier = modifier) {
+        // ══════════════════════════════════════════════════════════
+        //  ★★ 2026-10-30：滚动边缘渐隐
+        // ══════════════════════════════════════════════════════════
+        //
+        // ⚠️ 这一层是"高级感"里最不显眼、但最影响观感的一处：
+        //    硬切的边界会让人想到"这里有个容器"，
+        //    渐隐让人感觉"内容从上面流下来"。
+        //
+        // ★ 用 `ScrollingEdge` 而不是手动传两个布尔：
+        //   它内部用 `derivedStateOf`，只在"还能不能滚"真的翻转时才重组。
+        //   直接读 `listState.canScrollForward` 会让这个装饰**每帧重组** ——
+        //   那是"加了个装饰结果变卡"。
+        val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+        ScrollingEdge(state = listState) {
         LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
                 start = PaSpace.screenH,
@@ -767,6 +783,7 @@ fun SettingsScreen(
                     )
                 }
             }
+        }
         }
     }
 }

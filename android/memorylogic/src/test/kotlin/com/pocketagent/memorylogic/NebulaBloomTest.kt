@@ -354,4 +354,111 @@ class NebulaBloomTest {
             NebulaBloom.TOTAL_MS <= 1_500L,
         )
     }
+
+    // ═══════════════════════════════════════════════════════════
+    //  「先闪一下铺满、再重新绽放」
+    // ═══════════════════════════════════════════════════════════
+
+    @Test
+    fun `进度表初值必须是零而不是空表`() {
+        // ══════════════════════════════════════════════════════
+        //  ★ 这条测试守的是一个真机现象
+        // ══════════════════════════════════════════════════════
+        // 用户："打开记忆星云的一瞬间，是绽放着的形态，但过了这一瞬间，
+        //        就进入你写好的进程了，从一个点绽放开来。"
+        //
+        // 真机证据（screenrecord 20fps 逐帧）：
+        //   帧16~23  lit≈2080 minD≈30   ← 星图**已经全部铺满**，约 400ms
+        //   帧24     lit=167  minD=282  ← 骤降，重新开始绽放
+        //
+        // 根因：`bloomById` 初值是 `emptyMap()`，而投影写的是
+        //   `bloomById[id] ?: 1f` —— **查不到当作"已就位"** ⇒ 首帧画满；
+        //   协程填表后点缩回球心 ⇒ 重新绽放。
+        //
+        // ⇒ 兜底值必须是 0。下面直接验 [NebulaBloom.bloomOf] 的语义。
+        val nodes = listOf(
+            node("a", 0.0, 0.0, 0.0),
+            node("b", 0.5, 0.0, 0.0),
+            node("c", -0.5, 0.3, 0.2),
+        )
+        val table = NebulaBloom.emptyTable(nodes)
+
+        assertEquals("完整表必须覆盖每个点", nodes.size, table.size)
+        assertTrue("初值必须全是 0", table.values.all { it == 0f })
+        // 每个点查出来都是 0 —— 首帧不会有任何点被画出来
+        for (n in nodes) {
+            assertEquals("「${n.atom.id}」首帧必须是 0 进度", 0f, NebulaBloom.bloomOf(table, n.atom.id), 0.0001f)
+        }
+    }
+
+    @Test
+    fun `查不到的点一律当作还没出现`() {
+        // ══════════════════════════════════════════════════════
+        //  ★★ 这条是这个 bug 的**直接封印**
+        // ══════════════════════════════════════════════════════
+        // 旧实现是 `?: 1f`。只要把兜底从 1f 改成 0f，这一条就从红变绿。
+        // 换句话说：把它改回 `?: 1f`，这条测试立刻失败 —— 它有牙齿。
+        //
+        // ⚠️ "查不到 = 还没出现"这个语义必须钉死。写成"已就位"会让
+        //    **首帧**（表还没建）把整张图画满，然后收缩、再绽放。
+        val empty = emptyMap<String, Float>()
+        assertEquals(
+            "空表里查任何点都必须是 0（还没出现），绝不能是 1（已就位）",
+            0f,
+            NebulaBloom.bloomOf(empty, "anything"),
+            0.0001f,
+        )
+
+        val partial = mapOf("a" to 1f)
+        assertEquals("表里有的是 1", 1f, NebulaBloom.bloomOf(partial, "a"), 0.0001f)
+        assertEquals("表里没有的仍是 0", 0f, NebulaBloom.bloomOf(partial, "b"), 0.0001f)
+    }
+
+    @Test
+    fun `脏进度会被夹住`() {
+        val table = mapOf("a" to 5f, "b" to -3f, "c" to 0.5f)
+        assertEquals(1f, NebulaBloom.bloomOf(table, "a"), 0.0001f)
+        assertEquals(0f, NebulaBloom.bloomOf(table, "b"), 0.0001f)
+        assertEquals(0.5f, NebulaBloom.bloomOf(table, "c"), 0.0001f)
+    }
+
+    @Test
+    fun `首帧不该有任何点已就位`() {
+        // ★ 用户看到的是"铺满"，等价于"首帧就有进度=1 的点"。
+        //   用完整空表时，首帧所有点都是 0 ⇒ 一条都不会画。
+        val nodes = listOf(node("a", 0.0, 0.0, 0.0), node("b", 0.4, 0.0, 0.0))
+        val table = NebulaBloom.emptyTable(nodes)
+        val anyReady = nodes.any { NebulaBloom.bloomOf(table, it.atom.id) > 0f }
+        assertFalse("首帧不该有任何点可见（任何可见点都等于「已经铺满」）", anyReady)
+    }
+
+    @Test
+    fun `不存在任何时刻让所有点同时已就位后倒退`() {
+        // ══════════════════════════════════════════════════════
+        //  ★ 单调性：进度在时间轴上不许倒退
+        // ══════════════════════════════════════════════════════
+        // "铺满 → 收缩 → 重新绽放"的本质就是**进度倒退**。
+        // 只要每个点的进度单调不减，就不可能先满后空。
+        val delays = listOf(
+            NebulaBloom.startDelayMs(true, 0f),
+            NebulaBloom.startDelayMs(false, 0.15f),
+            NebulaBloom.startDelayMs(false, 0.45f),
+            NebulaBloom.startDelayMs(false, 0.8f),
+            NebulaBloom.startDelayMs(false, 1f),
+        )
+
+        for ((i, d) in delays.withIndex()) {
+            var prev = -1f
+            var t = 0L
+            while (t <= NebulaBloom.TOTAL_MS + 100) {
+                val p = NebulaBloom.progressAt(t, d)
+                assertTrue(
+                    "点 #$i 在 ${t}ms 出现进度倒退（$prev → $p）—— 那就是「先满后空」",
+                    p >= prev - 0.0001f,
+                )
+                prev = p
+                t += 5
+            }
+        }
+    }
 }

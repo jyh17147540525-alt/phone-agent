@@ -167,14 +167,37 @@ fun MemoryGraphScreen(
     //    那是会让人想砸手机的体验。
     var bloom by remember(graph) { mutableFloatStateOf(0f) }
     // 摊平成 id → 进度，避免在 draw 里每次做线性查找。
-    var bloomById by remember(graph) { mutableStateOf<Map<String, Float>>(emptyMap()) }
+    //
+    // ══════════════════════════════════════════════════════════════
+    //  ★★ 初值是**全 0 的完整表**，不是 `emptyMap()`
+    // ══════════════════════════════════════════════════════════════
+    //
+    // 这是"进页面先闪一下铺满、再重新绽放"那个 bug 的根治点。
+    //
+    // 用 `emptyMap()` 时：首帧查不到任何点 ⇒ 走 `?: EMPTY_BLOOM_MEANS`
+    // 兜底。而兜底无论取 1f 还是 0f 都不对：
+    //   · 取 1f ⇒ 首帧把星图画满（用户看到"已铺满"）
+    //   · 取 0f ⇒ 首帧一个点都没有，而"本来就已经在了的旧点"也不显示
+    // 真正的区别不是"查不到时取什么"，而是**"表有没有建立"这个状态本身**。
+    //
+    // ⇒ 初值直接建成"每个点都是 0"的完整表。于是：
+    //   · 首帧：所有点 progress=0 ⇒ project 返回 null ⇒ 屏幕上一个星点都没有
+    //     （不铺满，也不幽灵）
+    //   · 协程接手后逐帧填真实进度
+    //   · "查不到"从此只剩一种含义：这个点不该被看到
+    val initialBloom: Map<String, Float> = remember(graph) {
+        graph.nodes.associate { it.atom.id to 0f }
+    }
+    var bloomById by remember(graph) { mutableStateOf(initialBloom) }
     // 这些标记直接读 `NebulaBloom` 的常量 —— 界面不该另写一套时间。
     LaunchedEffect(graph) {
         val seed = graph.seed
         if (seed == null) {
             // 空图：没有可绽放的东西，直接标成结束（否则会一直重绘）。
+            // ⚠️ 这里用 `initialBloom`（空图时它本来就是空表）而不是
+            //   `emptyMap()` —— 两处口径必须一致，否则"查不到"又会变歧义。
             bloom = 1f
-            bloomById = emptyMap()
+            bloomById = initialBloom
             return@LaunchedEffect
         }
 
@@ -352,7 +375,7 @@ fun MemoryGraphScreen(
                 for (n in graph.keyEvents.sortedByDescending { it.weight }.take(MAX_LABELS)) {
                     // ★ 标签跟着它那个点一起绽放：点还没落位就不标字，
                     //   否则会出现"文字先出来、星还在飞"的错位。
-                    val nodeBloom = bloomById[n.atom.id] ?: 1f
+                    val nodeBloom = NebulaBloom.bloomOf(bloomById, n.atom.id)
                     if (nodeBloom <= 0f) continue
                     val p = project(n, yaw, pitch, zoom, w, h, nodeBloom) ?: continue
                     if (p.alpha < 0.35f) continue
@@ -653,7 +676,7 @@ private fun hitTest(
         // 而界面上看起来一切正常。这类 bug 极难自查。
         //
         // ⇒ 过半（`NebulaBloom.isTappable`）才算落位可点。
-        val bloom = bloomById[n.atom.id] ?: 1f
+        val bloom = NebulaBloom.bloomOf(bloomById, n.atom.id)
         if (!NebulaBloom.isTappable(bloom)) continue
         val p = project(n, yaw, pitch, zoom, w, h, bloom) ?: continue
         val d = hypot(p.x - tap.x, p.y - tap.y)
@@ -680,7 +703,7 @@ private fun DrawScope.drawGraph(
     val w = size.width
     val h = size.height
 
-    fun bloomOf(id: String): Float = bloomById[id] ?: 1f
+    fun bloomOf(id: String): Float = NebulaBloom.bloomOf(bloomById, id)
 
     val projected = graph.nodes.associate {
         it.atom.id to project(it, yaw, pitch, zoom, w, h, bloomOf(it.atom.id))

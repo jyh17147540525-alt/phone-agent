@@ -76,6 +76,7 @@ import com.pocketagent.ui.design.PaScreen
 import com.pocketagent.ui.design.PaSpace
 import com.pocketagent.ui.design.PaType
 import com.pocketagent.ui.design.glassEdge
+import com.pocketagent.ui.design.rememberHaptics
 import kotlinx.coroutines.delay
 
 /**
@@ -676,6 +677,9 @@ private fun SendButton(enabled: Boolean, onClick: () -> Unit) {
         animationSpec = PaMotion.standard(),
         label = "sendButtonScale",
     )
+    // ★ 发送是"状态真的变了"的时刻 —— 值得一记触感。
+    //   见 `Haptics` 的纪律：只给状态变化，不给普通跳转。
+    val haptics = rememberHaptics()
 
     Box(
         modifier = Modifier
@@ -683,7 +687,13 @@ private fun SendButton(enabled: Boolean, onClick: () -> Unit) {
             .scale(scale)
             .clip(RoundedCornerShape(PaRadius.xs))
             .background(if (enabled) PaColor.Accent else PaColor.SurfaceHigh)
-            .clickable(enabled = enabled, onClick = onClick),
+            .clickable(
+                enabled = enabled,
+                onClick = {
+                    haptics.confirm()
+                    onClick()
+                },
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Icon(

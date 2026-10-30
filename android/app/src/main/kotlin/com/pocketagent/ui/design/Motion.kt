@@ -102,11 +102,15 @@ object PaMotion {
     /**
      * 交错延迟 —— 列表项依次进入。
      *
-     * ⚠️ 上限 240ms：如果 20 个列表项各延迟 40ms，最后一项要等 800ms 才出现，
-     *    用户会以为界面卡住了。所以必须封顶，且**只对首屏可见项生效**。
+     * ⚠️ 这里**只是转发**。真正的实现在 `:agentui/MotionRules`，
+     *    因为那边进得了离线验证器（13 条测试钉着封顶与负序号）。
+     *
+     * ⚠️ 保留这个签名是为了不动既有调用点。但如果有人想"顺手调一下步长"，
+     *    请去改 `MotionRules.STAGGER_STEP_MS` —— 在这里另写一份，
+     *    两条规则一定会漂移，而且漂移后没有测试能发现。
      */
-    fun staggerDelay(index: Int, stepMs: Int = 40, maxMs: Int = 240): Int =
-        (index * stepMs).coerceAtMost(maxMs)
+    fun staggerDelay(index: Int, stepMs: Int = com.pocketagent.agentui.MotionRules.STAGGER_STEP_MS, maxMs: Int = com.pocketagent.agentui.MotionRules.STAGGER_MAX_MS): Int =
+        (index.coerceAtLeast(0) * stepMs).coerceAtMost(maxMs)
 }
 
 /**

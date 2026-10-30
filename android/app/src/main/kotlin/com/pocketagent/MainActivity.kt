@@ -12,6 +12,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.pocketagent.data.AppContainer
+import com.pocketagent.ui.design.LocalMotionPreference
+import com.pocketagent.ui.design.rememberMotionPreference
 import com.pocketagent.ui.shell.AppShell
 import com.pocketagent.ui.theme.PocketAgentTheme
 import timber.log.Timber
@@ -139,19 +141,36 @@ class MainActivity : ComponentActivity() {
             //    所以状态放 AppShell"，但真正需要重组的那个节点在**更上面**。
             var themeMode by remember { mutableStateOf(container.themeMode()) }
 
+            // ══════════════════════════════════════════════════════
+            //  ★★ 2026-10-30：把系统的"减弱动画"设置接进来
+            // ══════════════════════════════════════════════════════
+            //
+            // ⚠️ 必须在**根**这一层读：`PaReveal` 等组件从
+            //    `LocalMotionPreference` 取，而它要覆盖整棵树。
+            //    放在 AppShell 里也行，但根部更明确 —— 而且将来
+            //    任何一棵子树（比如以后的插件界面）都能继承。
+            //
+            // ★ 它会持续监听系统设置：用户在设置里关掉动画、切回来，
+            //   界面立刻变成硬切，不需要杀进程。
+            val motionPreference = rememberMotionPreference()
+
             // ★ 默认 ThemeMode.SYSTEM —— 跟随手机设置
             PocketAgentTheme(mode = themeMode) {
-                // ⚠️ 注意这里没有 NavHost —— 导航、极光背景、底部导航
-                //    全部收在 AppShell 里。入口只负责"把容器交出去"。
-                //    这样 MainActivity 不随界面结构变化而改动。
-                AppShell(
-                    container = container,
-                    themeMode = themeMode,
-                    onThemeModeChange = { m ->
-                        themeMode = m
-                        container.setThemeMode(m)
-                    },
-                )
+                androidx.compose.runtime.CompositionLocalProvider(
+                    LocalMotionPreference provides motionPreference,
+                ) {
+                    // ⚠️ 注意这里没有 NavHost —— 导航、极光背景、底部导航
+                    //    全部收在 AppShell 里。入口只负责"把容器交出去"。
+                    //    这样 MainActivity 不随界面结构变化而改动。
+                    AppShell(
+                        container = container,
+                        themeMode = themeMode,
+                        onThemeModeChange = { m ->
+                            themeMode = m
+                            container.setThemeMode(m)
+                        },
+                    )
+                }
             }
         }
     }
