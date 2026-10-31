@@ -442,6 +442,23 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
             //   ⚠️ 必须放在成功返回**之后**：放在前面的话，失败的那几轮
             //      也会被当成素材，于是记忆里混进"用户问了一句、助理没答"。
 
+            // ══════════════════════════════════════════════════════
+            //  ★★ 2026-10-31：输出守卫记账 —— 挡住"崩坏进记忆"
+            // ══════════════════════════════════════════════════════
+            //
+            // ⚠️ 必须**在记忆抽取之前**记：抽取每 6 轮才跑一次，
+            //    而它读的是 `oocTurnIds()`。如果记账在抽取之后，
+            //    那几轮的标记会晚一个周期才生效 —— 而那时它们
+            //    已经被抽进去了。
+            //
+            // ⚠️ 这是一个**廉价**的字符串扫描（`RefusalDetector.inspect`），
+            //    不是完整的语言指纹审计 —— 后者每轮跑十几条规则不值得。
+            //    挡住的只是"硬拒答"（"作为一个AI…"这类），
+            //    而它正是污染记忆的主要来源。
+            runCatching {
+                container.recordGuardCheck(turnId = "chat-${System.currentTimeMillis()}", replyText = text)
+            }.onFailure { Timber.w(it, "输出守卫记账失败（不影响对话）") }
+
             //   完全异步（`scheduleMemoryAbsorb` 内部 launch），不拖慢这一轮。
             runCatching {
                 val sid = container.conversationRepository()

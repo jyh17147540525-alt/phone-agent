@@ -60,11 +60,31 @@ class MemoryWriter(
      *   被用户放弃的分支不该变成记忆，那等于"记得用户否掉的那个版本"。
      * @throws Exception 交给调用方兜（见类注释第 2 条）
      */
-    fun absorb(turns: List<Turn>): Result {
+    fun absorb(
+        turns: List<Turn>,
+        /**
+         * 被输出守标记为**破环**的轮次 id（来自 `:personalogic/GuardLedger`）。
+         *
+         * ═══════════════════════════════════════════════════════════
+         *  ★★ 2026-10-31：这个参数从"永远空集"变成真的能用
+         * ═══════════════════════════════════════════════════════════
+         *
+         * 原来这里硬编码 `emptySet()`，注释写着"如实传空，而不是假装
+         * 检查过了" —— 那个诚实是对的，但它意味着**记忆闸门的第一道闸
+         * 从来没起过作用**。
+         *
+         * ⚠️ 而 `MemoryGate` 的类注释把这道闸称为"四道防线里
+         *    **最容易被忽略、后果最重**的一道"：
+         *    一次 OOC 被写进长期记忆，下次会被当作**先例引用** ——
+         *    崩坏就从"这一次说错了"固化成"它本来就是这样的"。
+         *
+         * ⇒ 改成参数传入。默认空集保持向后兼容（老调用方不用改），
+         *   但真正的调用点会传 `GuardLedger.oocTurnIds()`。
+         */
+        oocTurnIds: Set<String> = emptySet(),
+    ): Result {
         // ── 第一道闸：筛轮次 ──────────────────────────────────
-        // ⚠️ `oocTurnIds` 传空集：`:personalogic` 的 `GuardLedger` 还没接到这里。
-        //    如实传空，而不是假装检查过了。
-        val screened = gate.screenTurns(turns, oocTurnIds = emptySet())
+        val screened = gate.screenTurns(turns, oocTurnIds = oocTurnIds)
         if (screened.admitted.size < MIN_TURNS) {
             Timber.d("记忆抽取跳过：可用轮次 %d < %d", screened.admitted.size, MIN_TURNS)
             return Result(kept = 0, dropped = 0, mergedIn = 0, total = store.loadAll().size)

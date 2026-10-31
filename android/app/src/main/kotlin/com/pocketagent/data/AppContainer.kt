@@ -1392,6 +1392,85 @@ class AppContainer(context: Context) {
      *
      * ⚠️ 完全异步，且吞掉所有异常：记不住事是遗憾，让对话变红是事故。
      */
+    /**
+     * **反 OOC 守卫的账本** —— 记录哪几轮的回答跑出了角色。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★★ 2026-10-31：这是 `OutputGuard` / `GuardLedger` 的第一个生产引用
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 它俩实现完整、有 16 条离线测试，但**零生产引用** ——
+     * 本项目第五次"装好了没接线"（前四次见 `checkpointStore` 的注释）。
+     *
+     * ⚠️ 后果不是"少了个功能"，而是**记忆会被污染**：
+     *    `MemoryGate.screenTurns` 的第一道闸靠 `oocTurnIds` 决定
+     *    "哪些轮次不许进抽取"。而它原来永远收到空集 ⇒ **这道闸从没生效**。
+     *
+     *    而 `MemoryGate` 的类注释把这道闸称为"四道防线里最容易被忽略、
+     *    后果最重的一道"：一次 OOC 被写进长期记忆，下次会被当作
+     *    **先例引用** —— 崩坏从"这一次说错了"固化成"它本来就是这样的"。
+     *
+     * ★ 现在只是**记账**（不加重写）：`OutputGuard` 的"重写一次"要额外
+     *   一次模型调用，而它的收益（措辞修正）远小于它的成本（多一次往返）。
+     *   ⇒ 先做最有价值的那一半：**拦住污染**。
+     *      重写留给下一轮评估。
+     */
+    private val guardLedger = com.pocketagent.personalogic.GuardLedger()
+
+    /**
+     * 记一条输出守卫的结论。
+     *
+     * @param turnId 这一轮 assistant 输出的轮次 id
+     * @param replyText 那一轮的回复原文
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★ 判据用**拒答检测**而不是完整的 `LanguageFingerprint`
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 完整指纹审计要跑十几条规则（口癖、标点、称呼禁忌、句长分布…），
+     * 每轮一次是**没必要**的成本 —— 而且它查的大多是"像不像"，
+     * 不是"崩没崩"。
+     *
+     * ⚠️ 而污染记忆的风险几乎全部来自**硬拒答**：
+     *    "作为一个AI…"、"我无法提供…" 这类回答如果进了长期记忆，
+     *    下次它会把"我会拒绝"当成先例引用。
+     *
+     * ⇒ 用 `RefusalDetector.inspect`（一次廉价字符串扫描）判 HARD，
+     *   命中才标记。`SOFT`（半退让）不标 —— 那是措辞问题，不是崩坏。
+     */
+    fun recordGuardCheck(turnId: String, replyText: String) {
+        runCatching {
+            if (com.pocketagent.legacy.RefusalDetector.inspect(replyText) !=
+                com.pocketagent.legacy.Refusal.HARD
+            ) {
+                return@runCatching
+            }
+
+            // ⚠️ 用 `BANNED_PHRASE`（STRONG ⇒ `isOoc` 为 true）标记。
+            //    语义上它确实对应"出现了不该出现的说法"——
+            //    "作为一个AI" 就在 `DEFAULT_BANNED_PHRASES` 里。
+            //
+            // ⚠️ **不回显原文**：`evidence` 里只写类别，
+            //    不抄那句话（同 `OutputGuard` 的既定纪律：
+            //    审计记录里抄原文等于制造一条内容外泄路径）。
+            val violation = com.pocketagent.personalogic.FingerprintViolation(
+                rule = com.pocketagent.personalogic.FingerprintRule.BANNED_PHRASE,
+                detail = "hard refusal",
+            )
+            val flagged = guardLedger.record(
+                turnId,
+                com.pocketagent.personalogic.GuardDecision.PassThrough(listOf(violation)),
+            )
+            if (flagged) {
+                Timber.i("输出守卫：%s 轮判为破环，将不进长期记忆", turnId.take(6))
+            }
+        }.onFailure { Timber.w(it, "输出守卫检查失败（不影响对话）") }
+    }
+
+    /** 当前被标记为破环的轮次 id —— 喂给 `MemoryWriter.absorb`。 */
+    fun oocTurnIds(): Set<String> = runCatching { guardLedger.oocTurnIds() }
+        .getOrDefault(emptySet())
+
     fun scheduleMemoryAbsorb(sessionId: String) {
         turnsSinceMemoryAbsorb++
         if (turnsSinceMemoryAbsorb < MEMORY_EVERY_TURNS) return
@@ -1400,11 +1479,13 @@ class AppContainer(context: Context) {
         startupScope.launch {
             runCatching {
                 val turns = store.recentForModel(sessionId, MEMORY_WINDOW_LINES)
-                val result = memoryWriter.absorb(turns)
+                // ★★ 2026-10-31：把破环轮次真的传下去 ——
+                //    在此之前这里恒传空集，记忆闸门的第一道闸从没生效。
+                val result = memoryWriter.absorb(turns, oocTurnIds = oocTurnIds())
                 if (!result.nothing) atomCache = null
                 Timber.i(
-                    "记忆库更新：本次记下 %d 条，淘汰 %d 条，库内共 %d 条",
-                    result.kept, result.dropped, result.total,
+                    "记忆库更新：本次记下 %d 条，淘汰 %d 条，库内共 %d 条（排除破环 %d 轮）",
+                    result.kept, result.dropped, result.total, oocTurnIds().size,
                 )
             }.onFailure { Timber.w(it, "记忆抽取失败（不影响对话）") }
         }
