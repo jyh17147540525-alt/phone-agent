@@ -31,7 +31,8 @@ sealed interface ToolOutcome {
      *
      * @param text 进模型上下文的文字
      * @param structured 透传给程序化调用方（可空）
-     * @param imagePng **可选**的截图字节（PNG）。
+     * @param imageBytes **可选**的截图字节。
+     * @param imageMimeType 上面那些字节的**真实**类型。
      *
      * ═══════════════════════════════════════════════════════════
      *  ★★ 2026-10-31：为什么需要这个字段
@@ -55,11 +56,19 @@ sealed interface ToolOutcome {
      *
      * ★ 只在 **MCP 协议层**用这个字段；内部 agent 循环用的是
      *   `AgentToolResult`，那条路径已经有 `pendingImage` 机制。
+     *
+     * ⚠️⚠️ **字段名是 `imageBytes` 而不是 `imagePng`**（2026-10-31 改）：
+     *    `A11yScreenShotPort` 实际输出的是 **JPEG**（体积比 PNG 小 5~10 倍，
+     *    而模型对 JPEG 的振铃完全不敏感）。原来叫 `imagePng`、而
+     *    `McpDispatcher` 还硬写 `mimeType: "image/png"` ——
+     *    客户端会按 PNG 解 JPEG 字节，**表现是图打不开或花屏，且不报错**。
+     *    ⇒ 类型必须由产出方声明，不能由消费方猜。
      */
     data class Success(
         val text: String,
         val structured: JsonObject? = null,
-        val imagePng: ByteArray? = null,
+        val imageBytes: ByteArray? = null,
+        val imageMimeType: String = DEFAULT_IMAGE_MIME,
     ) : ToolOutcome {
         // ⚠️ data class 带 ByteArray 必须手写 equals/hashCode ——
         //    默认是**引用比较**，那会让"内容相同"的两个结果不相等。
@@ -69,19 +78,31 @@ sealed interface ToolOutcome {
             if (other !is Success) return false
             return text == other.text &&
                 structured == other.structured &&
+                imageMimeType == other.imageMimeType &&
                 when {
-                    imagePng == null && other.imagePng == null -> true
-                    imagePng == null || other.imagePng == null -> false
-                    else -> imagePng.contentEquals(other.imagePng)
+                    imageBytes == null && other.imageBytes == null -> true
+                    imageBytes == null || other.imageBytes == null -> false
+                    else -> imageBytes.contentEquals(other.imageBytes)
                 }
         }
 
         override fun hashCode(): Int {
             var result = text.hashCode()
             result = 31 * result + (structured?.hashCode() ?: 0)
-            result = 31 * result + (imagePng?.contentHashCode() ?: 0)
+            result = 31 * result + imageMimeType.hashCode()
+            result = 31 * result + (imageBytes?.contentHashCode() ?: 0)
             return result
         }
+    }
+
+    companion object {
+        /**
+         * 默认图片类型。
+         *
+         * ⚠️ 是 **JPEG** 而不是 PNG —— 见 `Success.imageBytes` 的注释。
+         *    把默认值写成 PNG 会让"忘了传类型"的工具静默产出错误声明。
+         */
+        const val DEFAULT_IMAGE_MIME: String = "image/jpeg"
     }
 
     /** 被安全策略拒绝。`reason` 必须能**直接展示给用户**。 */

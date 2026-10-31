@@ -1,6 +1,10 @@
 package com.pocketagent.assistant
 
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import com.pocketagent.agentlogic.RedactionPlan
 import com.pocketagent.mcp.ScreenShotOutcome
 import com.pocketagent.mcp.ScreenShotPort
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -46,7 +50,7 @@ class A11yScreenShotPort(
     private val serviceProvider: () -> AgentAccessibilityService?,
 ) : ScreenShotPort {
 
-    override suspend fun capturePng(): ScreenShotOutcome {
+    override suspend fun capturePng(plan: RedactionPlan): ScreenShotOutcome {
         val service = serviceProvider() ?: return ScreenShotOutcome.Unavailable(
             "无障碍服务没有在运行",
         )
@@ -56,7 +60,9 @@ class A11yScreenShotPort(
                 result.fold(
                     onSuccess = { bitmap ->
                         // ⚠️ 压缩**必须在这个回调里**做（见类注释 ①）。
-                        val bytes = runCatching { compress(bitmap) }.getOrNull()
+                        // ⚠️ **先脱敏再压缩**：反过来会让"遮过的区域"重新进入编码器，
+                        //    而且遮蔽后体积更小，先压再遮等于白压一次。
+                        val bytes = runCatching { redactAndCompress(bitmap, plan) }.getOrNull()
                         // ⚠️ 无论如何都要回收（见类注释 ②）。
                         runCatching { bitmap.recycle() }
                         if (bytes == null || bytes.isEmpty()) {
@@ -81,15 +87,121 @@ class A11yScreenShotPort(
     }
 
     /**
+     * **执行 `PrivacyFilter` 的计划**，然后降采样 + JPEG 编码。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★ 2026-10-31：这里原来**完全没执行计划**
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * `ScreenShotTool` 拿到 `FilterOutcome.Allowed` 就往下走了，
+     * `plan` 被直接丢弃 —— 于是：
+     * · 状态栏（通知标题、未接来电）**原样进图**
+     * · 输入框（密码、验证码）**原样进图**
+     *
+     * 而 `PrivacyFilter` 的注释把这条路径称为"上传路径的唯一出口"。
+     * ⇒ 关卡算出了结论，但**没有人执行结论** —— 这比没有关卡更危险，
+     *   因为日志里会显示"已通过隐私过滤"。
+     *
+     * ⚠️ 顺序是**先脱敏、后压缩**：
+     *    · 反过来（先压再遮）会让已压缩的像素再解一次，画质二次损失；
+     *    · 更重要的是遮蔽后体积更小，先压等于按原尺寸付了一次编码成本。
+     */
+    private fun redactAndCompress(bitmap: Bitmap, plan: RedactionPlan): ByteArray {
+        val redacted = redact(bitmap, plan)
+        return try {
+            compress(redacted)
+        } finally {
+            // ⚠️ `redact` 可能返回原图（`isNoOp`），那时**不能**回收 ——
+            //    调用方还要回收它。
+            if (redacted !== bitmap) runCatching { redacted.recycle() }
+        }
+    }
+
+    /**
+     * 按计划裁剪 + 遮蔽。
+     *
+     * ⚠️ **`cropOut` 只按"顶部条 / 底部条"处理**：
+     *    `SystemUiRegions` 里只有状态栏（顶部）与导航栏（底部），
+     *    而 `displayCutout` 也在顶部。所以保留区域就是中间那一条。
+     *    如果将来出现"左/右侧栏"（横屏），`SystemUiProbe` 会返回 `unknown`
+     *    ⇒ 根本走不到这里。**这是刻意的：宁可截不了，不要裁错。**
+     */
+    private fun redact(bitmap: Bitmap, plan: RedactionPlan): Bitmap {
+        if (plan.isNoOp) return bitmap
+
+        // 硬件 Bitmap 不能直接 createBitmap / 画 Canvas，先转软件位图。
+        // ⚠️ 这一步是"必须"而不是"优化"：`takeScreenshot` 给的是 HARDWARE，
+        //    对它调 `createBitmap` 在部分 ROM 上直接抛 IllegalArgumentException。
+        val software = if (bitmap.config == Bitmap.Config.HARDWARE) {
+            bitmap.copy(Bitmap.Config.ARGB_8888, false) ?: return bitmap
+        } else {
+            bitmap
+        }
+
+        var top = 0
+        var bottom = software.height
+        for (r in plan.cropOut) {
+            if (r.top <= 0 && r.bottom in 1 until software.height) {
+                top = maxOf(top, r.bottom)
+            }
+            if (r.bottom >= software.height && r.top in 1 until software.height) {
+                bottom = minOf(bottom, r.top)
+            }
+        }
+        // 防呆：两个条叠在一起（极端分屏）⇒ 放弃裁剪而不是产出 0 高度的图
+        if (bottom <= top) {
+            top = 0
+            bottom = software.height
+        }
+
+        val keepH = bottom - top
+        val cropped = if (top > 0 || bottom < software.height) {
+            runCatching { Bitmap.createBitmap(software, 0, top, software.width, keepH) }
+                .getOrNull() ?: software
+        } else {
+            software
+        }
+        if (software !== bitmap && cropped !== software) runCatching { software.recycle() }
+
+        if (plan.mask.isEmpty()) return cropped
+
+        // 遮蔽：画纯黑。⚠️ 不用模糊 —— 模糊后的文字仍可能被 OCR 认出，
+        // 而"纯黑"在视觉上明确告诉用户"这里被遮了"。
+        val mutable = runCatching { cropped.copy(Bitmap.Config.ARGB_8888, true) }.getOrNull()
+            ?: return cropped
+        val canvas = Canvas(mutable)
+        val paint = Paint().apply {
+            color = Color.BLACK
+            style = Paint.Style.FILL
+        }
+        for (r in plan.mask) {
+            // mask 是**原图坐标**，裁剪后要减掉 top 并夹在可视范围内
+            val t = (r.top - top).coerceIn(0, keepH)
+            val b = (r.bottom - top).coerceIn(0, keepH)
+            if (b <= t) continue
+            canvas.drawRect(
+                r.left.coerceIn(0, cropped.width).toFloat(),
+                t.toFloat(),
+                r.right.coerceIn(0, cropped.width).toFloat(),
+                b.toFloat(),
+                paint,
+            )
+        }
+        if (cropped !== bitmap) runCatching { cropped.recycle() }
+        return mutable
+    }
+
+    /**
      * 降采样 + JPEG 编码。
      *
      * ★ 用 JPEG 而不是 PNG：截图是照片式内容（渐变、阴影、抗锯齿文字），
      *   PNG 无损但体积是 JPEG 的 5~10 倍，而模型对 JPEG 的轻微振铃
      *   完全不敏感。
      *
-     * ⚠️ 输出仍叫 `capturePng` / `imagePng` 是历史命名 —— MCP 的
-     *    `mimeType` 字段会如实写 `image/jpeg`（见调用方）。
-     *    这里返回的就是 JPEG 字节。
+     * ⚠️ 接口方法名仍是 `capturePng`（历史命名），但**返回的是 JPEG 字节**。
+     *    `ToolOutcome.Success.imageMimeType` 会如实声明 `image/jpeg` ——
+     *    2026-10-31 之前 `McpDispatcher` 硬写 `image/png`，
+     *    客户端按 PNG 解 JPEG，**图打不开且不报错**。
      */
     private fun compress(bitmap: Bitmap): ByteArray {
         val longSide = maxOf(bitmap.width, bitmap.height)

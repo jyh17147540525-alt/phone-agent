@@ -161,7 +161,11 @@ class McpDispatcher(
                         //
                         // ★ 用 `image` 类型后，支持的客户端会把它**当作图像**
                         //   交给多模态模型，而不是当文字。
-                        outcome.imagePng?.let { png ->
+                        // ⚠️⚠️ `mimeType` 必须由产出方声明（`imageMimeType`），
+                        //    不能在这里硬写 —— 曾经硬写 `image/png`，
+                        //    而 `A11yScreenShotPort` 实际输出 JPEG：
+                        //    客户端按 PNG 解 JPEG，**表现是图打不开，且不报错**。
+                        outcome.imageBytes?.let { bytes ->
                             addJsonObject {
                                 put("type", "image")
                                 // ⚠️ 不能用 `android.util.Base64` ——
@@ -169,8 +173,8 @@ class McpDispatcher(
                                 //    手写一个 10 行的编码器（见文件末），
                                 //    而不是引入 java.util.Base64（API 26+，
                                 //    而本项目 minSdk 更低）。
-                                put("data", Base64NoWrap.encode(png))
-                                put("mimeType", "image/png")
+                                put("data", Base64NoWrap.encode(bytes))
+                                put("mimeType", outcome.imageMimeType)
                             }
                         }
                     }

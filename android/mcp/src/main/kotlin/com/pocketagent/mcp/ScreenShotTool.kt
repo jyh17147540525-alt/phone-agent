@@ -2,6 +2,7 @@ package com.pocketagent.mcp
 
 import com.pocketagent.agentlogic.PrivacyFilter
 import com.pocketagent.agentlogic.FilterOutcome
+import com.pocketagent.agentlogic.RedactionPlan
 import com.pocketagent.agentlogic.SystemUiRegions
 import com.pocketagent.agentlogic.UploadContext
 import com.pocketagent.agentlogic.UploadPurpose
@@ -57,13 +58,19 @@ class ScreenShotTool(
     private val safety: ScreenSafetyPort,
     private val capturer: ScreenShotPort,
     /**
-     * 隐私关卡。
+     * 隐私关卡的**工厂** —— 每次 `call()` 现造一个。
      *
-     * ⚠️ `systemUi` 必须由调用方**真实探测**（`SystemUiRegions.detect`），
-     *    不能传 `unknown` —— 这里发的是像素，状态栏里可能有
-     *    通知标题和未接来电号码。
+     * ⚠️ **不能存实例**：`PrivacyFilter` 的 `systemUi` 是**屏幕坐标**，
+     *    而用户可能把手机转成横屏 / 换了分屏比例。
+     *    启动时量一次、之后一直用 ⇒ 转屏后裁剪矩形是错的，
+     *    而错的方向是"该遮的没遮掉"（静默泄漏）。
+     *
+     * ★ 2026-10-31 从 `PrivacyFilter` 实例改成工厂：同一天发现
+     *    `systemUi = unknown` 会让本工具**100% 拒绝**（`unknown` 的语义是
+     *    "不知道系统栏在哪"，而 `PrivacyFilter` 对未知是保守丢弃整张图）。
+     *    现在由 `:app` 侧的 `SystemUiProbe.detect` 每次真实量。
      */
-    private val privacyFilter: PrivacyFilter,
+    private val privacyFilter: () -> PrivacyFilter,
     /** 图片体积上限（字节）。超过就拒发。 */
     private val maxBytes: Int = DEFAULT_MAX_BYTES,
 ) : McpTool {
@@ -143,17 +150,38 @@ class ScreenShotTool(
                 purpose = UploadPurpose.VISUAL_QA,
             ),
             requiresScreenshot = true,
+            // ⚠️⚠️ 2026-10-31 修的第三个洞：这一行原来**没有**。
+            //
+            //    `PrivacyFilter` 的 `mask` 只从 `request.inputFieldRegions` 来，
+            //    不传 ⇒ `plan.mask` 恒为空 ⇒ `maskInputFields = true` 也遮不住任何东西。
+            //
+            //    ⇒ 用户正在输入的**密码 / 验证码 / 手机号**会原样进图。
+            //    而 `ScreenReadTool` 一直是传的（它传给了序列化器）——
+            //    两个工具对同一个 `PrivacyFilter` 的用法不一致，
+            //    漂移方向恰好是"更松"。
+            //
+            //    ⚠️ 这一行与 `ScreenReadTool` 的写法必须**保持一致**：
+            //       `ScreenDerive.inputFieldRegions` 是"树 → 矩形"的唯一映射，
+            //       两处各写一份就会在某个页面类型上漏掉。
+            inputFieldRegions = ScreenDerive.inputFieldRegions(capture),
         )
-        when (val review = privacyFilter.review(upload)) {
+        // ⚠️ 每次现造：`systemUi` 是屏幕坐标，转屏后旧值就是错的。
+        //    工厂在 `:app` 侧（`SystemUiProbe.detect`）—— `:mcp` 不认识 Android。
+        //
+        // ⚠️⚠️ 2026-10-31 修的第二个洞：原来这里拿到 `Allowed` 就 `Unit`，
+        //    **把 `plan` 直接丢了** —— 于是状态栏没人裁、输入框没人遮。
+        //    对比 `ScreenReadTool`：它把 `plan.mask` 传给了 `ScreenSerializer`。
+        //    ⇒ 现在把计划传下去，由 `ScreenShotPort` 执行（它才认识 Bitmap）。
+        val plan = when (val review = privacyFilter().review(upload)) {
             is FilterOutcome.Dropped -> return ToolOutcome.Refused(
                 "这个页面不适合截图外传（${review.reason}）。" +
                     "如果确实需要我看，请你自己描述，或者先遮住敏感内容。",
             )
-            is FilterOutcome.Allowed -> Unit
+            is FilterOutcome.Allowed -> review.plan
         }
 
-        // ── 关卡 ④：采集像素 ──────────────────────────────────
-        val png = when (val outcome = capturer.capturePng()) {
+        // ── 关卡 ④：采集像素（**按计划裁剪 / 遮蔽**）──────────
+        val png = when (val outcome = capturer.capturePng(plan)) {
             is ScreenShotOutcome.Ok -> outcome.png
             is ScreenShotOutcome.Unavailable -> return ToolOutcome.Failed(
                 "截图能力当前不可用（${outcome.reason}）。" +
@@ -175,7 +203,10 @@ class ScreenShotTool(
         return ToolOutcome.Success(
             text = "已截取当前屏幕（${png.size / 1024}KB）$note。" +
                 "⚠️ 图里没有坐标 —— 需要精确点击请用 screen_read。",
-            imagePng = png,
+            imageBytes = png,
+            // ⚠️ 实际是 JPEG（见 `A11yScreenShotPort.compress`）——
+            //    类型由产出方声明，`McpDispatcher` 原样转发。
+            imageMimeType = ToolOutcome.DEFAULT_IMAGE_MIME,
         )
     }
 
@@ -198,7 +229,11 @@ class ScreenShotTool(
 
 /** 截图端口 —— 与 `ScreenReaderPort` 同一个模式：`:mcp` 不认识 Android。 */
 fun interface ScreenShotPort {
-    suspend fun capturePng(): ScreenShotOutcome
+    /**
+     * @param plan 必须**真的执行**（裁 `cropOut`、遮 `mask`）。
+     *   ⚠️ 传了不执行 = 隐私关卡形同虚设，而且**不会报错**。
+     */
+    suspend fun capturePng(plan: RedactionPlan): ScreenShotOutcome
 }
 
 /** 一次截图的结果。三分支，理由同 `ToolOutcome`。 */

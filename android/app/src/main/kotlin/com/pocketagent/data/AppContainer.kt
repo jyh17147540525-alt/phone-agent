@@ -18,6 +18,7 @@ import com.pocketagent.assistant.HostPermissionReader
 import com.pocketagent.assistant.McpBridgeHost
 import com.pocketagent.assistant.McpBridgeStatus
 import com.pocketagent.assistant.A11yScreenShotPort
+import com.pocketagent.assistant.SystemUiProbe
 import com.pocketagent.assistant.AgentAccessibilityService
 import com.pocketagent.assistant.PerceptionScreenReader
 import com.pocketagent.assistant.SafetyDetectorGate
@@ -2755,21 +2756,28 @@ class AppContainer(context: Context) {
             // 它**看不到像素**。而"这个报错什么意思""这个按钮是灰的吗"
             // "界面好看吗"全都要视觉。
             //
-            // ⚠️ `systemUi` 传 `unknown` 而不是"假装知道"：
-            //    这一版还没探测系统栏区域（那需要 `WindowInsets`，
-            //    而它属于 Activity 层，服务里拿不到）。
+            // ⚠️⚠️ 2026-10-31 修：这一版原来传的是 `SystemUiRegions.unknown`，
+            //    注释写着"更保守"。**实际后果是这个工具 100% 不可用** ——
+            //    `unknown` 的语义是"不知道系统栏在哪"，而 `PrivacyFilter`
+            //    对未知的处置是**丢弃整张图**（`stripSystemUi` 默认 true）。
+            //    ⇒ 每次调用都返回「无法确定系统 UI 区域…已放弃本次截图」。
             //
-            // ⚠️⚠️ `unknown` 的语义是"**我们不知道**哪些地方是系统 UI"，
-            //    **不是**"无需处理"。所以 `PrivacyFilter` 会对
-            //    未知系统栏的情况更保守（见它 `unknown` 的注释）。
-            //    ⇒ 这是当前**已知的能力缺口**，记在这里而不是假装完整。
+            //    现在改成**每次调用现量**（`SystemUiProbe.detect`）：
+            //    · API 30+ 走 `WindowMetrics.windowInsets`（能正确处理刘海/手势条）
+            //    · 回落 framework 的 `status_bar_height` / `navigation_bar_height`
+            //    · 横屏返回 unknown（状态栏在侧边，"高度"不适用）
+            //
+            //    ⚠️ 是**工厂**不是实例：`systemUi` 是屏幕坐标，转屏后旧值就错了，
+            //       而错的方向是"该遮的没遮掉"（静默泄漏）。
             ScreenShotTool(
                 reader = reader,
                 safety = gate,
                 capturer = A11yScreenShotPort { AgentAccessibilityService.instance },
-                privacyFilter = com.pocketagent.agentlogic.PrivacyFilter(
-                    systemUi = com.pocketagent.agentlogic.SystemUiRegions.unknown,
-                ),
+                privacyFilter = {
+                    com.pocketagent.agentlogic.PrivacyFilter(
+                        systemUi = SystemUiProbe.detect(appContext),
+                    )
+                },
             ),
             TapTool(reader, safetyPort, dispatchPort, rateLimiter),
             SwipeTool(reader, safetyPort, dispatchPort, rateLimiter),
