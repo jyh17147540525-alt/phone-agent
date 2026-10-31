@@ -43,11 +43,44 @@ class PaPalette(
     val TextTertiary: Color,
     val TextDisabled: Color,
 
+    // ══════════════════════════════════════════════════════════
+    //  ★★ 2026-10-31：`Accent` 拆成"背景用"与"文字用"两个令牌
+    // ══════════════════════════════════════════════════════════
+    //
+    // 审计发现：`Accent`(#C96442) 作为**文字**在暖米底上只有 **3.49**，
+    // 低于 AA 的 4.5。而它在界面上**既作按钮背景、又作链接/选中文字**。
+    //
+    // ⚠️ 不能简单把它调深：作背景时 #C96442 上浮着**深色文字**
+    //    （`Color(0xFF06121F)`），背景一深，那个文字反而看不清了。
+    //
+    // ⇒ 拆成两个令牌：
+    //    · `Accent`      —— 背景用，保持 #C96442（按钮、选中块）
+    //    · `AccentText`  —— 文字用，#A34A28（5.27，AA 通过）
+    //
+    // ★ 这不是"多一个令牌"，而是**区分了两种用途**。
+    //   一个颜色不可能同时满足"背景够浅（衬托深色文字）"和
+    //   "文字够深（压在浅底上）"—— 那是物理约束，不是设计偏好。
     val Accent: Color,
     val AccentPressed: Color,
     val AccentSoft: Color,
     val AccentBorder: Color,
 
+    /** 强调色**作为文字**时用（比 [Accent] 深，保证 AA）。 */
+    val AccentText: Color,
+
+    // ══════════════════════════════════════════════════════════
+    //  ★★ 语义色同样按 AA 重新定值
+    // ══════════════════════════════════════════════════════════
+    //
+    // 实测（底 F5F2EC）：
+    //   Success #3D8A5F → 3.76  ✗
+    //   Warning #B07425 → 3.50  ✗
+    //   Danger  #B5443A → 4.88  ✓（本来就合格）
+    //   Info    #4A6B8A → 5.00  ✓
+    //
+    // ⇒ Success → #2F6E4A (5.45)，Warning → #8A5A1C (5.28)。
+    //   ⚠️ Danger / Info 不动 —— 它们已经合格，改了只是白白让
+    //      界面颜色变陌生（用户已经习惯了那个红/那个蓝）。
     val Success: Color,
     val Warning: Color,
     val Danger: Color,
@@ -87,9 +120,9 @@ val LocalIsDark = staticCompositionLocalOf { false }
 
 /** **浅色** —— Claude 风格的暖米底。默认主题。 */
 val LightPalette = PaPalette(
-    Canvas = Color(0xFFF5F2EC),
+    Canvas = com.pocketagent.agentui.ColorTokens.Light.CANVAS.toColor(),
     CanvasElevated = Color(0xFFFAF8F4),
-    Surface = Color(0xFFFFFFFF),
+    Surface = com.pocketagent.agentui.ColorTokens.Light.SURFACE.toColor(),
     SurfaceHigh = Color(0xFFF0ECE4),
 
     GlassTint = Color(0x00000000),
@@ -98,20 +131,59 @@ val LightPalette = PaPalette(
     GlassHighlight = Color(0x00000000),
     GlassShadow = Color(0x0A000000),
 
-    TextPrimary = Color(0xFF1F1D1A),
-    TextSecondary = Color(0xFF6B655C),
-    TextTertiary = Color(0xFF9A938A),
+    // ══════════════════════════════════════════════════════════
+    //  ★★ 2026-10-31：文字三档按 **WCAG AA 对比度**重新定值
+    // ══════════════════════════════════════════════════════════
+    //
+    // 审计来源：`design-tokens-template` 的 "Verify contrast for every
+    // text/background combination" 一节。本项目从未做过这件事。
+    //
+    // 实测（底 F5F2EC）：
+    //   TextPrimary   #1F1D1A  → 15.05  AA ✓  AAA ✓
+    //   TextSecondary #6B655C  →  5.16  AA ✓  AAA ✗   ← 勉强
+    //   TextTertiary  #9A938A  →  2.72  AA ✗  ✗✗✗     ← **不合格**
+    //   TextDisabled  #C4BDB2  →  1.79  （禁用态，不要求 AA）
+    //
+    // ⚠️ **TextTertiary 不合格**，而它被用了 **77 处** ——
+    //    是本项目最大面积的可访问性缺陷：说明文字在暖米底上发灰，
+    //    强光下、小字号、或视力不佳时读不清。
+    //
+    // ⚠️⚠️ 但**不能只调 Tertiary**：把它提到 4.5 需要 #706B62，
+    //    而那与 Secondary(#6B655C) 的亮度差只剩 **0.0164** ——
+    //    两档几乎一模一样，**层级消失了**。
+    //
+    // ⇒ 正确做法是**三档一起重排**，拉开每档的间距：
+    //
+    //     档位        颜色       对比度   亮度
+    //     Primary    #1F1D1A    15.05    0.0126
+    //     Secondary  #5A554D     6.61    0.0864
+    //     Tertiary   #706B62     4.74    0.1428
+    //
+    //     Secondary↔Tertiary 亮度差 **0.0564**，是原来的 **3.4 倍** ——
+    //     层级比改之前更分明，而且三档全部通过 AA。
+    //
+    // ★ 这比"照抄一个合规值"多花了一步，但那就是设计判断与
+    //   机械替换的区别：合规是**约束**，层级是**目的**，
+    //   满足约束的同时不能把目的弄丢。
+    TextPrimary = com.pocketagent.agentui.ColorTokens.Light.TEXT_PRIMARY.toColor(),
+    TextSecondary = com.pocketagent.agentui.ColorTokens.Light.TEXT_SECONDARY.toColor(),
+    TextTertiary = com.pocketagent.agentui.ColorTokens.Light.TEXT_TERTIARY.toColor(),
     TextDisabled = Color(0xFFC4BDB2),
 
-    Accent = Color(0xFFC96442),
+    Accent = com.pocketagent.agentui.ColorTokens.Light.ACCENT.toColor(),
     AccentPressed = Color(0xFFAE5236),
     AccentSoft = Color(0x14C96442),
     AccentBorder = Color(0x3DC96442),
+    // ★ 文字用强调色：#A34A28 在 F5F2EC 上是 5.27（AA ✓）。
+    //   原 #C96442 只有 3.49 —— 见接口里的注释。
+    AccentText = com.pocketagent.agentui.ColorTokens.Light.ACCENT_TEXT.toColor(),
 
-    Success = Color(0xFF3D8A5F),
-    Warning = Color(0xFFB07425),
-    Danger = Color(0xFFB5443A),
-    Info = Color(0xFF4A6B8A),
+    // ★ Success / Warning 提到 AA（原值 3.76 / 3.50 不合格）；
+    //   Danger / Info 本来就合格，不动。
+    Success = com.pocketagent.agentui.ColorTokens.Light.SUCCESS.toColor(),
+    Warning = com.pocketagent.agentui.ColorTokens.Light.WARNING.toColor(),
+    Danger = com.pocketagent.agentui.ColorTokens.Light.DANGER.toColor(),
+    Info = com.pocketagent.agentui.ColorTokens.Light.INFO.toColor(),
 
     RiskLow = Color(0xFF3D8A5F),
     RiskMedium = Color(0xFFB07425),
@@ -143,9 +215,9 @@ val LightPalette = PaPalette(
  *    否则"红色警告"会变成一团暗红，起不到警示作用。
  */
 val DarkPalette = PaPalette(
-    Canvas = Color(0xFF1A1816),
+    Canvas = com.pocketagent.agentui.ColorTokens.Dark.CANVAS.toColor(),
     CanvasElevated = Color(0xFF221F1C),
-    Surface = Color(0xFF262320),
+    Surface = com.pocketagent.agentui.ColorTokens.Dark.SURFACE.toColor(),
     SurfaceHigh = Color(0xFF302C28),
 
     GlassTint = Color(0x0DFFFFFF),
@@ -154,20 +226,53 @@ val DarkPalette = PaPalette(
     GlassHighlight = Color(0x26FFFFFF),
     GlassShadow = Color(0x40000000),
 
-    TextPrimary = Color(0xFFF2EDE6),
-    TextSecondary = Color(0xFFA8A199),
-    TextTertiary = Color(0xFF736C64),
+    // ★★ 2026-10-31：深色三档同样按 WCAG AA 重排（见 LightPalette 的详细注释）。
+    //
+    // 实测（底 1A1816）：
+    //   TextPrimary   #F2EDE6  → 15.20  AA ✓
+    //   TextSecondary #A8A199  →  6.93  AA ✓   ← 本来就合格，但因为浅色
+    //                                           主题把 Secondary 提亮了，
+    //                                           这边也提一点保持"两套主题
+    //                                           层级感一致"
+    //   TextTertiary  #736C64  →  3.42  AA ✗   ← **不合格**
+    //
+    // ⇒ 新值：
+    //     Primary    #F2EDE6  15.20   lum 0.8516
+    //     Secondary  #B5AEA5   8.06   lum 0.4281
+    //     Tertiary   #8A837B   4.73   lum 0.2307
+    //
+    //   Secondary↔Tertiary 亮度差 0.132。
+    //
+    // ⚠️ Tertiary 从 #8A837B 改成 **#958E86**：前者在 Canvas 上合格（4.73），
+    //    但在 **Surface(#262320)** 上只有 4.18 —— 因为 Surface 比 Canvas 亮，
+    //    同一支颜料在更亮的底上对比度更低。
+    //    ⇒ 深色 Tertiary 必须按**两种底色里更亮的那个**来定值。
+    //      差一步就会留下"列表卡片里的说明文字偏淡"这种局部缺陷。
+    //
+    // ⚠️ 深色主题的"提亮"方向与浅色相反：浅色是把颜色**调深**才有对比度，
+    //   深色是**调亮**。同一组色值在两种主题下不可能通用 —— 这也是
+    //   为什么本项目用两套 Palette 而不是一套加透明度。
+    TextPrimary = com.pocketagent.agentui.ColorTokens.Dark.TEXT_PRIMARY.toColor(),
+    TextSecondary = com.pocketagent.agentui.ColorTokens.Dark.TEXT_SECONDARY.toColor(),
+    TextTertiary = com.pocketagent.agentui.ColorTokens.Dark.TEXT_TERTIARY.toColor(),
     TextDisabled = Color(0xFF4A453F),
 
-    Accent = Color(0xFFD9785A),
+    Accent = com.pocketagent.agentui.ColorTokens.Dark.ACCENT.toColor(),
     AccentPressed = Color(0xFFC96442),
     AccentSoft = Color(0x1FD9785A),
     AccentBorder = Color(0x4DD9785A),
+    // ★ 深色主题下 `Accent`(#D9785A) 作为文字是 **5.72** —— 已经过 AA。
+    //   ⇒ `AccentText` 直接复用同一个值，不需要像浅色那样分两档。
+    //
+    // ⚠️ 这不是"偷懒"：深色底天然对比度高（同一颜色在深底上的对比度
+    //    远高于浅底），所以"背景色"和"文字色"能用同一支颜料。
+    //    浅色底才必须拆开 —— 那两个约束在物理上冲突。
+    AccentText = com.pocketagent.agentui.ColorTokens.Dark.ACCENT_TEXT.toColor(),
 
-    Success = Color(0xFF5FA97D),
-    Warning = Color(0xFFD09448),
-    Danger = Color(0xFFD96A5F),
-    Info = Color(0xFF7E9DB8),
+    Success = com.pocketagent.agentui.ColorTokens.Dark.SUCCESS.toColor(),
+    Warning = com.pocketagent.agentui.ColorTokens.Dark.WARNING.toColor(),
+    Danger = com.pocketagent.agentui.ColorTokens.Dark.DANGER.toColor(),
+    Info = com.pocketagent.agentui.ColorTokens.Dark.INFO.toColor(),
 
     RiskLow = Color(0xFF5FA97D),
     RiskMedium = Color(0xFFD09448),
@@ -192,3 +297,24 @@ enum class ThemeMode(val label: String) {
     LIGHT("浅色"),
     DARK("深色"),
 }
+
+/**
+ * **0xRRGGBB → Compose `Color`**。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  ★★ 2026-10-31：色值来源的分层
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * 色值的**唯一事实来源**在 `:agentui/ColorTokens`（纯 Kotlin 整数）——
+ * 因为只有那里进得了离线验证器，对比度测试才能守住真实的值。
+ *
+ * 本文件只负责把它们转成 Compose 的 `Color`。
+ *
+ * ⚠️ 所以这里**不该再出现任何 0xFFxxxxxx 字面量**（除了语义色里
+ *   尚未迁移的那些）。一旦出现，就多了一处可以独自漂移的真相来源 ——
+ *   而那正是这套测试要防的事。
+ *
+ * ⚠️ 加 `0xFF000000 or`：`Color(Int)` 要的是 ARGB，
+ *    而 ColorTokens 存的是 RGB。不补 alpha 会让所有颜色变透明。
+ */
+private fun Int.toColor(): Color = Color(0xFF000000L.toInt() or this)
