@@ -1373,10 +1373,12 @@ e: PersonaBriefToolTest.kt:41:46 Unresolved reference 'personaBriefOf'.
 
 ### 四、真机状态（这是你要知道的）
 
-- 用户换了一台机器：`8490b52a` / **Redmi Note 11T Pro**（`22021211RC`）/ Android **14** / API **34** / 1080×2400
-- **不是**记忆里的 K60（`1e47d871`）
-- 我装 APK 时**设备掉线了**（`adb devices` 空），重连无效
-- 所以 V1/V2/V3 三条**一条都没跑**
+- **K60（`1e47d871`）不在** —— 它被用户的**另一个项目（电池检测）**占着，我碰不到
+- ⚠️ 我一度检测到 `8490b52a`（Redmi Note 11T Pro / Android 14），
+  **那是别的项目的机器，不是本项目的目标机**。
+  我**没有**往它装包 —— `adb install` 执行时它已掉线，
+  返回 `no devices/emulators found`（已核实：那台机器上查不到 `com.pocketagent.debug`）。
+- ⇒ V1/V2/V3 三条**一条都没跑**
 
 设备回来后我会：
 1. 装 `679cb78`，确认 `screen_shot` 能出图（**这是 V1 的前置 —— 修之前它连图都不出**）
