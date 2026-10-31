@@ -248,11 +248,30 @@ fun AppShell(
         )
     }
 
-    // 转场位移量：设计令牌给的是 dp，而 slideIn/slideOut 要的是像素。
-    // 在这里换算一次，避免每帧在动画 lambda 里做 with(density) 转换。
+    // ═══════════════════════════════════════════════════════════════
+    //  转场位移：**按屏幕宽度的比例**，不是固定 dp
+    // ═══════════════════════════════════════════════════════════════
+    //
+    // ★★ 2026-10-31（第二次修）：这是"感觉没变化"的真正原因
+    //
+    // 用户："感觉还是没啥变化呀，你要在 ios 的基础上尽可能靠近 claude。"
+    //
+    // ⚠️ 上一轮我改了曲线、去了缩放，**但位移还是 24dp** ——
+    //    在 1440px 宽的屏幕上只占 1.7%。用户根本看不见，
+    //    只看到淡入。所以"改了但没变化"。
+    //
+    // ⇒ 改成 iOS push 的比例：
+    //    · 新页：从 **100% 屏宽** 外滑入到 0
+    //    · 旧页：向左 **30% 屏宽**（不滑出屏幕 —— 那个"还在"是层级感来源）
+    //
+    // ★ 用比例而不是 dp：30% 在任何分辨率下都是 30%，
+    //   而固定 dp 在大屏上更不明显、小屏上更明显 —— 那不是设计。
     val density = LocalDensity.current
-    val enterOffsetX = with(density) { PaTransition.ENTER_OFFSET_X.dp.roundToPx() }
-    val exitOffsetX = with(density) { PaTransition.EXIT_OFFSET_X.dp.roundToPx() }
+    val screenWidthPx = with(density) {
+        androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp.toPx()
+    }
+    val enterOffsetX = (screenWidthPx * PaTransition.ENTER_FRACTION).toInt()
+    val exitOffsetX = (screenWidthPx * PaTransition.EXIT_FRACTION).toInt()
 
     // ═══════════════════════════════════════════════════════════════
     //  ★ 转场也要尊重"系统关掉动画"
@@ -480,8 +499,23 @@ fun AppShell(
                         //    那正是"卡了一下"的来源。
                         fadeOut(animationSpec = tabSpec)
                     } else {
-                        // 旧内容迅速让位（比进入快）：否则两层长时间重叠
-                        fadeOut(animationSpec = tabSpec) +
+                        // ══════════════════════════════════════════════
+                        //  ★★ 2026-10-31（第二次修）：旧页**必须有位移**
+                        // ══════════════════════════════════════════════
+                        //
+                        // ⚠️ 原来这里只有 `fadeOut` —— 旧页原地消失。
+                        //    那是"内容替换"的观感，不是"页面推进"。
+                        //
+                        // ★ iOS push 里旧页会**向左退 30% 屏宽**，
+                        //    而且**不滑出屏幕** —— 那个"它还在那儿"的感觉，
+                        //    是层级感的一半来源（另一半是新页滑入）。
+                        //
+                        // ⚠️ 时长用 `layerSpec`（与新页一致）而不是 `tabSpec`：
+                        //    两页同时动才是"一起推"，一快一慢会显得散。
+                        fadeOut(animationSpec = layerSpec) +
+                            slideOutHorizontally(animationSpec = slideSpec) {
+                                exitOffsetX
+                            } +
                             scaleOut(
                                 animationSpec = layerSpec,
                                 targetScale = PaTransition.EXIT_SCALE,
@@ -493,8 +527,24 @@ fun AppShell(
                     if (isTabSwap(initialState, targetState)) {
                         fadeIn(animationSpec = tabSpec)
                     } else {
-                        // 返回：上一层从左侧"深处"浮回来
+                        // ══════════════════════════════════════════════
+                        //  ★★ 2026-10-31（第二次修）：返回**必须有位移**
+                        // ══════════════════════════════════════════════
+                        //
+                        // ⚠️ 原来这里只有 `fadeIn` —— 返回时上层"凭空出现"，
+                        //    没有"欢迎回来"的方向感。
+                        //
+                        // ★ iOS 的 pop：上一层从**左侧外面**（其实是 -30% 处）
+                        //    滑回原位。它和新页 push 的方向**相反** ——
+                        //    一去一回，用户在空间上就能理解了。
+                        //
+                        // ⚠️ 起始位置用 `exitOffsetX`（-30%）而不是
+                        //    `-100%`：因为它不是"从屏幕外进来"，
+                        //    而是"从它刚才退让到的位置回来" —— 那才是它真实待过的地方。
                         fadeIn(animationSpec = layerSpec) +
+                            slideInHorizontally(animationSpec = slideSpec) {
+                                exitOffsetX
+                            } +
                             scaleIn(
                                 animationSpec = layerSpec,
                                 initialScale = PaTransition.EXIT_SCALE,
@@ -506,9 +556,11 @@ fun AppShell(
                     if (isTabSwap(initialState, targetState)) {
                         fadeOut(animationSpec = tabSpec)
                     } else {
-                        fadeOut(animationSpec = tabSpec) +
+                        // ★ 旧页（被返回的那一层）向**右滑出屏幕** ——
+                        //   与 push 进来时的方向相反，形成"退回去"的闭环。
+                        fadeOut(animationSpec = layerSpec) +
                             slideOutHorizontally(animationSpec = slideSpec) {
-                                exitOffsetX
+                                enterOffsetX
                             } +
                             scaleOut(
                                 animationSpec = layerSpec,
