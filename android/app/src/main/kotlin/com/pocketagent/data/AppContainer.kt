@@ -1423,6 +1423,79 @@ class AppContainer(context: Context) {
     }
 
     /**
+     * **任务检查点存储** —— 让"中断后接着来"真的成立。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★★ 2026-10-31：这是最后一个"装好了没接线"的 P5 组件
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * `TaskCheckpoint` / `TaskCheckpointManager` 实现完整、有 25 条
+     * 离线测试，但**零生产引用** —— 本项目第五次出现这个形态
+     * （前四次：RelationshipStage / PaMotion.bouncy / OutputGuard /
+     * PerceptionLadder）。
+     *
+     * ⚠️ 手机上的中断是**外部的**：来电、切走、系统杀后台、电量优化。
+     *    用户没法"等它跑完"。没有检查点，那些中断全部变成
+     *    "这件事得从头再说一遍"。
+     *
+     * ★ 放在 `filesDir/checkpoints.jsonl` —— 与 `atoms.jsonl` 同一个
+     *   `files/` 家族，备份/清理时是同一处。
+     */
+    val checkpointStore: com.pocketagent.agentlogic.CheckpointStore by lazy {
+        com.pocketagent.assistant.FileCheckpointStore(
+            File(appContext.filesDir, CHECKPOINT_FILE),
+        )
+    }
+
+    /**
+     * 落检查点用的作用域。
+     *
+     * ⚠️ 为什么不能直接用 `startupScope`：那个是**进程级**的，
+     *   任务被取消（用户中止）之后它还在跑 —— 于是"已中止的任务"
+     *   会继续被写检查点，下次启动时提示"上次没做完"（而用户是主动停的）。
+     *
+     * ★ 用一个独立作用域，并且**故意不跟随任务取消**：
+     *   写盘是 fire-and-forget，取消它只会让最后一步的进度丢失。
+     *   真正需要"别恢复"的语义由 `markFinished` / `discard` 表达。
+     */
+    val checkpointScope: CoroutineScope =
+        CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * 有没有**未完成任务**可以恢复 —— 给界面提示用。
+     *
+     * ★ 返回 `ResumeOffer` 而不是 `TaskCheckpoint?`：
+     *   界面需要区分三种情况（有可恢复的 / 太旧了 / 没有），
+     *   而"太旧"要说的和"没有"完全不同 ——
+     *   "上次那件事是 3 小时前的，界面可能已经变了" 比
+     *   "没有未完成的任务" 有用得多。
+     *
+     * ⚠️ 判断全在 `TaskCheckpointManager.offerResume`（有 25 条离线测试），
+     *    这里只做转发 —— 容器进不了验证器，不该承载判断。
+     */
+    suspend fun resumeOffer(): com.pocketagent.agentlogic.ResumeOffer =
+        runCatching {
+            com.pocketagent.agentlogic.TaskCheckpointManager(checkpointStore)
+                .offerResume(System.currentTimeMillis())
+        }.onFailure { Timber.w(it, "读取可恢复任务失败") }
+            .getOrElse { com.pocketagent.agentlogic.ResumeOffer.Nothing }
+
+    /** 用户放弃恢复某个任务。 */
+    suspend fun discardCheckpoint(taskId: String) {
+        runCatching {
+            com.pocketagent.agentlogic.TaskCheckpointManager(checkpointStore).discard(taskId)
+        }.onFailure { Timber.w(it, "丢弃检查点失败") }
+    }
+
+    /** 某个任务完成时调一次 —— 让它不再出现在"上次没做完"里。 */
+    suspend fun markTaskFinished(taskId: String, usage: com.pocketagent.agentlogic.BudgetUsage) {
+        runCatching {
+            com.pocketagent.agentlogic.TaskCheckpointManager(checkpointStore)
+                .markFinished(taskId, usage, System.currentTimeMillis())
+        }.onFailure { Timber.w(it, "标记任务完成失败") }
+    }
+
+    /**
      * 把**压缩上下文**的段落融进记忆分层（用户明确要求的那一步）。
      *
      * ★ 为什么压缩段要变成 `Atom`：
@@ -3070,6 +3143,18 @@ class AppContainer(context: Context) {
         /** 原子记忆落在应用私有目录下的文件名与子目录。 */
         private const val MEMORY_DIR = "memory"
         private const val MEMORY_FILE = "atoms.jsonl"
+
+        /**
+         * 任务检查点文件。
+         *
+         * ★ 与 `memory/atoms.jsonl` 同在 `files/` 下 —— 备份/清理时
+         *   是同一处，不需要记住第二个位置。
+         *
+         * ⚠️ 用 `.jsonl`（一行一条）而不是 `.json`：格式依赖
+         *    "坏一行不毁全库"，而数组式的 JSON 做不到这件事
+         *    （一条坏了整份都解析不了）。
+         */
+        private const val CHECKPOINT_FILE = "checkpoints.jsonl"
 
         /**
          * 每这么多轮对话才做一次记忆抽取。

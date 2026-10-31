@@ -97,6 +97,38 @@ class PhoneAgentLoop(
     suspend fun run(
         task: PhoneTask,
         onStep: (step: Int, description: String) -> Unit = { _, _ -> },
+        /**
+         * **每步之后的进度快照** —— 给调用方落检查点用。
+         *
+         * ═══════════════════════════════════════════════════════════
+         *  ★★ 2026-10-31：为什么这个回调必须存在
+         * ═══════════════════════════════════════════════════════════
+         *
+         * `TaskCheckpoint` / `TaskCheckpointManager` 实现完整、有 25 条
+         * 离线测试，但**零生产引用** —— 本项目第五次出现"装好了没接线"
+         * （前四次：RelationshipStage / PaMotion.bouncy / OutputGuard /
+         * PerceptionLadder）。
+         *
+         * 规划文档把 `TaskCheckpoint` 列为 P5 横切组件，并写明
+         * "移动端中断频率极高，**恢复能力是产品形态的一部分**，不是补丁"。
+         *
+         * ⚠️ 而它**只能在循环里接** —— 因为只有循环知道
+         *    "现在走到第几步、已经花了多少预算、重规划了几次"。
+         *    这些量在循环外拿不到，所以调用方没法自己落检查点。
+         *
+         * ⇒ [onProgress] 每轮把这三样一起交出来，由调用方决定怎么存。
+         *   循环本身**不做 IO** —— 它连 Android 都不认识，
+         *   写盘是调用方的事（`:app` 层）。
+         *
+         * ★ 与 [onStep] 的分工：
+         *   · `onStep`     —— **给人看**的（"第 3 步：点击了确定"）
+         *   · `onProgress` —— **给机器存**的（结构化快照）
+         *   合并成一个会让"界面文案"和"持久化格式"耦合在一起，
+         *   而后者的兼容性要求高得多（老检查点必须还能读）。
+         *
+         * @param snap 这一步之后的进度快照
+         */
+        onProgress: (ProgressSnapshot) -> Unit = {},
     ): PhoneRunResult {
         val started = clock()
         val trace = mutableListOf<String>()
@@ -207,6 +239,7 @@ class PhoneAgentLoop(
                                 val line = "${call.name} → ${outcome.text.oneLine()}"
                                 trace += line
                                 onStep(usage.turns, line)
+                                onProgress(ProgressSnapshot(step = usage.turns, action = call.name, usage = usage))
                                 results += AgentMessage.ToolResult(
                                     text = outcome.text,
                                     callId = call.id,
@@ -221,6 +254,7 @@ class PhoneAgentLoop(
                                 val line = "${call.name} 失败：${outcome.reason.oneLine()}"
                                 trace += line
                                 onStep(usage.turns, line)
+                                onProgress(ProgressSnapshot(step = usage.turns, action = call.name, usage = usage))
                                 results += AgentMessage.ToolResult(
                                     text = text,
                                     callId = call.id,
@@ -236,6 +270,7 @@ class PhoneAgentLoop(
                                 val line = "${call.name} 被拦下：${outcome.reason.oneLine()}"
                                 trace += line
                                 onStep(usage.turns, line)
+                                onProgress(ProgressSnapshot(step = usage.turns, action = call.name, usage = usage))
                                 results += AgentMessage.ToolResult(
                                     text = text,
                                     callId = call.id,
@@ -544,3 +579,34 @@ sealed interface PhoneRunResult {
 
 /** 把一段可能含换行的文本压成一行 —— trace 是给人看的列表，不是日志。 */
 private fun String.oneLine(): String = replace('\n', ' ').replace('\r', ' ').take(160)
+
+/**
+ * **一步之后的进度快照** —— 给调用方落 `TaskCheckpoint` 用。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  ★★ 为什么它必须是独立类型，而不是复用 `onStep` 的两个参数
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * `onStep(step, description)` 里的 `description` 是**给人看的一句话**
+ * （"点击了确定 → 成功"）。它随时可能因为文案优化而变，
+ * 而检查点要**长期驻留磁盘** —— 把可变文案当持久化字段，
+ * 一次文案调整就会让老检查点读不出来。
+ *
+ * ⇒ 分开：
+ *   · `onStep`      → 界面显示（可随意改文案）
+ *   · `onProgress`  → 落盘（结构稳定，字段只增不减）
+ *
+ * ⚠️ 这里**不含截图**。理由见 `TaskCheckpoint` 的注释：
+ *    截图是最高敏感度数据（可能含验证码、聊天内容、支付页面），
+ *    而检查点长期驻留 —— 那等于把敏感数据从"用完即回收"变成"永久留档"。
+ *    需要视觉的续跑应当**重新采集**（用户中断后界面本来也可能变了）。
+ *
+ * @param step 已经完成的步数（下一步从此继续）
+ * @param action 刚执行完的动作名（枚举名，不是文案）
+ * @param usage 累计预算用量 —— **必须带上**，否则恢复后预算从零开始
+ */
+data class ProgressSnapshot(
+    val step: Int,
+    val action: String,
+    val usage: BudgetUsage,
+)

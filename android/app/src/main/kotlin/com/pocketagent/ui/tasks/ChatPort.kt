@@ -23,6 +23,7 @@ import com.pocketagent.provider.api.ProviderCredential
 import com.pocketagent.modelrouter.ModelResolution
 import com.pocketagent.modelrouter.ModelRole
 import com.pocketagent.modelrouter.resolveForPurpose
+import kotlinx.coroutines.launch
 import timber.log.Timber
 
 /**
@@ -372,9 +373,14 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                 runner = AgentAdapters.toolRunner(tools),
                 budgetGuard = BudgetGuard(AgentBudget(maxTurns = CHAT_MAX_TURNS)),
             )
+            // ★★ 2026-10-31：这一轮的任务 id —— 检查点按它索引。
+            //   ⚠️ 用 `chat-<时间戳>` 而不是固定的 "chat"：
+            //      固定 id 会让**每一轮**都覆盖同一份检查点，
+            //      于是"恢复上次任务"永远只能恢复最后一轮。
+            val taskId = "chat-${System.currentTimeMillis()}"
             val result = loop.run(
                 PhoneTask(
-                    id = "chat",
+                    id = taskId,
                     userInput = userText,
                     systemPrompt = systemWithMemory,
                     tools = AgentAdapters.toolSpecs(tools),
@@ -385,6 +391,39 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                 ),
                 // ★ 把循环的真实进度透给界面。
                 onStep = onStep,
+                // ══════════════════════════════════════════════════
+                //  ★★ 落检查点 —— 让"中断后能接着来"真的成立
+                // ══════════════════════════════════════════════════
+                //
+                // ⚠️ 手机上的中断是**外部的**：来电、切走、系统杀后台、
+                //    电量优化。用户没法"等它跑完"。
+                //    没有检查点，那些中断全部变成"这件事得从头再说一遍"。
+                //
+                // ⚠️ 这里不 await 写盘（用 launch）：落盘是"更好的恢复"，
+                //    不该让每一步都等磁盘。失败也只记日志，不影响任务。
+                //
+                // ⚠️ `onProgress` 是**同步回调**（循环不认协程），
+                //    而 `store.save` 是 suspend ⇒ 必须自己起一个作用域。
+                //    用容器自带的作用域，这样任务被取消时它也跟着取消。
+                onProgress = { snap ->
+                    container.checkpointScope.launch {
+                        container.checkpointStore.save(
+                            com.pocketagent.agentlogic.TaskCheckpoint(
+                                taskId = taskId,
+                                userInput = userText,
+                                completedSteps = snap.step,
+                                replanCount = 0,
+                                // ⚠️ `plannedActions` 存**动作枚举名**而不是序号
+                                //    （理由见 TaskCheckpoint 的注释：枚举增删会让
+                                //    序号指向另一个动作）。
+                                plannedActions = listOf(snap.action),
+                                usage = snap.usage,
+                                savedAtMs = System.currentTimeMillis(),
+                                finished = false,
+                            ),
+                        )
+                    }
+                },
             )
             // ★ 四种结局都要翻成**用户能理解**的一句话（见 explainRun）。
             explainRun(result)
