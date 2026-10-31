@@ -18,8 +18,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -74,6 +76,23 @@ fun SessionDrawer(
     onDelete: (String) -> Unit,
     onSearch: (String) -> Unit,
     modifier: Modifier = Modifier,
+    // ══════════════════════════════════════════════════════════
+    //  ★★ 2026-10-31：插件 / 设置入口搬到这里
+    // ══════════════════════════════════════════════════════════
+    //
+    // 用户："把 app 里最下方的三个页面留剩下对话一个主页，其他的
+    //      放入侧边栏右下角，右下角有两个按钮，一个是插件按钮，
+    //      一个是设置按钮，这一用户一打开软件就能直接对话模型了。"
+    //
+    // ⚠️ 为什么这个改动是对的：底部导航占了 **56dp 的永久高度**，
+    //    而它只在"切换三个平级页面"时有用 —— 但那三个页面里，
+    //    用户 95% 的时间只在一个（对话）。用一个常驻横条去服务
+    //    一个低概率动作，代价是**每一屏都少 56dp 的对话空间**。
+    //
+    // ⇒ 撤掉底栏，把两个低频入口收进抽屉右下角。
+    //   开机就是对话页、零点击 —— 这是"进来就能聊"的唯一形态。
+    onOpenPlugins: (() -> Unit)? = null,
+    onOpenSettings: (() -> Unit)? = null,
 ) {
     var keyword by remember { mutableStateOf("") }
     var renaming by remember { mutableStateOf<SessionSummary?>(null) }
@@ -156,6 +175,62 @@ fun SessionDrawer(
                         )
                     }
                 }
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════
+        //  ★★ 底部：插件 / 设置
+        // ══════════════════════════════════════════════════════════
+        //
+        // ⚠️ 位置在**右下角**，不是铺满一行 —— 用户原话是"右下角有两个
+        //    按钮"。铺满会看起来像另一个导航栏，而这两个是**低频入口**，
+        //    视觉权重必须明显低于上面的会话列表。
+        //
+        // ★ 用图标按钮而不是文字按钮：
+        //   · 文字（"插件" / "设置"）会和会话标题抢注意力
+        //   · 图标 + 极淡的背景色，是"工具在哪"的暗示，不是"主要功能"
+        //
+        // ⚠️ 用 `Spacer(weight(1f))` 把这一行顶到底部 ——
+        //    列表少的时候（只有一两段对话）按钮仍然在底部，
+        //    不会跟着列表飘到屏幕中间。那种"按钮位置随内容变"是最烦人的。
+        Spacer(modifier = Modifier.weight(1f))
+
+        // ⚠️ 一条极淡的分隔线，把"工具"和"内容"分开。
+        //    没有它，这两个图标会和最后一条会话贴在一起 ——
+        //    看起来像"那条会话有两个操作按钮"（重命名/删除那种）。
+        //
+        // ★ 用 6% alpha 的 GlassBorder 而不是实线：
+        //   它只需要"暗示分组"，不需要"划出边界"。
+        //   实线会让抽屉看起来被切成两块。
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .padding(top = PaSpace.xs)
+                .background(PaColor.GlassBorder.copy(alpha = 0.06f)),
+        )
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = PaSpace.xs),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (onOpenPlugins != null) {
+                PaIconButton(
+                    icon = Icons.Default.Extension,
+                    onClick = onOpenPlugins,
+                    contentDescription = "插件",
+                )
+                Spacer(Modifier.width(PaSpace.xxs))
+            }
+            if (onOpenSettings != null) {
+                PaIconButton(
+                    icon = Icons.Default.Tune,
+                    onClick = onOpenSettings,
+                    contentDescription = "设置",
+                )
             }
         }
     }

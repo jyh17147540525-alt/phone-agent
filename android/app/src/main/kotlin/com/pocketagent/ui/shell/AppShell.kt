@@ -29,16 +29,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Extension
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -56,10 +51,8 @@ import com.pocketagent.capability.SafDirectoryGrants
 import com.pocketagent.capability.SafFileChannel
 import com.pocketagent.data.AppContainer
 import com.pocketagent.ui.design.AuroraBackground
-import com.pocketagent.ui.design.PaBottomBar
 import com.pocketagent.ui.design.PaMotion
 import com.pocketagent.ui.design.PaColor
-import com.pocketagent.ui.design.PaNavItem
 import com.pocketagent.ui.design.PaRadius
 import com.pocketagent.ui.design.PaSpace
 import com.pocketagent.ui.design.PaType
@@ -152,48 +145,6 @@ object Routes {
      */
     val TOP_LEVEL: Set<String> = setOf(TASKS, PLUGINS, SETTINGS)
 }
-
-/**
- * 一个底部导航项。
- *
- * [owns] 是**归属路由集合**：该 tab 下挂的所有路由（含二级页面）。
- *
- * 为什么需要它：用户从"设置"进入"插件源"时，路由变成了 `sources`，
- * 但用户心里还在"设置"这个分支里。如果只按当前路由匹配，
- * 底栏的选中态会**掉到第一个 tab 上**，看起来像应用跳错了地方。
- * 有了 owns，二级页面期间选中态稳稳留在入口 tab 上。
- */
-private class TabSpec(
-    val route: String,
-    val label: String,
-    val icon: ImageVector,
-    val owns: Set<String>,
-)
-
-private val TABS = listOf(
-    TabSpec(
-        route = Routes.TASKS,
-        label = "任务",
-        icon = Icons.Default.AutoAwesome,
-        owns = setOf(Routes.TASKS),
-    ),
-    TabSpec(
-        route = Routes.PLUGINS,
-        label = "插件",
-        icon = Icons.Default.Extension,
-        owns = setOf(Routes.PLUGINS, Routes.MARKET, Routes.IMPORT),
-    ),
-    TabSpec(
-        route = Routes.SETTINGS,
-        label = "设置",
-        icon = Icons.Default.Tune,
-        owns = setOf(
-            Routes.SETTINGS, Routes.SOURCES, Routes.KEYS,
-            Routes.MODELS, Routes.DSH, Routes.PERMISSIONS, Routes.CAPABILITIES,
-            Routes.PRIVILEGE_MODE, Routes.PERSONA,
-        ),
-    ),
-)
 
 @Composable
 fun AppShell(
@@ -351,21 +302,30 @@ fun AppShell(
             isPop = false,
         ) == com.pocketagent.agentui.TransitionKind.Kind.TAB_SWAP
 
-    /** 当前是否停在顶层 tab 上 —— 决定底栏显不显示 */
-    val isTopLevel = TABS.any { it.route == currentRoute }
-
-    /** 底栏选中项。二级页面归属其入口 tab，见 [TabSpec.owns] */
-    val selectedIndex = TABS.indexOfFirst { currentRoute in it.owns }.coerceAtLeast(0)
+    // ═══════════════════════════════════════════════════════════════
+    //  ★★ 2026-10-31：底栏撤掉之后，`isTopLevel` / `selectedIndex` 已删
+    // ═══════════════════════════════════════════════════════════════
+    //
+    // 它们原来服务于底栏：
+    //   · `isTopLevel`  —— 决定底栏显不显示
+    //   · `selectedIndex` —— 底栏哪个高亮
+    //
+    // 底栏没了，这两个只剩"恒为真/恒为0"的空壳。留着会比删掉更糟：
+    // 下一个人会以为还有别的地方在读它。
+    //
+    // ⚠️ 但 `goToTab` **保留** —— TasksScreen 的那个齿轮还在用它
+    //    （聊天页右上角直接进设置的路径）。它仍然需要
+    //    `popUpTo(TASKS) { saveState }` 来避免返回栈里堆一串设置页。
 
     /**
-     * 切 tab。
+     * 进入一个顶层页面（对话页的齿轮入口用它）。
      *
      * ⚠️ 三个导航选项缺一不可：
      *   · `popUpTo(startDestination) { saveState = true }`
-     *     —— 清掉中间栈，否则从"设置→插件源"再切"任务"，
+     *     —— 清掉中间栈，否则从"设置→插件源"再回"任务"，
      *        按返回键会回到"插件源"，而用户已经离开那个分支了。
-     *   · `launchSingleTop` —— 连点同一个 tab 不会叠出多份实例。
-     *   · `restoreState` —— 切回来时恢复该 tab 之前的滚动位置。
+     *   · `launchSingleTop` —— 连点不会叠出多份实例。
+     *   · `restoreState` —— 回来时恢复之前的滚动位置。
      */
     fun goToTab(route: String) {
         if (currentRoute == route) return
@@ -404,6 +364,29 @@ fun AppShell(
                     onRename = tasksViewModel::renameSession,
                     onDelete = tasksViewModel::deleteSession,
                     onSearch = { tasksViewModel.refreshSessions(it) },
+                    // ══════════════════════════════════════════════════
+                    //  ★★ 2026-10-31：插件 / 设置搬进抽屉右下角
+                    // ══════════════════════════════════════════════════
+                    //
+                    // 用户："把 app 里最下方的三个页面留剩下对话一个主页，
+                    //      其他的放入侧边栏右下角…用户一打开软件就能
+                    //      直接对话模型了。"
+                    //
+                    // ⚠️ 必须先关抽屉再导航：不关的话新页面会在抽屉**后面**
+                    //    打开，用户看到的是"点了没反应"，然后手动滑关抽屉
+                    //    才发现已经在插件页了。
+                    onOpenPlugins = {
+                        tasksViewModel.closeDrawer()
+                        navController.navigate(Routes.PLUGINS) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onOpenSettings = {
+                        tasksViewModel.closeDrawer()
+                        navController.navigate(Routes.SETTINGS) {
+                            launchSingleTop = true
+                        }
+                    },
                 )
             }
         },
@@ -996,36 +979,28 @@ fun AppShell(
             // 所以这里不会出现内容跳动。
             //
             // ══════════════════════════════════════════════════════
-            //  ★★ 2026-10-30：时长必须**与页面转场对齐**（380 → 280）
+            //  ★★ 2026-10-31：**底栏已撤掉**
             // ══════════════════════════════════════════════════════
             //
-            // 用户："各个页面之间的切换有种突兀感"。
+            // 用户："把 app 里最下方的三个页面留剩下对话一个主页，
+            //      其他的放入侧边栏右下角…用户一打开软件就能直接
+            //      对话模型了。"
             //
-            // 这里是那份突兀感里**最明显的一处**，而且原因很具体：
-            //   · 页面转场：进二级页时 280ms 完成
-            //   · 底栏滑出：`PaMotion.page()` = **380ms**
-            // ⇒ 页面已经换完了，底栏还在往下滑，多滑了 100ms。
+            // 原来这里是一个 `AnimatedVisibility` 包着 `PaBottomBar`。
+            // 现在整个删掉 —— 理由是**它服务的场景太窄**：
             //
-            // 用户不会说"底栏慢了 100ms"，他会说"这一下有点拖"。
-            // 而这种"两件东西收尾不同步"是最难自查的 —— 盯着代码看
-            // 两个动画都"有动画、都不错"，只有把它们的时间放在一起比
-            // 才发现差了 100ms。
+            //   · 底栏占 56dp **永久高度**，但只在"切三个页"时有用
+            //   · 而用户 95% 的时间只在对话页
+            //   · 代价是**每一屏都少 56dp 对话空间**
             //
-            // ⇒ 用 `standard()`（280ms），与层级的进入/退出**同档**。
-            //   底栏和页面内容从此是**一次动作**，不是两次。
-            AnimatedVisibility(
-                visible = isTopLevel,
-                enter = slideInVertically(animationSpec = slideSpec) { it } +
-                    fadeIn(animationSpec = tabSpec),
-                exit = slideOutVertically(animationSpec = slideSpec) { it } +
-                    fadeOut(animationSpec = tabSpec),
-            ) {
-                PaBottomBar(
-                    items = TABS.map { PaNavItem(label = it.label, icon = it.icon) },
-                    selectedIndex = selectedIndex,
-                    onSelect = { goToTab(TABS[it].route) },
-                )
-            }
+            // ⇒ 插件 / 设置收进抽屉右下角（见 `SessionDrawer` 的注释）。
+            //   开机即对话页、零点击，这是"进来就能聊"的唯一形态。
+            //
+            // ⚠️ 顺带删掉的东西（都不能留）：
+            //   · `PaBottomBar` 的调用 —— 留着就是一个没人看的组件
+            //   · `isTopLevel` / `selectedIndex` —— 只有一个根页面之后它们恒真/恒0
+            //   · `PaNavItem` / `TABS` 的底栏用途 —— TABS 仍被 `TOP_LEVEL`
+            //     用来判断转场（那个还有用，见 `isTabSwap`）
         }
     }
     }
