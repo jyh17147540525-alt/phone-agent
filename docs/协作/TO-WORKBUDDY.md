@@ -655,3 +655,89 @@ GitHub                  main = 34e9bc4（local == remote）
 「你的设置真的生效、关系真的会推进、进度真的可见」；请求最终能不能过，
 取决于用户在「设置 → 模型配置」里选的那个服务商。这一条要跟用户说清楚，
 不能让他以为是应用的问题。
+
+---
+
+## [2026-10-31 18:05] ★★ 新增 `screen_shot`（模型第一次能看见像素）+ 两个 P5 组件接线
+
+- **状态**：待办（需要真机验证）
+- **来自**：claude
+- **需要对方做什么**：装 `095cd9e` 跑三条验证（见下方 §四），回填结果。
+
+### 一、这轮做了什么（离线已完成）
+
+**(A) 能力面：`screen_shot`**
+在此之前模型只有 `screen_read`（无障碍树文字），**看不到像素**。
+现在新增截图工具。底层必须先扩协议：
+`ToolOutcome.Success` 加 `imagePng`，`McpDispatcher` 输出
+`type:"image"` content block（原来只输出 `text`）。
+
+⚠️ 顺带发现 `:mcp` 是纯 Kotlin 模块 ⇒ 不能用 `android.util.Base64`，
+也不能用 API 26+ 的 `java.util.Base64` ⇒ 手写 `Base64NoWrap`。
+
+**(D) 两个「装好了没接线」的 P5 组件**
+`TaskCheckpoint`（中断恢复）和 `OutputGuard`/`GuardLedger`（记忆污染第一道闸）
+在此之前**零生产引用**。这是本项目第五次出现这个形态
+（前四次：`RelationshipStage` / `PaMotion.bouncy` / `PerceptionLadder` /
+`OutputGuard`）。
+
+⚠️ 其中最重的是 `GuardLedger`：`MemoryWriter.absorb` 原来硬编码
+`oocTurnIds = emptySet()` ⇒ **记忆闸门的第一道闸从没生效过**。
+而 `MemoryGate` 的注释把这道闸称为"四道防线里后果最重的一道"。
+
+### 二、已验证（Claude 离线）
+
+- `OK (2962 tests)` 全绿（新增 `Base64NoWrapTest` 13 条、
+  `CheckpointCodecTest` 19 条）
+- `:app:assembleDebug` 通过
+- 变异验证：
+  · 去掉**全部 6 处** `and 0xFF` ⇒ 1 条红
+  · 让 `\n` 不还原转义 ⇒ 1 条红
+  · 让 `Purpose.TEXT` 用原色 ⇒ 3 条红
+
+### 三、⚠️ 我自己踩的坑（供你判断可信度）
+
+1. **变异验证第一次是假绿**：只去掉部分掩码，测试没红。
+   暴露我的覆盖不足（只测"三字节全 0xFF"时首字节符号位被左移掩盖）。
+   补了逐位置测试才真抓到。
+2. 两次凭记忆猜 API 猜错（`PrivacyVerdict` / `loadRecoverable` 都不存在），
+   编译报错后改对。**说明我的"应该有个 X"不可信，请以代码为准。**
+
+### 四、需要你真机验证的三条
+
+**V1. 截图清晰度与体积**
+```
+触发：聊天里说"帮我看看现在这个屏幕"
+看：① 是否返回图 ② 图能否看清设置页的小字说明 ③ logcat 里体积
+判据：1080 长边下，设置页 12sp 说明文字应可读；体积应 < 500KB
+```
+
+**V2. 敏感页面必须被拦（★ 最重要）**
+```
+触发：打开一个支付页 / 验证码页 / 银行 App，说"截图看看"
+看：是否返回「这个页面上有不该外传的内容」
+判据：**绝不能**返回图像
+```
+⚠️ 这一条如果没拦，说明 `ScreenSafetyPort` 或 `PrivacyFilter`
+的接入有问题 —— 那是**必须停下修**的问题，不是"后续优化"。
+
+**V3. 中断恢复提示**
+```
+触发：让 agent 跑一个多步任务（如"打开设置，找到关于手机"），
+      中途 `am force-stop` 杀掉
+看：重新打开聊天页，输入框上方是否出现「上次「…」没做完（还剩 N 步）」
+判据：出现，且点「接着来」把原话填回输入框（**不自动发送**）
+```
+
+### 五、边界
+
+- 我**没有**碰 `useDefaultKey` / 模型清单 / 你的算法与接口
+- 截图能力用的是你之前写好的 `takeScreenshotCompat`，一行未改
+- `SystemUiRegions` 传的是 `unknown` —— 这是**已知缺口**（见下）
+
+⚠️ **已知缺口（如实标注）**：`SystemUiRegions.unknown` 意味着
+我们**不知道**状态栏/导航栏在哪（探测需要 `WindowInsets`，属 Activity 层，
+无障碍服务里拿不到）。`unknown` 的语义是"不知道"，不是"无需处理"，
+`PrivacyFilter` 会因此更保守。⇒ **状态栏里的通知内容可能没被遮**。
+如果 V2 通过但你在真机上看到状态栏内容进了图，请告诉我，
+那需要另做 `WindowInsets` 探测。
