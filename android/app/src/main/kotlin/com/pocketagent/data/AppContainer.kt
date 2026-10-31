@@ -17,6 +17,8 @@ import com.pocketagent.assistant.AgentForegroundService
 import com.pocketagent.assistant.HostPermissionReader
 import com.pocketagent.assistant.McpBridgeHost
 import com.pocketagent.assistant.McpBridgeStatus
+import com.pocketagent.assistant.A11yScreenShotPort
+import com.pocketagent.assistant.AgentAccessibilityService
 import com.pocketagent.assistant.PerceptionScreenReader
 import com.pocketagent.assistant.SafetyDetectorGate
 import com.pocketagent.assistant.SafetyGuardAdapter
@@ -68,6 +70,7 @@ import com.pocketagent.assistant.RootProbe
 import com.pocketagent.assistant.RootShellRunner
 import com.pocketagent.mcp.SwipeTool
 import com.pocketagent.mcp.TapTool
+import com.pocketagent.mcp.ScreenShotTool
 import com.pocketagent.mcp.ToolRegistry
 import com.pocketagent.memorylogic.ContextOffloader
 import com.pocketagent.safety.DefaultSafetyGuard
@@ -2744,6 +2747,30 @@ class AppContainer(context: Context) {
 
         listOf(
             ScreenReadTool(reader, gate),
+            // ══════════════════════════════════════════════════════
+            //  ★★ 2026-10-31：**`screen_shot`** —— 让模型真的看见屏幕
+            // ══════════════════════════════════════════════════════
+            //
+            // 在此之前模型只有 `screen_read`（无障碍树的文字），
+            // 它**看不到像素**。而"这个报错什么意思""这个按钮是灰的吗"
+            // "界面好看吗"全都要视觉。
+            //
+            // ⚠️ `systemUi` 传 `unknown` 而不是"假装知道"：
+            //    这一版还没探测系统栏区域（那需要 `WindowInsets`，
+            //    而它属于 Activity 层，服务里拿不到）。
+            //
+            // ⚠️⚠️ `unknown` 的语义是"**我们不知道**哪些地方是系统 UI"，
+            //    **不是**"无需处理"。所以 `PrivacyFilter` 会对
+            //    未知系统栏的情况更保守（见它 `unknown` 的注释）。
+            //    ⇒ 这是当前**已知的能力缺口**，记在这里而不是假装完整。
+            ScreenShotTool(
+                reader = reader,
+                safety = gate,
+                capturer = A11yScreenShotPort { AgentAccessibilityService.instance },
+                privacyFilter = com.pocketagent.agentlogic.PrivacyFilter(
+                    systemUi = com.pocketagent.agentlogic.SystemUiRegions.unknown,
+                ),
+            ),
             TapTool(reader, safetyPort, dispatchPort, rateLimiter),
             SwipeTool(reader, safetyPort, dispatchPort, rateLimiter),
             // ── DL：人格摘要（只读）──────────────────────────────

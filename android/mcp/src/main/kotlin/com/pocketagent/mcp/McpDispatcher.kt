@@ -146,6 +146,33 @@ class McpDispatcher(
                             put("type", "text")
                             put("text", outcome.text)
                         }
+                        // ══════════════════════════════════════════════
+                        //  ★★ 2026-10-31：把截图作为 **image block** 发出去
+                        // ══════════════════════════════════════════════
+                        //
+                        // MCP 的内容项是有类型的：`text` / `image` / `resource`。
+                        // 在此之前这里只发 `text` ⇒ 工具**没法返回像素**，
+                        // 于是 `screen_read` 只能给 UI 树的文字描述。
+                        //
+                        // ⚠️ 不能把图片塞进 `text` 做 base64：
+                        //    那会让模型收到一坨无法解析的字符，而且白白
+                        //    浪费上下文（一张 1MB 的图 base64 是 130 万字符，
+                        //    远超多数模型的窗口）。
+                        //
+                        // ★ 用 `image` 类型后，支持的客户端会把它**当作图像**
+                        //   交给多模态模型，而不是当文字。
+                        outcome.imagePng?.let { png ->
+                            addJsonObject {
+                                put("type", "image")
+                                // ⚠️ 不能用 `android.util.Base64` ——
+                                //    `:mcp` 是**纯 Kotlin 模块**，没有 Android SDK。
+                                //    手写一个 10 行的编码器（见文件末），
+                                //    而不是引入 java.util.Base64（API 26+，
+                                //    而本项目 minSdk 更低）。
+                                put("data", Base64NoWrap.encode(png))
+                                put("mimeType", "image/png")
+                            }
+                        }
                     }
                     outcome.structured?.let { put("structuredContent", it) }
                     // isError 刻意**不写**（缺省 false）—— 写了 false 与不写的区别
@@ -192,5 +219,66 @@ class McpDispatcher(
          * 我们能给出可读的原因，而 dsh 的超时只会是一句协议层的报错。
          */
         const val DEFAULT_TOOL_TIMEOUT_MS: Long = 25_000
+    }
+}
+
+/**
+ * **Base64 编码（无换行）** —— 给 MCP 的 image block 用。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  ★★ 2026-10-31：为什么手写
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * `:mcp` 是**纯 Kotlin 模块** —— 它的纪律是"零 android.* / androidx.* 依赖"
+ * （见模块清单里的 PURE_KOTLIN 声明），否则就进不了离线验证器。
+ *
+ * ⇒ 可选项只剩两个，都不行：
+ *   · `android.util.Base64` —— 依赖 Android SDK
+ *   · `java.util.Base64`    —— API 26+，而 minSdk 低于它
+ *
+ * ⚠️ 手写编码器的风险是"跑得快但算错"，而它错了的表现是
+ *    **图片在客户端打不开** —— 不报错，只是看不见。
+ *    ⇒ 它必须被测试覆盖（见 `Base64NoWrapTest`）。
+ *
+ * ★ 不追求性能：截图是偶发操作（一次调用一张），
+ *   而正确性比"省几微秒"重要得多。
+ */
+object Base64NoWrap {
+
+    private const val ALPHABET =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+    /** 编码。输出**无换行**（MCP 的 image data 要求单行）。 */
+    fun encode(bytes: ByteArray): String {
+        if (bytes.isEmpty()) return ""
+        val sb = StringBuilder((bytes.size + 2) / 3 * 4)
+        var i = 0
+        while (i + 2 < bytes.size) {
+            val n = ((bytes[i].toInt() and 0xFF) shl 16) or
+                ((bytes[i + 1].toInt() and 0xFF) shl 8) or
+                (bytes[i + 2].toInt() and 0xFF)
+            sb.append(ALPHABET[(n ushr 18) and 0x3F])
+            sb.append(ALPHABET[(n ushr 12) and 0x3F])
+            sb.append(ALPHABET[(n ushr 6) and 0x3F])
+            sb.append(ALPHABET[n and 0x3F])
+            i += 3
+        }
+        when (bytes.size - i) {
+            1 -> {
+                val n = (bytes[i].toInt() and 0xFF) shl 16
+                sb.append(ALPHABET[(n ushr 18) and 0x3F])
+                sb.append(ALPHABET[(n ushr 12) and 0x3F])
+                sb.append("==")
+            }
+            2 -> {
+                val n = ((bytes[i].toInt() and 0xFF) shl 16) or
+                    ((bytes[i + 1].toInt() and 0xFF) shl 8)
+                sb.append(ALPHABET[(n ushr 18) and 0x3F])
+                sb.append(ALPHABET[(n ushr 12) and 0x3F])
+                sb.append(ALPHABET[(n ushr 6) and 0x3F])
+                sb.append('=')
+            }
+        }
+        return sb.toString()
     }
 }

@@ -26,11 +26,63 @@ import kotlinx.serialization.json.putJsonArray
  */
 sealed interface ToolOutcome {
 
-    /** 成功。`text` 进模型上下文；`structured` 透传给程序化调用方（可空）。 */
+    /**
+     * 成功。
+     *
+     * @param text 进模型上下文的文字
+     * @param structured 透传给程序化调用方（可空）
+     * @param imagePng **可选**的截图字节（PNG）。
+     *
+     * ═══════════════════════════════════════════════════════════
+     *  ★★ 2026-10-31：为什么需要这个字段
+     * ═══════════════════════════════════════════════════════════
+     *
+     * 在此之前工具只能返回**纯文本** —— 于是 `screen_read` 只能给
+     * UI 树的文字描述，模型**看不到屏幕的像素**。
+     *
+     * ⚠️ 而大量任务需要视觉：
+     *   · "这个报错是什么意思" —— 需要看那个红框
+     *   · "帮我点那个图标" —— UI 树里图标常常只有 `contentDescription`
+     *   · "这个界面好看吗" —— 纯文本根本没法回答
+     *
+     * ⇒ 加一个可选字段，由分派器转成 MCP 的 `image` content block。
+     *   **可选**而不是必填：绝大多数工具（tap / key / root_exec）
+     *   不该为这个字段付出任何成本。
+     *
+     * ⚠️ **不能**把它塞进 `text` 做 base64：那会让模型收到一坨
+     *    无法解析的字符，而且白白浪费上下文（一张图 1MB base64
+     *    就是 130 万字符，远超多数模型的上下文窗口）。
+     *
+     * ★ 只在 **MCP 协议层**用这个字段；内部 agent 循环用的是
+     *   `AgentToolResult`，那条路径已经有 `pendingImage` 机制。
+     */
     data class Success(
         val text: String,
         val structured: JsonObject? = null,
-    ) : ToolOutcome
+        val imagePng: ByteArray? = null,
+    ) : ToolOutcome {
+        // ⚠️ data class 带 ByteArray 必须手写 equals/hashCode ——
+        //    默认是**引用比较**，那会让"内容相同"的两个结果不相等。
+        //    本项目已经踩过两次（见 `ComposeStability` 的注释）。
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other !is Success) return false
+            return text == other.text &&
+                structured == other.structured &&
+                when {
+                    imagePng == null && other.imagePng == null -> true
+                    imagePng == null || other.imagePng == null -> false
+                    else -> imagePng.contentEquals(other.imagePng)
+                }
+        }
+
+        override fun hashCode(): Int {
+            var result = text.hashCode()
+            result = 31 * result + (structured?.hashCode() ?: 0)
+            result = 31 * result + (imagePng?.contentHashCode() ?: 0)
+            return result
+        }
+    }
 
     /** 被安全策略拒绝。`reason` 必须能**直接展示给用户**。 */
     data class Refused(val reason: String) : ToolOutcome
