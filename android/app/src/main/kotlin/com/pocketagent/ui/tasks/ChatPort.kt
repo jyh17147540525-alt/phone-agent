@@ -548,19 +548,42 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                     if (!hold) {
                         onDelta(chunk.text)
                         released = sb.length
-                    } else if (released == 0 && sb.length >= HOLD_CHARS) {
-                        // ⚠️ 攒够了：**先判一次**再放。
-                        //   如果这一段里已经有硬拒答标记，就别放 ——
-                        //   让上层去重试，用户永远看不到那句话。
+                    } else if (released == 0) {
+                        // ══════════════════════════════════════════════════
+                        //  ★★ 2026-10-31：**尽早放字**，只对可疑开头才扣
+                        // ══════════════════════════════════════════════════
+                        //
+                        // 原来这里是"攒够 HOLD_CHARS(20) 才放"。那让
+                        // **每一次对话的首字都晚 20 个字的生成时间** ——
+                        // 慢速模型下一个字 70ms，20 个字就是 1.4 秒。
+                        // 而它的收益只体现在"模型正在拒答"这一种情况上。
+                        //
+                        // ⇒ 用一个**廉价的预筛**：只有当已收到的开头
+                        //   **看起来像拒答**时，才继续扣住等更多字；
+                        //   否则**立刻放**（哪怕只有 3 个字）。
+                        //
+                        // ★ 预筛的判据是"前缀是否可能演变成拒答标记"：
+                        //   拒答标记几乎都以这几个字开头（我/作为/A/I），
+                        //   而角色的正常开场极少以"我无法/我不能提供"起手。
+                        //
+                        // ⚠️ 这个预筛**不承担正确性** —— 它只是个加速开关。
+                        //   真正的判定在下面（`refusalOf` 检查完整前缀）
+                        //   以及收尾的整段判定。预筛判错的方向只有两个：
+                        //     · 该扣没扣（漏拦截）⇒ 走收尾判定兜住
+                        //     · 不该扣却扣了（多等一会儿）⇒ 只损失那一次
+                        //   两者都不会让功能失效。
                         val head = sb.toString()
-                        if (container.refusalOf(head) == Refusal.HARD) {
+                        if (mayBecomeRefusal(head) && head.length < HOLD_CHARS) {
+                            // 可疑且还没攒够 ⇒ 继续等（本次不放）
+                        } else if (container.refusalOf(head) == Refusal.HARD) {
+                            // 已确认是拒答 ⇒ 不放，交给上层重试
                             Timber.i("扣住段内命中硬拒答，暂不放字")
-                            // released 保持 0 ⇒ 后续也不再放（本次作废）
                         } else {
+                            // 正常 ⇒ 立刻放（**这就是首字延迟的优化**）
                             onDelta(head)
                             released = sb.length
                         }
-                    } else if (released > 0) {
+                    } else {
                         onDelta(chunk.text)
                         released = sb.length
                     }
@@ -714,6 +737,23 @@ internal const val CHAT_MAX_STEPS = 16
  *   那时保持纯流式（用户的选择优先于我们的手感判断）。
  */
 private const val HOLD_CHARS = 20
+
+/**
+ * **廉价预筛**：这段开头有没有可能演变成本拒答？
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  ★ 实现住在 `:legacy/RefusalDetector.mayBecomeRefusal`
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * ⚠️ 之前我把这份词表直接写在本文件里，但 `:app` **进不了离线验证器** ——
+ *    于是"哪些串算拒答起手"这条策略没有测试盯着。
+ *    现在它挪到 `:legacy`（在验证器里），本文件只转发。
+ *
+ * ★ 那里有 8 条测试专门盯"正常开场不能被误判"——
+ *   那条边界比"能识别拒答"更重要：误判会让**每一次**对话都多等 20 字。
+ */
+private fun mayBecomeRefusal(head: String): Boolean =
+    com.pocketagent.legacy.RefusalDetector.mayBecomeRefusal(head)
 
 /** 取一段消息里的纯文本（工具调用等非文本片段忽略）。 */
 private fun ChatMessage.plainText(): String =
