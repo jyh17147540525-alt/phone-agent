@@ -269,10 +269,24 @@ fun AppShell(
         if (motionPref.animationsOn) PaMotion.fast() else androidx.compose.animation.core.snap()
     val layerSpec: androidx.compose.animation.core.FiniteAnimationSpec<Float> =
         if (motionPref.animationsOn) PaMotion.standard() else androidx.compose.animation.core.snap()
-    // ⚠️ `slideIn/OutHorizontally` 的 spec 类型是 `FiniteAnimationSpec<IntOffset>`，
-    //    不能与上面的 Float 共用 —— 传错是编译期报错（这次就报了）。
+    // ═══════════════════════════════════════════════════════════════
+    //  ★★ 2026-10-31：位移改用 `PaMotion.slide`（`Standard` 曲线）
+    // ═══════════════════════════════════════════════════════════════
+    //
+    // 用户："就像我在 app 里打开二级和三级页面时，你也没有做好丝滑的转场。"
+    //
+    // 根因是曲线用错：原来位移也用 `standard()`（= `Emphasized`），
+    // 而那条曲线「前 20% 走完 80% 的距离」。用在 24dp 的位移上，
+    // 观感是"唰一下到位，然后原地磨 200 多毫秒" —— 也就是**卡了一下**。
+    //
+    // ⇒ 位移用 `slide()`（`Standard`，温和进出、中段匀速），
+    //   淡入仍用 `standard()`（`Emphasized`，长尾浮现 —— 那个是对的）。
+    //
+    // ⚠️ `slideIn/OutHorizontally` 的 spec 类型是
+    //    `FiniteAnimationSpec<IntOffset>`，不能与 Float 共用 ——
+    //    传错是编译期报错（之前就报过）。
     val slideSpec: androidx.compose.animation.core.FiniteAnimationSpec<androidx.compose.ui.unit.IntOffset> =
-        if (motionPref.animationsOn) PaMotion.standard() else androidx.compose.animation.core.snap()
+        if (motionPref.animationsOn) PaMotion.slide() else androidx.compose.animation.core.snap()
 
     // ═══════════════════════════════════════════════════════════════
     //   ★★ 2026-10-30：转场重做 —— 用户："各个页面之间的切换有种突兀感"
