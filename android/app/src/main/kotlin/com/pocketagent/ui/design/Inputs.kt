@@ -161,7 +161,11 @@ fun PaFilterChip(
         label = "chipBackground",
     )
     val contentColor by animateColorAsState(
-        targetValue = if (selected) PaColor.Accent else PaColor.TextSecondary,
+        // ★★ 2026-10-31：这里是**文字**，要用 `AccentText` 而不是 `Accent`。
+        //    筛选标签的底色是 `AccentSoft`（极淡的强调色），文字压在它上面 ——
+        //    而 `Accent`(#C96442) 作文字只有 3.49，达不到 AA 的 4.5。
+        //    `AccentText`(#A34A28) 是 5.27。
+        targetValue = if (selected) PaColor.AccentText else PaColor.TextSecondary,
         animationSpec = PaMotion.standard(),
         label = "chipContent",
     )

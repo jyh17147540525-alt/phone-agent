@@ -143,8 +143,15 @@ private fun NavItemView(
     // ⚠️ 2026-10-30：与指示器、页面转场统一成 180ms。
     //    这三件东西（图标变色 / 方块滑动 / 页面淡入）在用户眼里
     //    是**同一个动作**，收尾不同步就会显得"哪里慢了半拍"。
+    //
+    // ★★ 2026-10-31：改成 `AccentText` —— tab 选中态是**文字 + 图标**，
+    //    压在 `GlassTintStrong`（半透明浅色）上，与"文字在暖米底上"
+    //    是同一个对比度约束。`Accent` 只有 3.49，`AccentText` 是 5.27。
+    //
+    // ⚠️ 而**指示器**（那个 `AccentSoft` 方块）仍用原色 —— 它是**背景**，
+    //    不需要对比度；换成深色版会让它显得笨重。
     val tint by animateColorAsState(
-        targetValue = if (selected) PaColor.Accent else PaColor.TextTertiary,
+        targetValue = if (selected) PaColor.AccentText else PaColor.TextTertiary,
         animationSpec = PaMotion.fast(),
         label = "navItemTint",
     )

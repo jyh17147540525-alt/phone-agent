@@ -723,7 +723,7 @@ private fun ParamDialog(
             TextButton(
                 onClick = { onRun(capability.params.associate { it.name to values[it.name].orEmpty() }) },
             ) {
-                Text(text = "继续", style = PaType.label, color = PaColor.Accent)
+                Text(text = "继续", style = PaType.label, color = PaColor.AccentText)
             }
         },
         dismissButton = {
@@ -847,7 +847,8 @@ private fun ConfirmDialog(
                 Text(
                     text = if (asksAboutFile) "确认" else "执行",
                     style = PaType.label,
-                    color = PaColor.Accent,
+                    // ★ 文字用途 ⇒ AccentText（见 PaButton 的 contentColor 注释）
+                    color = PaColor.AccentText,
                 )
             }
         },

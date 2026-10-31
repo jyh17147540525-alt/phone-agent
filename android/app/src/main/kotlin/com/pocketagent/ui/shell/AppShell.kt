@@ -1095,7 +1095,7 @@ private fun FirstRunGuide(
         },
         confirmButton = {
             TextButton(onClick = onGoGrant) {
-                Text("去授权", color = PaColor.Accent)
+                Text("去授权", color = PaColor.AccentText)
             }
         },
         dismissButton = {

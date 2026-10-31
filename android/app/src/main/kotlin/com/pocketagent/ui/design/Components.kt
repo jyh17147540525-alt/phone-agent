@@ -255,7 +255,11 @@ fun PaButton(
         style == PaButtonStyle.Primary -> Color(0xFF06121F)
         style == PaButtonStyle.Danger -> Color(0xFF1A0505)
         style == PaButtonStyle.Glass -> PaColor.TextPrimary
-        else -> PaColor.Accent
+        // ★★ 2026-10-31：`Text` 变体是**透明底 + 文字**，所以用 `AccentText`。
+        //    ⚠️ 这里最容易搞混：同一个 `PaButton` 里，Primary 变体的
+        //    `background` 用 `Accent`（背景，对），而 Text 变体的
+        //    `contentColor` 不能用 `Accent`（文字，对比度只有 3.49）。
+        else -> PaColor.AccentText
     }
 
     Row(
@@ -383,7 +387,10 @@ fun PaBadge(
 ) {
     val color = when (tone) {
         PaBadgeTone.Neutral -> PaColor.TextSecondary
-        PaBadgeTone.Accent -> PaColor.Accent
+        // ★★ 2026-10-31：徽章的 `color` **同时**用作背景（14% alpha）
+        //    和文字。⇒ 它必须按**文字**的要求取色（AA 4.5），
+        //    因为 14% 的背景本来就极淡，不构成对比度问题。
+        PaBadgeTone.Accent -> PaColor.AccentText
         PaBadgeTone.Success -> PaColor.Success
         PaBadgeTone.Warning -> PaColor.Warning
         PaBadgeTone.Danger -> PaColor.Danger

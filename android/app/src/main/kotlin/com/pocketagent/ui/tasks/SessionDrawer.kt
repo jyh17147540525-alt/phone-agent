@@ -254,7 +254,7 @@ fun SessionDrawer(
                 TextButton(onClick = {
                     onRename(target.id, draft)
                     renaming = null
-                }) { Text("保存", color = PaColor.Accent) }
+                }) { Text("保存", color = PaColor.AccentText) }
             },
             dismissButton = {
                 TextButton(onClick = { renaming = null }) {
@@ -366,7 +366,7 @@ private fun DrawerHint(title: String, action: Pair<String, () -> Unit>?) {
         )
         action?.let { (label, onClick) ->
             Spacer(Modifier.height(PaSpace.s))
-            TextButton(onClick = onClick) { Text(label, color = PaColor.Accent) }
+            TextButton(onClick = onClick) { Text(label, color = PaColor.AccentText) }
         }
     }
 }

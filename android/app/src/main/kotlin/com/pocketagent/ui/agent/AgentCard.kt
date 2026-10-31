@@ -226,7 +226,7 @@ private fun RunningIndicator() {
                 .background(PaColor.Accent),
         )
         Spacer(Modifier.width(PaSpace.xxs))
-        Text(text = stateLabel(CardState.RUNNING), style = PaType.label, color = PaColor.Accent)
+        Text(text = stateLabel(CardState.RUNNING), style = PaType.label, color = PaColor.AccentText)
     }
 }
 
