@@ -183,6 +183,26 @@ sealed interface ChatResult {
          *   点一下就用 Act 语义重发这一句。
          */
         val offerHelp: Boolean = false,
+
+        /**
+         * 这一轮**真的动过手**时的步骤记录（`"android_tap → 点击了确定"` 这种）。
+         *
+         * ═══════════════════════════════════════════════════════════
+         *  ★★ 2026-10-31：`PhoneRunResult` 一直带着 trace，但没人接
+         * ═══════════════════════════════════════════════════════════
+         *
+         * `PhoneRunResult.Answered` / `StepLimitReached` / `Stopped`
+         * 三个分支**都有** `trace: List<String>` —— 循环每做一步就记一行。
+         *
+         * ⚠️ 而 `ChatPort` 只取了 `text`，trace **直接丢掉**。
+         *    后果：用户看不到它到底做了什么。它说"我已经帮你打开了设置"，
+         *    但没有任何证据 —— 而手机操作是**有副作用**的，
+         *    用户需要能核对。
+         *
+         * ★ 这也正是 `PaCardStack`（叠卡展开）缺的那个数据源：
+         *   3 步以上才值得叠，而真实任务常常 5~10 步。
+         */
+        val trace: List<String> = emptyList(),
     ) : ChatResult
 
     /**
@@ -378,6 +398,13 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
     //   · **不流式**（`ChatResult.Ok` 仍是整段返回）—— 见 `StreamPump`（未接线）；
     //   · 循环的所有保护（预算 / 步数 / 重复检测 / 安全拒绝不许重试）
     //     都在 `:agentlogic` 里。
+    /**
+     * 这一轮的步骤记录（`"android_tap → 点击了确定"`）。
+     *
+     * ⚠️ 必须在 `try` **外面**声明：它在 `try` 内部被赋值，
+     *    而消费点在 `try` 之后（组装 `ChatResult.Ok` 那里）。
+     */
+    var runTrace: List<String> = emptyList()
     val text = try {
         store.useKey(config.credentialId) { provider, credential ->
             // ── 纯对话：一次性请求，零工具 ────────────────────
@@ -493,6 +520,10 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                 },
             )
             // ★ 四种结局都要翻成**用户能理解**的一句话（见 explainRun）。
+            //
+            // ★★ 2026-10-31：同时把 `trace` 留下来 —— 在此之前它被丢掉，
+            //    用户没法核对它到底点了哪里（见 `traceOf` 的注释）。
+            runTrace = traceOf(result)
             explainRun(result)
         }
     } catch (e: kotlinx.coroutines.CancellationException) {
@@ -569,6 +600,9 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                 //    再做一遍"。
                 offerHelp = !didAct &&
                     com.pocketagent.rootlogic.IntentClassifier.shouldOfferHelp(decision),
+                // ★★ 2026-10-31：把步骤记录交给界面 —— 用户要能核对
+                //    它到底点了哪里（手机操作有副作用）。
+                trace = runTrace,
             )
         }
     }
@@ -795,7 +829,27 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
      *   在起作用 —— 文案必须让用户知道"这件事得你自己做"，
      *   而不是"它坏了，再试一次"。
      */
-    private fun explainRun(result: PhoneRunResult): String = when (result) {
+    /**
+ * 从循环结果里取**步骤记录**。
+ *
+ * ★★ 2026-10-31：三个分支都带着 `trace`，而在此之前
+ * `ChatPort` 只取 `text`，trace **直接丢掉**。
+ *
+ * ⚠️ 后果不是"少了点日志"，而是**用户没法核对**：
+ *    它说"我已经帮你打开了设置"，但没有任何证据。
+ *    而手机操作是**有副作用**的 —— 点错一个按钮可能就发了消息、
+ *    付了款。用户需要能看到它到底点了哪里。
+ *
+ * ★ 这同时是 `PaCardStack`（叠卡展开）缺的数据源：
+ *   3 步以上才值得叠，而真实任务常常 5~10 步。
+ */
+private fun traceOf(result: PhoneRunResult): List<String> = when (result) {
+    is PhoneRunResult.Answered -> result.trace
+    is PhoneRunResult.StepLimitReached -> result.trace
+    is PhoneRunResult.Stopped -> result.trace
+}
+
+private fun explainRun(result: PhoneRunResult): String = when (result) {
         is PhoneRunResult.Answered -> result.text
 
         is PhoneRunResult.StepLimitReached ->

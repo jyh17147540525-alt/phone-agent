@@ -640,6 +640,51 @@ internal fun TaskCard(
         }
 
         // ══════════════════════════════════════════════════════════
+        //  ★★ 2026-10-31：**步骤记录** —— 用 `PaCardStack`（叠卡展开）
+        // ══════════════════════════════════════════════════════════
+        //
+        // `PaCardStack` + `:agentui/CardStack`（含 `STACK_VISIBLE=3`、
+        // `EXPAND_LIMIT=8`、以及"两张卡不该叠"的判断）在 `7d0357d`
+        // 就建好了，但**零调用方** —— 因为项目里**没有"一堆同类卡片"
+        // 的数据源**。
+        //
+        // ⇒ 现在有了：agent 循环的 trace。真实任务常常 5~10 步，
+        //   一步步平铺会把回答顶到屏幕外；叠起来只露 3 张，
+        //   点一下展开到 8 张。
+        //
+        // ⚠️ 少于 3 步**不叠**（`CardStack.shouldStack` 已判）：
+        //    两张卡做成叠卡，用户要多点一次才能看到第二张 —— 那是倒退。
+        if (task.trace.isNotEmpty()) {
+            var traceExpanded by androidx.compose.runtime.remember(task.id) {
+                androidx.compose.runtime.mutableStateOf(false)
+            }
+            com.pocketagent.ui.design.PaCardStack(
+                count = task.trace.size,
+                expanded = traceExpanded,
+                onToggle = { traceExpanded = !traceExpanded },
+                modifier = Modifier.padding(top = PaSpace.s),
+                collapsedContent = {
+                    Text(
+                        text = "它做了 ${task.trace.size} 步操作",
+                        style = PaType.label,
+                        color = PaColor.TextSecondary,
+                    )
+                },
+                expandedContent = {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        task.trace.forEach { line ->
+                            Text(
+                                text = "· ${line}",
+                                style = PaType.caption,
+                                color = PaColor.TextTertiary,
+                            )
+                        }
+                    }
+                },
+            )
+        }
+
+        // ══════════════════════════════════════════════════════════
         //  ★★ 2026-10-31：**「让我来做」** —— 给保守判定一个出口
         // ══════════════════════════════════════════════════════════
         //
@@ -1010,6 +1055,27 @@ data class AgentTaskUi(
      *   这是它的第一个消费方）。
      */
     val offerHelp: Boolean = false,
+
+    /**
+     * 这一轮**真的动过手**时的步骤记录（`"android_tap → 点击了确定"`）。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★★ 2026-10-31：`PhoneRunResult` 一直带着 trace，但没人接
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 三个结局分支（`Answered` / `StepLimitReached` / `Stopped`）
+     * **都有** `trace: List<String>`，而 `ChatPort` 只取了 `text`，
+     * trace **直接丢掉**。
+     *
+     * ⚠️ 后果不是"少了点日志"，而是**用户没法核对**：
+     *    它说"我已经帮你打开了设置"，但没有任何证据。
+     *    而手机操作是**有副作用**的 —— 点错一个按钮可能就发了消息、
+     *    付了款。用户需要能看到它到底点了哪里。
+     *
+     * ★ 这同时是 `PaCardStack`（叠卡展开）缺的数据源：
+     *   3 步以上才值得叠，而真实任务常常 5~10 步。
+     */
+    val trace: List<String> = emptyList(),
 
     /**
      * 这一轮附带的一句系统提示（当前只有一种：用户要求了成熟内容但没开启）。
@@ -2074,6 +2140,9 @@ class TasksViewModel(
                             // ★★ 2026-10-31：低置信度判成 Chat 时给一个出口
                             //    （见 `AgentTaskUi.offerHelp` 的注释）
                             offerHelp = result.offerHelp,
+                            // ★★ 2026-10-31：步骤记录 —— 用户要能核对
+                            //    它到底点了哪里（见 `AgentTaskUi.trace`）
+                            trace = result.trace,
                             hint = matureHintFor(it.prompt),
                         )
                     }
