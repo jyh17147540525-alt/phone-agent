@@ -69,6 +69,18 @@ data class EditorState(
     val saving: Boolean = false,
 )
 
+/**
+ * Key 页的界面状态。
+ *
+ * ★★ 2026-10-31：加 `@Immutable`。这个是**收益最大**的一个：
+ * 它有三个 `List` 字段 + 一个 `Set`，而且 Key 页在"校验中"会频繁
+ * 翻转 `validatingIds` —— 不加标注时每次翻转都整页重组，
+ * 用户看到的是"点校验之后整屏闪一下"。
+ *
+ * ★ 安全性：全部 `val`，集合都是整体替换（`copy(credentials = …)`），
+ *   没有一处原地 `add`。
+ */
+@androidx.compose.runtime.Immutable
 data class KeysUiState(
     val store: StoreState = StoreState.Opening,
     val credentials: List<StoredCredential> = emptyList(),

@@ -12,6 +12,31 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/**
+ * 插件页的界面状态。
+ *
+ * ★★ 2026-10-31：加 `@Immutable`。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  为什么这个标注能让界面更快
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * `plugins: List<InstalledPlugin>` 是 Compose 认为**不稳定**的类型
+ * （`List` 是接口，它无法确认"值相等就真的相等"）。
+ *
+ * ⇒ 不加标注时，父级每次重组都会**重新组合整页**，哪怕 `plugins`
+ *   的内容一个字都没变。而插件页在安装过程中会频繁更新 state
+ *   （loading 翻转、进度刷新）—— 每次都整页重组。
+ *
+ * ★ 安全性：本类的所有字段都是 `val`，且**没有任何一处**会去
+ *   `plugins.add(...)`（每次都是 `copy(plugins = 新列表)` 整体替换）。
+ *   所以标 `@Immutable` 是**陈述事实**，不是骗编译器。
+ *
+ * ⚠️ 如果将来有人改成原地修改列表，界面会**永远不更新** ——
+ *   那不是"慢"，是"坏了"，而且极难查。规则见
+ *   `:agentui/ComposeStability.isSafeImmutableCandidate`。
+ */
+@androidx.compose.runtime.Immutable
 data class InstalledPluginsUiState(
     val loading: Boolean = true,
     val plugins: List<InstalledPlugin> = emptyList(),

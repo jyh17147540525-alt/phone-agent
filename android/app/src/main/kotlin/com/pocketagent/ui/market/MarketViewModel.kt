@@ -20,7 +20,15 @@ import timber.log.Timber
  * [catalog] 与 [loading] 是两个独立维度，不能合并成一个 `Loading/Ready/Error` 枚举：
  * 刷新时旧目录**必须继续显示**。把它清空会让列表在每次刷新时闪一下白屏，
  * 而用户可能正在读某个插件的权限说明。
+ *
+ * ★★ 2026-10-31：加 `@Immutable`。理由见 `InstalledPluginsUiState` 的注释 ——
+ * `Set<String>`（installedIds / installing）与 `MarketCatalog?` 都是
+ * Compose 认为不稳定的类型，不加标注会让整页在每次状态更新时重组。
+ *
+ * ★ 安全性：全部 `val`，且集合都是**整体替换**（`copy(installedIds = …)`），
+ *   没有一处原地 `add`。
  */
+@androidx.compose.runtime.Immutable
 data class MarketUiState(
     val loading: Boolean = false,
     val catalog: MarketCatalog? = null,
