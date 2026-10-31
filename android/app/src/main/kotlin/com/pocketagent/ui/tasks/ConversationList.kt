@@ -249,13 +249,18 @@ private fun TurnBubbles(
             //   ② **值得期待**（等了几秒，回复终于来了）
             //   ③ **不阻塞操作**（它自己长出来，用户不需要精确点它）
             //
+            // ★ 2026-10-31：改用 `settled()`（阻尼 0.8），不用 `bouncy()`。
+            //   `bouncy()` 现在是**零过冲**（行业默认，见它的注释），
+            //   而这里需要一点点"重量感" —— 那个需求是真实的。
+            //   ⇒ 用中间档，而不是把全站默认改回会弹。
+            //
             // ★ 弹性在这里的作用是"内容压实了、有了重量"——
             //   而不是"弹了一下"。所以配的是**很轻**的过冲（见 PaMotion.bouncy
             //   的阻尼 0.5），并且仍然先淡入。
             //
             // ⚠️ 反例（都不要用 bouncy）：底栏切换、开关、列表滚动。
             //   那些是高频操作，回弹会让人烦。
-            enter = fadeIn(PaMotion.standard()) + expandVertically(PaMotion.bouncy()),
+            enter = fadeIn(PaMotion.standard()) + expandVertically(PaMotion.settled()),
         ) {
             Row(modifier = Modifier.fillMaxWidth().padding(top = PaSpace.xs)) {
                 Text(

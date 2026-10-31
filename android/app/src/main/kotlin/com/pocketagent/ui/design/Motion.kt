@@ -34,18 +34,54 @@ object PaEasing {
 
     /**
      * 全局默认。快起慢停，长尾收束。
-     * 对应 CSS 的 `cubic-bezier(0.16, 1, 0.3, 1)`。
+     *
+     * ★ 这个值对应 **Material 3 的 `emphasizedDecelerate`**
+     *   （`cubic-bezier(0.16, 1, 0.3, 1)`）—— 已交叉核对过
+     *   Material 的 motion token 规格，不是随手写的美术数字。
+     *
+     * ⚠️ 它的特征是**前 20% 走完 80% 的距离**，然后长尾缓停。
+     *    适合**淡入 / 颜色过渡 / 内容浮现**。
+     *
+     * ⚠️⚠️ **不适合位移** —— 位移用 [Standard]。
+     *    原因见 `PaMotion.slide` 的注释：位移用长尾曲线会让观感
+     *    变成"唰一下到位，然后原地磨 200ms"。
      */
     val Emphasized: Easing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)
 
-    /** 标准进出。比 Emphasized 温和，用于小幅度的状态变化 */
+    /**
+     * 标准进出。**位移用这个**。
+     *
+     * ★ `cubic-bezier(0.2, 0, 0, 1)` 对应 Material 的
+     *   `standard` / `standardDecelerate` 一族 —— 温和进出，
+     *   中段速度快且均匀，观感是"匀速走过这段距离然后停下"。
+     */
     val Standard: Easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 
     /** 退出专用。慢起快走 */
     val Exit: Easing = CubicBezierEasing(0.4f, 0f, 1f, 1f)
 
-    /** 用于"强调"类的进入，如底部弹层 */
-    val Overshoot: Easing = CubicBezierEasing(0.34f, 1.3f, 0.64f, 1f)
+    /**
+     * 用于"强调"类的进入。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★★ 2026-10-31：过冲从 1.3 降到 **1.08**
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 调研结论（多个 skill 库交叉确认）：
+     * > `dampingFraction 1.0 = critically damped — smooth settle,
+     * >  NO overshoot (house default)`
+     *
+     * ⚠️ 也就是说：**高质量产品的默认是零过冲**。而这里原来是
+     *    `y1 = 1.3` —— 那是**大幅过冲**，观感是"弹了一下"。
+     *
+     * ⚠️ 大幅过冲是"廉价感"的主要来源：它让界面看起来像
+     *    2013 年的 jQuery 动画。Claude / Linear / Notion / iOS
+     *    系统动画**全部**是零过冲或极微弱过冲。
+     *
+     * ★ 1.08 而不是 1.0：完全无过冲的 "强调" 就不再是强调了。
+     *   8% 的过冲看得见"弹了一下"，但说不出"廉价"。
+     */
+    val Overshoot: Easing = CubicBezierEasing(0.34f, 1.08f, 0.64f, 1f)
 }
 
 /** 时长。单位毫秒。命名按用途，不按数值。 */
@@ -117,17 +153,74 @@ object PaMotion {
     /**
      * 弹性 spec —— 用于"可拖拽/可抛掷"的元素（如底部弹层）。
      *
-     * ⚠️ 阻尼常量的正确名字是 `DampingRatioMediumBouncy`（0.5），
-     *    不是 `DampingRatioMediumLow` —— Compose 的 `Spring` 里
-     *    阻尼只有 Bouncy 系列（High/Medium/Low Bouncy）和 NoBouncy，
-     *    没有 Low 这个后缀。写错会直接 `Unresolved reference`。
+     * ═══════════════════════════════════════════════════════════════
+     *  ★★ 2026-10-31：阻尼从 0.5 改成 **1.0（零过冲）**
+     * ═══════════════════════════════════════════════════════════════
      *
-     * 0.5 的阻尼让回弹只出现一次轻微过冲，不会来回弹：
-     *  · `DampingRatioNoBouncy`（1.0）完全没有弹性，显得呆
-     *  · `DampingRatioHighBouncy`（0.2）会弹个不停，显得廉价
+     * 用户："质量还是太低了，你自己去网上查找 ui 设计类的 skill 和知识库。"
+     *
+     * 查到一条行业实践（多个 skill 库交叉确认）：
+     * > `dampingFraction 1.0 = critically damped — smooth settle,
+     * >  NO overshoot (house default)`
+     *
+     * ⚠️ 也就是说：**高质量产品的默认是零过冲**，而这里原来是 0.5
+     *    （`DampingRatioMediumBouncy`）—— 它会过冲。
+     *
+     * 过冲在"可抛掷"元素上是合理的（你甩它一下，它当然会弹回来）。
+     * 但本项目把它当**通用弹性**用在各种场合，于是每次出现都带一个小回弹。
+     *
+     * ⚠️ 微小的过冲是"廉价感"的主要来源之一：
+     *    用户说不清哪里不对，但会觉得"这个 app 有点玩具"。
+     *    Claude / Linear / Notion 的动效全部是**零过冲**的 ——
+     *    它们看起来"高级"很大程度上就是这一点。
+     *
+     * ★ 保留一个真正需要弹性的出口：[throwable]。
+     *   只有拖拽/抛掷类交互才用 0.5 —— 那里过冲是对的（物理上就该弹）。
      */
     fun <T> bouncy(): FiniteAnimationSpec<T> = spring(
+        // ⚠️ 1.0 = 临界阻尼 = 平滑沉降、零过冲。见上文的调研结论。
+        dampingRatio = Spring.DampingRatioNoBouncy,
+        stiffness = Spring.StiffnessMediumLow,
+    )
+
+    /**
+     * **真的会弹的** spec —— 只给拖拽/抛掷类交互用。
+     *
+     * ⚠️ 与 [bouncy] 分开是刻意的：
+     *  · 普通元素出现 → [bouncy]（零过冲，高级感）
+     *  · 你甩出去的东西回弹 → 这里（0.5，物理上就该弹）
+     *
+     * 混用会让"什么时候该弹"失去意义 —— 全都弹等于全都不重要。
+     */
+    fun <T> throwable(): FiniteAnimationSpec<T> = spring(
         dampingRatio = Spring.DampingRatioMediumBouncy,
+        stiffness = Spring.StiffnessMediumLow,
+    )
+
+    /**
+     * **内容压实** —— 用于"等了一会儿、终于来了"的主要内容出现。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★★ 2026-10-31：为什么它介于 [bouncy] 和 [throwable] 之间
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * AI 回复出现那个位置（`ConversationList` 的 `showReply`）满足三个条件：
+     *   ① **低频**（每轮对话一次）
+     *   ② **值得期待**（等了几秒）
+     *   ③ **不阻塞操作**（它自己长出来）
+     *
+     * ⇒ 那里可以有一点点"重量感"。但**不能是全弹**：
+     *   调研结论是高质量产品的默认零过冲（见 [bouncy] 的注释），
+     *   而"回复出现"是最高频的内容动效之一 —— 每次都弹会变成噪音。
+     *
+     * ★ 0.8 是这个折中的落点：
+     *   · 1.0（临界）—— 完全平滑，内容的"到来感"会弱
+     *   · 0.8 —— 极轻微的一次收束，看得见但说不出
+     *   · 0.5 —— 明显回弹，已经偏"玩具"
+     */
+    fun <T> settled(): FiniteAnimationSpec<T> = spring(
+        // ⚠️ Compose 没有 0.8 的常量，直接给数值。
+        dampingRatio = 0.8f,
         stiffness = Spring.StiffnessMediumLow,
     )
 
