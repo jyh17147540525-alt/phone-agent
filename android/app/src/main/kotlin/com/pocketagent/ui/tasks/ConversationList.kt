@@ -143,6 +143,26 @@ private fun TurnBubbles(
     Column(modifier = Modifier.fillMaxWidth()) {
 
         // ── 用户：右对齐的浅色气泡 ────────────────────────────
+        //
+        // ══════════════════════════════════════════════════════════
+        //  ★★ 2026-10-31：**圆形扩散入场**（`PaCircleRevealEffect`）
+        // ══════════════════════════════════════════════════════════
+        //
+        // 用户发言**本来就从输入框长出来** —— 圆形扩散正是这件事的
+        // 视觉表达：一个圆从下方（输入框方向）长大，把这条消息揭开。
+        //
+        // ⚠️ 圆心放在气泡的**右下角**：那是离输入框最近、
+        //    也是离用户拇指最近的那个点。放中心会变成"从中间炸开"，
+        //    与"我说了句话"这个动作无关。
+        //
+        // ⚠️ 只给**用户自己的**消息加，AI 的回复不加：
+        //    回复是"它说出来的"，不是"从我这儿长出来的" ——
+        //    同一个转场会让两种消息失去方向感，而方向感正是
+        //    对话界面的基础（谁在说话）。
+        //
+        // ★ `PaCircleRevealEffect` + `:agentui/CircleReveal`（含
+        //   `maxRadiusFrom` / `radiusAt` / `coverage` 的羽化计算）
+        //   在 `7d0357d` 就建好了，此前**零调用方**。
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.End,
@@ -151,24 +171,36 @@ private fun TurnBubbles(
                 modifier = Modifier
                     // ⚠️ 最多占 82% 宽度：满宽气泡会让"谁说的"失去方向感。
                     //    留出的那一点空白，就是对话感的来源。
-                    .fillMaxWidth(0.82f)
-                    .background(
-                        color = PaColor.AccentSoft,
-                        shape = RoundedCornerShape(
-                            topStart = PaRadius.m,
-                            topEnd = PaRadius.m,
-                            bottomStart = PaRadius.m,
-                            // 右下角收窄 —— 指向说话的人，是最省事的"方向暗示"
-                            bottomEnd = PaRadius.xs,
-                        ),
-                    )
-                    .padding(horizontal = PaSpace.s, vertical = PaSpace.xs),
+                    .fillMaxWidth(0.82f),
             ) {
-                Text(
-                    text = task.prompt,
-                    style = PaType.body,
-                    color = PaColor.TextPrimary,
-                )
+                com.pocketagent.ui.design.PaCircleRevealEffect(
+                    visible = true,
+                    // 圆心 = 右下角（离输入框最近的那个点）
+                    centerX = 1f,
+                    centerY = 1f,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                color = PaColor.AccentSoft,
+                                shape = RoundedCornerShape(
+                                    topStart = PaRadius.m,
+                                    topEnd = PaRadius.m,
+                                    bottomStart = PaRadius.m,
+                                    // 右下角收窄 —— 指向说话的人
+                                    bottomEnd = PaRadius.xs,
+                                ),
+                            )
+                            .padding(horizontal = PaSpace.s, vertical = PaSpace.xs),
+                    ) {
+                        Text(
+                            text = task.prompt,
+                            style = PaType.body,
+                            color = PaColor.TextPrimary,
+                        )
+                    }
+                }
             }
         }
 

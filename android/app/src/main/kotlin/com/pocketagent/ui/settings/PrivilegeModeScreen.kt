@@ -90,31 +90,39 @@ fun PrivilegeModeScreen(
         // ── 开关本体 ─────────────────────────────────────────────
         item {
             PaListGroup {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = if (checked) "Root 模式" else "普通模式",
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = if (checked) PrivilegeMode.ROOT.summary else PrivilegeMode.NON_ROOT.summary,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    Switch(
-                        checked = checked,
-                        onCheckedChange = { want ->
-                            checked = want
-                            onToggle(if (want) PrivilegeMode.ROOT else PrivilegeMode.NON_ROOT)
-                        },
-                    )
-                }
+                // ══════════════════════════════════════════════════════
+                //  ★★ 2026-10-31：换成 `PaCheckRow`
+                // ══════════════════════════════════════════════════════
+                //
+                // 原来这里是手写的 `Row { Column{}; Switch{} }`，
+                // 而且**用的是 `MaterialTheme.typography` 与
+                // `colorScheme.onSurfaceVariant`** —— 与本项目的设计系统
+                // （`PaType` / `PaColor`）完全脱节。
+                //
+                // ⚠️ 后果不是"难看"，而是**它在深色主题下会跟别的页不一致**：
+                //    Material 的 `onSurfaceVariant` 是它自己那套灰，
+                //    而本项目刚做过 WCAG 审计、把 `TextSecondary` /
+                //    `TextTertiary` 都算过对比度 —— Material 的灰没过那次审计。
+                //
+                // ⇒ 用 `PaCheckRow`（`7d0357d` 建好、此前**零调用方**）：
+                //   它自带 `PaType` + `PaColor`，而且**整行可点**
+                //   （原来只有那个小开关可点 —— 触控目标是 48dp 还是整行，
+                //   在"躺着单手操作"时差别很大）。
+                com.pocketagent.ui.design.PaCheckRow(
+                    checked = checked,
+                    title = if (checked) "Root 模式" else "普通模式",
+                    subtitle = if (checked) {
+                        PrivilegeMode.ROOT.summary
+                    } else {
+                        PrivilegeMode.NON_ROOT.summary
+                    },
+                    onToggle = {
+                        val want = !checked
+                        checked = want
+                        onToggle(if (want) PrivilegeMode.ROOT else PrivilegeMode.NON_ROOT)
+                    },
+                    modifier = Modifier.padding(horizontal = PaSpace.s),
+                )
             }
         }
 
