@@ -79,13 +79,24 @@ fun ConversationList(
     modifier: Modifier = Modifier,
     onConfirm: ((String) -> Unit)? = null,
     onDecline: ((String) -> Unit)? = null,
+    /**
+     * 用户点了「让我来做」—— 用 Act 语义重发这一句。
+     *
+     * ★★ 2026-10-31：见 AgentTaskUi.offerHelp 的注释
+     * （意图分类器保守判定的用户出口）。
+     */
+    onActAnyway: ((String) -> Unit)? = null,
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(PaSpace.m),
     ) {
         tasks.forEach { task ->
-            ConversationTurn(task = task, onAbort = { onAbort(task.id) })
+            ConversationTurn(
+                task = task,
+                onAbort = { onAbort(task.id) },
+                onActAnyway = onActAnyway,
+            )
         }
     }
 }
@@ -103,10 +114,15 @@ fun ConversationList(
 internal fun ConversationTurn(
     task: AgentTaskUi,
     onAbort: () -> Unit,
+    onActAnyway: ((String) -> Unit)? = null,
 ) {
     if (task.isAgentRun) {
         // 真的动了手 —— 保留完整卡片（进度、步骤、中止）
-        TaskCard(task = task, onAbort = onAbort)
+        TaskCard(
+            task = task,
+            onAbort = onAbort,
+            onActAnyway = { id -> onActAnyway?.invoke(id) },
+        )
     } else {
         // 纯对话 —— 气泡流
         TurnBubbles(task = task, onAbort = onAbort)

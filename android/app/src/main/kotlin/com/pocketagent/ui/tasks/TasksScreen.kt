@@ -255,6 +255,8 @@ fun TasksScreen(
                             ConversationTurn(
                                 task = task,
                                 onAbort = { vm.abort(task.id) },
+                                // ★★ 2026-10-31：给意图分类器的保守判定一个出口
+                                onActAnyway = { id -> vm.actAnyway(id) },
                             )
                         }
                     }
@@ -506,6 +508,13 @@ internal fun TaskCard(
     task: AgentTaskUi,
     onAbort: () -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * 用户点了「让我来做」—— 用 Act 语义重发这一句。
+     *
+     * ★★ 2026-10-31：给意图分类器的保守判定一个**用户出口**。
+     * 见 `AgentTaskUi.offerHelp` 的注释。
+     */
+    onActAnyway: (taskId: String) -> Unit = {},
 ) {
     GlassSurface(modifier = modifier.fillMaxWidth()) {
         // ══════════════════════════════════════════════════════════
@@ -628,6 +637,34 @@ internal fun TaskCard(
                     modifier = Modifier.padding(top = PaSpace.s),
                 )
             }
+        }
+
+        // ══════════════════════════════════════════════════════════
+        //  ★★ 2026-10-31：**「让我来做」** —— 给保守判定一个出口
+        // ══════════════════════════════════════════════════════════
+        //
+        // 意图分类器把"动作词 + 提问标记"判成 Chat（保守，是对的），
+        // 但那样模型拿不到工具，只能回"我没法看你的屏幕"。
+        // 实测：`open settings and tell me what you see` 就走了这条路。
+        //
+        // ⚠️ 用户当时**没有任何办法**把这句话变成"真的去做"——
+        //    只能换个说法再猜一次。那是把分类器的保守转嫁成用户的负担。
+        //
+        // ⇒ 这个按钮用 Act 语义重发同一句。保守策略保留（它不会自己动手），
+        //   但用户有了明确出口。
+        AnimatedVisibility(
+            visible = task.offerHelp && task.state == TaskState.Done,
+            enter = expandVertically(animationSpec = PaMotion.standard()) + fadeIn(),
+            exit = shrinkVertically(animationSpec = PaMotion.standard()) + fadeOut(),
+        ) {
+            com.pocketagent.ui.design.PaButton(
+                text = "让我来做",
+                style = com.pocketagent.ui.design.PaButtonStyle.Glass,
+                onClick = { onActAnyway(task.id) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = PaSpace.xs),
+            )
         }
 
         // 中止/失败时的原因说明。把"为什么停"讲清楚 ——
@@ -821,38 +858,35 @@ private fun TaskComposer(
 
 @Composable
 private fun SendButton(enabled: Boolean, onClick: () -> Unit) {
-    // 可发送时图标放大一点点 —— 一个几乎察觉不到但能感觉到的"就绪"信号
-    val scale by animateFloatAsState(
-        targetValue = if (enabled) 1f else 0.92f,
-        animationSpec = PaMotion.standard(),
-        label = "sendButtonScale",
-    )
-    // ★ 发送是"状态真的变了"的时刻 —— 值得一记触感。
-    //   见 `Haptics` 的纪律：只给状态变化，不给普通跳转。
-    val haptics = rememberHaptics()
-
-    Box(
-        modifier = Modifier
-            .size(36.dp)
-            .scale(scale)
-            .clip(RoundedCornerShape(PaRadius.xs))
-            .background(if (enabled) PaColor.Accent else PaColor.SurfaceHigh)
-            .clickable(
-                enabled = enabled,
-                onClick = {
-                    haptics.confirm()
-                    onClick()
-                },
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = Icons.AutoMirrored.Filled.Send,
-            contentDescription = "发送",
-            tint = if (enabled) Color(0xFF06121F) else PaColor.TextDisabled,
-            modifier = Modifier.size(18.dp),
+    // ══════════════════════════════════════════════════════════════
+    //  ★★ 2026-10-31：换成 `PaCompleteButton`（原来是一段手写实现）
+    // ══════════════════════════════════════════════════════════════
+    //
+    // ⚠️ `PaCompleteButton` + `CompletionState`（20 条离线测试）在
+    //    `7d0357d` 就建好了，但**零调用方** —— 本项目第六次
+    //    "建好了没接线"。
+    //
+    // ★ 手写版缺的那一件事：**"已收到"的确认**。
+    //   点了发送后按钮毫无变化 ⇒ 用户不知道点没点上，很可能再点一次。
+    //
+    // ⚠️ 这里只做"可发送 / 不可发送"两态映射，不接 WORKING：
+    //    发送中的状态在 `TasksViewModel` 里（`chatGate` 是纯并发控制，
+    //    不驱动 UI），要接得先把它暴露成可观察状态。
+    //    那是下一轮的事 —— 现在先把按钮**换掉**，而不是继续维护
+    //    两份视觉实现（它们已经漂移了：手写版圆角是 `PaRadius.xs`，
+    //    而 `PaCompleteButton` 用 `PaRadius.s`）。
+    val state = if (enabled) {
+        com.pocketagent.agentui.CompletionState.initial()
+    } else {
+        com.pocketagent.agentui.CompletionState.State(
+            phase = com.pocketagent.agentui.CompletionState.Phase.WORKING,
         )
     }
+
+    com.pocketagent.ui.design.PaCompleteButton(
+        state = state,
+        onClick = onClick,
+    )
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -949,6 +983,33 @@ data class AgentTaskUi(
      *    "这一轮挂没挂工具"的地方。界面自己猜不出来。
      */
     val isAgentRun: Boolean = false,
+
+    /**
+     * 要不要在回答下面显示一个「让我来做」按钮。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★★ 2026-10-31：修掉一个实测出来的死路
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 意图分类器有条**刻意保守**的规则：动作词 + 提问标记 ⇒ 判 Chat。
+     * 理由是"判 Act 的代价是可能动了用户的手机"—— 那个判断是对的。
+     *
+     * ⚠️ 但它造成一条死路。2026-10-31 真机实测：
+     *    `open settings and tell me what you see`
+     *    → 意图判定 Chat（动作词 open + 提问标记 what）
+     *    → 模型拿不到工具 → 回"我又没长在你手机旁边，看啥呀"
+     *
+     *    而用户**没有任何办法**把这句话变成"真的去做" ——
+     *    他只能换个说法再猜一次。这是把分类器的保守
+     *    转嫁成了用户的负担。
+     *
+     * ⇒ 给一个按钮：点一下用 Act 语义重发同一句。
+     *   ★ 保守策略保留了（它不会自己动手），但用户有了**明确的出口**。
+     *
+     * ★ 来自 `IntentClassifier.shouldOfferHelp`（它自己也是零引用，
+     *   这是它的第一个消费方）。
+     */
+    val offerHelp: Boolean = false,
 
     /**
      * 这一轮附带的一句系统提示（当前只有一种：用户要求了成熟内容但没开启）。
@@ -1730,13 +1791,55 @@ class TasksViewModel(
     }
 
     /**
+     * **「让我来做」** —— 用户明确要求真的动手。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★★ 2026-10-31：为什么需要这个方法
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 意图分类器把"动作词 + 提问标记"判成 Chat（保守，是对的 ——
+     * "判 Act 的代价是可能动了用户的手机"）。
+     *
+     * ⚠️ 但那造成一条**死路**。真机实测：
+     *    `open settings and tell me what you see`
+     *    → 判 Chat → 模型拿不到工具 → 回"我又没长在你手机旁边"
+     *    → 用户**没有任何办法**把这句话变成"真的去做"。
+     *
+     * ⇒ 这个方法把那一轮**重发一次**，且强制走 Act 语义。
+     *
+     * ★ 关键是**不改分类器**：它的保守是对的保护。改的是
+     *   "保守之后用户还能怎么办" —— 从"换个说法再猜"变成"点一下"。
+     *
+     * ⚠️ 做法是**原地重发同一句**而不是"把原话填回输入框让用户再点发送"：
+     *    用户点这个按钮的语义就是"去做"，再让他点一次是无谓的中间步。
+     *    （与「接着来」不同 —— 那个是"可能要改一两个字"，所以只填不发。）
+     */
+    fun actAnyway(id: String) {
+        val task = tasks.firstOrNull { it.id == id } ?: return
+        val prompt = task.prompt
+        if (prompt.isBlank()) return
+        // ⚠️ 先把这一轮标记回 Running 并清掉 offerHelp ——
+        //    否则按钮会在重发期间还挂着，用户会连点。
+        update(id) {
+            it.copy(
+                state = TaskState.Running,
+                offerHelp = false,
+                note = "按你的要求去做…",
+                abortReason = null,
+            )
+        }
+        // ★ 复用 `runChat`，但强制 Act —— 见它的 `forceAct` 参数。
+        runChat(id, prompt, forceAct = true)
+    }
+
+    /**
      * 真发一轮对话。
      *
      * 用 `Thread` 而不是协程，是为了不引入 `viewModelScope` ——
      * 本类刻意不继承 `ViewModel`。`runBlocking` 在这里是安全的：
      * 它跑在一个守护线程上，不阻塞主线程。
      */
-    private fun runChat(taskId: String, prompt: String) {
+    private fun runChat(taskId: String, prompt: String, forceAct: Boolean = false) {
         Thread {
             // 串行闸门：前一个请求没结束，这一句就排队并如实显示。
             // 用自旋而非锁：等的是网络请求（通常几秒），且漏解锁不会永久卡死。
@@ -1910,6 +2013,10 @@ class TasksViewModel(
                         //   出现在 prompt 里，模型看不见像素。
                         image = pending?.first,
                         imageMimeType = pending?.second ?: "image/jpeg",
+                        // ★★ 2026-10-31：「让我来做」强制走 Act 语义。
+                        //   ⚠️ 只在用户**明确点了那个按钮**时为 true ——
+                        //      分类器的保守判定保持不变（它不会自己动手）。
+                        forceAct = forceAct,
                         onStep = { step, desc ->
                             update(taskId) {
                                 it.copy(step = step, note = desc, perceptionTier = 1)
@@ -1964,6 +2071,9 @@ class TasksViewModel(
                             perceptionTier = 0,
                             // ★ 这一轮到底动没动手 —— 界面靠它选形态
                             isAgentRun = result.isAgentRun,
+                            // ★★ 2026-10-31：低置信度判成 Chat 时给一个出口
+                            //    （见 `AgentTaskUi.offerHelp` 的注释）
+                            offerHelp = result.offerHelp,
                             hint = matureHintFor(it.prompt),
                         )
                     }

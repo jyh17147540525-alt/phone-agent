@@ -123,6 +123,17 @@ interface ChatPort {
         image: ByteArray? = null,
         /** 图片 MIME。null 时按 `image/jpeg`（我们用 `ImagePrep` 压过）。 */
         imageMimeType: String = "image/jpeg",
+
+        /**
+         * 强制按 Act 语义处理这一轮（跳过意图分类器的保守判定）。
+         *
+         * ★★ 2026-10-31：只由「让我来做」按钮传 true —— 那是用户
+         * **明确说了要动手**。分类器本身一个字都没改。
+         *
+         * ⚠️ 默认 false 是**要害**：默认路径必须完全保守
+         * （"判 Act 的代价是可能动了用户的手机"）。
+         */
+        forceAct: Boolean = false,
     ): ChatResult
 }
 
@@ -144,6 +155,34 @@ sealed interface ChatResult {
     data class Ok(
         val text: String,
         val isAgentRun: Boolean = false,
+        /**
+         * **要不要问一句「要我帮你做吗？」**
+         *
+         * ═══════════════════════════════════════════════════════════
+         *  ★★ 2026-10-31：`IntentClassifier.shouldOfferHelp` 的第一个消费方
+         * ═══════════════════════════════════════════════════════════
+         *
+         * 意图分类器有一条**刻意保守**的规则：
+         *   有动作词 + 有提问标记 ⇒ 判 Chat（"更像是询问方法"）。
+         * 理由写得很清楚 —— "判 Act 的代价是**可能动了用户的手机**"。
+         *
+         * ⚠️ 但保守有真实代价：用户说「打开设置看看有什么」时被判成
+         *    Chat ⇒ **模型拿不到工具** ⇒ 它只能回"我没法看你的屏幕"。
+         *
+         *    实测（2026-10-31 真机 1e47d871）：
+         *      `open settings and tell me what you see`
+         *      → 意图判定 Chat（动作词 open + 提问标记 what）
+         *      → 模型回"我又没长在你手机旁边，看啥呀"
+         *
+         * ⇒ `shouldOfferHelp` 正是为这一刻设计的（"低置信度时补一句
+         *   「要不要我帮你撤回？」"），但它**零引用** —— 本项目第七次
+         *   "建好了没接线"。
+         *
+         * ★ 这里的做法**不是放宽判定**（那会让它真的乱动手机），
+         *   而是**把选择权交给用户**：界面显示一个「让我来做」，
+         *   点一下就用 Act 语义重发这一句。
+         */
+        val offerHelp: Boolean = false,
     ) : ChatResult
 
     /**
@@ -174,6 +213,16 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
         compressedMemory: String,
         image: ByteArray?,
         imageMimeType: String,
+        /**
+         * 强制按 Act 语义处理这一轮（跳过意图分类器的保守判定）。
+         *
+         * ★★ 2026-10-31：只由「让我来做」按钮传 true —— 那是用户
+         * **明确说了要动手**。分类器本身一个字都没改。
+         *
+         * ⚠️ 实现里**不能写默认值**（Kotlin 不允许 override 带默认值），
+         *    默认值只在接口那侧声明一次。
+         */
+        forceAct: Boolean,
     ): ChatResult {
         // ── ① 拿到凭据仓库 ──────────────────────────────────────
         val store = when (val opened = container.openCredentialStore()) {
@@ -258,7 +307,20 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
     // ⚠️ 组装失败时**如实报错**，不退化成"没有人格也能聊"：
     //    后者正是本项目最怕的那种失败 —— 用户以为人格生效了，其实没有。
     val userText = history.lastOrNull()?.plainText() ?: ""
-    val decision = IntentClassifier.classify(userText)
+    // ★★ 2026-10-31：`forceAct` 覆盖分类器的结果。
+    //
+    // ⚠️ 只在用户点了「让我来做」时为 true —— 那时**用户已经明确
+    //    说了要动手**，分类器"更像是在问方法"的判断被人的意志取代。
+    //    这不是放宽判定：默认路径仍然完全保守。
+    val decision = if (forceAct) {
+        com.pocketagent.rootlogic.IntentDecision(
+            intent = TurnIntent.Act,
+            reason = "用户点了「让我来做」，明确要求动手（覆盖分类器的保守判定）",
+            confidence = com.pocketagent.rootlogic.IntentDecision.Confidence.HIGH,
+        )
+    } else {
+        IntentClassifier.classify(userText)
+    }
 
     Timber.i("意图判定：%s（%s）—— 输入 %d 字", decision.intent, decision.reason, userText.length)
 
@@ -496,7 +558,18 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                     )
                 }.onFailure { Timber.w(it, "标记任务完成失败（不影响对话）") }
             }
-            ChatResult.Ok(text, isAgentRun = didAct)
+            ChatResult.Ok(
+                text = text,
+                isAgentRun = didAct,
+                // ★★ 2026-10-31：低置信度判成 Chat 时，让界面问一句
+                //    "要我帮你做吗？" —— 见 `ChatResult.Ok.offerHelp` 的注释。
+                //
+                // ⚠️ 只在**没动手**（`didAct == false`）时问：
+                //    已经动手了还问"要不要我做"，等于问"要不要把刚做完的事
+                //    再做一遍"。
+                offerHelp = !didAct &&
+                    com.pocketagent.rootlogic.IntentClassifier.shouldOfferHelp(decision),
+            )
         }
     }
 }
