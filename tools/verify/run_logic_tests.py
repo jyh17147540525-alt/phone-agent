@@ -485,6 +485,38 @@ def compile_kotlin(
 ) -> bool:
     step("编译 Kotlin 源码")
 
+    # ══════════════════════════════════════════════════════════
+    #  ★★ 源文件列表必须走 **argfile**，不能直接拼进命令行
+    # ══════════════════════════════════════════════════════════
+    #
+    # 2026-10-31：加了 12 个 ui 交互文件之后，验证器直接挂在这里：
+    #
+    #     FileNotFoundError: [WinError 206] 文件名或扩展名太长。
+    #
+    # 原因不是"文件太多"本身，而是 Windows 的命令行总长度上限
+    # （约 32767 字符）。每轮验证要编译四百多个 .kt，每个都带完整
+    # 绝对路径（含中文目录名），加起来必然超限。
+    #
+    # ⚠️ 这个故障的症状很误导：报的是"文件名太长"，看起来像某个
+    #    路径有问题，实际是**参数总长度**超了。而且它是在
+    #    `subprocess.run` 里抛的，不是编译器报错 —— 容易被当成
+    #    环境问题而不是代码问题。
+    #
+    # ⇒ 用 Kotlin 编译器支持的 `@argfile`：把源文件路径写进一个
+    #   临时文件，命令行只传 `@那个文件`。这也是 Gradle 自己的做法。
+    #
+    # ⚠️ argfile 的编码必须是 UTF-8 且**每行一个路径**；
+    #    路径里的反斜杠在 argfile 里**不需要**转义（它不是 shell）。
+    argfile = out_dir.parent / "sources.args"
+    try:
+        argfile.write_text(
+            "\n".join(str(s) for s in sources),
+            encoding="utf-8",
+        )
+    except OSError as e:
+        error(f"无法写 argfile：{e}")
+        return False
+
     cmd = [
         java, *ADD_OPENS,
         "-Dfile.encoding=UTF-8",
@@ -495,10 +527,10 @@ def compile_kotlin(
         "-jvm-target", "17",
         "-Xplugin=" + str(plugin),
         "-d", str(out_dir),
-        *[str(s) for s in sources],
+        "@" + str(argfile),
     ]
 
-    info(f"源文件 {len(sources)} 个")
+    info(f"源文件 {len(sources)} 个（经 argfile 传入）")
     result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
                             errors="replace")
 
