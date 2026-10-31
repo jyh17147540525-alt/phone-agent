@@ -222,6 +222,15 @@ fun AppShell(
             maturePermission = { container.maturePermission() },
             // ★ 压缩段 → 记忆分层。见 TasksViewModel 里 absorbCompressed 的注释。
             absorbCompressed = { segments -> container.absorbCompressedSegments(segments) },
+            // ══════════════════════════════════════════════════════
+            //  ★★ 2026-10-31：检查点 → 界面提示
+            // ══════════════════════════════════════════════════════
+            //
+            // ⚠️ 这两个 lambda 是本轮加 `<TaskCheckpoint>` 时**故意留空**的：
+            //    检查点会落盘了，但"落盘"和"用户知道能恢复"是两件事。
+            //    不接这两个，那个能力**永远不会被用到**。
+            resumeOffer = { container.resumeOffer() },
+            discardCheckpoint = { id -> container.discardCheckpoint(id) },
             // ★ 按住说话：录音器在容器里（要 Context），本类只拿到两个 lambda。
             startVoice = {
                 if (!container.hasMicPermission()) {

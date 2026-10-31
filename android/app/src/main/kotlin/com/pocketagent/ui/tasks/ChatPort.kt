@@ -307,6 +307,11 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
     // **永远不会调用任何工具**：`ChatRequest` 不带 `tools`，
     // 而 `ChatChunk.ToolCallDelta` 被直接丢掉。
     //
+    // ⚠️ 这一轮的任务 id —— **必须在 `useKey` 之外定义**。
+    //    `useKey` 的 lambda 是另一个作用域，在里面定义的变量
+    //    出了那层就没了，而"标记完成"要在外面做。
+    val finishedTaskId = "chat-${System.currentTimeMillis()}"
+
     // ⚠️ 两个不变的东西：
     //   · **不流式**（`ChatResult.Ok` 仍是整段返回）—— 见 `StreamPump`（未接线）；
     //   · 循环的所有保护（预算 / 步数 / 重复检测 / 安全拒绝不许重试）
@@ -377,7 +382,7 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
             //   ⚠️ 用 `chat-<时间戳>` 而不是固定的 "chat"：
             //      固定 id 会让**每一轮**都覆盖同一份检查点，
             //      于是"恢复上次任务"永远只能恢复最后一轮。
-            val taskId = "chat-${System.currentTimeMillis()}"
+            val taskId = finishedTaskId
             val result = loop.run(
                 PhoneTask(
                     id = taskId,
@@ -459,12 +464,38 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                 container.recordGuardCheck(turnId = "chat-${System.currentTimeMillis()}", replyText = text)
             }.onFailure { Timber.w(it, "输出守卫记账失败（不影响对话）") }
 
-            //   完全异步（`scheduleMemoryAbsorb` 内部 launch），不拖慢这一轮。
+            //  完全异步（`scheduleMemoryAbsorb` 内部 launch），不拖慢这一轮。
             runCatching {
                 val sid = container.conversationRepository()
                     ?.currentSession()?.id
                 if (sid != null) container.scheduleMemoryAbsorb(sid)
             }.onFailure { Timber.w(it, "记忆抽取调度失败（不影响对话）") }
+
+            // ══════════════════════════════════════════════════════
+            //  ★★ 2026-10-31：任务**成功结束** ⇒ 标记检查点完成
+            // ══════════════════════════════════════════════════════
+            //
+            // ⚠️ 不标记的话，这个已完成的检查点会一直出现在
+            //    "上次没做完，接着来？"里 —— 而它其实**做完了**。
+            //    用户会以为那个任务永远没结束。
+            //
+            // ★ 只在这一轮**真的动手**过（`didAct`）时标记：
+            //   纯对话不产生检查点（`onProgress` 不会被调），
+            //   标记一个不存在的检查点是空操作，但多一次 IO 没必要。
+            //
+            // ⚠️ 这里**重新算一次 taskId** —— 循环里那个 `taskId` 是
+            //    `useKey` lambda 的局部变量，出了那个作用域就没了。
+            //    两处都用 `"chat-" + 时间戳`，而这一整轮的耗时通常在
+            //    同一秒内 —— 但**不能依赖这一点**。
+            //    ⇒ 用一个在方法作用域里的变量，见下面的 `finishedTaskId`。
+            if (didAct) {
+                runCatching {
+                    container.markTaskFinished(
+                        finishedTaskId,
+                        com.pocketagent.agentlogic.BudgetUsage(),
+                    )
+                }.onFailure { Timber.w(it, "标记任务完成失败（不影响对话）") }
+            }
             ChatResult.Ok(text, isAgentRun = didAct)
         }
     }

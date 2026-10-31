@@ -295,6 +295,50 @@ fun TasksScreen(
             var actionsExpanded by remember { mutableStateOf(false) }
             var recording by remember { mutableStateOf(false) }
 
+            // ══════════════════════════════════════════════════════
+            //  ★★ 2026-10-31：**上次没做完，接着来？**
+            // ══════════════════════════════════════════════════════
+            //
+            // `TaskCheckpoint` 现在真的会落盘了（每步一次），但
+            // "检查点存在"和"用户知道能恢复"是两件事 ——
+            // 不提示的话，那个能力**永远不会被用到**。
+            //
+            // ⚠️ 只在**本会话第一次**提示：`LaunchedEffect(Unit)` 保证
+            //    页面重建不会重复提醒。而"切走再回来"会重建 ——
+            //    所以用 `resumeOffer` 的返回值 + 一个 `remember` 标记
+            //    双重保证。
+            //
+            // ⚠️ 刻意**不自动恢复**：那会让用户在毫无准备的情况下，
+            //    接着跑一个他可能已经不想做了的任务（而且是操作手机）。
+            //    ⇒ 提示 + 一个明确的动作，由用户决定。
+            var resumeHint by remember { mutableStateOf<String?>(null) }
+            var resumeTaskId by remember { mutableStateOf<String?>(null) }
+            var resumeUserInput by remember { mutableStateOf<String?>(null) }
+            // ⚠️ 独立的 scope：`LaunchedEffect(Unit)` 里能调 suspend，
+            //    但 `clickable` 回调是**同步**的 —— 那里需要自己的作用域。
+            val resumeScope = androidx.compose.runtime.rememberCoroutineScope()
+            androidx.compose.runtime.LaunchedEffect(Unit) {
+                runCatching {
+                    when (val offer = vm.resumeOffer()) {
+                        is com.pocketagent.agentlogic.ResumeOffer.Available -> {
+                            resumeTaskId = offer.taskId
+                            resumeUserInput = offer.userInput
+                            resumeHint = "上次「${offer.userInput.take(24)}」没做完" +
+                                "（还剩 ${offer.remainingSteps} 步，${offer.ageMs / 60_000} 分钟前）"
+                        }
+                        is com.pocketagent.agentlogic.ResumeOffer.TooOld -> {
+                            // ⚠️ 说得比"没有"更具体 —— 用户才知道发生了什么。
+                            //    而且**不给"接着来"**：界面状态早已变了，
+                            //    续跑一个 3 小时前的任务比重新开始更容易出错。
+                            resumeTaskId = offer.taskId
+                            resumeHint = "上次那件事是 ${offer.ageMs / 3_600_000} 小时前的，" +
+                                "界面可能已经变了，建议重新说一遍"
+                        }
+                        com.pocketagent.agentlogic.ResumeOffer.Nothing -> Unit
+                    }
+                }
+            }
+
             Column(modifier = Modifier.fillMaxWidth()) {
                 // ★ 功能图标默认**收起**，点左边的 + 才展开（豆包的做法）。
                 //   常驻一排灰图标会一直占掉一行高度，而其中四个现在还用不了。
@@ -353,6 +397,65 @@ fun TasksScreen(
                     )
                 }
                 actionHint?.let { ComposerHint(text = it) }
+
+                // ══════════════════════════════════════════════════════
+                //  ★★ 2026-10-31：「上次没做完」的提示 + 两个明确动作
+                // ══════════════════════════════════════════════════════
+                //
+                // ⚠️ 刻意**不自动恢复**：那会让用户在毫无准备的情况下
+                //    接着跑一个他可能已经不想做了的任务（而且是操作手机）。
+                //    ⇒ 提示 + 明确动作，由用户决定。
+                //
+                // ⚠️ "接着来"的做法是**把原话填回输入框**而不是直接发送 ——
+                //    用户可能想改一两个字。直接发送等于替他做了决定。
+                resumeHint?.let { hint ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = PaSpace.screenH, vertical = PaSpace.xxs),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = hint,
+                            style = PaType.caption,
+                            color = PaColor.TextSecondary,
+                            modifier = Modifier.weight(1f),
+                        )
+                        resumeUserInput?.let { input ->
+                            Text(
+                                text = "接着来",
+                                style = PaType.label,
+                                color = PaColor.AccentText,
+                                modifier = Modifier
+                                    .clickable {
+                                        // ★ 只填进输入框，不自动发 —— 见上方注释。
+                                        vm.onDraftChange(input)
+                                        resumeHint = null
+                                    }
+                                    .padding(horizontal = PaSpace.xs, vertical = 4.dp),
+                            )
+                        }
+                        Text(
+                            text = "不用了",
+                            style = PaType.label,
+                            color = PaColor.TextTertiary,
+                            modifier = Modifier
+                                .clickable {
+                                    resumeHint = null
+                                    resumeUserInput = null
+                                    val id = resumeTaskId
+                                    resumeTaskId = null
+                                    if (id != null) {
+                                        // ★ 用户明确放弃 ⇒ 删掉检查点。
+                                        //    留着会让它下次又冒出来 ——
+                                        //    而那时用户已经说过"不用了"。
+                                        resumeScope.launch { vm.discardCheckpoint(id) }
+                                    }
+                                }
+                                .padding(horizontal = PaSpace.xs, vertical = 4.dp),
+                        )
+                    }
+                }
                 if (recording) {
                     ComposerHint(text = "正在录音…松开手指结束")
                 }
@@ -1019,6 +1122,22 @@ class TasksViewModel(
      */
     private val absorbCompressed:
         (List<com.pocketagent.memorylogic.ContextCompressor.Segment>) -> Unit = {},
+
+    /**
+     * 读一次「上次有没有没做完的任务」。
+     *
+     * ★★ 2026-10-31：`TaskCheckpoint` 现在真的会落盘了，但
+     *   "检查点存在"和"用户知道能恢复"是两件事 ——
+     *   不提示的话那个能力**永远不会被用到**。
+     *
+     * ⚠️ 用 lambda 而不是直接拿容器：本类刻意不依赖 Android 容器
+     *   （预览与离线测试里没有它），与 `absorbCompressed` 同一个理由。
+     */
+    private val resumeOffer: suspend () -> com.pocketagent.agentlogic.ResumeOffer =
+        { com.pocketagent.agentlogic.ResumeOffer.Nothing },
+
+    /** 用户明确放弃恢复。 */
+    private val discardCheckpoint: suspend (String) -> Unit = {},
 ) {
 
     val tasks = mutableStateListOf<AgentTaskUi>()
@@ -1459,6 +1578,22 @@ class TasksViewModel(
         )
         lastRecorderError = null
         return null
+    }
+
+    /**
+     * 读一次「上次有没有没做完的任务」。
+     *
+     * ⚠️ 包一层而不是让界面直接调那个 private lambda：
+     *    Compose 里调的必须是普通方法（lambda 属性在 Compose
+     *    的智能转换下不可调用）。
+     */
+    suspend fun resumeOffer(): com.pocketagent.agentlogic.ResumeOffer =
+        runCatching { resumeOffer.invoke() }
+            .getOrElse { com.pocketagent.agentlogic.ResumeOffer.Nothing }
+
+    /** 用户明确放弃恢复。 */
+    suspend fun discardCheckpoint(id: String) {
+        runCatching { discardCheckpoint.invoke(id) }
     }
 
     fun onDraftChange(text: String) {
