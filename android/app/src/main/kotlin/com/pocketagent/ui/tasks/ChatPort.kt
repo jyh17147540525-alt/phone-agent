@@ -99,6 +99,29 @@ interface ChatPort {
          *   那会让模型以为自己失忆了。
          */
         compressedMemory: String = "",
+        /**
+         * **用户这一轮附的图片**（PNG/JPEG 字节）。
+         *
+         * ═══════════════════════════════════════════════════════
+         *  ★★ 2026-10-31：给模型"装眼睛"
+         * ═══════════════════════════════════════════════════════
+         *
+         * 用户："虽然在 app 里能支持图片输入，但是模型还是看不了图片，
+         *      因为你没有给模型装上眼睛。"
+         *
+         * 根因：附件被拼成一段**文字路径**塞进 prompt。而 provider 层
+         * 其实早就能发 `ContentPart.Image`（`image_url` + data URI
+         * 全都实现了）—— 缺的只是"把字节交到这里"。
+         *
+         * ⇒ 现在真的作为图片发：它会被 `attachImage` 挂在**最后一条
+         *   用户消息**上，模型直接看到像素。
+         *
+         * ⚠️ null = 这一轮没有图。**不能**传空 ByteArray：
+         *    那会生成一个 0 字节的 data URI，多数厂商返回 400。
+         */
+        image: ByteArray? = null,
+        /** 图片 MIME。null 时按 `image/jpeg`（我们用 `ImagePrep` 压过）。 */
+        imageMimeType: String = "image/jpeg",
     ): ChatResult
 }
 
@@ -148,6 +171,8 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
         onStep: (step: Int, description: String) -> Unit,
         onDelta: (delta: String) -> Unit,
         compressedMemory: String,
+        image: ByteArray?,
+        imageMimeType: String,
     ): ChatResult {
         // ── ① 拿到凭据仓库 ──────────────────────────────────────
         val store = when (val opened = container.openCredentialStore()) {
@@ -296,7 +321,27 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                     "纯对话上下文：%d 条消息（%d 字）",
                     history.size, history.sumOf { it.plainText().length },
                 )
-                return@useKey chatOnly(provider, credential, model, history, systemWithMemory, onDelta)
+                // ══════════════════════════════════════════════════
+                //  ★★ 2026-10-31：把用户附的图片挂到最后一条用户消息上
+                // ══════════════════════════════════════════════════
+                //
+                // ⚠️ 只在**纯对话**路径挂图，agent 路径不挂：
+                //   执行类任务的循环会自己拼消息，图片会在工具往返中丢失，
+                //   而且那种任务的目标是"动手"，看图不是它的主要用途。
+                //   （如果将来要支持"看着截图去点"，那要在 `PhoneTask`
+                //   里加图片字段，是另一件事。）
+                val historyWithImage = if (image != null && image.isNotEmpty()) {
+                    history.attachUserImage(image, imageMimeType)
+                } else {
+                    history
+                }
+                Timber.i(
+                    "本轮附图片：%s",
+                    if (image != null) "${image.size / 1024}KB ($imageMimeType)" else "无",
+                )
+                return@useKey chatOnly(
+                    provider, credential, model, historyWithImage, systemWithMemory, onDelta,
+                )
             }
             // ★ 按**实际生效的模式**取工具集，不是全量：
             //   root 不可用时 `root_exec` 根本不出现在清单里 ——
@@ -674,6 +719,51 @@ private const val HOLD_CHARS = 20
 private fun ChatMessage.plainText(): String =
     content.filterIsInstance<com.pocketagent.provider.api.ContentPart.Text>()
         .joinToString("") { it.text }
+
+/**
+ * **把用户附的图片挂到最后一条用户消息上** —— 这就是"给模型装眼睛"。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  ★ 为什么挂"最后一条用户消息"而不是单独发一条
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * 视觉模型对"图和文字在同一条消息里"的理解明显更好 —— 它知道
+ * "这张图是关于我刚才说的那句话的"。
+ *
+ * ⚠️ 如果图片作为单独一条消息（`role=user` 但只有图没有字），
+ *    多数模型会把它当成一个**新话题**，而不是"你刚说的那个东西的补充"。
+ *    实机表现是：用户"这张报错什么意思" + 图，模型回"你发了一张图，
+ *    请问你想问什么"。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  ⚠️ 找不到用户消息时**返回原列表**，不硬塞
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * 没有用户消息（理论上不该发生，因为发送前一定 append 了一条）
+ * 时宁可丢掉这张图，也不要凭空造一条只有图片的消息 ——
+ * 那会让模型看到一段它无法理解的开场。
+ */
+private fun List<ChatMessage>.attachUserImage(
+    png: ByteArray,
+    mimeType: String,
+): List<ChatMessage> {
+    if (isEmpty()) return this
+    val idx = indexOfLast { it.role == ChatMessage.Role.USER }
+    if (idx < 0) return this
+
+    // ★ 用 `copy` 而不是可变修改：`ChatMessage` 是 data class，
+    //   就地改 content 会波及调用方持有的同一个对象 —— 那里可能是
+    //   界面上正在渲染的那份历史。改它会引发一次意外的重组。
+    val m = this[idx]
+    return toMutableList().also { list ->
+        list[idx] = m.copy(
+            content = m.content + com.pocketagent.provider.api.ContentPart.Image(
+                bytes = png,
+                mimeType = mimeType,
+            ),
+        )
+    }
+}
 
 /**
  * `provider.api` 的消息 → `:agentlogic` 的消息。

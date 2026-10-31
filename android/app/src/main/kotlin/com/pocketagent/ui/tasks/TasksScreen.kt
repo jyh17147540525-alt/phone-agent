@@ -78,6 +78,8 @@ import com.pocketagent.ui.design.PaType
 import com.pocketagent.ui.design.glassEdge
 import com.pocketagent.ui.design.rememberHaptics
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * 任务页 —— 移动端 agent 的主界面。
@@ -109,6 +111,18 @@ import kotlinx.coroutines.delay
 fun TasksScreen(
     modifier: Modifier = Modifier,
     onOpenSettings: () -> Unit = {},
+
+    /**
+     * 打开**语音通话页**。
+     *
+     * ★★ 2026-10-31：用户要求"打电话的页面互动动画…可以随时打断模型的说话"。
+     *   在此之前 `ComposerAction.VOICE_CALL` 是 `wired = false` 的占位，
+     *   点它只会显示一句"还没接上"。
+     *
+     * ⚠️ 通话页是**一整屏的独立路由**，不是聊天框里的浮层：
+     *   打电话时用户不看屏幕，屏幕上不该有大量他不需要读的文字。
+     */
+    onOpenCall: (() -> Unit)? = null,
 
     /**
      * 打开**角色设定**。
@@ -254,9 +268,26 @@ fun TasksScreen(
             // ⚠️ 两类图标在**行为**上必须分开（见 ComposerAction.wired）：
             //    图片/文件 是真的打开系统选择器；
             //    语音/通话/屏幕共享 现在没接通，点了要**明说**，不能静默。
+            //
+            // ★★ 2026-10-31：图片现在**真的会被读成字节**交给模型。
+            //    在此之前只存 URI，模型看到的是路径字符串。
+            //    见 `ImagePrep` 与 `Attachment.image` 的注释。
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            val attachScope = androidx.compose.runtime.rememberCoroutineScope()
+            val imagePrep = remember { com.pocketagent.assistant.ImagePrep(ctx.applicationContext) }
+
             val pickImage = androidx.activity.compose.rememberLauncherForActivityResult(
                 androidx.activity.result.contract.ActivityResultContracts.GetContent(),
-            ) { uri -> uri?.let { vm.attach(it.toString(), "图片") } }
+            ) { uri ->
+                uri?.let {
+                    vm.attach(
+                        uri = it.toString(),
+                        kind = "图片",
+                        imagePrep = imagePrep,
+                        scope = attachScope,
+                    )
+                }
+            }
             val pickFile = androidx.activity.compose.rememberLauncherForActivityResult(
                 androidx.activity.result.contract.ActivityResultContracts.GetContent(),
             ) { uri -> uri?.let { vm.attach(it.toString(), "文件") } }
@@ -287,6 +318,12 @@ fun TasksScreen(
                                     actionHint = null
                                     pickFile.launch("*/*")
                                 }
+                                // ★★ 2026-10-31：语音通话接通 —— 真的进通话页。
+                                ComposerAction.VOICE_CALL -> {
+                                    actionHint = null
+                                    actionsExpanded = false
+                                    onOpenCall?.invoke()
+                                }
                                 else -> {
                                     // ★ 未接通的动作**必须有一句回应** ——
                                     //   点了没反应会被当成"应用坏了"。
@@ -302,7 +339,17 @@ fun TasksScreen(
                 // 已选附件：显示成一行小字，并**如实说明**它会怎么被用
                 vm.attachment?.let { att ->
                     ComposerHint(
-                        text = "已附带${att.kind}：${att.displayName}（发送时会把这个路径交给角色，它可以自己打开看）",
+                        text = when {
+                            // ⚠️ 图片现在**真的会被发给模型看**（不再是路径）。
+                            //    文案必须跟上 —— 说"会把路径交给角色"是在撒谎，
+                            //    而且会让用户以为模型看不了图。
+                            att.kind == "图片" && att.hasImage ->
+                                "已附带图片：${att.displayName}（${att.image!!.bytes.size / 1024}KB，会直接给角色看）"
+                            att.prepareError != null ->
+                                "图片没读成功：${att.prepareError}（只能把路径告诉角色）"
+                            else ->
+                                "已附带${att.kind}：${att.displayName}（发送时会把这个路径交给角色，它可以自己打开看）"
+                        },
                     )
                 }
                 actionHint?.let { ComposerHint(text = it) }
@@ -1246,22 +1293,131 @@ class TasksViewModel(
      * ⚠️ 也正因为是路径，提示词里必须写清楚"这是路径不是内容"，
      *   否则模型会假装自己已经看过那张图。
      */
-    data class Attachment(val uri: String, val kind: String) {
+    data class Attachment(
+        val uri: String,
+        val kind: String,
+        /**
+         * **已准备好的图片字节**（仅当 kind 是图片时非空）。
+         *
+         * ══════════════════════════════════════════════════════
+         *  ★★ 2026-10-31：这个字段修的是"模型看不了图片"
+         * ══════════════════════════════════════════════════════
+         *
+         * 用户："虽然在 app 里能支持图片输入，但是模型还是看不了图片，
+         *      因为你没有给模型装上眼睛。"
+         *
+         * 根因：附件只存了 URI，`submit()` 把它拼成一段**文字路径**
+         * 塞进 prompt。而 provider 层早就能发 `ContentPart.Image`。
+         *
+         * ⇒ 选图时就用 `ImagePrep` 读成字节（压缩到模型能接受的尺寸），
+         *   存在这里；`submit()` 把它交给 `ChatPort` 作为真正的图片。
+         *
+         * ⚠️ 为 null 有两种可能，含义完全不同：
+         *   · 这不是图片（PDF/音频）⇒ 只能发路径，**正常**
+         *   · 是图片但读取/压缩失败 ⇒ `prepareError` 会说明原因
+         */
+        val image: com.pocketagent.agentui.Attachments.PreparedImage? = null,
+        /** 图片准备失败的原因（给用户看）。null = 没失败或不是图片。 */
+        val prepareError: String? = null,
+    ) {
         /** 显示用：URI 最后一段，去掉查询串。 */
         val displayName: String
             get() = uri.substringAfterLast('/').substringBefore('?').ifBlank { uri.take(24) }
+
+        /** 这张图能不能真的发给模型看。 */
+        val hasImage: Boolean get() = image != null
     }
 
     var attachment by mutableStateOf<Attachment?>(null)
         private set
 
-    /** 选好附件（由界面在选择器回调里调）。 */
-    fun attach(uri: String, kind: String) {
-        attachment = Attachment(uri = uri, kind = kind)
+    /** 图片正在准备（读盘 + 压缩）。界面据此显示一个很轻的"处理中"。 */
+    var preparingAttachment by mutableStateOf(false)
+        private set
+
+    /**
+     * **把用户选的附件读成模型能看的东西**。
+     *
+     * ══════════════════════════════════════════════════════════
+     *  ★★ 2026-10-31：这里原本只存 URI，模型看不到图
+     * ══════════════════════════════════════════════════════════
+     *
+     * 原来这一行是：
+     * ```kotlin
+     * attachment = Attachment(uri = uri, kind = kind)
+     * ```
+     * 然后 `submit()` 把 URI 拼成一段文字。模型收到的是
+     * `content://media/.../12345`，它当然看不了。
+     *
+     * ⇒ 现在真的去读：走 `ImagePrep`（压缩到模型能接受的长边与体积），
+     *   结果存进 `Attachment.image`，`submit()` 交给 `ChatPort`。
+     *
+     * ⚠️ 必须在**后台线程**读：一张 8MB 的图解码 + 缩放要几百毫秒，
+     *   在主线程做会让界面卡一下（而这恰好发生在用户刚点完"发送"）。
+     *
+     * @param imagePrep 读图器。null = 预览环境（不读，只存路径）
+     */
+    fun attach(
+        uri: String,
+        kind: String,
+        imagePrep: com.pocketagent.assistant.ImagePrep? = null,
+        scope: kotlinx.coroutines.CoroutineScope? = null,
+    ) {
+        // 先立刻放一个占位 —— 用户点了图片，缩略图应当马上出现，
+        // 而不是等压缩完才出现。
+        val placeholder = Attachment(uri = uri, kind = kind)
+        attachment = placeholder
+
+        if (imagePrep == null || scope == null) {
+            // 预览环境：保持旧行为（只有路径）。
+            return
+        }
+
+        preparingAttachment = true
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val result = runCatching {
+                imagePrep.prepare(android.net.Uri.parse(uri))
+            }.getOrNull()
+
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                preparingAttachment = false
+                // ⚠️ 期间用户可能已经换了另一张图或清空了附件 ——
+                //    只有 URI 仍然对得上才落地，否则会把旧结果盖上去。
+                if (attachment?.uri != uri) return@withContext
+
+                when (result) {
+                    is com.pocketagent.assistant.ImagePrep.Result.Ok -> {
+                        attachment = Attachment(
+                            uri = uri,
+                            kind = kind,
+                            image = result.image,
+                        )
+                        lastRecorderError = null
+                        if (result.note != null) Timber.i("图片：%s", result.note)
+                    }
+                    is com.pocketagent.assistant.ImagePrep.Result.Failed -> {
+                        attachment = Attachment(
+                            uri = uri,
+                            kind = kind,
+                            prepareError = result.reason,
+                        )
+                        Timber.w("图片准备失败：%s", result.reason)
+                    }
+                    null -> {
+                        attachment = Attachment(
+                            uri = uri,
+                            kind = kind,
+                            prepareError = "读图时出了意外，这个附件只能发路径",
+                        )
+                    }
+                }
+            }
+        }
     }
 
     fun clearAttachment() {
         attachment = null
+        preparingAttachment = false
     }
 
     /** 录音失败/不可用时给用户看的那句话。 */
@@ -1315,15 +1471,48 @@ class TasksViewModel(
         // ⚠️ 只有附件、没有文字时也要能发：用户选了一张图什么都不说，
         //    意思就是"你看看这个"。要求他再打一句话是无谓的门槛。
         if (typed.isEmpty() && att == null) return
+        // ⚠️ 图片还在压缩时不许发：那时 `image` 是 null，
+        //    发出去会变成"只有路径"—— 而那正是这个 bug 的原始形态。
+        if (preparingAttachment) return
+
         val prompt = buildString {
             if (typed.isNotEmpty()) append(typed)
             if (att != null) {
-                if (typed.isNotEmpty()) append('\n')
-                // ★ 如实说明这是**路径**：不写清楚的话，模型会假装已经看过内容。
-                append("（我附了一个${att.kind}：${att.uri} —— 这是路径，不是内容；")
-                append("需要的话你自己去打开看）")
+                // ══════════════════════════════════════════════════
+                //  ★★ 2026-10-31：图片走**真图片**通道，不再拼路径
+                // ══════════════════════════════════════════════════
+                //
+                // 原来这里无条件拼一句：
+                //   `（我附了一个图片：content://... —— 这是路径，不是内容）`
+                // 模型收到一串 URI，它看不了 —— 这就是用户报的那个 bug。
+                //
+                // ⇒ 分三种情况：
+                //   · 图片已准备好 ⇒ **什么都不拼**，图片由 `ChatPort`
+                //     作为 `ContentPart.Image` 真正发过去。拼了反而会让模型
+                //     以为自己在读一段描述，而不去看图。
+                //   · 图片准备失败 ⇒ 如实说失败原因（用户才知道为什么）
+                //   · 非图片附件（PDF/音频）⇒ 保持原行为，发路径
+                if (att.kind == "图片" && att.hasImage) {
+                    // 什么都不加 —— 见上面的注释。
+                } else if (att.prepareError != null) {
+                    if (typed.isNotEmpty()) append('\n')
+                    append("（我本来想给你看一张图，但没读成功：${att.prepareError}）")
+                } else {
+                    if (typed.isNotEmpty()) append('\n')
+                    append("（我附了一个${att.kind}：${att.uri} —— 这是路径，不是内容；")
+                    append("需要的话你自己去打开看）")
+                }
             }
         }
+        // ★ 图片要在清空 attachment **之前**取出来 ——
+        //   之后 `att` 这个局部变量仍然有效，但如果直接读
+        //   `attachment?.image` 就会变成 null。
+        val pendingImage = att?.image?.bytes
+        // ⚠️ `PreparedImage.mimeType` 是 `String`（构造期已 require
+        //    `startsWith("image/")`），但 `att?.image?.` 链式访问让它
+        //    变成 `String?`。这里显式兜底，避免把 nullable 传给
+        //    `Pair<ByteArray, String>`。
+        val imageMime: String = att?.image?.mimeType ?: "image/jpeg"
         attachment = null
 
         // ★ 分母用**聊天链路的真实额度**，不是 `AgentTaskUi` 的默认值。
@@ -1335,6 +1524,14 @@ class TasksViewModel(
             prompt = prompt,
             maxSteps = CHAT_MAX_STEPS,
         )
+        // ⚠️ 图片按 taskId 暂存，而不是塞进 `AgentTaskUi`。
+        //   理由：`AgentTaskUi` 是 data class，而 `ByteArray` 的
+        //   `equals` 是**引用比较** —— 放进 data class 会让
+        //   `copy()` 之后"值看起来变了"，触发本不该有的重组。
+        //   而且这个 Map 只在一次发送内有效，用完即删。
+        if (pendingImage != null && pendingImage.isNotEmpty()) {
+            pendingImages[task.id] = pendingImage to imageMime
+        }
         // ══════════════════════════════════════════════════════════
         //  ★★ 2026-10-28：这里原来是 `tasks.add(0, task)` —— 顺序 bug 的根
         // ══════════════════════════════════════════════════════════
@@ -1368,6 +1565,25 @@ class TasksViewModel(
 
         runChat(task.id, prompt)
     }
+
+    /**
+     * 待发送的图片（taskId → 字节 + MIME）。
+     *
+     * ══════════════════════════════════════════════════════════
+     *  ★★ 2026-10-31：为什么不放进 `AgentTaskUi`
+     * ══════════════════════════════════════════════════════════
+     *
+     * `AgentTaskUi` 是 data class，它的 `equals` 逐字段比较。
+     * 而 `ByteArray.equals` 是**引用比较** —— 放进去之后：
+     *   · `copy(state = ...)` 生成的新对象与原对象"图片不相等"
+     *   · Compose 会认为这是一个新任务 ⇒ 重组、滚动位置跳动
+     *
+     * ⇒ 放在这个 `ConcurrentHashMap` 里，按 taskId 索引。
+     *   任务结束**立即删掉**（见 `runChat` 的 finally）——
+     *   一张 1MB 的图留着不删，连发十张就是 10MB 常驻。
+     */
+    private val pendingImages =
+        java.util.concurrent.ConcurrentHashMap<String, Pair<ByteArray, String>>()
 
     fun abort(id: String) {
         update(id) { it.copy(state = TaskState.Aborted, abortReason = "已由你中止") }
@@ -1545,9 +1761,20 @@ class TasksViewModel(
                     //   在此之前进度条全程停在「0 / 8」（开始设 0、结束设 1，
                     //   中间从不更新），用户无法区分"在动"和"卡死"。
                     //   ⚠️ 回调可能来自后台线程，`update` 内部做了同步（见它的注释）。
+                    // ⚠️ 用存下来的**实际 MIME**，不是写死 jpeg：
+                    //    `ImagePrep` 对小图会保留原格式（PNG/WebP），
+                    //    只有大图才转 JPEG。写死 jpeg 会让 PNG 的
+                    //    data URI 前缀与实际字节不一致 —— 多数厂商会 400。
+                    val pending = pendingImages.remove(taskId)
                     chat!!.send(
                         history = history + ChatMessage.user(prompt),
                         compressedMemory = compressed,
+                        // ★★ 2026-10-31：把用户附的图片**真的**交给模型。
+                        //   在此之前这里什么都没有 —— 图片只以一段
+                        //   "（我附了一个图片：content://...）"的文字形式
+                        //   出现在 prompt 里，模型看不见像素。
+                        image = pending?.first,
+                        imageMimeType = pending?.second ?: "image/jpeg",
                         onStep = { step, desc ->
                             update(taskId) {
                                 it.copy(step = step, note = desc, perceptionTier = 1)

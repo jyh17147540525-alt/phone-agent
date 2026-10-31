@@ -67,7 +67,10 @@ enum class ComposerAction(
     IMAGE("图片", Icons.Default.Image, wired = true),
     FILE("文件", Icons.Default.AttachFile, wired = true),
     AUDIO("语音输入", Icons.Default.Mic, wired = false, pendingNote = "语音输入还没接上（要先申请麦克风权限并接语音识别）"),
-    VOICE_CALL("语音通话", Icons.Default.Call, wired = false, pendingNote = "语音通话还没接上（实时语音链路要单独做）"),
+    // ★★ 2026-10-31：语音通话**接通了** —— 不再是占位。
+    //    它真的打开 `CallScreen`（一整屏，见 `ui/call/CallScreen.kt`），
+    //    状态由 `agentui/VoiceCall` 的状态机管（含随时打断）。
+    VOICE_CALL("语音通话", Icons.Default.Call, wired = true),
     VIDEO_CALL("视频通话", Icons.Default.Videocam, wired = false, pendingNote = "视频通话还没接上"),
     SCREEN_SHARE("屏幕共享", Icons.Default.ScreenShare, wired = false, pendingNote = "屏幕共享还没接上（现在的做法是让角色直接看你的屏幕）"),
 }

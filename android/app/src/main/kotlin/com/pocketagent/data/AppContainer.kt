@@ -1527,6 +1527,25 @@ class AppContainer(context: Context) {
     }
 
     /**
+     * **立刻停止播报** —— 通话页"打断"用。
+     *
+     * ★★ 2026-10-31：用户要"随时打断模型的说话"。
+     *
+     * ⚠️ 与 [ttsEnabled] 关闭时的 `ttsSpeaker.stop()` 是**同一个动作**，
+     *   但语义不同，所以单独给一个方法：
+     *   · 关开关时停 = "以后都别念"
+     *   · 打断时停   = "这一句别念了，下一句继续"
+     *
+     * ⚠️ 它**不取消模型请求**。取消请求是调用方的事
+     *   （`ChatPort.send` 是 suspend，靠协程取消）——
+     *   在这个方法里 cancel 会让"打断"意外终止整个会话。
+     */
+    fun stopSpeaking() {
+        runCatching { ttsSpeaker.stop() }
+            .onFailure { Timber.w(it, "停止播报失败") }
+    }
+
+    /**
      * 念一段（异步，失败静默）。
      *
      * ⚠️ 只念**给用户看的那部分**：正文里有 Markdown、括号动作、工具话术，

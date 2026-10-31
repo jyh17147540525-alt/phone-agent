@@ -1,4 +1,4 @@
-﻿package com.pocketagent.ui.shell
+package com.pocketagent.ui.shell
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -52,6 +52,7 @@ import com.pocketagent.capability.SafFileChannel
 import com.pocketagent.data.AppContainer
 import com.pocketagent.ui.design.AuroraBackground
 import com.pocketagent.ui.design.PaMotion
+import com.pocketagent.ui.call.CallRouteHost
 import com.pocketagent.ui.design.PaColor
 import com.pocketagent.ui.design.PaRadius
 import com.pocketagent.ui.design.PaSpace
@@ -122,6 +123,15 @@ object Routes {
 
     /** 长期记忆的 3D 星图。 */
     const val MEMORY_GRAPH = "memory-graph"
+
+    /**
+     * **语音通话页** —— 一整屏的通话界面。
+     *
+     * ★ 2026-10-31：用户要"打电话的页面互动动画…可以随时打断"。
+     *   它做成独立路由而不是聊天页里的浮层：通话时用户不看屏幕，
+     *   屏幕上不该有大量他不需要读的文字。
+     */
+    const val CALL = "call"
 
     // ── 二级页面（隐藏底部导航）──────────────────────────
     const val MARKET = "market"
@@ -492,6 +502,25 @@ fun AppShell(
                         onOpenSettings = { goToTab(Routes.SETTINGS) },
                         // ★ 聊天页直接进角色设定：改完返回，下一句就生效。
                         onOpenPersona = { navController.navigate(Routes.PERSONA) },
+                        // ★★ 2026-10-31：语音通话入口。
+                        //   它从"还没接上"的占位变成了真的路由。
+                        onOpenCall = { navController.navigate(Routes.CALL) },
+                    )
+                }
+
+                // ── 语音通话 ────────────────────────────────────
+                //
+                // ★ 2026-10-31：一整屏的通话界面。
+                //
+                // ⚠️ 它**不显示底栏**（底栏已经撤掉了，见上文），
+                //    也不用 `PaScreen` —— 通话页没有标题栏和返回箭头，
+                //    唯一的出口是那个红色挂断按钮。
+                //    理由：通话时"返回"这个动作会让人以为"退出去但还在通话"，
+                //    而实际是挂断。把出口做成唯一一个明确动作，不产生歧义。
+                composable(Routes.CALL) {
+                    CallRouteHost(
+                        container = container,
+                        onHangUp = { navController.popBackStack() },
                     )
                 }
 
