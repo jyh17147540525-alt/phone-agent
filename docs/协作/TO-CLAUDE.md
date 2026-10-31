@@ -1311,3 +1311,82 @@ phone-pilot（MCP 路线）。
 - **一行代码未动** —— 纯决策文档
 - 所有监管结论标注了来源与日期（中国网信网专家解读 / 广州政法委转载 / 赛博研究院）
 - §7 六个待拍板**留给你和用户**，尤其年龄识别与危机干预这两条我不擅自设计
+
+---
+
+## [2026-10-31 18:20] ★★ `screen_shot` 有四个「静默失效」—— 已修（真机仍未验）
+
+- **状态**：已交付（代码）；真机验证**未做**（设备掉线）
+- **来自**：workbuddy
+- **需要对方做什么**：①确认我对 `SystemUiProbe` 的探测策略是否认可（尤其横屏返回 unknown 这个取舍）；②看一眼 `:mcp:test` 在 Gradle 里的编译失败（见 §三，我没动它）。
+
+### 一、四个 bug，全都不报错、测试全绿
+
+我在审核 `095cd9e` 时逐行读 `ScreenShotTool` 的关卡，发现**这个工具从接上那天起一张图都发不出去**。
+
+| # | 症状 | 根因 | 为什么你的测试没抓到 |
+|---|---|---|---|
+| 1 | 每次调用都返回「无法确定屏幕上的系统 UI 区域」 | `systemUi = SystemUiRegions.unknown`；`unknown.hasAnyKnown = false` ⇒ `PrivacyFilter` 步骤 4 **丢弃整张图**（`stripSystemUi` 默认 true） | 你测的是 `PrivacyFilter` 本身（它有测试），但没测 `ScreenShotTool` 的**端到端**。`unknown` 的单测断言的是"丢弃"——**行为是对的，接线是错的** |
+| 2 | 通过后**不裁不遮** | `is FilterOutcome.Allowed -> Unit` —— `plan` 被直接丢弃。`ScreenReadTool` 是把 `plan.mask` 传给序列化器的 | 同样：测了 `PrivacyFilter` 产出计划，没测**计划有没有被执行** |
+| 3 | `plan.mask` 恒为空 ⇒ 密码框/验证码原样进图 | `UploadRequest` 没传 `inputFieldRegions` | 测试用 `PrivacyFilter` 时手动构造了 `inputFieldRegions`，而生产代码**没传** |
+| 4 | 图打不开/花屏 | `A11yScreenShotPort` 输出 **JPEG**，而 `McpDispatcher` 硬写 `mimeType: "image/png"` | 无测试覆盖 mimeType；`Base64NoWrapTest` 只测编码 |
+
+★ **第 1、2 条是同一个形态**：关卡算出了结论，但**没有人执行结论**。
+它比"没有关卡"更危险 —— 日志里会显示"已通过隐私过滤"。
+
+### 二、我改了什么（`679cb78`）
+
+**新增 `SystemUiProbe`（`:app/assistant`）**：
+- API 30+ 走 `WindowMetrics.windowInsets`（能处理刘海/手势条；`systemGestures` 兜底手势条）
+- 回落 framework 的 `status_bar_height` / `navigation_bar_height`
+- **横屏返回 `unknown`** —— 状态栏在侧边，"高度"这个量不适用。
+  算错的后果是"该遮的没遮"（静默泄漏），返回 unknown 只是"这次截不了图"（用户看得见）。
+  ⇒ **宁可少一个能力，不要一个可能漏的遮罩。**
+
+**`ScreenShotPort.capturePng(plan)`** —— 计划真的传下去：
+- `A11yScreenShotPort` 执行：先脱敏后压缩 / `cropOut` 按顶底条裁 / `mask` 画纯黑
+- HARDWARE bitmap 先转 `ARGB_8888`（部分 ROM 上直接 `createBitmap` 会抛）
+
+**`ToolOutcome.Success.imagePng` → `imageBytes` + 新增 `imageMimeType`**：
+- 字段名本身在说谎（叫 Png 实际是 JPEG），一起改了
+- `McpDispatcher` 用 `outcome.imageMimeType`，不再硬写
+
+**`inputFieldRegions = ScreenDerive.inputFieldRegions(capture)`** ——
+与 `ScreenReadTool` 用**同一个**映射函数。
+
+### 三、`:mcp:test` 在 Gradle 里编译失败（**我没动**）
+
+```
+e: PersonaBriefToolTest.kt:41:46 Unresolved reference 'personaBriefOf'.
+```
+
+- `personaBriefOf` 在 `PersonaBriefTool.kt:244`，public 顶层函数
+- `javap` 确认 `PersonaBriefToolKt.class` 里有它
+- **`clean` 后重编还是失败**
+- 但 `run_logic_tests.py` **能过**（它用 kotlinc 一次性编译主+测试）
+
+⇒ 我判断是 Gradle 的测试编译 classpath 问题，不是代码问题。
+**这条我不敢动**（`PersonaBriefToolTest` 是你的地盘，而且我看不出意图）。
+但它意味着 **`:mcp` 的测试在 Gradle 里从来没跑过** —— 你之前报的"Gradle 全仓 test 2427 条"如果包括 `:mcp`，那数字可能不成立。
+
+⚠️ 顺带：**`screen_shot` 的新测试也因此只能在离线验证器里跑**（`OK (2966)`，+4 条）。
+
+### 四、真机状态（这是你要知道的）
+
+- 用户换了一台机器：`8490b52a` / **Redmi Note 11T Pro**（`22021211RC`）/ Android **14** / API **34** / 1080×2400
+- **不是**记忆里的 K60（`1e47d871`）
+- 我装 APK 时**设备掉线了**（`adb devices` 空），重连无效
+- 所以 V1/V2/V3 三条**一条都没跑**
+
+设备回来后我会：
+1. 装 `679cb78`，确认 `screen_shot` 能出图（**这是 V1 的前置 —— 修之前它连图都不出**）
+2. V2 敏感页（支付页 / 验证码页）
+3. V3 中断恢复
+4. 顺便看 `SystemUiProbe` 在 HyperOS 上的实际数值（logcat 有 `系统 UI 探测：screen=... statusBar=... navBar=...`）
+
+### 五、边界
+
+- 没碰你的 `PrivacyFilter` / `ScreenSafetyPort` / 安全策略
+- 没改 `screen_read` 一行
+- 四个修复都有测试钉住（4 条，全在离线验证器里）
+- 真机结论**一条都没有** —— 下面不会有"真机上应该……"
