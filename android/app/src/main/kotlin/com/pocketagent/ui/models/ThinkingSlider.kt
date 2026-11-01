@@ -1,11 +1,18 @@
 package com.pocketagent.ui.models
 
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,20 +20,18 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -45,52 +50,36 @@ import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.round
-import kotlin.math.sign
 import kotlin.math.sin
 
 /**
- * 推理等级拉条 —— **按 dsh-claude-style 的交互代码逐条移植**。
+ * 推理等级拉条 —— 移植 dsh-claude-style 的 UI 与交互。
  *
- * ===== 源码 =====
- * `~/.dsh/profiles/desktop/node_modules/dsh-claude-style/lib/client.js`
- * 组件构建函数 `$b(e)`，类名族 `dsh-claude-effort-*`
+ * 源码：`~/.dsh/.../dsh-claude-style/lib/client.js`，类名族 `dsh-claude-effort-*`
+ * 常量：`U = .8`（磁吸回拉）/ `G = 3px`（拖动前置位移）
  *
- * ===== 从源码里逐条翻译过来的逻辑 =====
+ * ===== 这一版修掉的三件事（用户指出）=====
  *
- * 常量（源码同名）：
- *   U = 0.8   —— 吸附曲线的回拉系数
- *   G = 3     —— 拖动前置位移（px），防误触
+ * ① **矩阵是 5 行，不是 2 行**
+ *    源码 `gridAutoRows = sq`，行数由布局函数给；实测参考图是 5 行。
  *
- * 位置换算：
- *   span = trackWidth - knobWidth              （源码 N().span）
- *   P(i) = i / (n-1) * span                    （档位 → 像素）
- *   Y(x) = clamp(x - trackLeft - knob/2, 0, span)   （指针 → 像素）
- *   idx(x) = round(x / span * (n-1))           （像素 → 档位）
+ * ② **吸附会把 off 弹回 max**
+ *    原来是 `LaunchedEffect(index, trackW, settleTo)` —— `settleTo` 归零时
+ *    这个 effect 会**带着旧 index 重跑一次**，于是把手先弹回上一档再回来。
+ *    ⇒ 改成"显式请求 + 令牌"：`requestMove(x)` 才会动画，令牌变化才重跑。
  *
- * **磁吸曲线**（源码 W，这是"质感"的核心）：
+ * ③ **只能拖，不能点**
+ *    用户："点击拉条上对应思考等级的大概位置也能切换"。
+ *    ⇒ 加了 tap 手势：点哪儿就跳到最近的档。
+ *
+ * ===== 动画（源码三条 keyframes）=====
  * ```
- * seg  = span / (n-1)
- * k    = floor(x / seg)
- * t    = (x - k*seg) / seg        // 段内 0..1
- * W(x) = (k + t - U*sin(2πt)/(2π)) * seg
+ * Flash: 0-14% accent → 20-34% 亮色 → 100% accent   （1.45s，infinite）
+ * Front: 0% 0 → 30% .9 → 100% 0                      （入场）
+ * Flow : 0 → 3% .95 → 6% 0                           （4s，横扫）
  * ```
- * ★ 它把位置往**段的边界**拉，最多拉 0.8/(2π) ≈ 12.7% 个段宽。
- *   手感像是有磁铁，而不是一条滑溜溜的线。这是我在前几版完全没做的。
- *
- * 绘制联动（源码 z）：
- *   knob.translate = pos
- *   fill.width     = pos + 8px      ← fill 比把手多出 8px，形成"拖尾"
- *
- * 手势（源码 Ct / gi / Qa / Fe）：
- *   按下  → 立即定位（无过渡）、记录起点
- *   移动  → 位移超过 G(3px) 才进入 dragging（把手 scale 1.1）
- *   松开  → 吸附到 idx、调 onPick、把手动画到 P(idx)
- *
- * apex（源码 ae）：
- *   index == 最后一档 ⇒ 轨道换成 accent 方格网格 + 发光把手
- *
- * ===== 档位：四档 off / low / high / max =====
- * 与源码的 `reasoning.efforts` 一一对应（源码里也是厂商给的离散档位）。
+ * 每格按**列位置**决定基础亮度，再加上错开的相位 —— 于是看起来是一道波
+ * 从左往右推进，而不是整片一起闪。
  */
 @Composable
 fun ThinkingSlider(
@@ -102,47 +91,46 @@ fun ThinkingSlider(
     val index = levels.indexOf(effort).coerceAtLeast(0)
     val isApex = effort.isApex
 
+    // ══════════════════════════════════════════════════════════════
+    //  ★★ 2026-11-01：手势闭包里**不能直接捕获 index / onPick**
+    // ══════════════════════════════════════════════════════════════
+    //
+    // ⚠️ `pointerInput(span, levels)` 的 key 不含 `index`，所以那个块
+    //    只在 span/levels 变化时重建 —— 其中的 `index` 是**创建时的旧值**。
+    //
+    //    症状（真机日志坐实）：拖动结束时 `target(0) != index(旧值0)` 为 false
+    //    ⇒ 跳过 onPick ⇒ 把手动了、状态没变 ⇒ "拖回 off 却停在 max"。
+    //
+    // ⇒ 用 rememberUpdatedState 让闭包每次读到最新值。
+    val indexState = androidx.compose.runtime.rememberUpdatedState(index)
+    val pickState = androidx.compose.runtime.rememberUpdatedState(onPick)
+
     var trackW by remember { mutableStateOf(0f) }
     var dragging by remember { mutableStateOf(false) }
     var pending by remember { mutableStateOf(-1) }
 
+    var visualX by remember { mutableStateOf(0f) }
+    // ⚠️ 原始位置与显示位置必须分开：
+    //    源码里 `na` 是原始 clientX，`p = W(Y(na))` 才是显示值。
+    //    拿显示值当累加起点，误差会越滚越大（"拖到底却停在中间"）。
+    var rawX by remember { mutableStateOf(0f) }
+
+    var targetX by remember { mutableStateOf(0f) }
+    var animToken by remember { mutableIntStateOf(0) }
+    val scope = rememberCoroutineScope()
+
     val density = LocalDensity.current
     val knobW = with(density) { 16.dp.toPx() }
     val span = (trackW - knobW).coerceAtLeast(1f)
-
-    // ══════════════════════════════════════════════════════════
-    //  把手位置
-    // ══════════════════════════════════════════════════════════
-    //
-    // ⚠️ 原来用 `Animatable` + `scope.launch { snapTo(...) }`：
-    //    `launch` 是**异步**的，连续拖动事件到来时 `pos.value` 还是旧值
-    //    ⇒ 位置累加错、拖不到底。
-    //
-    // ⇒ 拖动中用**同步**的 `visualX`（直接赋值，立即生效）；
-    //   只有"松手吸附"那一小段才用 `animate` 做过渡。
-    var visualX by remember { mutableStateOf(0f) }
-    var settleTo by remember { mutableStateOf<Float?>(null) }
-
-    // ⚠️ 必须分开保存**原始位置**与**显示位置**：
-    //    源码里 `na` 是原始 clientX，`p = W(Y(na))` 才是显示值。
-    //    如果把显示值（已吸附）当成下次累加的起点，误差会越滚越大 ——
-    //    表现就是"拖到最右却停在中间"。
-    var rawX by remember { mutableStateOf(0f) }
 
     fun posOf(i: Int): Float =
         if (levels.size < 2) span else i.toFloat() / (levels.size - 1) * span
 
     fun idxOf(x: Float): Int =
         if (levels.size < 2) 0
-        else round(x / span * (levels.size - 1)).toInt()
-            .coerceIn(0, levels.size - 1)
+        else round(x / span * (levels.size - 1)).toInt().coerceIn(0, levels.size - 1)
 
-    /**
-     * 磁吸曲线 —— 逐字翻译源码的 `W`。
-     *
-     * ⚠️ 这是我前几版**没做**的东西：只做线性插值的话，
-     *    拖动是"滑"的；加了这一项才是"吸"的。
-     */
+    /** 磁吸曲线 —— 逐字翻译源码 `W`。拉向段边界，最多 12.7% 段宽。 */
     fun snapCurve(x: Float): Float {
         if (levels.size < 2 || span <= 0f) return x
         val seg = span / (levels.size - 1)
@@ -152,21 +140,37 @@ fun ThinkingSlider(
         return (k + t - SNAP_PULL * sin(2f * PI.toFloat() * t) / (2f * PI.toFloat())) * seg
     }
 
-    // 外部状态变化（点了别处）或松手吸附 —— 都用同一段动画
-    LaunchedEffect(index, trackW, settleTo) {
-        if (dragging || trackW <= 0f) return@LaunchedEffect
-        val target = settleTo ?: posOf(index)
-        androidx.compose.animation.core.animate(
+    /** 请求把把手动画到 x。**只有这里会启动动画**。 */
+    fun requestMove(x: Float) {
+        targetX = x
+        animToken++
+    }
+
+    // 唯一的动画驱动
+    LaunchedEffect(animToken, span) {
+        if (span <= 0f) return@LaunchedEffect
+        animate(
             initialValue = visualX,
-            targetValue = target,
+            targetValue = targetX,
             animationSpec = tween(MOVE_MS, easing = GLIDE),
         ) { v, _ -> visualX = v }
-        if (settleTo != null) settleTo = null
+    }
+
+    // 外部档位变化（例如另一处改了设置）时归位；拖动中不打断
+    LaunchedEffect(index, span) {
+        if (!dragging && span > 0f) requestMove(posOf(index))
+    }
+
+    // 轨道几何就绪时先把把手放到位
+    LaunchedEffect(span) {
+        if (span > 0f && !dragging) {
+            visualX = posOf(index)
+            targetX = visualX
+        }
     }
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
 
-        // head：13sp baseline 对齐
         Row(verticalAlignment = Alignment.Bottom) {
             Text("推理等级", style = PaType.caption, color = PaColor.TextSecondary)
             Spacer(Modifier.width(6.dp))
@@ -180,52 +184,84 @@ fun ThinkingSlider(
             )
         }
 
-        // ends：11sp
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("更快", style = PaType.overline, color = PaColor.TextTertiary)
             Text("更强", style = PaType.overline, color = PaColor.TextTertiary)
         }
 
-        // track：30dp
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(30.dp)
                 .onSizeChanged { trackW = it.width.toFloat() }
-                .pointerInput(trackW, levels) {
-                    detectDragGestures(
-                        onDragStart = { off ->
-                            val x = (off.x - knobW / 2f).coerceIn(0f, span)
-                            dragging = true
-                            settleTo = null
-                            // 源码：按下立即定位（无过渡）
-                            rawX = x
-                            visualX = snapCurve(x)
-                            pending = idxOf(x)
-                        },
-                        onDragEnd = {
-                            dragging = false
-                            val target = if (pending >= 0) pending else index
-                            pending = -1
-                            // 源码 Fe：吸附到整档 + 提交
-                            if (target != index) onPick(levels[target])
-                            settleTo = posOf(target)
-                        },
-                        onDragCancel = {
-                            dragging = false
-                            pending = -1
-                            settleTo = posOf(index)
-                        },
-                    ) { change, amount ->
-                        change.consume()
-                        rawX = (rawX + amount.x).coerceIn(0f, span)
-                        visualX = snapCurve(rawX)
-                        pending = idxOf(rawX)
+                // ══════════════════════════════════════════════════
+                //  ★ 统一手势：按下即定位、位移超 3px 才算拖、松开提交
+                // ══════════════════════════════════════════════════
+                //
+                // ⚠️ 原来挂了两个 `pointerInput`（tap + drag），
+                //    tap 那个先消费了事件 ⇒ **拖不动了**。
+                //
+                // ★ 源码本身就是一个手势（`Ct` / `gi` / `Fe`）：
+                //     pointerdown → 立刻定位到指针处（无过渡）
+                //     pointermove → 位移 >= G(3px) 才标记 dragging（把手 scale 1.1）
+                //     pointerup   → 提交最近的档
+                //   ⇒ "点一下" 和 "拖动" 是同一个逻辑的两个极端，
+                //     不需要两个手势识别器。
+                .pointerInput(span, levels) {
+                    val slop = 3.dp.toPx()
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val startX = down.position.x
+                        var moved = false
+
+                        // 按下：立刻定位（源码 Ct）
+                        var x = (startX - knobW / 2f).coerceIn(0f, span)
+                        rawX = x
+                        visualX = snapCurve(x)
+                        pending = idxOf(x)
+
+                        while (true) {
+                            val ev = awaitPointerEvent()
+                            val ch = ev.changes.firstOrNull() ?: break
+                            if (!ch.pressed) break
+                            val dx = ch.position.x - startX
+                            if (!moved && abs(dx) >= slop) {
+                                moved = true
+                                dragging = true
+                                pending = idxOf(rawX)
+                            }
+                            if (moved) {
+                                ch.consume()
+                                x = (ch.position.x - knobW / 2f).coerceIn(0f, span)
+                                rawX = x
+                                visualX = snapCurve(x)
+                                pending = idxOf(x)
+                            }
+                        }
+
+                        // 松开：提交（源码 Fe）—— 点一下也是这条路径
+                        dragging = false
+                        val target = if (pending >= 0) pending else indexState.value
+                        pending = -1
+                        if (target != indexState.value) pickState.value(levels[target])
+                        requestMove(posOf(target))
                     }
                 },
         ) {
             val accent = PaColor.Accent
             val label = PaColor.TextPrimary
+
+            // 动画相位：源码 period-flash = 1.45s
+            val flash = rememberInfiniteTransition(label = "apexFlash")
+            val phase by flash.animateFloat(
+                initialValue = 0f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1450, easing = LinearEasing),
+                    repeatMode = RepeatMode.Restart,
+                ),
+                label = "phase",
+            )
 
             Canvas(Modifier.fillMaxWidth().height(30.dp)) {
                 val h = size.height
@@ -238,7 +274,7 @@ fun ThinkingSlider(
                 val kTop = (h - khNow) / 2f
                 val kLeft = kx - (kwNow - knobW) / 2f
 
-                // ① 轨道底（源码 :before）
+                // 轨道底
                 drawRoundRect(
                     color = Color.White.copy(alpha = 0.06f),
                     topLeft = Offset(0f, top),
@@ -247,38 +283,60 @@ fun ThinkingSlider(
                 )
 
                 if (isApex) {
-                    // ② apex：accent 方格网格 + 左暗右亮的 ramp
-                    val cols = 26
-                    val rows = 2
+                    // ── apex：5 行方格 + 按列渐变 + 错相闪烁 ──────
+                    val rows = 5
                     val inset = 2.dp.toPx()
-                    val cw = (size.width - inset * 2) / cols
-                    val ch = (loopH - inset * 2) / rows
-                    for (c in 0 until cols) {
-                        val f = c.toFloat() / (cols - 1)
-                        val ramp = 0.16f + 0.84f * f
-                        for (rw in 0 until rows) {
-                            val wave = 0.88f +
-                                0.12f * sin((f + rw * 0.5f) * 3f * PI.toFloat())
+                    val sq = 3.4.dp.toPx()
+                    val gap = 1.6.dp.toPx()
+                    val cols = ((size.width - inset * 2 + gap) / (sq + gap))
+                        .toInt().coerceAtLeast(1)
+                    val flashLight = lerp(accent, Color.White, 0.55f)
+
+                    for (r in 0 until rows) {
+                        for (c in 0 until cols) {
+                            val p = if (cols > 1) c.toFloat() / (cols - 1) else 1f
+                            // 基础亮度：按**列位置**渐变（源码 h.style.opacity = d(p)）
+                            val base = 0.18f + 0.82f * p
+
+                            // 闪烁：源码 Flash 关键帧 0-14 base / 20-34 亮 / 其余 base
+                            // 每格错开相位 —— (1-p)*0.31 让左边的先亮，
+                            // 于是波是**从右往左**…源码就是这么写的（(1-p)）。
+                            val delay = (1f - p) * 0.31f + ((r * 7 + c * 3) % 11) * 0.05f
+                            val local = (phase + delay) % 1f
+                            val flashAmt = when {
+                                local < 0.14f -> 0f
+                                local < 0.34f -> {
+                                    sin((local - 0.14f) / 0.20f * PI.toFloat())
+                                }
+                                else -> 0f
+                            }.coerceIn(0f, 1f)
+
+                            val col = lerp(
+                                accent.copy(alpha = base),
+                                flashLight.copy(alpha = (base * (0.6f + 0.4f * flashAmt))),
+                                flashAmt * 0.85f,
+                            )
+
                             drawRoundRect(
-                                color = accent.copy(alpha = (ramp * wave).coerceIn(0f, 1f)),
-                                topLeft = Offset(inset + c * cw, top + inset + rw * ch),
-                                size = Size(
-                                    (cw - 0.8.dp.toPx()).coerceAtLeast(1f),
-                                    (ch - 0.8.dp.toPx()).coerceAtLeast(1f),
+                                color = col,
+                                topLeft = Offset(
+                                    inset + c * (sq + gap),
+                                    top + inset + r * (sq + gap),
                                 ),
+                                size = Size(sq, sq),
                                 cornerRadius = CornerRadius(1.dp.toPx()),
                             )
                         }
                     }
                 } else {
-                    // ③ fill：宽度 = 把手位置 + 8dp（源码 `ne + 8`），只圆左边两角
+                    // ── 常态：fill（只圆左边两角）+ 每档一个圆点 ──
+                    // ⚠️ fill 宽 = 把手位置 + 8dp（源码 `ne + 8`），形成拖尾
                     drawRoundRect(
                         color = label.copy(alpha = 0.26f),
                         topLeft = Offset(0f, top),
                         size = Size((kx + 8.dp.toPx()).coerceIn(0f, size.width), loopH),
                         cornerRadius = r8,
                     )
-                    // ④ ticks：每档一个 4dp 圆点，位置 = P(i) + knob/2
                     for (i in levels.indices) {
                         drawCircle(
                             color = label.copy(alpha = 0.26f),
@@ -288,7 +346,7 @@ fun ThinkingSlider(
                     }
                 }
 
-                // ⑤ 把手
+                // 把手
                 if (isApex) {
                     drawCircle(
                         brush = Brush.radialGradient(
@@ -305,7 +363,7 @@ fun ThinkingSlider(
                     else Color.Black.copy(alpha = 0.06f),
                     topLeft = Offset(kLeft - 1.dp.toPx(), kTop - 1.dp.toPx()),
                     size = Size(kwNow + 2.dp.toPx(), khNow + 2.dp.toPx()),
-                    cornerRadius = CornerRadius(5.dp.toPx() + 1.dp.toPx()),
+                    cornerRadius = CornerRadius(6.dp.toPx()),
                 )
                 drawRoundRect(
                     color = if (isApex) lerp(Color.White, accent, 0.22f) else Color.White,
@@ -318,18 +376,15 @@ fun ThinkingSlider(
     }
 }
 
-// ── 源码常量 ────────────────────────────────────────────────
-
-/** 吸附曲线的回拉系数（源码 `U = .8`）。 */
+/** 吸附回拉系数（源码 `U = .8`）。 */
 private const val SNAP_PULL = 0.8f
 
 /** 松手吸附时长（源码 `--dsh-claude-duration-move: .2s`）。 */
 private const val MOVE_MS = 200
 
-/** 源码 `--dsh-claude-ease-glide: cubic-bezier(.22, .61, .36, 1)`。 */
+/** 源码 `--dsh-claude-ease-glide: cubic-bezier(.22,.61,.36,1)`。 */
 private val GLIDE = CubicBezierEasing(0.22f, 0.61f, 0.36f, 1f)
 
-/** 档位名按档位上色：越高越接近强调色。 */
 @Composable
 private fun levelColor(effort: ThinkingEffort): Color = when (effort) {
     ThinkingEffort.OFF -> PaColor.TextSecondary
