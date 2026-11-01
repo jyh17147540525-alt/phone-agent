@@ -2442,9 +2442,14 @@ class TasksViewModel(
                         //   ⚠️ 只在用户**明确点了那个按钮**时为 true ——
                         //      分类器的保守判定保持不变（它不会自己动手）。
                         forceAct = forceAct,
-                        onStep = { step, desc ->
+                        onStep = { step, desc, tier ->
                             update(taskId) {
-                                it.copy(step = step, note = desc, perceptionTier = 1)
+                                it.copy(
+                                    step = step,
+                                    note = desc,
+                                    // ★ 2026-11-01：真实档位（此前硬编码 1）
+                                    perceptionTier = tier.coerceAtLeast(0),
+                                )
                             }
                         },
                         onDelta = { delta ->
@@ -2493,7 +2498,9 @@ class TasksViewModel(
                             state = TaskState.Done,
                             step = 1,
                             note = result.text,
-                            perceptionTier = 0,
+                            // ★ 2026-11-01：**真实**感知档位（此前这里是硬编码的 0）。
+                            //    `-1` = 这一轮没跑循环（纯对话），界面上按 0 处理。
+                            perceptionTier = result.perceptionTier.coerceAtLeast(0),
                             // ★ 这一轮到底动没动手 —— 界面靠它选形态
                             isAgentRun = result.isAgentRun,
                             // ★★ 2026-10-31：低置信度判成 Chat 时给一个出口

@@ -67,7 +67,14 @@ interface ChatPort {
      */
     suspend fun send(
         history: List<ChatMessage>,
-        onStep: (step: Int, description: String) -> Unit = { _, _ -> },
+        /**
+     * 每完成一步工具调用就回调一次。
+     *
+     * ★ 2026-11-01：第三个参数是**这一步的感知档位**。
+     *   带上它，界面在执行过程中就能显示真实档位，
+     *   而不是硬编码一个数字糊过去。
+     */
+    onStep: (step: Int, description: String, perceptionTier: Int) -> Unit = { _, _, _ -> },
         /**
          * **正文增量**。纯对话路径每收到一片就回调一次 —— 界面据此逐字显示。
          *
@@ -156,6 +163,15 @@ sealed interface ChatResult {
         val text: String,
         val isAgentRun: Boolean = false,
         /**
+         * 这一轮**实际**用到的感知档位（0..4）。`-1` = 没跑循环（纯对话）。
+         *
+         * ★ 界面据此显示顶栏徽章。此前它是硬编码的 ——
+         *   用户看到的数值和实际发生的事无关，那比不显示更糟。
+         */
+        val perceptionTier: Int = -1,
+        /** 为什么是这个档位 —— 可直接展示给用户。 */
+        val perceptionReason: String = "",
+        /**
          * **要不要问一句「要我帮你做吗？」**
          *
          * ═══════════════════════════════════════════════════════════
@@ -228,7 +244,7 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
 
     override suspend fun send(
         history: List<ChatMessage>,
-        onStep: (step: Int, description: String) -> Unit,
+        onStep: (step: Int, description: String, perceptionTier: Int) -> Unit,
         onDelta: (delta: String) -> Unit,
         compressedMemory: String,
         image: ByteArray?,
@@ -400,6 +416,12 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
      * ⚠️ 必须在 `try` **外面**声明：它在 `try` 内部被赋值，
      *    而消费点在 `try` 之后（组装 `ChatResult.Ok` 那里）。
      */
+    // ★ 2026-11-01：感知档位（-1 = 这一轮没跑循环）
+    var lastPerceptionTier = -1
+    var lastPerceptionReason = ""
+    var perceptionTierOut = -1
+    var perceptionReasonOut = ""
+
     var runTrace: List<String> = emptyList()
     val text = try {
         store.useKey(config.credentialId) { provider, credential ->
@@ -480,7 +502,10 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                     maxSteps = CHAT_MAX_STEPS,
                 ),
                 // ★ 把循环的真实进度透给界面。
-                onStep = onStep,
+                // ⚠️ 循环的 `onStep` 只给 (步数, 动作)。档位由 `onProgress` 捕获，
+                //    这里用**最近一次**的档位桥过去 —— 会慢一步，
+                //    但换来的是不改循环接口。改接口的代价远大于慢一步。
+                onStep = { step, desc -> onStep(step, desc, lastPerceptionTier) },
                 // ══════════════════════════════════════════════════
                 //  ★★ 落检查点 —— 让"中断后能接着来"真的成立
                 // ══════════════════════════════════════════════════
@@ -496,6 +521,13 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                 //    而 `store.save` 是 suspend ⇒ 必须自己起一个作用域。
                 //    用容器自带的作用域，这样任务被取消时它也跟着取消。
                 onProgress = { snap ->
+                    // ★ 2026-11-01：把**真实**的感知档位留下来。
+                    //   此前界面顶栏那个徽章是硬编码的 —— 用户看到的数值
+                    //   和实际发生的事无关，那比不显示更糟。
+                    if (snap.perceptionTier >= 0) {
+                        lastPerceptionTier = snap.perceptionTier
+                        lastPerceptionReason = snap.perceptionReason
+                    }
                     container.checkpointScope.launch {
                         container.checkpointStore.save(
                             com.pocketagent.agentlogic.TaskCheckpoint(
@@ -520,6 +552,9 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
             // ★★ 2026-10-31：同时把 `trace` 留下来 —— 在此之前它被丢掉，
             //    用户没法核对它到底点了哪里（见 `traceOf` 的注释）。
             runTrace = traceOf(result)
+            // ⚠️ 档位只在真的跑过循环时才有意义（纯对话不会触发 onProgress）
+            perceptionTierOut = lastPerceptionTier
+            perceptionReasonOut = lastPerceptionReason
             explainRun(result)
         }
     } catch (e: kotlinx.coroutines.CancellationException) {
@@ -594,6 +629,8 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                 // ⚠️ 只在**没动手**（`didAct == false`）时问：
                 //    已经动手了还问"要不要我做"，等于问"要不要把刚做完的事
                 //    再做一遍"。
+                perceptionTier = perceptionTierOut,
+                perceptionReason = perceptionReasonOut,
                 offerHelp = !didAct &&
                     com.pocketagent.rootlogic.IntentClassifier.shouldOfferHelp(decision),
                 // ★★ 2026-10-31：把步骤记录交给界面 —— 用户要能核对
