@@ -1,4 +1,4 @@
-package com.pocketagent.agentlogic
+package com.pocketagent.agent
 
 /**
  * 定位消歧策略 —— 候选有多个时该怎么办。

@@ -1,4 +1,4 @@
-package com.pocketagent.agentlogic
+package com.pocketagent.agent
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
