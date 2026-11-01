@@ -312,14 +312,14 @@ class AccessibilityActionExecutor(
         action.point?.let { return it.x to it.y }
 
         val bounds = action.elementRef?.bounds ?: return null
-        if (bounds.width() <= 0 || bounds.height() <= 0) return null
+        if (bounds.width <= 0 || bounds.height <= 0) return null
 
         // ★ 拟人化：不在正中心点，在元素内随机偏移。
         //   正中心是自动化最明显的特征，且部分控件中心可能是空白区。
-        val maxDx = (bounds.width() * HumanizePolicy.MAX_OFFSET_RATIO).roundToInt()
-        val maxDy = (bounds.height() * HumanizePolicy.MAX_OFFSET_RATIO).roundToInt()
-        val cx = bounds.centerX() + if (maxDx > 0) (-maxDx..maxDx).random() else 0
-        val cy = bounds.centerY() + if (maxDy > 0) (-maxDy..maxDy).random() else 0
+        val maxDx = (bounds.width * HumanizePolicy.MAX_OFFSET_RATIO).roundToInt()
+        val maxDy = (bounds.height * HumanizePolicy.MAX_OFFSET_RATIO).roundToInt()
+        val cx = bounds.centerX + if (maxDx > 0) (-maxDx..maxDx).random() else 0
+        val cy = bounds.centerY + if (maxDy > 0) (-maxDy..maxDy).random() else 0
         return cx to cy
     }
 

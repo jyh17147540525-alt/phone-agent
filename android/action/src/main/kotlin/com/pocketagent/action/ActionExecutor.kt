@@ -1,6 +1,5 @@
 package com.pocketagent.action
 
-import android.graphics.Rect
 
 /**
  * 动作执行的统一抽象。
@@ -108,6 +107,35 @@ data class UiAction(
         get() = type in setOf(ActionType.CLICK, ActionType.TAP_COORD, ActionType.LONG_PRESS) && !safetyCleared
 }
 
+/**
+ * **屏幕矩形** —— 纯 Kotlin，不依赖 `android.graphics.Rect`。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  ★★ 2026-11-01：为什么不用 `android.graphics.Rect`
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * 这一处 import 把**整个 `:action` 模块**拖出了纯 Kotlin ——
+ * 而 `:agent` 依赖 `:action`，于是 `:agent` 也进不了离线验证器。
+ *
+ * ⚠️ 连锁后果很具体：`AgentOrchestrator` 会产出
+ *    `GroundResult.Ambiguous(candidates)`，而唯一该消费它的
+ *    `AmbiguityResolver` 因为模块验不了，**一直没能接线**。
+ *
+ * ⇒ 只用四个 Int，没理由为它背一个 Android 依赖。
+ *    Android 侧的 `Rect` 在边界处转换（见 `ActionPorts`）。
+ */
+data class Bounds(
+    val left: Int,
+    val top: Int,
+    val right: Int,
+    val bottom: Int,
+) {
+    val centerX: Int get() = (left + right) / 2
+    val centerY: Int get() = (top + bottom) / 2
+    val width: Int get() = right - left
+    val height: Int get() = bottom - top
+}
+
 /** 元素引用 —— Grounder 的输出，Executor 的输入 */
 sealed interface ElementRef {
     /**
@@ -115,15 +143,15 @@ sealed interface ElementRef {
      * nodeId 来自 [com.pocketagent.perception.UiNode.nodeId]，
      * 但注意：**跨快照的 nodeId 不保证稳定**，执行前必须用 [bounds] 二次校验。
      *
-     * ⚠️ `override` 不能省。接口在下面声明了 `val bounds: Rect?`，
+     * ⚠️ `override` 不能省。接口在下面声明了 `val bounds: Bounds?`，
      *    这两个实现类各自带着一个非空的 `bounds` 构造参数 —— 不写 `override`
      *    会被判成"遮蔽了父类型成员"，直接编译失败。
-     *    类型从 `Rect?` 收窄成 `Rect` 是允许的（val 的返回类型可以协变）。
+     *    类型从 `Bounds?` 收窄成 `Bounds` 是允许的（val 的返回类型可以协变）。
      */
-    data class ByNodeId(val nodeId: String, override val bounds: Rect) : ElementRef
+    data class ByNodeId(val nodeId: String, override val bounds: Bounds) : ElementRef
 
     /** 通过 viewIdResourceName 定位，比 nodeId 更稳定 */
-    data class ByViewId(val viewIdResourceName: String, override val bounds: Rect) : ElementRef
+    data class ByViewId(val viewIdResourceName: String, override val bounds: Bounds) : ElementRef
 
     /** 通过坐标定位。最不稳定但最通用 */
     data class ByCoord(val x: Int, val y: Int) : ElementRef
@@ -137,11 +165,11 @@ sealed interface ElementRef {
      * 注意 [ByText] 返回 null —— 文本定位的结果**没有**已知位置，
      * 调用方必须处理这个 null，不能当成"坐标为 0"。
      */
-    val bounds: Rect?
+    val bounds: Bounds?
         get() = when (this) {
             is ByNodeId -> bounds
             is ByViewId -> bounds
-            is ByCoord -> Rect(x, y, x, y)
+            is ByCoord -> Bounds(x, y, x, y)
             is ByText -> null
         }
 }

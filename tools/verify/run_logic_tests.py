@@ -167,6 +167,14 @@ MODULES = [
     "android/legacy",
     "android/rootlogic",
     "android/agentlogic",
+    # ★ 2026-11-01：`:action` 摆脱了唯一那处 `android.graphics.Rect`，
+    #    现在是纯 Kotlin。
+    #
+    # ⚠️ `:agent` 仍然纳不进来：它依赖 `:perception`，而那个模块
+    #    四个文件**全部**有 Android 依赖（`ScreenSnapshot` 直接带 `Bitmap`）。
+    #    要纳入得先把"位图"与"元信息"拆开 —— 架构级改动，没做。
+    "android/action",
+
     # ★ 2026-11-01：这三个模块**零 Android import**，此前却没纳入离线验证 ——
     #    `:display` / `:github` 各有一整个文件（恰好也是未接线清单里的）。
     #    纳入之后它们至少**编译期**受保护。

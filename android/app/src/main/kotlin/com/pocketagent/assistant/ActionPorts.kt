@@ -115,7 +115,18 @@ class ActionDispatchAdapter(private val dispatcher: ActionDispatcher) : ActionDi
                     UiAction(
                         type = ActionType.CLICK,
                         targetDescription = action.reason,
-                        elementRef = ElementRef.ByNodeId(ref.nodeId, ref.bounds.toRect()),
+                        // ★ 2026-11-01：`:action` 的 `ElementRef.bounds` 现在是纯 Kotlin 的
+                        //    `Bounds`（摆脱了 android.graphics.Rect，换来 `:action`
+                        //    能被离线验证）。Android 的 `Rect` 在这里转换。
+                        elementRef = ElementRef.ByNodeId(
+                            ref.nodeId,
+                            com.pocketagent.action.Bounds(
+                                left = ref.bounds.left,
+                                top = ref.bounds.top,
+                                right = ref.bounds.right,
+                                bottom = ref.bounds.bottom,
+                            ),
+                        ),
                         safetyCleared = true,
                     )
                 } else {
@@ -147,7 +158,18 @@ class ActionDispatchAdapter(private val dispatcher: ActionDispatcher) : ActionDi
                     UiAction(
                         type = ActionType.INPUT_TEXT,
                         targetDescription = action.reason,
-                        elementRef = ElementRef.ByNodeId(ref.nodeId, ref.bounds.toRect()),
+                        // ★ 2026-11-01：`:action` 的 `ElementRef.bounds` 现在是纯 Kotlin 的
+                        //    `Bounds`（摆脱了 android.graphics.Rect，换来 `:action`
+                        //    能被离线验证）。Android 的 `Rect` 在这里转换。
+                        elementRef = ElementRef.ByNodeId(
+                            ref.nodeId,
+                            com.pocketagent.action.Bounds(
+                                left = ref.bounds.left,
+                                top = ref.bounds.top,
+                                right = ref.bounds.right,
+                                bottom = ref.bounds.bottom,
+                            ),
+                        ),
                         // ⚠️ text 也要带 —— 执行侧要先"点一下"再写（见 performInputText），
                         //    而点的坐标就是从这个 elementRef.bounds 算出来的。
                         text = action.text,
