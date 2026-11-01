@@ -130,7 +130,7 @@ data class PlanStep(
 interface Grounder {
     suspend fun locate(
         targetDescription: String,
-        snapshot: com.pocketagent.perception.ScreenSnapshot,
+        snapshot: com.pocketagent.core.common.SnapshotView,
         /** 是否允许使用缓存 */
         allowCache: Boolean = true,
     ): GroundResult
@@ -165,8 +165,8 @@ sealed interface GroundResult {
 interface Verifier {
     suspend fun verify(
         expectation: String,
-        beforeSnapshot: com.pocketagent.perception.ScreenSnapshot,
-        afterSnapshot: com.pocketagent.perception.ScreenSnapshot,
+        beforeSnapshot: com.pocketagent.core.common.SnapshotView,
+        afterSnapshot: com.pocketagent.core.common.SnapshotView,
     ): VerifyResult
 }
 

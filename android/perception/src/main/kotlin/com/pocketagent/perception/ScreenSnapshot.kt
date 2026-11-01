@@ -12,6 +12,11 @@ import android.graphics.Rect
  *    2. 便于缓存与回放（测试时可以把真实快照序列化成 fixture）
  *    3. 明确标注数据来源，便于统计各来源的成功率与成本
  */
+/**
+ * ⚠️ 实现 [SnapshotView] 是为了让 `:agent` 不必依赖 `:perception`
+ *    —— 那个依赖会把 Android 的 `Bitmap` 带进 `:agent`，
+ *    使它无法进入离线验证器。见 `SnapshotView` 的注释。
+ */
 data class ScreenSnapshot(
     val timestamp: Long,
     /** 当前前台应用包名 */
@@ -40,7 +45,7 @@ data class ScreenSnapshot(
 
     /** 该快照的采集耗时，用于性能监控 */
     val captureDurationMs: Long,
-) {
+) : com.pocketagent.core.common.SnapshotView {
     enum class Orientation { PORTRAIT, LANDSCAPE, UNDEFINED }
 
     /**

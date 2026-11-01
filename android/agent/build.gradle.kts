@@ -42,7 +42,7 @@ dependencies {
     //    这个错误藏了很久，因为 tools/verify/run_logic_tests.py 只编译
     //    零 Android 依赖的模块，:agent 从来不在里面。
     //    生成器那边的 PROJECT_DEPS 也已同步补上，新模块不会重蹈覆辙。
-    implementation(project(":perception"))
+    // ★ 2026-11-01：去掉 :perception 依赖（改用 :core:common 的 SnapshotView）
     implementation(project(":action"))
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
