@@ -133,7 +133,7 @@ fun TasksScreen(
     modelChoice: com.pocketagent.modelrouter.ModelChoice =
         com.pocketagent.modelrouter.ModelChoice.Auto,
     thinkingEffort: com.pocketagent.modelrouter.ThinkingEffort =
-        com.pocketagent.modelrouter.ThinkingEffort.AUTO,
+        com.pocketagent.modelrouter.ThinkingEffort.HIGH,
     /** `null` = 切回自动。 */
     onPickModel: (String?) -> Unit = {},
     onPickEffort: (com.pocketagent.modelrouter.ThinkingEffort) -> Unit = {},

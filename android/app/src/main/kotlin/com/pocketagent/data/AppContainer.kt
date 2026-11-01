@@ -1094,9 +1094,9 @@ class AppContainer(context: Context) {
      */
     private var pinnedModelIdValue: String = ""
 
-    /** 思考强度。默认 [com.pocketagent.modelrouter.ThinkingEffort.AUTO]。 */
+    /** 思考强度。默认 [com.pocketagent.modelrouter.ThinkingEffort.HIGH]。 */
     private var thinkingEffortValue: com.pocketagent.modelrouter.ThinkingEffort =
-        com.pocketagent.modelrouter.ThinkingEffort.AUTO
+        com.pocketagent.modelrouter.ThinkingEffort.HIGH
 
     /** 当前的选择（自动 / 钉死某个）。 */
     fun modelChoice(): com.pocketagent.modelrouter.ModelChoice =
@@ -1168,7 +1168,7 @@ class AppContainer(context: Context) {
                         com.pocketagent.modelrouter.ThinkingEffort.valueOf(name)
                     }.getOrNull()
                 }
-                ?: com.pocketagent.modelrouter.ThinkingEffort.AUTO
+                ?: com.pocketagent.modelrouter.ThinkingEffort.HIGH
         }.onFailure { Timber.e(it, "模型选择读取失败") }
     }
 

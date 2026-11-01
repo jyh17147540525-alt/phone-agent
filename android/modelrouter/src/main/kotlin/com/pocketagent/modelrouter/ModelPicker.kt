@@ -17,7 +17,7 @@ package com.pocketagent.modelrouter
  *
  * ⇒ 把"选择"收敛成两个输入：
  *   ① **用哪个**：`Auto`（默认）或 `Pinned(某个模型)`
- *   ② **多用力想**：`ThinkingEffort`（默认 `AUTO`）
+ *   ② **多用力想**：`ThinkingEffort`（默认 `OFF`）
  *
  * 其余（档位、角色）变成**规则**而不是**表单** —— 见 [pick]。
  *
@@ -42,42 +42,52 @@ package com.pocketagent.modelrouter
 enum class ThinkingEffort(val label: String, val hint: String) {
 
     /**
-     * 按场景自动决定。**默认**。
+     * **关闭** —— 不做额外推理。最快、最省。
      *
-     * ★ 用户明确要求默认自动："默认是让用户选自动的"。
+     * ⚠️ 这是「不额外投入推理」的意思，不是"不思考" ——
+     *    模型照样回答，只是不分配额外的思考预算。
      */
-    AUTO(
-        label = "自动",
-        hint = "按场景自己决定：聊天用快的，办事用稳的",
+    OFF(
+        label = "off",
+        hint = "不做额外推理。最快、最省，适合闲聊和简单问题",
     ),
 
-    /** 少想。快、省。 */
+    /** **低** —— 少量推理。 */
     LOW(
-        label = "快",
-        hint = "少想一些。回复更快、更省，适合闲聊和简单问题",
+        label = "low",
+        hint = "少量推理。简单任务够用",
     ),
 
-    /** 正常。 */
-    MEDIUM(
-        label = "标准",
-        hint = "正常思考深度",
-    ),
-
-    /** 多想。慢、贵，但复杂任务更稳。 */
+    /** **高** —— 深入推理。 */
     HIGH(
-        label = "深入",
-        hint = "多想一些。复杂任务更稳，但更慢也更贵",
+        label = "high",
+        hint = "深入推理。复杂任务更稳，但更慢也更贵",
+    ),
+
+    /**
+     * **最高** —— 最长推理链。
+     *
+     * ★ 选到这一档会触发轨道上的 **apex 模式**（方格网格 + 发光把手）——
+     *   那是参考图里的样子，也是桌面端 `[data-apex]` 的语义：
+     *   "你已经推到顶了"。
+     */
+    MAX(
+        label = "max",
+        hint = "最长推理链。最慢也最贵，留给真正难的任务",
     ),
     ;
 
-    /** 这一档"想要的"模型档位。`AUTO` 没有固定档位（按场景定）。 */
-    val preferredTier: ModelTier?
+    /** 这一档想要的模型档位。 */
+    val preferredTier: ModelTier
         get() = when (this) {
-            AUTO -> null
+            OFF -> ModelTier.LIGHT
             LOW -> ModelTier.LIGHT
-            MEDIUM -> ModelTier.STANDARD
-            HIGH -> ModelTier.HEAVY
+            HIGH -> ModelTier.STANDARD
+            MAX -> ModelTier.HEAVY
         }
+
+    /** 是不是最高档 —— 界面据此进入 apex 视觉。 */
+    val isApex: Boolean get() = this == MAX
 }
 
 /**
@@ -94,7 +104,7 @@ enum class Scenario {
     AGENT,
     ;
 
-    /** 这个场景"默认想要"的档位（`AUTO` 档思考强度时用）。 */
+    /** 这个场景"默认想要"的档位。 */
     val defaultTier: ModelTier
         get() = when (this) {
             // ⚠️ 聊天不需要 HEAVY：用户问"今天几号"用旗舰模型是浪费，
@@ -235,7 +245,8 @@ private fun autoPick(
     val candidates = forScenario.ifEmpty { enabled }
 
     // ② 目标档位
-    val desired = effort.preferredTier ?: scenario.defaultTier
+    // ★ 四档都映射到固定档位（OFF/LOW→轻量，HIGH→均衡，MAX→重型）
+    val desired = effort.preferredTier
 
     // ③ 在候选里找最接近目标档位的那个
     //
@@ -263,7 +274,7 @@ private fun autoPick(
     val why = buildString {
         if (prefix != null) append(prefix).append(' ')
         append("「${config.effectiveLabel}」（${chosenTier.displayName}档")
-        append(if (effort == ThinkingEffort.AUTO) "，按场景自动" else "，按思考强度")
+        append("，思考强度 ${effort.label}")
         append('）')
     }
 

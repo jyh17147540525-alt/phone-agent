@@ -1,6 +1,7 @@
 package com.pocketagent.modelrouter
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -54,7 +55,7 @@ class ModelPickerTest {
         val r = pickModel(
             all,
             ModelChoice.Pinned(heavy.id),
-            ThinkingEffort.AUTO,
+            ThinkingEffort.HIGH,
             Scenario.CHAT,
         )
         assertEquals(heavy, r.config)
@@ -72,7 +73,7 @@ class ModelPickerTest {
         val r = pickModel(
             listOf(light, standard, disabled),
             ModelChoice.Pinned(disabled.id),
-            ThinkingEffort.AUTO,
+            ThinkingEffort.HIGH,
             Scenario.CHAT,
         )
         assertTrue("必须回落到别的模型", r.found)
@@ -88,7 +89,7 @@ class ModelPickerTest {
         val r = pickModel(
             all,
             ModelChoice.Pinned("不存在的id"),
-            ThinkingEffort.AUTO,
+            ThinkingEffort.HIGH,
             Scenario.CHAT,
         )
         assertTrue(r.found)
@@ -106,29 +107,31 @@ class ModelPickerTest {
     }
 
     @Test
-    fun `深入选最重档`() {
-        val r = pickModel(all, ModelChoice.Auto, ThinkingEffort.HIGH, Scenario.CHAT)
+    fun `最高档选最重档`() {
+        // ★ 四档改为 off/low/high/max 后：MAX 才映射到 HEAVY，
+        //    HIGH 映射到 STANDARD。见 ThinkingEffort.preferredTier。
+        val r = pickModel(all, ModelChoice.Auto, ThinkingEffort.MAX, Scenario.CHAT)
         assertEquals(ModelTier.HEAVY, r.config!!.tier)
     }
 
     @Test
     fun `标准选中间档`() {
-        val r = pickModel(all, ModelChoice.Auto, ThinkingEffort.MEDIUM, Scenario.CHAT)
+        val r = pickModel(all, ModelChoice.Auto, ThinkingEffort.HIGH, Scenario.CHAT)
         assertEquals(ModelTier.STANDARD, r.config!!.tier)
     }
 
     @Test
-    fun `自动按场景决定档位`() {
-        // ★ 两个场景的默认档位都是 STANDARD（见 Scenario 的注释：
-        //   聊天不需要 HEAVY，agent 不能用 LIGHT）
-        val chat = pickModel(all, ModelChoice.Auto, ThinkingEffort.AUTO, Scenario.CHAT)
-        val agent = pickModel(all, ModelChoice.Auto, ThinkingEffort.AUTO, Scenario.AGENT)
-        assertEquals(ModelTier.STANDARD, chat.config!!.tier)
-        assertEquals(ModelTier.STANDARD, agent.config!!.tier)
-        // ⚠️ 但理由里要说清是"按场景"而不是"按强度"
-        assertTrue("理由要说明依据：${chat.reason}", "场景" in chat.reason)
+    fun `四档到三档的映射`() {
+        // ★ 用户指定四档 off/low/high/max。映射见 ThinkingEffort.preferredTier：
+        //   off/low → LIGHT，high → STANDARD，max → HEAVY
+        assertEquals(ModelTier.LIGHT, ThinkingEffort.OFF.preferredTier)
+        assertEquals(ModelTier.LIGHT, ThinkingEffort.LOW.preferredTier)
+        assertEquals(ModelTier.STANDARD, ThinkingEffort.HIGH.preferredTier)
+        assertEquals(ModelTier.HEAVY, ThinkingEffort.MAX.preferredTier)
+        // 且只有 MAX 是 apex（界面据此进入方格模式）
+        assertTrue(ThinkingEffort.MAX.isApex)
+        assertFalse(ThinkingEffort.HIGH.isApex)
     }
-
     // ═══════════════════════════════════════════════════════════
     //  降级（用户没配那个档位）
     // ═══════════════════════════════════════════════════════════
@@ -164,7 +167,7 @@ class ModelPickerTest {
         val r = pickModel(
             listOf(standard, heavy),
             ModelChoice.Auto,
-            ThinkingEffort.MEDIUM,
+            ThinkingEffort.HIGH,
             Scenario.CHAT,
         )
         assertEquals(ModelTier.STANDARD, r.config!!.tier)
@@ -186,7 +189,7 @@ class ModelPickerTest {
         val r = pickModel(
             listOf(workerOnly),
             ModelChoice.Auto,
-            ThinkingEffort.AUTO,
+            ThinkingEffort.HIGH,
             Scenario.CHAT,
         )
         assertTrue("不该说没有可用模型：${r.reason}", r.found)
@@ -200,7 +203,7 @@ class ModelPickerTest {
         val r = pickModel(
             listOf(workOnly, chatOnly),
             ModelChoice.Auto,
-            ThinkingEffort.MEDIUM,
+            ThinkingEffort.HIGH,
             Scenario.CHAT,
         )
         assertEquals("聊天场景该优先 CHAT 角色", chatOnly, r.config)
@@ -218,7 +221,7 @@ class ModelPickerTest {
             // ⚠️ 故意把贵的排在前面：结果不该受顺序影响
             listOf(pricey, cheap),
             ModelChoice.Auto,
-            ThinkingEffort.MEDIUM,
+            ThinkingEffort.HIGH,
             Scenario.CHAT,
         )
         assertEquals("同档位该选便宜的", cheap, r.config)
@@ -237,7 +240,7 @@ class ModelPickerTest {
         val r = pickModel(
             listOf(unknown, known),
             ModelChoice.Auto,
-            ThinkingEffort.MEDIUM,
+            ThinkingEffort.HIGH,
             Scenario.CHAT,
         )
         assertEquals("未知价格不该胜出", known, r.config)
@@ -249,7 +252,7 @@ class ModelPickerTest {
 
     @Test
     fun `一个都没配时说清怎么办`() {
-        val r = pickModel(emptyList(), ModelChoice.Auto, ThinkingEffort.AUTO, Scenario.CHAT)
+        val r = pickModel(emptyList(), ModelChoice.Auto, ThinkingEffort.HIGH, Scenario.CHAT)
         assertNull(r.config)
         assertTrue("要给出下一步：${r.reason}", "密钥" in r.reason || "配置" in r.reason)
     }
@@ -259,7 +262,7 @@ class ModelPickerTest {
         val r = pickModel(
             listOf(model("a", ModelTier.STANDARD, enabled = false)),
             ModelChoice.Auto,
-            ThinkingEffort.AUTO,
+            ThinkingEffort.HIGH,
             Scenario.CHAT,
         )
         assertNull(r.config)
