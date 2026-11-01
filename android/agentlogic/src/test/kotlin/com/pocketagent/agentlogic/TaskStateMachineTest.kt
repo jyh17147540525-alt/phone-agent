@@ -539,4 +539,70 @@ class TaskStateMachineTest {
         assertEquals(true, StepAction.INPUT_TEXT.retryable)
         assertEquals(true, StepAction.SCROLL.retryable)
     }
+    // ─────────────────────────────────────────────────────────────
+    //  ★★ 2026-11-01：多任务并发访问
+    // ─────────────────────────────────────────────────────────────
+
+    /**
+     * **8 个任务同时跑，状态机不能崩、不能串。**
+     *
+     * ═══════════════════════════════════════════════════════════
+     *  这条测试是给一个真实教训钉的钉子
+     * ═══════════════════════════════════════════════════════════
+     *
+     * 本类的注释写着"用 taskId 索引以**支持多任务共存**" ——
+     * 那就意味着 `states` 会被多个任务同时访问。
+     * 而它原来是普通 `HashMap` + 可变 `var` 字段，**零同步**。
+     *
+     * ⚠️ `HashMap` 并发写会读到半截数组，抛
+     *    `ArrayIndexOutOfBoundsException` —— 或更糟：**静默丢数据**。
+     *
+     * ★ 这不是假设：同一天里 `GatewayCore` 的用量记录器就因为同一个
+     *   错误形态抛了 AIOOBE，表现为"8 个并发请求偶尔有一个 502"，
+     *   查了很久。同一个错误形态不该留两处。
+     *
+     * ⚠️ 用**普通线程**而不是虚拟线程：JDK 17 下限（见并发测试的同类注释）。
+     */
+    @Test
+    fun `多任务并发访问不会崩也不会串`() {
+        val m = TaskStateMachine(maxSteps = 100, maxReplans = 10)
+        val taskCount = 8
+        val stepsPerTask = 50
+        val errors = java.util.Collections.synchronizedList(mutableListOf<Throwable>())
+
+        val threads = (0 until taskCount).map { t ->
+            Thread {
+                val id = "task-$t"
+                try {
+                    m.start(id)
+                    repeat(stepsPerTask) {
+                        m.onStepStarted(id, StepAction.CLICK)
+                        m.onStepFinished(id, screenChanged = true)
+                        // 读也要并发读 —— 读的时候别人正在写，这才是真实场景
+                        m.currentState(id)
+                        m.canContinue(id)
+                    }
+                    m.finish(id, success = true, reason = "done")
+                } catch (e: Throwable) {
+                    errors += e
+                }
+            }
+        }
+        threads.forEach { it.start() }
+        threads.forEach { it.join() }
+
+        assertTrue(
+            "并发访问不该抛异常。实际：" + errors.joinToString { "${it::class.simpleName}: ${it.message}" },
+            errors.isEmpty(),
+        )
+
+        // ★ 不串：每个任务的状态都是自己那一条
+        for (t in 0 until taskCount) {
+            val state = m.currentState("task-$t")
+            assertTrue(
+                "task-$t 应当已结束，实际 $state",
+                state is AgentTaskState.Finished,
+            )
+        }
+    }
 }

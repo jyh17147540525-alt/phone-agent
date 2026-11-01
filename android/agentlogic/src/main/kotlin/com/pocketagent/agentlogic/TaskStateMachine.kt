@@ -251,8 +251,23 @@ class TaskStateMachine(
         }
     }
 
-    /** 每个任务的状态。用 taskId 索引以支持多任务共存 */
-    private val states = mutableMapOf<String, MachineState>()
+    /**
+     * 每个任务的状态。用 taskId 索引以支持多任务共存。
+     *
+     * ══════════════════════════════════════════════════════════════
+     *  ★★ 2026-11-01：从 `mutableMapOf` 换成 [ConcurrentHashMap]
+     * ══════════════════════════════════════════════════════════════
+     *
+     * ⚠️ 本类的注释自己写着"支持多任务共存" —— 那就意味着
+     *    这个 map 会被**多个任务同时访问**。
+     *    而 `HashMap` 并发写会读到半截数组，抛
+     *    `ArrayIndexOutOfBoundsException` —— 或更糟：**静默丢数据**。
+     *
+     * ★ 这不是假设。同一天里 `GatewayCore` 的用量记录器就因为这个
+     *   抛出了 AIOOBE，表现为"8 个并发请求偶尔有一个 502"，
+     *   查了很久才定位到。同一个错误形态不该留两处。
+     */
+    private val states = java.util.concurrent.ConcurrentHashMap<String, MachineState>()
 
     /**
      * 启动一个任务。
@@ -260,11 +275,13 @@ class TaskStateMachine(
      * ⚠️ 同一个 taskId 重复启动会**重置**状态 —— 这是刻意的：
      * 重试一个任务时应当从干净状态开始，而不是继承上一次的失控计数。
      */
+    @Synchronized
     fun start(taskId: String) {
         states[taskId] = MachineState()
     }
 
     /** 当前状态 */
+    @Synchronized
     fun currentState(taskId: String): AgentTaskState =
         states[taskId]?.toPublicState() ?: AgentTaskState.Idle
 
@@ -274,6 +291,7 @@ class TaskStateMachine(
      * 这是**唯一**的继续判定入口 —— 循环每一步之前都要调它。
      * 分散成多个 `if` 会让"漏掉某一种中止条件"成为可能。
      */
+    @Synchronized
     fun canContinue(taskId: String): ContinueDecision {
         val s = states[taskId] ?: return ContinueDecision.Continue
 
@@ -297,6 +315,7 @@ class TaskStateMachine(
      *
      * @param action 本步的动作类型 —— **决定它是否参与卡死判定**
      */
+    @Synchronized
     fun onStepStarted(taskId: String, action: StepAction) {
         val s = states.getOrPut(taskId) { MachineState() }
         s.lastAction = action
@@ -308,6 +327,7 @@ class TaskStateMachine(
      *
      * @param screenChanged 执行前后屏幕是否有可观测变化
      */
+    @Synchronized
     fun onStepFinished(taskId: String, screenChanged: Boolean) {
         val s = states[taskId] ?: return
         val action = s.lastAction ?: return
@@ -349,6 +369,7 @@ class TaskStateMachine(
      *
      * ★ **不重置 stepIndex**（D-AR）—— 见类注释。
      */
+    @Synchronized
     fun onReplan(taskId: String) {
         val s = states.getOrPut(taskId) { MachineState() }
         s.replanCount += 1
@@ -362,16 +383,19 @@ class TaskStateMachine(
     }
 
     /** 进入等待用户状态 */
+    @Synchronized
     fun awaitUser(taskId: String, reason: String) {
         states.getOrPut(taskId) { MachineState() }.waitingUser = reason
     }
 
     /** 用户已回应，恢复 */
+    @Synchronized
     fun resumeFromUser(taskId: String) {
         states[taskId]?.waitingUser = null
     }
 
     /** 标记任务结束 */
+    @Synchronized
     fun finish(taskId: String, success: Boolean, reason: String) {
         val s = states.getOrPut(taskId) { MachineState() }
         s.finished = true
@@ -380,6 +404,7 @@ class TaskStateMachine(
     }
 
     /** 清掉某个任务的状态（任务彻底结束、确认不再需要恢复时调用） */
+    @Synchronized
     fun forget(taskId: String) {
         states.remove(taskId)
     }
