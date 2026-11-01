@@ -51,6 +51,13 @@ android {
             // 调试期保留日志，但脱敏器仍然生效（见 core-network/LogSanitizer）
         }
         release {
+            // ★★ 2026-11-01（P7）：显式声明不可调试。
+            //
+            // ⚠️ 这在 release 下本来就是默认值 —— 写出来是为了**防手滑**：
+            //    有人为了"临时抓日志"加上 `isDebuggable = true`，
+            //    而那个改动很容易忘记撤掉，然后被打进发行包。
+            //    写在这里，配合 `tools/verify/check_release_apk.py` 的自动检查。
+            isDebuggable = false
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
