@@ -816,3 +816,120 @@ Claude/MiniMax M3/Qwen3.8 走 `/anthropic/v1/messages`。
 是产品决策。数据层已经能给 `elapsedMs` 和 `wholeHours`。
 
 离线验证：`OK (3037 tests)`；变异验证 3 条全红。
+
+---
+
+## [2026-11-01 21:25] 离线推进 38 轮汇总 —— 需要真机验证的清单
+
+- **状态**：待办
+- **来自**：claude
+- **需要对方做什么**：按下面 6 组逐条验证。**每条都写清了"怎么验"**。
+
+正文：
+
+本轮（设备被占用期间）共 **52 个提交**，全部过了离线验证器。
+下面只列**我验不了、需要真机**的部分。
+
+---
+
+### ① OpenCode 请求是否真的通了（最高优先级）
+
+**怎么验**：用 OpenCode 的模型发一条消息，看是正常回复还是 400。
+
+**背景**：原报错是
+`400 Request is missing x-opencode-session and cannot be routed efficiently`。
+已补 `x-opencode-session` 头（值取凭据 id，稳定）+ `User-Agent: PocketAgent/1.0`。
+
+⚠️ **base URL 没改**：文档现在写 `/inference/go/openai/v1`，但
+`/zen/go/v1` 明明路由通了（否则拿不到那句 OpenCode 专属的 400），
+只是缺头。改 URL 会把能用的东西弄坏。
+
+⚠️ 已知遗留：OpenCode 上 **Claude / Qwen3.8 / MiniMax M3 走 Anthropic 协议**，
+补了头**照样失败**。已加 `ProtocolGate` 在**导入时**拦住并统计，
+但那只是"拦住"不是"支持"。
+
+---
+
+### ② Anthropic Key 直连能不能用
+
+**怎么验**：配一把 Anthropic 的 Key → 校验 → 发一条消息。
+
+**新实现**：`:provider:anthropic` 此前是**零源码空壳模块**，现在有完整实现
+（协议核心 22 条测试 + 网络层 + 11 条 provider 测试）。
+
+**要看的**：
+· 校验 Key 能否通过（走 `GET /v1/models`）
+· 普通对话是否正常
+· **prompt 缓存是否命中** —— 看响应里的 `cache_read_input_tokens` 是否 > 0
+  （改了这个之后首字延迟应该下降；离线只能验证"请求体里断点写对了"）
+
+---
+
+### ③ 连续使用 2 小时提醒
+
+**怎么验**（跑满 2 小时不现实）：
+把 `UsageWatch.FIRST_REMIND_MS` 临时改成 `2 * 60_000`（2 分钟），
+用满 2 分钟看提醒是否出现、位置对不对。
+
+**实现**：`UsageWatch`（算法）+ `UsageReminder`（文案），共 29 条离线测试。
+· 空档超 10 分钟算新的一段
+· 首次 2 小时，之后每小时一次
+· 角色扮演场景用旁白，普通助理场景用系统行
+
+⚠️ 这条是 `docs` 里"合规四件"之一，此前**零实现**。
+
+---
+
+### ④ 感知档位徽章是否跟着变
+
+**怎么验**：让 agent 跑一个真实任务（比如"帮我打开设置"），
+盯顶栏那个"感知档位"徽章 —— 执行过程中数值应当变化。
+
+**背景**：此前它**硬编码**。现在每步由 `PerceptionPlanner` 算出，
+经 `onProgress` → `onStep` → 徽章。
+⚠️ 档位是**慢一步**传过去的（用最近一次 `onProgress` 的值），
+   因为没改循环的 `onStep` 接口。
+
+---
+
+### ⑤ 辅助屏 / 虚拟屏是否正常
+
+**怎么验**：用 `app_host` 工具把一个应用托管到虚拟屏，看画面与点击。
+
+**风险点**：`AppHostTool.VIRTUAL_W/H`（720×1280）必须与
+`:app` 的 `VirtualScreenHost.SCREEN_W/H` 一致。
+**目前两侧都是 720×1280**（已核对），但 `:app` 不在离线验证器里，
+所以只有一半被测试守着。改任何一侧都要手动核对另一侧。
+
+---
+
+### ⑥ 图标尺寸的观感
+
+**怎么验**：随便翻几个页面，看图标大小是否协调。
+
+**背景**：项目里原有 **7 种**图标尺寸（12/16/17/18/20/22/26），
+已收敛到 5 档（16/20/24/32/48）。九处改动：
+```
+CallScreen 26→24   Components 18→20   Inputs 18→20   Interactive 18→20
+List 17→16         List 18→20         Navigation 22→24
+ModelPickerSheet 18→20               TasksScreen 18→20
+```
+⚠️ 数值变化都是 ±2dp，**看不出来才是对的**；看得别扭就是有问题。
+
+---
+
+### 另外：两条可以在电脑上直接跑
+
+```powershell
+# 全量检查（12 条，约 1 分钟）
+python tools/verify/verify_all.py
+
+# 发行包安全检查（先 assembleRelease）
+python tools/verify/check_release_apk.py
+```
+
+**发行包体积已从 65 MB 降到 32.7 MB**（−50%）：release 只打 ARM 原生库，
+x86 那 32 MB 是模拟器架构，真机用不上。
+
+⚠️ 仍**未签名**（`app-release-unsigned.apk`）—— 签名密钥属维护者，
+要发版需要你决定：生成发布密钥库 → 口令放 `local.properties` → 接 `signingConfigs.release`。
