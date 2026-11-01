@@ -49,6 +49,19 @@ import subprocess
 import sys
 
 
+# 发行包体积上限（MB）。
+# 当前实测 32.7 MB。留约 40% 余量，既能容忍正常增长，
+# 又能挡住"x86 原生库又回来了"这种量级的回归。
+MAX_RELEASE_MB = 45.0
+
+
+def _zip_names(apk: str) -> list[str]:
+    """列出 APK 内的条目名。"""
+    import zipfile
+    with zipfile.ZipFile(apk) as z:
+        return z.namelist()
+
+
 def find_apk() -> str | None:
     here = os.path.dirname(os.path.abspath(__file__))
     root = os.path.abspath(os.path.join(here, "..", ".."))
@@ -145,7 +158,40 @@ def main() -> int:
     else:
         print("✓ 包名无 .debug 后缀")
 
-    # ── 4. 签名 ──────────────────────────────────────────────
+    # ── 4. 体积与 ABI（2026-11-01 新增）────────────────────
+    # ══════════════════════════════════════════════════════
+    #  ★ 回归闸门：体积不能悄悄涨回去
+    # ══════════════════════════════════════════════════════
+    #
+    # 背景：审计过 65 MB 的 release 包，发现 lib/ 占 57.7 MB，
+    # 其中 **32.3 MB 是 x86 模拟器架构** —— 真机全是 ARM。
+    # 收紧 release 的 abiFilters 后降到 32.7 MB（约 −50%）。
+    #
+    # ⇒ 用阈值把那次收益钉住。涨回来说明有人撤掉了 abiFilters，
+    #   或者引入了一个新的重量级原生依赖 —— 两种都该被看见。
+    if size_mb > MAX_RELEASE_MB:
+        failures.append(
+            f"体积 {size_mb:.1f} MB 超过上限 {MAX_RELEASE_MB} MB"
+            "（检查 release 的 abiFilters 是否被撤掉）"
+        )
+        print(f"✗ {failures[-1]}")
+    else:
+        print(f"✓ 体积 {size_mb:.1f} MB（上限 {MAX_RELEASE_MB} MB）")
+
+    # x86 是模拟器架构，真机用不上 —— 出现在 release 里就是白占体积
+    x86_in_zip = [
+        e for e in _zip_names(apk) if e.startswith("lib/x86")
+    ]
+    if x86_in_zip:
+        failures.append(
+            f"release 里有 x86 原生库（{len(x86_in_zip)} 个）——"
+            " 真机用不上，纯占体积"
+        )
+        print(f"✗ {failures[-1]}")
+    else:
+        print("✓ 无 x86 原生库")
+
+    # ── 5. 签名 ──────────────────────────────────────────────
     # ⚠️ 未签名的包**不算失败** —— 签名密钥属于维护者，
     #    开源仓库里不该有。但要**明确提示**，免得有人以为能直接装。
     if "unsigned" in name.lower():
