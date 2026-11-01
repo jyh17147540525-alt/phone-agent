@@ -477,9 +477,9 @@ def collect_sources(repo_root: Path) -> tuple[list[Path], list[str]]:
         test_sources += module_tests
 
         for f in module_tests:
-            fqcn = derive_test_class(f)
-            if fqcn:
-                test_classes.append(fqcn)
+            for fqcn in derive_test_classes(f):
+                if fqcn not in test_classes:
+                    test_classes.append(fqcn)
 
     if not main_sources:
         raise SystemExit("没有找到任何源码，MODULES 配置可能不对")
@@ -487,8 +487,46 @@ def collect_sources(repo_root: Path) -> tuple[list[Path], list[str]]:
     return main_sources + test_sources, test_classes
 
 
-def derive_test_class(path: Path) -> str | None:
-    """从 .kt 文件推出类全限定名。只认「文件名 == 主类名」这种常规写法。"""
+# 文件里所有「顶层-looking」的 class / object 声明名
+_TEST_CLASS_DECL = re.compile(
+    r"^(?:@\w+(?:\([^)]*\))?\s*)*"
+    r"(?:public\s+|internal\s+|private\s+)?"
+    r"(?:abstract\s+|open\s+|sealed\s+|final\s+)?"
+    r"(?:class|object)\s+(\w+)",
+    re.MULTILINE,
+)
+
+
+def derive_test_classes(path: Path) -> list[str]:
+    """从一个 .kt 文件推出**所有**测试类的全限定名。
+
+    ═══════════════════════════════════════════════════════════════
+    ★★ 2026-11-01：这里原来只按**文件名**推一个类
+    ═══════════════════════════════════════════════════════════════
+
+    旧实现：`return f"{pkg}.{path.stem}"` —— 只认「文件名 == 主类名」。
+
+    ⚠️ 后果：一个文件里如果声明了**多个** `*Test` 类，只有与文件名
+       同名的那个会被跑到，其余的**静默跳过**，而且没有任何报错。
+
+    实测扫出 **7 个文件共 9 个测试类**从来没在这个通道里跑过：
+      · HostingCommandsTest.kt      → HostingLimitationTest
+      · ConflictSchedulerTest.kt    → FrictionSignalTest
+      · FlawParserTest.kt           → LegacyConflictPortTest
+      · KinshipDetectorTest.kt      → GriefPhaseTest
+      · LifeThreadTest.kt           → LegacyProfileTest
+      · CustomPersonaTest.kt        → PersonaCompletenessTest
+      · CapabilityMatrixTest.kt     → RootProbeExplainTest / PrivilegeModeTest
+
+    ⚠️ Gradle 通道**不会**漏（它按编译出的类去找），
+       所以两条通道此前在覆盖面上是**不一致**的 ——
+       而这是个只有对比才会发现的问题。
+
+    ⇒ 改成返回文件里所有 `*Test` 结尾的类。
+       ⚠️ 只抓顶层缩进（`^` 起首，无前导空格的声明）：
+          嵌套在 object 里的测试类 FQCN 是 `Outer$Inner`，
+          正则推不出来 —— 漏掉比瞎猜一个错名字好。
+    """
     text = path.read_text(encoding="utf-8", errors="replace")
 
     pkg = None
@@ -498,11 +536,20 @@ def derive_test_class(path: Path) -> str | None:
             pkg = m.group(1)
             break
 
-    stem = path.stem
-    if not stem.endswith("Test"):
-        return None
+    names = [
+        n for n in _TEST_CLASS_DECL.findall(text)
+        if n.endswith("Test")
+    ]
+    if not names:
+        return []
 
-    return f"{pkg}.{stem}" if pkg else stem
+    # 文件名对应的那个排最前 —— 出问题时先看它
+    stem = path.stem
+    if stem in names:
+        names.remove(stem)
+        names.insert(0, stem)
+
+    return [f"{pkg}.{n}" if pkg else n for n in names]
 
 
 # ═══════════════════════════════════════════════════════════════
