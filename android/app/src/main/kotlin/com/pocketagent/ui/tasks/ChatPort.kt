@@ -272,21 +272,17 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
         //   排查方向完全错。这是本项目头号 bug 形态「安静地少做一件事」的又一例。
         // ★ 2026-10-14：改成**按用途**挑（`ModelRole.CHAT`），不再是
         //   `firstOrNull { it.enabled }`（那等于"永远用最早添加的那条"）。
-        //   三级回落在 `resolveForPurpose` 里，每一级都带得出"靠哪一步选中的"。
-        val resolution = container.modelRepository()?.all().orEmpty()
-            .resolveForPurpose(ModelRole.CHAT)
-        val config = when (resolution) {
-            is ModelResolution.Found -> resolution.config
-            ModelResolution.None -> return ChatResult.Failed(
-                "还没有可用的模型。请到「设置 → 模型配置」添加一个，并确认它处于启用状态。",
-            )
-        }
-        // ⚠️ 回落时记一笔 —— 界面上也有提示（模型页会标出"对话用它"），
-        //    但日志是排查时唯一的线索：用户说"回答变笨了"时，
-        //    第一件要确认的事就是"它到底用了哪个模型"。
-        if (resolution is ModelResolution.Found && resolution.via.isFallback) {
-            Timber.i("聊天模型是回落选中的（%s）：%s", resolution.via.name, config.modelId)
-        }
+        //
+        // ★★ 2026-11-01：换成 `pickModelFor` —— 用户可钉死某个模型，
+        //   也可留给"自动"（默认）。见 `modelrouter/ModelPicker` 的注释。
+        //
+        // ⚠️ 与旧的 `resolveForPurpose` 相比，这里多了一层可解释性：
+        //    `pick.reason` 是一句**能给用户看**的话（"用你选定的「X」" /
+        //    "「X」已停用，这次自动挑了「Y」"）。
+        //    排查"回答变笨了"时，第一件事就是看这行日志。
+        val pick = container.pickModelFor(com.pocketagent.modelrouter.Scenario.CHAT)
+        val config = pick.config ?: return ChatResult.Failed(pick.reason)
+        Timber.i("模型选择：%s（%s）", config.modelId, pick.reason)
         val model = config.modelId
 
         // ══════════════════════════════════════════════════════════

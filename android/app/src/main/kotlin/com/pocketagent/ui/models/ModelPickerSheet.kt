@@ -82,11 +82,15 @@ fun ModelPickerSheet(
             .fillMaxWidth()
             .padding(horizontal = PaSpace.m),
     ) {
-        // ── 思考强度 ───────────────────────────────────────────
-        Text(
-            text = "思考强度",
-            style = PaType.headline,
-            color = PaColor.TextPrimary,
+        // ── 思考强度（拉条）─────────────────────────────────────
+        //
+        // ★★ 2026-11-01：用户发了参考图，要求做成"格子拉条"。
+        //    原来这里是四个分段按钮 —— 功能一样，但图里的连续感
+        //    更能表达"从更快到更强是一条梯度"，而不是四个孤立选项。
+        ThinkingSlider(
+            effort = effort,
+            onPick = onEffort,
+            modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(2.dp))
         Text(
@@ -94,21 +98,6 @@ fun ModelPickerSheet(
             style = PaType.caption,
             color = PaColor.TextTertiary,
         )
-        Spacer(Modifier.height(PaSpace.xs))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(PaSpace.xxs),
-        ) {
-            for (e in ThinkingEffort.entries) {
-                EffortChip(
-                    label = e.label,
-                    selected = e == effort,
-                    onClick = { onEffort(e) },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
 
         Spacer(Modifier.height(PaSpace.l))
 

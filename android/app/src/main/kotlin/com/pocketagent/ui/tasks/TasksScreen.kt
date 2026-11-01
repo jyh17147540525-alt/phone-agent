@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
@@ -69,6 +70,7 @@ import com.pocketagent.ui.design.PaBadgeTone
 import com.pocketagent.ui.design.PaButton
 import com.pocketagent.ui.design.PaButtonStyle
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import com.pocketagent.ui.design.PaColor
 import com.pocketagent.ui.design.PaEmptyState
 import com.pocketagent.ui.design.PaIconButton
@@ -227,25 +229,9 @@ fun TasksScreen(
             // ★★ 2026-11-01：模型快捷切换入口。
             //   显示"现在用哪个"，点一下换 —— 这是用户要的"快捷切换"。
             //
-            // ⚠️ 只显示名字，不显示"档位/角色" —— 那些是内部概念。
-            //
-            // ⚠️ **截断到 8 个字符**：模型显示名可能很长
-            //   （真机上是「GLM-5.3 Flash（原生多模态 · 1M 上下文）」），
-            //   顶栏还要放两个图标，不截断会把它们挤出去。
-            //   完整名字在弹层里看 —— 顶栏只需要"能认出是哪个"。
-            Text(
-                text = (currentPick.config?.effectiveLabel ?: "选模型")
-                    .let { if (it.length > 8) it.take(8) + "…" else it },
-                style = PaType.label,
-                color = if (currentPick.config == null) PaColor.Warning
-                else PaColor.TextSecondary,
-                modifier = Modifier
-                    // 48dp 触控目标（原来这种文字标签只有 20dp 高）
-                    .minimumInteractiveComponentSize()
-                    .clip(RoundedCornerShape(PaRadius.xs))
-                    .clickable { askModel = true }
-                    .padding(horizontal = PaSpace.xs),
-            )
+            // ⚠️ 2026-11-01：模型入口**搬到输入框上方**了（见 TaskComposer 之前
+            //    那一行）。这里不再显示 —— 两个入口打开同一个弹层会让用户
+            //    犹豫"这两个是不是不一样"。
             // ★ 角色设定入口 —— 就在顶栏，聊着聊着觉得不对可以立刻改。
             //   见 `onOpenPersona` 参数的注释。
             PaIconButton(
@@ -556,6 +542,86 @@ fun TasksScreen(
                 }
                 if (recording) {
                     ComposerHint(text = "正在录音…松开手指结束")
+                }
+
+                // ══════════════════════════════════════════════════════
+                //  ★★ 2026-11-01：**输入框上方的模型选择条**
+                // ══════════════════════════════════════════════════════
+                //
+                // 用户："对话框上方的选模型你也没接上"
+                //
+                // ⚠️ 我原来把入口放在**顶栏**（和角色设定/设置并排）。
+                //    那个位置的问题：
+                //    · 顶栏离拇指最远（单手时够不着）
+                //    · 和两个图标挤在一起，被截断成 `deepseek…`，看不出是什么
+                //    · 用户在输入框附近想"换个模型"时，视线不会往上抬
+                //
+                // ★ 放到输入框正上方：
+                //   · 拇指自然落点
+                //   · 一行独立，不会被图标挤
+                //   · 与 typing 的动作在同一视觉区
+                //
+                // ★ 同时把**思考强度**也显示出来 —— 两个都是"这一句怎么发"
+                //   的决定，分开两处显示会让用户以为它们无关。
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = PaSpace.screenH)
+                        .padding(bottom = PaSpace.xxs),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // ── 模型 chip ──────────────────────────────
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(PaRadius.pill))
+                            .background(PaColor.GlassTintStrong)
+                            .clickable { askModel = true }
+                            // 44dp 高：与 iOS HIG 的最小触控目标一致
+                            .heightIn(min = 32.dp)
+                            .padding(horizontal = PaSpace.xs, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = currentPick.config?.effectiveLabel ?: "选模型",
+                            style = PaType.label,
+                            color = if (currentPick.config == null) PaColor.Warning
+                            else PaColor.TextSecondary,
+                            // ⚠️ 不再截断成 8 字：这一行是独立的，
+                            //    有空间显示可读的名字（过长时 Compose 会省略）
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = PaColor.TextTertiary,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+
+                    Spacer(Modifier.width(PaSpace.xxs))
+
+                    // ── 思考强度 chip ──────────────────────────
+                    //
+                    // ⚠️ 只显示**当前档位**，点它也是打开同一个弹层。
+                    //    两个 chip 打开同一个弹层是刻意的：它们是
+                    //    "这一句怎么发"的两半，不该分两个入口。
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(PaRadius.pill))
+                            .background(PaColor.GlassTintStrong)
+                            .clickable { askModel = true }
+                            .heightIn(min = 32.dp)
+                            .padding(horizontal = PaSpace.xs, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = thinkingEffort.label,
+                            style = PaType.label,
+                            color = PaColor.TextSecondary,
+                        )
+                    }
                 }
 
                 TaskComposer(
