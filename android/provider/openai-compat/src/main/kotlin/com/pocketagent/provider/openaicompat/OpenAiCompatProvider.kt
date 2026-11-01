@@ -37,6 +37,13 @@ import java.util.Base64
 import java.util.concurrent.TimeUnit
 
 /**
+ * 客户端标识。
+ *
+ * ★ 厂商文档要求"用你自己的名字"，而不是通用 HTTP 库名 ——
+ *   OpenCode Go 会据此判断流量是否来自真正的编程助手。
+ */
+private const val USER_AGENT = "PocketAgent/1.0 (Android)"
+/**
  * OpenAI Chat Completions 协议的通用实现。
  *
  * 一份代码覆盖 OpenAI / DeepSeek / 通义 / 火山方舟 / Kimi / 智谱 / 硅基流动 /
@@ -524,6 +531,29 @@ class OpenAiCompatProvider(
         profile.extraHeaders.forEach { (k, v) -> builder.header(k, v) }
         credential.extraHeaders.forEach { (k, v) -> builder.header(k, v) }
 
+        // ══════════════════════════════════════════════════════════════
+        //  ★★ 2026-11-01：会话标识 —— OpenCode Go 不带它直接 400
+        // ══════════════════════════════════════════════════════════════
+        //
+        // 真机报错原文：
+        //   请求被拒绝（400）：Request is missing x-opencode-session and
+        //   cannot be routed efficiently.
+        //
+        // 厂商拿它做**路由亲和 + prompt 缓存**：同一会话落到同一个后端。
+        // 所以它必须**稳定**，不能每次请求换一个。
+        //
+        // ⚠️ 只有 profile 声明了头名才发 —— 不把自家标识广播给所有厂商。
+        val sessionHeader = profile.sessionHeaderName
+        val sessionId = credential.sessionId
+        if (sessionHeader != null && sessionId != null) {
+            builder.header(sessionHeader, sessionId)
+        }
+
+        // ★ 厂商文档明确要求客户端**自报身份**：
+        //   "Identify itself with its own user agent, such as my-coding-agent/1.0,
+        //    rather than a generic SDK or HTTP-library name."
+        builder.header("User-Agent", USER_AGENT)
+
         when (method.uppercase()) {
             "GET" -> builder.get()
             "POST" -> builder.post((body ?: "{}").toRequestBody(JSON_MEDIA_TYPE))
@@ -640,6 +670,11 @@ data class ProviderProfile(
     /** 是否支持 `stream_options.include_usage`（部分厂商不支持，会报错） */
     val supportsStreamUsage: Boolean = true,
     val extraHeaders: Map<String, String> = emptyMap(),
+    /**
+     * 要求客户端上报会话标识的头名。OpenCode 用 `x-opencode-session`。
+     * null = 这家厂商不需要。
+     */
+    val sessionHeaderName: String? = null,
 )
 
 /**
@@ -908,6 +943,8 @@ object ProviderProfiles {
         displayName = "OpenCode Zen",
         defaultBaseUrl = "https://opencode.ai/zen/v1",
         authScheme = AuthScheme.Bearer,
+        // ★★ 2026-11-01：同 Go —— 不带这个头会 400。
+        sessionHeaderName = "x-opencode-session",
         capabilities = setOf(
             Capability.STREAM, Capability.TOOL_CALL,
             Capability.JSON_MODE, Capability.LONG_CTX,
@@ -1006,6 +1043,19 @@ object ProviderProfiles {
         displayName = "OpenCode Go（包月）",
         defaultBaseUrl = "https://opencode.ai/zen/go/v1",
         authScheme = AuthScheme.Bearer,
+        // ★★ 2026-11-01：**这就是用户报的那个 bug**
+        //
+        // 真机报错原文：
+        //   请求被拒绝（400）：Request is missing x-opencode-session and
+        //   cannot be routed efficiently.
+        //
+        // 厂商文档（/v2/docs/console/go/#where-can-i-use-it）明确要求：
+        //   "Send a stable session ID in x-opencode-session for each
+        //    conversation so we can optimize routing and prompt caching."
+        //
+        // ⚠️ 它同时要求客户端**自报身份**（不要伪装成通用 HTTP 库），
+        //    那一条已经在请求头里统一加了 `User-Agent: PocketAgent/1.0`。
+        sessionHeaderName = "x-opencode-session",
         capabilities = setOf(
             Capability.STREAM, Capability.TOOL_CALL,
             Capability.JSON_MODE, Capability.LONG_CTX,

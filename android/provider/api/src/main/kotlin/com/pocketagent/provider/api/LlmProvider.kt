@@ -106,6 +106,20 @@ class ProviderCredential(
     val baseUrlOverride: String? = null,
     /** 额外请求头（自定义 Provider 场景） */
     val extraHeaders: Map<String, String> = emptyMap(),
+    /**
+     * **会话标识** —— 部分厂商要求客户端上报"这是一个持续对话"。
+     *
+     * ★★ 2026-11-01：OpenCode Go 会直接拒绝不带它的请求：
+     *    `400 Request is missing x-opencode-session and cannot be routed
+     *     efficiently`
+     *
+     * 厂商拿它做**路由亲和 + prompt 缓存**：同一会话落到同一个后端，
+     * 缓存命中率才高。所以它要**稳定**，不能每次请求换一个。
+     *
+     * ⚠️ 这里只放**标识**，不放任何用户数据 —— 一个随机 UUID 就够了。
+     *    发不发给厂商由 `ProviderProfile.sessionHeaderName` 决定。
+     */
+    val sessionId: String? = null,
 ) {
     /** 使用后清零。任何持有本对象的代码都有义务在 finally 中调用。 */
     fun clear() {

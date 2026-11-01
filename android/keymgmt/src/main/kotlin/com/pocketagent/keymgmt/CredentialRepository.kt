@@ -324,7 +324,14 @@ class CredentialRepository(
     ): List<com.pocketagent.provider.api.ModelInfo>? = crypto.withDecryptedKey(
         EncryptedBlob(ciphertext = entity.ciphertext, iv = entity.iv)
     ) { plain ->
-        val credential = ProviderCredential(plain, entity.baseUrlOverride)
+        val credential = ProviderCredential(
+            apiKey = plain,
+            baseUrlOverride = entity.baseUrlOverride,
+            // ★★ 2026-11-01：会话标识。用**凭据 id** 而不是每次随机 ——
+            //   厂商拿它做路由亲和 + prompt 缓存，换来换去等于每轮都冷启动。
+            //   ⚠️ 这里只是一段 UUID，不含任何用户数据。
+            sessionId = entity.id,
+        )
         probe(credential)
     }
 
@@ -445,7 +452,14 @@ class CredentialRepository(
         return crypto.withDecryptedKey(
             EncryptedBlob(ciphertext = entity.ciphertext, iv = entity.iv)
         ) { plain ->
-            val credential = ProviderCredential(plain, entity.baseUrlOverride)
+            val credential = ProviderCredential(
+            apiKey = plain,
+            baseUrlOverride = entity.baseUrlOverride,
+            // ★★ 2026-11-01：会话标识。用**凭据 id** 而不是每次随机 ——
+            //   厂商拿它做路由亲和 + prompt 缓存，换来换去等于每轮都冷启动。
+            //   ⚠️ 这里只是一段 UUID，不含任何用户数据。
+            sessionId = entity.id,
+        )
             try {
                 block(provider, credential)
             } finally {
@@ -463,7 +477,14 @@ class CredentialRepository(
         return crypto.withDecryptedKey(
             EncryptedBlob(ciphertext = entity.ciphertext, iv = entity.iv)
         ) { plain ->
-            val credential = ProviderCredential(plain, entity.baseUrlOverride)
+            val credential = ProviderCredential(
+            apiKey = plain,
+            baseUrlOverride = entity.baseUrlOverride,
+            // ★★ 2026-11-01：会话标识。用**凭据 id** 而不是每次随机 ——
+            //   厂商拿它做路由亲和 + prompt 缓存，换来换去等于每轮都冷启动。
+            //   ⚠️ 这里只是一段 UUID，不含任何用户数据。
+            sessionId = entity.id,
+        )
             try {
                 block(provider, credential)
             } finally {
@@ -497,7 +518,14 @@ class CredentialRepository(
         return crypto.withDecryptedKey(
             EncryptedBlob(ciphertext = entity.ciphertext, iv = entity.iv)
         ) { plain ->
-            val credential = ProviderCredential(plain, entity.baseUrlOverride)
+            val credential = ProviderCredential(
+            apiKey = plain,
+            baseUrlOverride = entity.baseUrlOverride,
+            // ★★ 2026-11-01：会话标识。用**凭据 id** 而不是每次随机 ——
+            //   厂商拿它做路由亲和 + prompt 缓存，换来换去等于每轮都冷启动。
+            //   ⚠️ 这里只是一段 UUID，不含任何用户数据。
+            sessionId = entity.id,
+        )
             try {
                 block(provider, credential)
             } finally {
@@ -528,7 +556,14 @@ class CredentialRepository(
     ): ValidationOutcome = crypto.withDecryptedKey(
         EncryptedBlob(ciphertext = entity.ciphertext, iv = entity.iv)
     ) { plain ->
-        val credential = ProviderCredential(plain, entity.baseUrlOverride)
+        val credential = ProviderCredential(
+            apiKey = plain,
+            baseUrlOverride = entity.baseUrlOverride,
+            // ★★ 2026-11-01：会话标识。用**凭据 id** 而不是每次随机 ——
+            //   厂商拿它做路由亲和 + prompt 缓存，换来换去等于每轮都冷启动。
+            //   ⚠️ 这里只是一段 UUID，不含任何用户数据。
+            sessionId = entity.id,
+        )
         try {
             probe(credential)
         } catch (e: ProviderException) {
