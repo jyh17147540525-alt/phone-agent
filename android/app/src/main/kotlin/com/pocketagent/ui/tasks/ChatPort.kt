@@ -452,28 +452,27 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                 //    首字延迟与成本都随前缀线性增长，而用户感觉不到
                 //    自己在为历史付钱。
                 //
-                // ★ 估算用 chars/3（与 AnthropicProvider.countTokens 同口径）。
-                //   预算 8000 是保守值：主流模型上下文都在 32K 以上，
-                //   这个量级既有足够连续性，又不会让 prefill 变成瓶颈。
+                // ★ 估算**走 provider 自己的 countTokens**，不再手抄一份。
+                //
+                // ⚠️ 2026-11-01：这里原来是一段手写的 `字符数 / 3`，
+                //    注释还写着"与 AnthropicProvider.countTokens 同口径" ——
+                //    但那是**重复实现**，不是同一个实现：
+                //    · 图片：我写 6000，Provider 里是 6400
+                //    · 工具调用/结果的算法也不一样
+                //    ⇒ 两份代码迟早会漂移，而漂移后没有任何测试能发现。
+                //
+                // ⚠️ 顺带发现：`LlmProvider.countTokens` 此前**生产零调用** ——
+                //    又一个"写了但没人用"的接口方法。现在它真的被用上了。
+                //
+                // 预算 8000 是保守值：主流模型上下文都在 32K 以上，
+                // 这个量级既有足够连续性，又不会让 prefill 变成瓶颈。
                 //
                 // ⚠️ 只在**真的超预算**时才动手 —— `HistoryWindow` 保证
                 //    至少保留最近 4 条，所以正常会话行为不变。
                 val budgeted = com.pocketagent.agentlogic.HistoryWindow.select(
                     items = history,
                     budgetTokens = com.pocketagent.agentlogic.HistoryWindow.DEFAULT_BUDGET_TOKENS,
-                    estimate = { m ->
-                        // 粗略：所有文本片段的字符数 / 3
-                        m.content.sumOf { part ->
-                            when (part) {
-                                is com.pocketagent.provider.api.ContentPart.Text -> part.text.length
-                                is com.pocketagent.provider.api.ContentPart.Image -> 6000
-                                is com.pocketagent.provider.api.ContentPart.ToolCall ->
-                                    part.name.length + part.argumentsJson.length
-                                is com.pocketagent.provider.api.ContentPart.ToolResult ->
-                                    part.content.length
-                            }
-                        } / 3
-                    },
+                    estimate = { m -> provider.countTokens(listOf(m), model) },
                 )
                 if (budgeted.trimmed) {
                     Timber.i(
