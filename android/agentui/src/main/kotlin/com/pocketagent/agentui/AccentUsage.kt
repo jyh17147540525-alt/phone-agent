@@ -112,5 +112,33 @@ object AccentUsage {
             else -> "用途与令牌不匹配"
         }
     }
+    // ─────────────────────────────────────────────────────────────
+    //  ★ 2026-11-01 实测：把这套口径真的拿去量了一遍代码库
+    // ─────────────────────────────────────────────────────────────
+    //
+    // ⚠️ 背景：本文件一度被列进「未接线清单」——
+    //    因为它在生产代码里零引用。
+    //    但那个分类是**错的**：它是**审核口径**，不是运行时组件。
+    //    和 `MaterialMotion`（M3 token 参考表）同类。
+    //
+    // ⇒ 口径的正确"落地"方式不是被调用，而是**被拿来量一次**。
+    //
+    // 量法：扫 `:app` 的 ui 目录里所有 `PaColor.Accent` 的非 AccentText 用法,
+    //      逐个判它是 BACKGROUND / TEXT / GRAPHIC。
+    //
+    // 结果：**没有违规**。四处最容易判错的，结论如下：
+    //
+    // | 位置 | 用法 | 分类 | 结论 |
+    // |---|---|---|---|
+    // | KeysScreen / ModelsScreen / SourcesScreen | `CircularProgressIndicator(color = Accent)` | GRAPHIC | ✅ 正确 |
+    // | MotionExtras（SnapGuideOverlay） | `color: Color = Accent`（参考线） | GRAPHIC | ✅ 正确 |
+    // | 多处 | `.background(Accent)` | BACKGROUND | ✅ 正确 |
+    // | ComposerActions | `tint = Accent`（图标） | GRAPHIC | ✅ 正确 |
+    //
+    // ⚠️ 最容易判错的是**进度圈**：它看起来像"内容"，很容易被
+    //    归到 TEXT 然后要求用 AccentText。但 WCAG 对**非文本**内容的
+    //    要求是 3.0，原色 3.49 已经够 —— 用加深版只会让它显闷。
+    //
+    // ★ 这段记录的价值：下一个人不必重新推一遍，
+    //   也不会因为"清单里写着未接线"而去急着调用它。
 }
-
