@@ -208,7 +208,7 @@ dependencies {
     // ★ 它是本项目**第一个把"看得见/停得下/说得清"画出来的模块**：
     //   在此之前 ":agentui" 的卡片只是数据结构，没有任何界面消费它们。
     implementation(project(":agentui"))
-    // implementation(project(":provider:anthropic"))
+    implementation(project(":provider:anthropic"))   // Anthropic Messages 协议（Claude 直连）
     // implementation(project(":provider:gemini"))
     // implementation(project(":provider:local"))
     // 执行通道抽象（P3）：android_tap / android_swipe 的派发端适配器用它。

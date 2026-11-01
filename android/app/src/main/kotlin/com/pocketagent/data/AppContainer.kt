@@ -355,7 +355,18 @@ class AppContainer(context: Context) {
      *    而且它们**不会共享连接** —— 用户只有一个 Key 时这是纯浪费。
      */
     private val providers: List<LlmProvider> =
-        ProviderProfiles.all.map { OpenAiCompatProvider(it, http) }
+        ProviderProfiles.all.map { OpenAiCompatProvider(it, http) } +
+            // ══════════════════════════════════════════════════════
+            //  ★★ 2026-11-01：Anthropic 直连
+            // ══════════════════════════════════════════════════════
+            //
+            // ⚠️ 它**不能**混进上面那个 OpenAI 兼容列表 ——
+            //    鉴权头（x-api-key vs Bearer）、协议版本头、
+            //    SSE 事件格式、工具 schema 字段名**全都不一样**。
+            //
+            // ★ 这也让 `:provider:anthropic` 从"空壳模块"变成真能力：
+            //   用户可以直接填 Anthropic 的 Key 用 Claude。
+            listOf(com.pocketagent.provider.anthropic.AnthropicProvider(http))
 
     /**
      * 内置语音合成服务商。
