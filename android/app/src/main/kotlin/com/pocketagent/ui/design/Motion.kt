@@ -35,9 +35,28 @@ object PaEasing {
     /**
      * 全局默认。快起慢停，长尾收束。
      *
-     * ★ 这个值对应 **Material 3 的 `emphasizedDecelerate`**
-     *   （`cubic-bezier(0.16, 1, 0.3, 1)`）—— 已交叉核对过
-     *   Material 的 motion token 规格，不是随手写的美术数字。
+     * ═══════════════════════════════════════════════════════════════
+     *  ★★ 2026-11-01：这里原来写了一句**假话**，已改正
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 原文是：
+     * > 这个值对应 **Material 3 的 `emphasizedDecelerate`**
+     * > （`cubic-bezier(0.16, 1, 0.3, 1)`）—— 已交叉核对过 Material 的
+     * > motion token 规格，不是随手写的美术数字。
+     *
+     * ⚠️ 去查了 M3 规范的实现（Flutter `material/motion.dart`，
+     *    逐 token 实现了规范）：`emphasizedDecelerate` 其实是
+     *    **`Cubic(0.05, 0.7, 0.1, 1.0)`**。
+     *
+     * ⇒ `(0.16, 1, 0.3, 1)` 是一条广泛使用的 ease-out 曲线，
+     *   但它**不在 M3 的任何 token 里**。那句"已核对过"是错的。
+     *
+     * ★ 曲线**没有改** —— 它是视觉调过的，改观感需要真机验证。
+     *   改的只是那句不成立的出处声明。
+     *   核对结果已固化成测试：`MaterialMotionTest`。
+     *
+     * ✅ 顺带核对：同文件的 [Standard] = `(0.2, 0, 0, 1)`
+     *    **确实**是 M3 的 `standard`，那条注释是对的。
      *
      * ⚠️ 它的特征是**前 20% 走完 80% 的距离**，然后长尾缓停。
      *    适合**淡入 / 颜色过渡 / 内容浮现**。
@@ -57,7 +76,13 @@ object PaEasing {
      */
     val Standard: Easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 
-    /** 退出专用。慢起快走 */
+    /**
+     * 退出专用。慢起快走。
+     *
+     * ⚠️ 它**接近但不等同**于 M3 的 `standardAccelerate` `(0.3, 0, 1, 1)` ——
+     *    x1 差 0.1。没有改成 0.3 是因为当前值在真机上调过；
+     *    但别再把这句描述成"就是 M3 的"。
+     */
     val Exit: Easing = CubicBezierEasing(0.4f, 0f, 1f, 1f)
 
     /**
@@ -84,7 +109,16 @@ object PaEasing {
     val Overshoot: Easing = CubicBezierEasing(0.34f, 1.08f, 0.64f, 1f)
 }
 
-/** 时长。单位毫秒。命名按用途，不按数值。 */
+/**
+ * 时长。单位毫秒。命名按用途，不按数值。
+ *
+ * ⚠️ 这些值**不在 M3 的时长阶梯上**（M3 是 50/100/150/200/250/.../600）。
+ *    只有 [Instant] = 100 正好是 M3 的 `short2`，其余都差 20ms 左右。
+ *
+ * ★ 这不是缺陷：按用途命名 + 视觉调过的值，比硬套阶梯更贴近本产品的节奏。
+ *   但**不要**在任何地方把它们描述成"遵循 M3 时长" ——
+ *   核对结果见 `:agentui` 的 `MaterialMotion`。
+ */
 object PaDuration {
     /** 100ms —— 颜色/透明度等"瞬间"反馈 */
     const val Instant = 100
