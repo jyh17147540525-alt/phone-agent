@@ -369,18 +369,44 @@ fun AppShell(
     //    （用户确实从深层回到了顶层）。见 [isTabSwap]。
 
     /**
-     * 这一跳是不是**平级 tab 互换**。
+     * 这一跳是不是**平级互换**。
      *
-     * ⚠️ 必须两头都在顶层 tab 里才算。只判终点会让
+     * ⚠️ 必须两头都在顶层里才算。只判终点会让
      *    「二级页 → 顶层」也走交叉淡入，而那一步用户确实期待"退回去"。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★★ 2026-11-01：**加日志** —— 不再靠猜"转场到底走哪条路"
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 前两轮我调了两天参数，用户两次说"没变化"，最后才发现是
+     * `TOP_LEVEL` 定义过时把整条位移路径挡住了。
+     *
+     * ⚠️ 那个排查过程本可以缩短到一分钟 —— 只要当初打一行日志。
+     *    ⇒ 现在长期保留：每次路由切换都能在 logcat 里看到
+     *      "从哪到哪、判成什么、走哪条路"。
+     *
+     * ★ 它不只在调试时有用：用户再反馈"转场不对"时，
+     *   第一件事是看这行日志，而不是猜参数。
      */
-    fun isTabSwap(initial: androidx.navigation.NavBackStackEntry?, target: androidx.navigation.NavBackStackEntry?): Boolean =
-        com.pocketagent.agentui.TransitionKind.of(
-            fromRoute = initial?.destination?.route,
-            toRoute = target?.destination?.route,
+    fun isTabSwap(initial: androidx.navigation.NavBackStackEntry?, target: androidx.navigation.NavBackStackEntry?): Boolean {
+        val from = initial?.destination?.route
+        val to = target?.destination?.route
+        val kind = com.pocketagent.agentui.TransitionKind.of(
+            fromRoute = from,
+            toRoute = to,
             topLevel = Routes.TOP_LEVEL,
             isPop = false,
-        ) == com.pocketagent.agentui.TransitionKind.Kind.TAB_SWAP
+        )
+        val tabSwap = kind == com.pocketagent.agentui.TransitionKind.Kind.TAB_SWAP
+        timber.log.Timber.i(
+            "转场判定：%s → %s = %s（%s）",
+            from ?: "null",
+            to ?: "null",
+            kind.name,
+            if (tabSwap) "纯淡入 180ms" else "方向位移 + 淡入 280ms",
+        )
+        return tabSwap
+    }
 
     // ═══════════════════════════════════════════════════════════════
     //  ★★ 2026-10-31：底栏撤掉之后，`isTopLevel` / `selectedIndex` 已删
