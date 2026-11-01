@@ -167,6 +167,15 @@ MODULES = [
     "android/legacy",
     "android/rootlogic",
     "android/agentlogic",
+    # ★ 2026-11-01：这三个模块**零 Android import**，此前却没纳入离线验证 ——
+    #    `:display` / `:github` 各有一整个文件（恰好也是未接线清单里的）。
+    #    纳入之后它们至少**编译期**受保护。
+    #
+    # ⚠️ `:provider:tts-openai` 也很想纳入，但它的测试用了 Truth
+    #    （`com.google.common.truth`），而验证器没有那个 jar。
+    #    要纳入得先把测试改成 JUnit 断言 —— 记在这里，没做。
+    "android/display",
+    "android/github",
     # 文件能力沙箱的纯逻辑部分：范围模型 / 路径归一化 / 穿越防护 / 操作裁决 / 审计 / 办公文本。
     #
     # ★ 准入条件（零 android.* / androidx.*）靠"通道用接口注入"满足 ——
