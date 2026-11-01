@@ -402,16 +402,39 @@ class KeysViewModel(
 
         viewModelScope.launch {
             _state.update { it.copy(validatingIds = it.validatingIds + id) }
-            val outcome = repo.validate(id)
-            _state.update { it.copy(validatingIds = it.validatingIds - id) }
 
-            // 结论已经由 repo 写进数据库，列表会跟着更新（徽章 + 原因）。
-            // 这里只在"连状态都没落上"时兜一句 —— 那种情况下界面会
-            // 看起来什么都没发生，用户会以为按钮坏了。
-            val updated = _state.value.credentials.firstOrNull { it.id == id }
-            if (updated != null && updated.status != outcome.status) {
-                _state.update { it.copy(problem = outcome.detail) }
-            }
+            // ══════════════════════════════════════════════════════
+            //  ★★ 2026-11-01：修 "出错了" 横幅弹成功消息的 bug
+            // ══════════════════════════════════════════════════════
+            //
+            // 原来的写法：
+            // ```
+            // val updated = _state.value.credentials.firstOrNull { it.id == id }
+            // if (updated != null && updated.status != outcome.status) {
+            //     _state.update { it.copy(problem = outcome.detail) }
+            // }
+            // ```
+            //
+            // ⚠️ 这是个**竞态**：`_state.value` 是 `repo.validate()` **写入
+            //    数据库之前**的快照（Flow 还没回调）。所以
+            //    `updated.status != outcome.status` 对**正常情况恒成立** ——
+            //    于是每一次校验成功都会弹一个「出错了」横幅，
+            //    内容却是成功消息「可用，探测到 37 个模型（耗时 750ms）」。
+            //
+            //    用户看到的正是：填完 Key、明明成功了、弹窗说"出错了"。
+            //
+            // ★ 而且那个横幅**本来就是多余的**：
+            //   校验结论与详情（"可用，探测到 N 个模型"）已经显示在
+            //   列表那一行上（徽章 + 说明文字），用户看得到。
+            //
+            // ⇒ 删掉那段比较逻辑。只在**真的抛异常**时才弹 ——
+            //   那才是"界面看起来什么都没发生"的真正原因。
+            runCatching { repo.validate(id) }
+                .onFailure { e ->
+                    _state.update { it.copy(problem = "校验失败：${describe(e)}") }
+                }
+
+            _state.update { it.copy(validatingIds = it.validatingIds - id) }
         }
     }
 
