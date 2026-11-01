@@ -57,8 +57,27 @@ interface LlmProvider {
     /** token 计数；不支持的 Provider 用启发式估算（1 token ≈ 1.5 汉字 / 4 英文字符） */
     fun countTokens(messages: List<ChatMessage>, model: String): Int
 
-    /** 费用估算；用于本地预算熔断，不要求精确 */
-    fun estimateCost(usage: TokenUsage, model: String): Cost
+    /**
+     * 费用估算。**不要求精确**。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★★ 2026-11-01：返回值从 `Cost` 改成 `Cost?`
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * @return `null` = **价格未知**（不是"免费"）。
+     *
+     * ⚠️ 改之前两处实现都对未知模型写 `?: 0.0` —— 正是项目自己在
+     *    `ModelConfigMapping` 里警告过的「未知当免费」陷阱。
+     *    而 `:provider:gateway` 的 `BudgetGuard` 早在用它自己的
+     *    `Cost?`（null = 未知，显式分叉 allow/deny + 警告）。
+     *    ⇒ 这里的契约与那处**对齐**，才不会有人误用。
+     *
+     * ⚠️ 另外更正一句陈述：旧注释写"用于本地预算熔断"，
+     *    但**目前预算熔断不走这个方法**（它用 `ModelConfig.estimatedCost`）。
+     *    这个方法是模型侧的估算入口，将来若接进预算，
+     *    `null` 必须被当成"算不出"而不是"0"。
+     */
+    fun estimateCost(usage: TokenUsage, model: String): Cost?
 }
 
 /** 鉴权方式 */

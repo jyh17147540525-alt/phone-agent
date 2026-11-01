@@ -371,10 +371,20 @@ class OpenAiCompatProvider(
      *    负值就会以为"还有额度"，把预算保护整个废掉。
      *    宁可少算，不可算出负值。
      */
-    override fun estimateCost(usage: TokenUsage, model: String): Cost {
+    override fun estimateCost(usage: TokenUsage, model: String): Cost? {
         val info = profile.defaultModels.firstOrNull { it.id == model }
-        val inPrice = info?.inputPricePerMillion ?: 0.0
-        val outPrice = info?.outputPricePerMillion ?: 0.0
+
+        // ⚠️ 价格未知 ⇒ 返回 **null**，不是 `Cost(0.0)`。
+        //
+        // 改之前这里是 `info?.inputPricePerMillion ?: 0.0` ——
+        // 正是 `ModelConfigMapping` 里警告过的「未知当免费」陷阱：
+        // 用户配了一个自定义模型、没填价格，预算熔断就会认为它不花钱，
+        // 于是**永远不会拦**。
+        //
+        // ★ 与 `:provider:gateway` 的 `BudgetGuard` 保持同一语义：
+        //   null = 算不出，由调用方显式决定允许还是拒绝（并告知用户）。
+        val inPrice = info?.inputPricePerMillion ?: return null
+        val outPrice = info?.outputPricePerMillion ?: return null
         val cachedDiscount = 0.1   // 缓存命中的输入通常按 10% 计费
 
         val inputTokens = usage.inputTokens.coerceAtLeast(0)

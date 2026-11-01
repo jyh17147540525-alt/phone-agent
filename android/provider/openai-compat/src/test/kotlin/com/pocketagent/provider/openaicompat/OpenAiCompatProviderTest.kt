@@ -119,7 +119,7 @@ class OpenAiCompatProviderTest {
             "m1",
         )
 
-        assertEquals(40.0, cost.usd, 1e-9)
+        assertEquals(40.0, cost!!.usd, 1e-9)
     }
 
     @Test
@@ -130,7 +130,7 @@ class OpenAiCompatProviderTest {
             "m1",
         )
 
-        assertEquals(1.0, cost.usd, 1e-9)
+        assertEquals(1.0, cost!!.usd, 1e-9)
     }
 
     @Test
@@ -141,20 +141,31 @@ class OpenAiCompatProviderTest {
             "m1",
         )
 
-        assertTrue("费用不能为负：${cost.usd}", cost.usd >= 0.0)
+        assertTrue("费用不能为负：${cost!!.usd}", cost.usd >= 0.0)
     }
 
     @Test
-    fun `未知模型估算为 0 而不是抛异常`() {
-        // 用户填了厂商表里没有的模型名时，费用只能记 0 —— 宁可漏算不能崩
+    fun `未知模型的价格是 null 而不是 0`() {
+        // ══════════════════════════════════════════════════════
+        //  ★ 2026-11-01 改：从"估为 0"改成"返回 null"
+        // ══════════════════════════════════════════════════════
+        // 原注释是"宁可漏算不能崩"——"不能崩"这个目标保留了
+        // （null 同样不抛异常），但"记 0"是错的：
+        //
+        // ⚠️ 0 会被预算熔断读成"免费"，于是那个模型**永远不会被拦**。
+        //    而用户配自定义模型时最常见的状态就是"没填价格"。
+        //    这正是 `ModelConfigMapping` 警告过的「未知当免费」陷阱。
+        //
+        // ★ null = 算不出。由调用方显式决定允许还是拒绝 ——
+        //   与 `:provider:gateway` 的 `BudgetGuard` 同一语义。
         val cost = pricedProvider.estimateCost(TokenUsage(1000, 1000), "不存在的模型")
 
-        assertEquals(0.0, cost.usd, 1e-9)
+        assertNull("未知价格必须是 null：$cost", cost)
     }
 
     @Test
     fun `零用量估算为 0`() {
-        assertEquals(0.0, pricedProvider.estimateCost(TokenUsage(0, 0), "m1").usd, 1e-9)
+        assertEquals(0.0, pricedProvider.estimateCost(TokenUsage(0, 0), "m1")!!.usd, 1e-9)
     }
 
     // ═══════════════════════════════════════════════════════════

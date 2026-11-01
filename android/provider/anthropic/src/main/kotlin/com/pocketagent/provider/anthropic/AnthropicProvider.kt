@@ -274,13 +274,16 @@ class AnthropicProvider(
      *  - 只用于本地预算熔断（宁可估高一点，也不要让用户超支）
      *  - 取不到价格时返回 **0 但标注 unknown**（见 [Cost] 的注释）
      */
-    override fun estimateCost(usage: TokenUsage, model: String): Cost {
-        val (inputUsd, outputUsd) = priceOf(model) ?: return Cost(usd = 0.0)
+    override fun estimateCost(usage: TokenUsage, model: String): Cost? {
+        // ⚠️ 未知价格返回 **null**，不是 `Cost(0.0)` ——
+        //    "算不出"与"免费"是两件事，混一起会让预算熔断失效。
+        val (inputUsd, outputUsd) = priceOf(model) ?: return null
         val usd = usage.inputTokens / 1_000_000.0 * inputUsd +
             usage.outputTokens / 1_000_000.0 * outputUsd
         return Cost(usd = usd)
     }
 
+    /** @return null = 未知价格（**不是免费**） */
     private fun priceOf(model: String): Pair<Double, Double>? {
         val m = model.lowercase()
         return when {
