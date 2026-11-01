@@ -18,6 +18,9 @@ kotlin {
 
 dependencies {
     implementation(libs.kotlinx.coroutines.core)
+    // ★ 2026-11-01：ModelImport 需要 ModelInfo —— 那是厂商无关的纯数据类，
+    // 本模块用它不引入任何 Android 依赖（:provider:api 是纯 Kotlin）。
+    implementation(project(":provider:api"))
     implementation(libs.kotlinx.serialization.json)
 
     testImplementation(libs.junit)

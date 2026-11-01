@@ -231,6 +231,28 @@ fun AppShell(
         )
     }
 
+    // ══════════════════════════════════════════════════════════════
+    //  ★★ 2026-11-01：模型清单（给顶栏的快捷切换用）
+    // ══════════════════════════════════════════════════════════════
+    //
+    // ⚠️ 用"刷新计数器 + LaunchedEffect"而不是在组合里直接读：
+    //    `modelRepository().all()` 是 suspend，组合函数里不能调。
+    //
+    // ★ 计数器在选完模型后 +1 ⇒ 顶栏立刻显示新名字。
+    //   不刷新的话用户点了模型、弹层关了，而顶栏还是旧名 ——
+    //   他会以为没生效（这是本项目反复出现的"看起来没变化"）。
+    var modelRefresh by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    var modelModelsState by remember {
+        androidx.compose.runtime.mutableStateOf(
+            emptyList<com.pocketagent.modelrouter.ModelConfig>(),
+        )
+    }
+    androidx.compose.runtime.LaunchedEffect(modelRefresh) {
+        modelModelsState = runCatching {
+            container.modelRepository()?.all().orEmpty()
+        }.getOrElse { emptyList() }
+    }
+
     // ⚠️ 任务状态持有者提升到**外壳**这一层，而不是留在 TasksScreen 里。
     //    原因见 TasksScreen 的 viewModel 参数注释：它不继承 ViewModel，
     //    生命周期等于承载它的那次组合，而 destination 会在切 tab 时被移出组合。
@@ -633,6 +655,35 @@ fun AppShell(
                         // ★★ 2026-10-31：语音通话入口。
                         //   它从"还没接上"的占位变成了真的路由。
                         onOpenCall = { navController.navigate(Routes.CALL) },
+
+                        // ══════════════════════════════════════════════
+                        //  ★★ 2026-11-01：模型快捷切换 + 思考强度
+                        // ══════════════════════════════════════════════
+                        //
+                        // ⚠️ 用"刷新计数器 + LaunchedEffect"而不是在
+                        //    组合里直接 await 仓库 —— `modelRepository().all()`
+                        //    是 suspend，组合函数里不能调。
+                        //
+                        // ★ 计数器在**选完模型后** +1 ⇒ 顶栏立刻显示新名字。
+                        //   不刷新的话用户点了模型、弹层关了，而顶栏还是旧名，
+                        //   他会以为没生效。
+                        modelModels = modelModelsState,
+                        modelChoice = container.modelChoice(),
+                        thinkingEffort = container.thinkingEffort(),
+                        onPickModel = { id ->
+                            container.setModelChoice(
+                                if (id == null) {
+                                    com.pocketagent.modelrouter.ModelChoice.Auto
+                                } else {
+                                    com.pocketagent.modelrouter.ModelChoice.Pinned(id)
+                                },
+                            )
+                            modelRefresh++
+                        },
+                        onPickEffort = { e ->
+                            container.setThinkingEffort(e)
+                            modelRefresh++
+                        },
                     )
                 }
 
@@ -1059,6 +1110,12 @@ fun AppShell(
                                 KeysViewModel(
                                     openStore = container::openCredentialStore,
                                     resetStore = container::resetCredentialStore,
+                                    // ★★ 2026-11-01：填完 Key 自动导入全部模型
+                                    //   （用户："填入对应的 apikey 之后就应该能
+                                    //    自动识别密钥里有的所有模型"）
+                                    importModels = { id ->
+                                        container.importModelsFromCredential(id)
+                                    },
                                 )
                             }
                         }

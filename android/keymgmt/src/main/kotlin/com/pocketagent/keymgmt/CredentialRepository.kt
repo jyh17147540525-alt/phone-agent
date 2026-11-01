@@ -280,6 +280,54 @@ class CredentialRepository(
      *    找到谁就用谁），但它会让同一个 providerId 同时出现在两张表里时
      *    行为不确定 —— 而"不确定"意味着这个 bug 只在某些机型上复现。
      */
+    /**
+     * **拉这条 Key 名下所有能用模型** —— 给"自动导入"用。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★★ 2026-11-01：用户指出"填完 Key 应该自动识别所有模型"
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 在此之前"拉模型清单"只在 `validateKey` 内部用来**数个数**
+     * （"探测到 37 个模型"），清单本身被丢掉了。
+     * 于是用户填完 Key 还得手动一个个加模型 —— 那正是"太复杂"的来源。
+     *
+     * ⚠️ 与 `validate` 一样走 `checkWith`：凭据解密、BaseUrl 覆盖、
+     *    鉴权头、异常翻译都在那一层处理过了，这里不重复实现。
+     *
+     * @return `null` = 拿不到（不是模型 Key / 网络失败 / 厂商不给清单）。
+     *   ⚠️ 返回 null 而不是抛异常：自动导入是**锦上添花**，
+     *      拉不到清单不该让"Key 已保存"这件事看起来失败了。
+     */
+    suspend fun listModelsOf(id: String): List<com.pocketagent.provider.api.ModelInfo>? {
+        val entity = dao.byId(id) ?: return null
+        // ⚠️ 只有模型接口的 Key 才有模型清单；语音 Key 问它没有意义
+        if (entity.purpose != CredentialPurpose.LLM) return null
+
+        val provider = providers.firstOrNull { it.id == entity.providerId } ?: return null
+
+        return runCatching {
+            checkWithList(entity) { credential -> provider.listModels(credential) }
+        }.getOrNull()
+    }
+
+    /**
+     * 与 [checkWith] 同构，但返回**模型清单**而不是校验结论。
+     *
+     * ⚠️ 不复用 [checkWith] 是因为返回类型不同（那个固定返回
+     *    `ValidationOutcome`）。强行复用得把清单塞进 outcome ——
+     *    而 `ValidationOutcome` 只需要一个 `modelCount`，
+     *    多带一份完整清单会让那个数据类变成"两个用途的杂糅"。
+     */
+    private suspend fun checkWithList(
+        entity: CredentialEntity,
+        probe: suspend (ProviderCredential) -> List<com.pocketagent.provider.api.ModelInfo>?,
+    ): List<com.pocketagent.provider.api.ModelInfo>? = crypto.withDecryptedKey(
+        EncryptedBlob(ciphertext = entity.ciphertext, iv = entity.iv)
+    ) { plain ->
+        val credential = ProviderCredential(plain, entity.baseUrlOverride)
+        probe(credential)
+    }
+
     suspend fun validate(id: String): ValidationOutcome {
         val entity = dao.byId(id)
             ?: return ValidationOutcome(

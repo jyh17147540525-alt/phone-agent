@@ -1,6 +1,7 @@
 package com.pocketagent.ui.keys
 
 import androidx.lifecycle.ViewModel
+import timber.log.Timber
 import androidx.lifecycle.viewModelScope
 import com.pocketagent.core.database.entity.CredentialPurpose
 import com.pocketagent.data.CredentialStoreResult
@@ -149,6 +150,19 @@ data class KeysUiState(
 class KeysViewModel(
     private val openStore: suspend () -> CredentialStoreResult,
     private val resetStore: suspend () -> Unit,
+    /**
+     * **自动导入这条 Key 名下所有模型**。
+     *
+     * ★★ 2026-11-01：用户指出"填入对应的 apikey 之后就应该能自动识别
+     *   密钥里有的所有模型"。
+     *
+     * ⚠️ 在此之前：填完 Key 还要**手动一个个加模型**，每个都选
+     *   「档位 + 用途 + 价格 + 启用」四项 —— 那才是"太复杂"的真正来源。
+     *
+     * ★ 默认空实现：预览/测试环境没有网络，不该因此崩。
+     *   返回导入个数（0 = 没新增）。
+     */
+    private val importModels: suspend (credentialId: String) -> Int = { 0 },
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(KeysUiState())
@@ -372,14 +386,25 @@ class KeysViewModel(
 
             when (result) {
                 is AddCredentialResult.Added -> {
+                    // ★★ 2026-11-01：**先自动导入模型，再校验**。
+                    //
+                    // 用户填完 Key 最想知道两件事：
+                    //   ① 它能不能用（校验）
+                    //   ② 能用哪些模型（导入）
+                    //
+                    // ⚠️ 导入放前面是因为校验只数个数、导入才真的建模；
+                    //    顺序反了用户会先看到"探测到 37 个模型"，
+                    //    然后在模型页发现一个都没有 —— 那是本项目
+                    //    最忌讳的"说了但没做"。
+                    //
+                    // ⚠️ 两步都**不影响 Key 已保存**这个事实
+                    //   （见 AddCredentialResult 的注释）。
+                    runCatching { importModels(result.credential.id) }
+                        .onFailure { Timber.w(it, "自动导入模型失败（不影响 Key）") }
+
                     // 表单连同那个明文 String 一起丢掉
                     _state.update { it.copy(editor = null) }
 
-                    // 立刻校验一次：用户刚粘完 Key，最想知道的就是"它能用吗"。
-                    //
-                    // ⚠️ 校验失败**不影响保存**（见 AddCredentialResult 的注释）。
-                    //    离线时这里会得到 UNREACHABLE，文案会明确说
-                    //    "这不代表 Key 有问题" —— 而不是让用户以为白填了。
                     validate(result.credential.id)
                 }
 
@@ -429,6 +454,12 @@ class KeysViewModel(
             //
             // ⇒ 删掉那段比较逻辑。只在**真的抛异常**时才弹 ——
             //   那才是"界面看起来什么都没发生"的真正原因。
+            // ★★ 2026-11-01：手动点「校验」时也顺手导入一次 ——
+            //    厂商新上架的模型应当在用户点校验后出现，而不是等他重填 Key。
+            //    ⚠️ 导入失败不弹横幅：它是锦上添花，不该盖掉校验结论。
+            runCatching { importModels(id) }
+                .onFailure { Timber.w(it, "校验时自动导入模型失败") }
+
             runCatching { repo.validate(id) }
                 .onFailure { e ->
                     _state.update { it.copy(problem = "校验失败：${describe(e)}") }

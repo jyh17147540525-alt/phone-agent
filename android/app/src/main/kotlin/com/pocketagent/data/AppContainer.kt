@@ -1084,6 +1084,185 @@ class AppContainer(context: Context) {
     }
 
     // ══════════════════════════════════════════════════════════════
+    //  模型选择 + 思考强度
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * 用户钉死的模型 id。**空 = 自动**（默认）。
+     *
+     * ★★ 2026-11-01：用户要求"快捷切换模型" + "默认自动"。
+     */
+    private var pinnedModelIdValue: String = ""
+
+    /** 思考强度。默认 [com.pocketagent.modelrouter.ThinkingEffort.AUTO]。 */
+    private var thinkingEffortValue: com.pocketagent.modelrouter.ThinkingEffort =
+        com.pocketagent.modelrouter.ThinkingEffort.AUTO
+
+    /** 当前的选择（自动 / 钉死某个）。 */
+    fun modelChoice(): com.pocketagent.modelrouter.ModelChoice =
+        pinnedModelIdValue.ifBlank {
+            null
+        }?.let { com.pocketagent.modelrouter.ModelChoice.Pinned(it) }
+            ?: com.pocketagent.modelrouter.ModelChoice.Auto
+
+    fun thinkingEffort(): com.pocketagent.modelrouter.ThinkingEffort = thinkingEffortValue
+
+    /**
+     * 用户切了模型。`null` = 切回自动。
+     *
+     * ⚠️ 只落内存 + 异步落盘 —— 调用方（界面）立刻能读到新值，
+     *    不需要等磁盘。
+     */
+    fun setModelChoice(choice: com.pocketagent.modelrouter.ModelChoice) {
+        pinnedModelIdValue = when (choice) {
+            com.pocketagent.modelrouter.ModelChoice.Auto -> ""
+            is com.pocketagent.modelrouter.ModelChoice.Pinned -> choice.configId
+        }
+        persistModelSelection()
+    }
+
+    fun setThinkingEffort(effort: com.pocketagent.modelrouter.ThinkingEffort) {
+        thinkingEffortValue = effort
+        persistModelSelection()
+    }
+
+    /**
+     * **按当前设置挑一个模型** —— `ChatPort` 用的就是这个。
+     *
+     * @param scenario 聊天还是跑 agent
+     */
+    suspend fun pickModelFor(scenario: com.pocketagent.modelrouter.Scenario):
+        com.pocketagent.modelrouter.PickResult {
+        val models = runCatching { modelRepository()?.all().orEmpty() }
+            .getOrElse { emptyList() }
+        return com.pocketagent.modelrouter.pickModel(
+            models = models,
+            choice = modelChoice(),
+            effort = thinkingEffortValue,
+            scenario = scenario,
+        )
+    }
+
+    private fun persistModelSelection() {
+        val pinned = pinnedModelIdValue
+        val effort = thinkingEffortValue.name
+        startupScope.launch {
+            runCatching {
+                pluginSourceStore.edit {
+                    it[KEY_PINNED_MODEL_ID] = pinned
+                    it[KEY_THINKING_EFFORT] = effort
+                }
+            }.onFailure { Timber.e(it, "模型选择落盘失败") }
+        }
+    }
+
+    private suspend fun loadModelSelection() {
+        runCatching {
+            val prefs = pluginSourceStore.data.first()
+            pinnedModelIdValue = prefs[KEY_PINNED_MODEL_ID].orEmpty()
+            // ⚠️ 用 `enumValueOf` + runCatching：枚举改名/新增时老值读不出来，
+            //    此时退回 AUTO 而不是崩溃 —— 一个存了旧值的用户不该打不开应用。
+            thinkingEffortValue = prefs[KEY_THINKING_EFFORT]
+                ?.let { name ->
+                    runCatching {
+                        com.pocketagent.modelrouter.ThinkingEffort.valueOf(name)
+                    }.getOrNull()
+                }
+                ?: com.pocketagent.modelrouter.ThinkingEffort.AUTO
+        }.onFailure { Timber.e(it, "模型选择读取失败") }
+    }
+
+    /**
+     * **自动导入这个 Key 下所有能用的模型**。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★★ 2026-11-01：用户指出这是"太复杂"的根本原因
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 用户原话：
+     * > "用户填入对应的 apikey 之后就应该能自动识别密钥里有的所有模型"
+     *
+     * 现状：填完 Key 还要**手动一个个加模型**，每个都选四项配置。
+     * ⇒ 现在填完 Key 自动把它们全导进来，用户只需要挑一个（或不管）。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ⚠️ 三件必须做对的事
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * ① **过滤非对话模型**（whisper / tts / embedding / dall-e）——
+     *    由 `ModelImport.isChatCapable` 做，有 14 条离线测试盯着。
+     *
+     * ② **不重复导入** —— 已配过的 modelId 跳过。
+     *    否则用户每次点「校验」就多一批重复模型。
+     *
+     * ③ **失败不影响 Key 本身** —— 拉模型清单要联网，
+     *    断网时这一步会失败，但**Key 已经存下来了**。
+     *    ⇒ 只记日志，不向上抛。
+     *
+     * @return 这次导入了几个（0 = 没新增，可能是全都配过了，或拉不到清单）
+     */
+    suspend fun importModelsFromCredential(credentialId: String): Int {
+        val opened = openCredentialStore()
+        val repository = when (opened) {
+            is CredentialStoreResult.Ready -> opened.repository
+            else -> return 0
+        }
+
+        return runCatching {
+            // ⚠️ 用 `listModelsOf`（`:keymgmt` 新增）而不是自己拼 HTTP：
+            //    凭据解密、BaseUrl 覆盖、鉴权头、错误翻译都在那一层处理过了。
+            val models = repository.listModelsOf(credentialId) ?: return@runCatching 0
+
+            val existing = modelRepository()?.all().orEmpty()
+                .filter { it.credentialId == credentialId }
+                .map { it.modelId }
+                .toSet()
+
+            val plan = com.pocketagent.modelrouter.ModelImport.plan(
+                discovered = models,
+                alreadyConfigured = existing,
+            )
+            var count = 0
+            for (p in plan) {
+                val result = modelRepository()?.add(
+                    credentialId = credentialId,
+                    modelId = p.modelId,
+                    label = p.label,
+                    tier = when (p.tier) {
+                        com.pocketagent.modelrouter.ModelTier.LIGHT ->
+                            com.pocketagent.core.database.entity.ModelTierEntity.LIGHT
+                        com.pocketagent.modelrouter.ModelTier.STANDARD ->
+                            com.pocketagent.core.database.entity.ModelTierEntity.STANDARD
+                        com.pocketagent.modelrouter.ModelTier.HEAVY ->
+                            com.pocketagent.core.database.entity.ModelTierEntity.HEAVY
+                    },
+                    roles = p.roles.mapNotNull { r ->
+                        when (r) {
+                            com.pocketagent.modelrouter.ModelRole.CHAT ->
+                                com.pocketagent.core.database.entity.ModelRoleEntity.CHAT
+                            com.pocketagent.modelrouter.ModelRole.WORKER ->
+                                com.pocketagent.core.database.entity.ModelRoleEntity.WORKER
+                            com.pocketagent.modelrouter.ModelRole.SCHEDULER ->
+                                com.pocketagent.core.database.entity.ModelRoleEntity.SCHEDULER
+                        }
+                    }.toSet(),
+                    inputPriceOverride = p.inputPricePerMillion,
+                    outputPriceOverride = p.outputPricePerMillion,
+                )
+                // ⚠️ 单条失败只跳过：一个模型 id 不合法不该让整批导入失败
+                if (result is com.pocketagent.keymgmt.AddModelResult.Added) count++
+            }
+            Timber.i("模型自动导入：新增 %d 个（原有 %d 个）", count, existing.size)
+            count
+        }.getOrElse {
+            // ⚠️ 拉清单要联网。断网时这里失败**不影响已保存的 Key** ——
+            //    用户下次点「校验」会再试一次。
+            Timber.w(it, "自动导入模型失败（不影响 Key）")
+            0
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════
     //  ★ 破甲档位（2026-10-29）
     // ══════════════════════════════════════════════════════════════
     //
@@ -3039,6 +3218,10 @@ class AppContainer(context: Context) {
                 .onFailure { Timber.e(it, "主题偏好加载失败") }
             runCatching { loadMaturePermission() }
                 .onFailure { Timber.e(it, "成熟内容授权加载失败") }
+            // ★★ 2026-11-01：模型选择 + 思考强度 —— 不读回来的话，
+            //   每次冷启动都退回"自动"，用户钉的模型会"自己变回去"。
+            runCatching { loadModelSelection() }
+                .onFailure { Timber.e(it, "模型选择加载失败") }
             // ★ 累计轮次：关系阶段的唯一依据。不读回来的话，
             //   每次冷启动都从"初识"开始 —— 见 `totalUserTurns` 的注释。
             runCatching { loadTotalUserTurns() }
@@ -3173,6 +3356,34 @@ class AppContainer(context: Context) {
          */
         private val KEY_ADULT_CONFIRMED = booleanPreferencesKey("adult_confirmed_v1")
         private val KEY_MATURE_ENABLED = booleanPreferencesKey("mature_enabled_v1")
+
+        /**
+         * **模型选择**：用户钉死的那个模型 id。
+         *
+         * ★★ 2026-11-01：用户要求"像 workbuddy / deepseekharness 那样快捷切换"。
+         *
+         * ⚠️ **空串 = 自动**（默认）。这是用户明确要求的默认值：
+         *    "默认是让用户选自动的，也就是根据场景需求自动调用模型。"
+         *
+         * ⚠️ 存的是 `ModelConfig.id`（数据库行 id），不是 `ModelId`。
+         *    这个项目**踩过这个坑**：把 `ModelConfig.id`（UUID）当成
+         *    `modelId`（如 "deepseek-chat"）发给厂商，表现是"模型不存在"。
+         *    见 `ChatPort` 里那段长注释。
+         */
+        private val KEY_PINNED_MODEL_ID =
+            androidx.datastore.preferences.core.stringPreferencesKey("pinned_model_id_v1")
+
+        /**
+         * **思考强度**：`ThinkingEffort` 的枚举名。
+         *
+         * ⚠️ 缺省（读不到）= `AUTO`。
+         *
+         * ★ 存枚举**名**而不是序号：枚举增删后序号会指向另一个值，
+         *   而那是最难查的一类 bug（"恢复后变成另一档"）。
+         *   这与 `TaskCheckpoint.plannedActions` 存枚举名是同一条纪律。
+         */
+        private val KEY_THINKING_EFFORT =
+            androidx.datastore.preferences.core.stringPreferencesKey("thinking_effort_v1")
 
         /**
          * 累计用户轮次 —— **关系阶段的唯一依据**。

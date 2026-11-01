@@ -115,6 +115,28 @@ fun TasksScreen(
     onOpenSettings: () -> Unit = {},
 
     /**
+     * **模型选择**（快捷切换 + 思考强度）。
+     *
+     * ★★ 2026-11-01：用户要求"像 workbuddy / deepseekharness 那样
+     *   快捷切换模型" + "像 codex 那样有一个思考强度滑块" + "默认自动"。
+     *
+     * ⚠️ 用一组**纯数据 + 两个回调**而不是直接传 `AppContainer`：
+     *    本类刻意不依赖 Android 容器（预览与离线测试里没有它），
+     *    与 `resumeOffer` / `absorbCompressed` 同一条纪律。
+     *
+     * ★ 当前用哪个模型**在这里算**（`pickModel` 是纯函数），
+     *   不劳调用方传 —— 传一份算好的标签会和 models/choice 漂移。
+     */
+    modelModels: List<com.pocketagent.modelrouter.ModelConfig> = emptyList(),
+    modelChoice: com.pocketagent.modelrouter.ModelChoice =
+        com.pocketagent.modelrouter.ModelChoice.Auto,
+    thinkingEffort: com.pocketagent.modelrouter.ThinkingEffort =
+        com.pocketagent.modelrouter.ThinkingEffort.AUTO,
+    /** `null` = 切回自动。 */
+    onPickModel: (String?) -> Unit = {},
+    onPickEffort: (com.pocketagent.modelrouter.ThinkingEffort) -> Unit = {},
+
+    /**
      * 打开**语音通话页**。
      *
      * ★★ 2026-10-31：用户要求"打电话的页面互动动画…可以随时打断模型的说话"。
@@ -164,9 +186,37 @@ fun TasksScreen(
 ) {
     val vm = viewModel
 
+    // ══════════════════════════════════════════════════════════════
+    //  ★★ 2026-11-01：**当前用哪个模型** —— 顶栏显示 + 点开切换
+    // ══════════════════════════════════════════════════════════════
+    //
+    // ⚠️ 在这里算（`pickModel` 是纯函数）而不是让调用方传一个算好的
+    //    字符串 —— 传字符串会和 modelModels / modelChoice 漂移，
+    //    而"顶栏显示的模型"与"实际用的模型"不一致是最坏的一种不一致。
+    val currentPick = com.pocketagent.modelrouter.pickModel(
+        models = modelModels,
+        choice = modelChoice,
+        effort = thinkingEffort,
+        scenario = com.pocketagent.modelrouter.Scenario.CHAT,
+    )
+    var askModel by remember { mutableStateOf(false) }
+
+    // ══════════════════════════════════════════════════════════════
+    //  ★★ 2026-11-01：用 `Box` 包一层，让模型弹层能**覆盖**在页面之上
+    // ══════════════════════════════════════════════════════════════
+    //
+    // ⚠️ 原来想用 `ModalBottomSheet`，但它是 `@ExperimentalMaterial3Api`，
+    //    加了之后 `AppShell` 的调用点也要加，再往上 `MainActivity` 也要 ——
+    //    实验 API 会一路传染。
+    //
+    // ⇒ 自绘浮层：项目本来就有自己的设计系统（`PaColor` / `PaType`），
+    //   Material 的底部弹层样式反而要覆盖一遍。
+    //   自己画还有两个好处：
+    //   · 不引入实验 API 到调用链上
+    //   · 遮罩的深浅、圆角、入场动画全部可控
+    Box(modifier = modifier.fillMaxSize()) {
     PaScreen(
         title = "任务",
-        modifier = modifier,
         subtitle = if (vm.tasks.isEmpty()) null else "${vm.tasks.size} 个任务",
         // ★ 抽屉入口。用 leadingIcon 而不是 onBack ——
         //   摆一个返回箭头（←）当菜单用，用户会以为点它返回上一页。
@@ -174,6 +224,28 @@ fun TasksScreen(
         leadingContentDescription = "历史对话",
         onLeadingClick = vm::openDrawer,
         actions = {
+            // ★★ 2026-11-01：模型快捷切换入口。
+            //   显示"现在用哪个"，点一下换 —— 这是用户要的"快捷切换"。
+            //
+            // ⚠️ 只显示名字，不显示"档位/角色" —— 那些是内部概念。
+            //
+            // ⚠️ **截断到 8 个字符**：模型显示名可能很长
+            //   （真机上是「GLM-5.3 Flash（原生多模态 · 1M 上下文）」），
+            //   顶栏还要放两个图标，不截断会把它们挤出去。
+            //   完整名字在弹层里看 —— 顶栏只需要"能认出是哪个"。
+            Text(
+                text = (currentPick.config?.effectiveLabel ?: "选模型")
+                    .let { if (it.length > 8) it.take(8) + "…" else it },
+                style = PaType.label,
+                color = if (currentPick.config == null) PaColor.Warning
+                else PaColor.TextSecondary,
+                modifier = Modifier
+                    // 48dp 触控目标（原来这种文字标签只有 20dp 高）
+                    .minimumInteractiveComponentSize()
+                    .clip(RoundedCornerShape(PaRadius.xs))
+                    .clickable { askModel = true }
+                    .padding(horizontal = PaSpace.xs),
+            )
             // ★ 角色设定入口 —— 就在顶栏，聊着聊着觉得不对可以立刻改。
             //   见 `onOpenPersona` 参数的注释。
             PaIconButton(
@@ -188,6 +260,9 @@ fun TasksScreen(
             )
         },
     ) {
+        // ══════════════════════════════════════════════════════
+        //  ★★ 模型选择弹层
+        // ══════════════════════════════════════════════════════
         Column(modifier = Modifier.fillMaxSize()) {
 
             Box(modifier = Modifier.weight(1f)) {
@@ -513,6 +588,57 @@ fun TasksScreen(
                         .fillMaxWidth()
                         .padding(horizontal = PaSpace.screenH)
                         .padding(bottom = PaSpace.s),
+                )
+            }
+        }
+    }
+
+        // ══════════════════════════════════════════════════════
+        //  ★★ 2026-11-01：**模型选择弹层**
+        // ══════════════════════════════════════════════════════
+        //
+        // ⚠️ 刻意自绘而不是用 `ModalBottomSheet`：
+        //    那是 `@ExperimentalMaterial3Api`，加了之后 `AppShell` 的
+        //    调用点也要加，再往上 `MainActivity` 也要 —— 实验 API 会
+        //    一路传染。而项目本来就有自己的设计系统（`PaColor`/`PaType`），
+        //    Material 的底部弹层样式反而要覆盖一遍。
+        //
+        // ★ 遮罩本身可点 = 点空白处关闭。这是底部弹层的标准手势，
+        //   不给的话用户只能找"取消"按钮，而这里没有那个按钮。
+        if (askModel) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.35f))
+                    .clickable(
+                        interactionSource = remember {
+                            androidx.compose.foundation.interaction.MutableInteractionSource()
+                        },
+                        indication = null,
+                    ) { askModel = false },
+            )
+            // ★ 弹层本体贴底部
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(topStart = PaRadius.l, topEnd = PaRadius.l))
+                    .background(PaColor.CanvasElevated)
+                    .padding(top = PaSpace.m, bottom = PaSpace.l),
+            ) {
+                com.pocketagent.ui.models.ModelPickerSheet(
+                    models = modelModels,
+                    choice = modelChoice,
+                    effort = thinkingEffort,
+                    onPickAuto = {
+                        onPickModel(null)
+                        askModel = false
+                    },
+                    onPick = { id ->
+                        onPickModel(id)
+                        askModel = false
+                    },
+                    onEffort = { onPickEffort(it) },
                 )
             }
         }
