@@ -186,32 +186,50 @@ fun ThinkingSlider(
     LaunchedEffect(effort) {
         if (effort == ThinkingEffort.MAX) {
             // ══════════════════════════════════════════════════════
-            //  ★★ 2026-11-01：**充能感**
+            //  ★★ 2026-11-01（第三版）：**涌起 → 松开**，不要急停
             // ══════════════════════════════════════════════════════
             //
-            // 用户："要像充能那样的震动感"。
+            // 用户反馈："后面急停有点像每一级都会震动，直到最后一级后
+            //            会有顿停"
             //
-            // ⚠️ 均匀间隔（每次 50ms）听起来是"哒·哒·哒"，像节拍器 ——
-            //    均匀 = 没有方向感 = 不像充能。
+            // ⚠️ 上一版有三个问题，全都会造成"分档 + 顿停"的错觉：
             //
-            // ★ 充能的核心是**由缓到急**：
-            //    间隔从 100ms 递减到 20ms（用 t² 曲线，前段松、后段紧），
-            //    后半程再叠一层 `light()` 加强 —— 人感觉到的是一条
-            //    **越来越密的纹路**，最后收一记 `confirm()` 像"满了"。
+            //   ① **最后补了一记 `confirm()`** —— 那是一下明确的硬振，
+            //      听起来就是"到顶了，停"。顿停感主要来自这一下。
+            //   ② **间隔一路加速到 20ms 就结束** —— 从最密直接归零，
+            //      没有收束过程，像被切断。
+            //   ③ **中途换触感类型**（tick → light）—— 类型一变，
+            //      人就会听出"级"来，于是"每一级都在震"。
             //
-            // ⚠️ 总时长 ≈ 2.4 秒：比原来 1.8 秒更长，但要的是"绵长"。
+            // ★ 正确的形状是**涌起再松开**（swell），全程同一个触感类型：
+            //
+            //      间隔
+            //      95ms ┐
+            //           │╲
+            //           │ ╲___
+            //      24ms │     ╲___
+            //           │         ╲___
+            //      85ms ┘             ╲___
+            //           └──────────────────► t
+            //           0      0.75      1.0
+            //
+            //   前 75% 加速（t² 曲线），后 25% **放松**回 85ms ——
+            //   于是它是"慢慢停下来"，而不是"被切断"。
             val steps = CHARGE_STEPS
             for (i in 0 until steps) {
                 val t = i.toFloat() / (steps - 1)
-                // 后 1/4 加重：从"轻触"过渡到"短振"
-                if (t > 0.75f) haptics.light() else haptics.tick()
-                val gap = (CHARGE_START_MS + (CHARGE_END_MS - CHARGE_START_MS) * t * t)
-                    .toLong()
-                kotlinx.coroutines.delay(gap)
-            }
-            // 收尾：一记明确的"充满"
-            haptics.confirm()
-        } else {
+                haptics.tick()
+                val gap = if (t < CHARGE_PEAK) {
+                    // 加速段：t² 让前段松、后段紧
+                    val k = t / CHARGE_PEAK
+                    CHARGE_START_MS + (CHARGE_MIN_MS - CHARGE_START_MS) * k * k
+                } else {
+                    // 松开段：线性回到 CHARGE_END_MS，把能量卸掉
+                    val k = (t - CHARGE_PEAK) / (1f - CHARGE_PEAK)
+                    CHARGE_MIN_MS + (CHARGE_END_MS - CHARGE_MIN_MS) * k
+                }
+                kotlinx.coroutines.delay(gap.toLong())
+            }        } else {
             haptics.light()
         }
     }
@@ -451,9 +469,19 @@ private const val FLASH_PERIOD_MS = 2600
  * 间隔从 [CHARGE_START_MS] 递减到 [CHARGE_END_MS]，共 [CHARGE_STEPS] 次。
  * ⚠️ 用 t² 曲线而不是线性：前段松、后段紧，才有"充能"的加速度感。
  */
-private const val CHARGE_STEPS = 34
-private const val CHARGE_START_MS = 100f
-private const val CHARGE_END_MS = 20f
+private const val CHARGE_STEPS = 40
+
+/** 起步间隔：松。 */
+private const val CHARGE_START_MS = 95f
+
+/** 峰值间隔：紧。这一档决定"最急"到什么程度。 */
+private const val CHARGE_MIN_MS = 24f
+
+/** 收尾间隔：比起步略紧 —— 收得住，但不硬停。 */
+private const val CHARGE_END_MS = 85f
+
+/** 峰值位置（0..1）。75% 处最急，之后放松。 */
+private const val CHARGE_PEAK = 0.75f
 
 /** 吸附回拉系数（源码 `U = .8`）。 */
 private const val SNAP_PULL = 0.8f
