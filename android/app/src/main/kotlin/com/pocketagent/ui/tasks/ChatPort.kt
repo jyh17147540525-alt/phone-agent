@@ -443,10 +443,49 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                 //   而且那种任务的目标是"动手"，看图不是它的主要用途。
                 //   （如果将来要支持"看着截图去点"，那要在 `PhoneTask`
                 //   里加图片字段，是另一件事。）
+                // ══════════════════════════════════════════════════
+                //  ★★ 2026-11-01（目标 B）：历史按 **token 预算**裁剪
+                // ══════════════════════════════════════════════════
+                //
+                // ⚠️ 此前只按**条数**限（41 条），而条数不是体积：
+                //    一条消息可能是 20 字，也可能是两万字。
+                //    首字延迟与成本都随前缀线性增长，而用户感觉不到
+                //    自己在为历史付钱。
+                //
+                // ★ 估算用 chars/3（与 AnthropicProvider.countTokens 同口径）。
+                //   预算 8000 是保守值：主流模型上下文都在 32K 以上，
+                //   这个量级既有足够连续性，又不会让 prefill 变成瓶颈。
+                //
+                // ⚠️ 只在**真的超预算**时才动手 —— `HistoryWindow` 保证
+                //    至少保留最近 4 条，所以正常会话行为不变。
+                val budgeted = com.pocketagent.agentlogic.HistoryWindow.select(
+                    items = history,
+                    budgetTokens = com.pocketagent.agentlogic.HistoryWindow.DEFAULT_BUDGET_TOKENS,
+                    estimate = { m ->
+                        // 粗略：所有文本片段的字符数 / 3
+                        m.content.sumOf { part ->
+                            when (part) {
+                                is com.pocketagent.provider.api.ContentPart.Text -> part.text.length
+                                is com.pocketagent.provider.api.ContentPart.Image -> 6000
+                                is com.pocketagent.provider.api.ContentPart.ToolCall ->
+                                    part.name.length + part.argumentsJson.length
+                                is com.pocketagent.provider.api.ContentPart.ToolResult ->
+                                    part.content.length
+                            }
+                        } / 3
+                    },
+                )
+                if (budgeted.trimmed) {
+                    Timber.i(
+                        "历史按预算裁剪：%d → %d 条（约 %d tokens）",
+                        history.size, budgeted.items.size, budgeted.usedTokens,
+                    )
+                }
+
                 val historyWithImage = if (image != null && image.isNotEmpty()) {
-                    history.attachUserImage(image, imageMimeType)
+                    budgeted.items.attachUserImage(image, imageMimeType)
                 } else {
-                    history
+                    budgeted.items
                 }
                 Timber.i(
                     "本轮附图片：%s",
