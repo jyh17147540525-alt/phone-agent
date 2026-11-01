@@ -197,18 +197,42 @@ class GatewayCore(
                     //    正常结束、异常结束、以及**被取消**三种情况下都触发。
                     .onCompletion { cause ->
                         if (cause != null && failure == null) failure = cause
-                        usageRecorder.record(
-                            UsageRecord(
-                                modelConfigId = target.modelConfigId,
-                                providerId = credential.providerId,
-                                consumer = ctx.consumer,
-                                inputTokens = inputTokens,
-                                outputTokens = finalUsage?.outputTokens ?: 0,
-                                upstreamUsage = finalUsage,
-                                failure = failure?.let { describe(it) },
-                                warning = warning,
+                        // ══════════════════════════════════════════════
+                        //  ★★ 2026-11-01：记账失败**不能**让用户请求失败
+                        // ══════════════════════════════════════════════
+                        //
+                        // 真机/CI 抓到的现象：
+                        //   8 个并发请求里偶尔有一个 502，错误是
+                        //   `模型服务出错（ArrayIndexOutOfBoundsException）`。
+                        //
+                        // 追下去是"用量记录"这一层抛了异常：
+                        //   `InMemoryUsageRecorder` 用 `ArrayList`，
+                        //   而 8 个协程同时 `add` ⇒ 并发扩容读到半截数组。
+                        //
+                        // ⚠️ 但**真正的问题不是那个测试类**，而是这行调用：
+                        //    用量记录是**记账**，不是业务。
+                        //    磁盘满、数据库锁、记录器实现有 bug ——
+                        //    任何一种都不该让用户看到"模型服务出错"。
+                        //    他明明拿到了完整的回复。
+                        //
+                        // ⇒ 在这里兜住。记账失败只吞掉，不影响流的结果。
+                        runCatching {
+                            usageRecorder.record(
+                                UsageRecord(
+                                    modelConfigId = target.modelConfigId,
+                                    providerId = credential.providerId,
+                                    consumer = ctx.consumer,
+                                    inputTokens = inputTokens,
+                                    outputTokens = finalUsage?.outputTokens ?: 0,
+                                    upstreamUsage = finalUsage,
+                                    failure = failure?.let { describe(it) },
+                                    warning = warning,
+                                )
                             )
-                        )
+                        }
+                        // ⚠️ 不 rethrow，也**不重试**：
+                        //    重试会双重记账，而且在这里开 runBlocking 会卡住事件循环。
+                        //    记账是尽力而为 —— 丢了这一条，下一条还在。
                     }
             )
         }
@@ -451,12 +475,31 @@ interface UsageRecorder {
     }
 }
 
-/** 便于测试：把记录收进一个列表 */
+/**
+ * 便于测试：把记录收进一个列表。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  ⚠️ 必须是**线程安全**的
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * 曾经用 `mutableListOf`（= `ArrayList`）。而并发测试里
+ * 8 个协程同时往它 `add` —— `ArrayList` 扩容时会读到半截数组，
+ * 抛 `ArrayIndexOutOfBoundsException`。
+ *
+ * 那个异常又被上层的通用 catch 转成 502，于是表现为
+ * **"8 个并发请求偶尔有一个失败"** —— 一个看起来像网络问题的
+ * 假象。实际上是我们自己的记录器不是线程安全的。
+ *
+ * ⇒ 用 `synchronized` 包住读写。`CopyOnWriteArrayList` 也安全，
+ *   但每次读都复制整表，测试里读得比写多不了多少，synchronized 更直白。
+ */
 class InMemoryUsageRecorder : UsageRecorder {
     private val _records = mutableListOf<UsageRecord>()
-    val records: List<UsageRecord> get() = _records.toList()
+
+    val records: List<UsageRecord>
+        get() = synchronized(_records) { _records.toList() }
 
     override suspend fun record(record: UsageRecord) {
-        _records += record
+        synchronized(_records) { _records += record }
     }
 }

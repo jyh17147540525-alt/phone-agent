@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -169,6 +170,9 @@ class GatewayCoreTest {
         provider: FakeProvider = FakeProvider(),
         credentials: FakeCredentialSource = FakeCredentialSource(),
         recorder: InMemoryUsageRecorder = InMemoryUsageRecorder(),
+        // ★ 2026-11-01：允许注入一个**会抛异常**的记录器 ——
+        //   用于验证"记账失败不能让用户请求失败"这条纪律。
+        usageRecorder: com.pocketagent.provider.gateway.UsageRecorder = recorder,
         defaultBudget: RequestBudget = GatewayCore.DEFAULT_REQUEST_BUDGET,
     ): Harness {
         val repo = FakeModelRepo(listOf(config))
@@ -180,7 +184,7 @@ class GatewayCoreTest {
             bridge = bridge,
             credentials = credentials,
             providers = listOf(provider),
-            usageRecorder = recorder,
+            usageRecorder = usageRecorder,
             defaultBudget = defaultBudget,
         )
         return Harness(core, provider, credentials, recorder, config)
@@ -687,5 +691,54 @@ class GatewayCoreTest {
 
         assertSame(GatewayFailure.CredentialUndecryptable, e.failure)
         assertEquals(GatewayFailure.CredentialUndecryptable.userMessage, e.message)
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    //  ★★ 2026-11-01：记账失败不能让用户请求失败
+    // ─────────────────────────────────────────────────────────────
+
+    /**
+     * **这条测试是给一个真实排查出来的 bug 钉的钉子。**
+     *
+     * ═══════════════════════════════════════════════════════════
+     *  现象
+     * ═══════════════════════════════════════════════════════════
+     * `并发请求都能被处理` 里 8 个并发偶尔有一个 502：
+     * `模型服务出错（ArrayIndexOutOfBoundsException）`
+     *
+     * ═══════════════════════════════════════════════════════════
+     *  根因（两层）
+     * ═══════════════════════════════════════════════════════════
+     * ① `InMemoryUsageRecorder` 用 `ArrayList`，
+     *    8 个协程同时 `add` ⇒ 并发扩容读到半截数组 ⇒ AIOOBE
+     * ② **更要紧的一层**：那次 `record()` 是在 `onCompletion` 里直接调的，
+     *    抛出的异常**直接让整个请求失败**
+     *
+     * ⚠️ ② 才是设计问题：用量记录是**记账**，不是业务。
+     *    磁盘满、数据库锁、记录器实现有 bug ——
+     *    任何一种都不该让用户看到"模型服务出错"。
+     *    他明明已经拿到了完整回复。
+     */
+    @Test
+    fun `记录器抛异常不影响对话成功`() = runBlocking {
+        val boom = object : com.pocketagent.provider.gateway.UsageRecorder {
+            override suspend fun record(record: com.pocketagent.provider.gateway.UsageRecord) {
+                throw ArrayIndexOutOfBoundsException("模拟记录器崩了")
+            }
+        }
+        val h = harness(usageRecorder = boom)
+
+        val chunks = h.core.complete(
+            RoutingMode.Single("m1"),
+            simpleRequest(),
+        ).toList()
+
+        // ★ 应当拿到正常回复，而不是异常
+        val text = chunks.filterIsInstance<ChatChunk.Delta>().joinToString("") { it.text }
+        assertTrue("回复必须完整：$text", text.isNotEmpty())
+        assertTrue(
+            "必须恰好一个 Done",
+            chunks.count { it is ChatChunk.Done } == 1,
+        )
     }
 }
