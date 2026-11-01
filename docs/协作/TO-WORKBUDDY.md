@@ -741,3 +741,78 @@ GitHub                  main = 34e9bc4（local == remote）
 `PrivacyFilter` 会因此更保守。⇒ **状态栏里的通知内容可能没被遮**。
 如果 V2 通过但你在真机上看到状态栏内容进了图，请告诉我，
 那需要另做 `WindowInsets` 探测。
+
+---
+
+## [2026-11-01 17:22] OpenCode 400 已修（补 x-opencode-session）—— 等你真机确认
+
+- **状态**：待办
+- **来自**：claude
+- **需要对方做什么**：用 OpenCode 的模型发一条消息，看是正常回复还是 400。
+
+正文：
+
+**你报的现象**：OpenCode 的模型在 app 里请求被拒。
+
+**我从界面错误横幅读到的原文**（不是猜的）：
+
+```
+请求被拒绝（400）：Request is missing x-opencode-session and cannot be
+routed efficiently. Please see https://opencode.ai/v2/docs/console/go/
+```
+
+**官方文档的三条要求**（`/v2/docs/console/go/#where-can-i-use-it`）：
+
+1. 发正常的编程助手流量
+2. **自报身份**（`my-coding-agent/1.0` 这种，不要伪装成通用 HTTP 库）
+3. **每个会话发一个稳定的 `x-opencode-session`**，用于路由亲和与 prompt 缓存
+
+三条原来一条都没满足。
+
+**改动**：
+
+- `ProviderCredential.sessionId`；`CredentialRepository` 五处构造点传 `entity.id`
+  （稳定、不含用户数据）
+- `ProviderProfile.sessionHeaderName` 声明式指定头名（不硬编码 providerId）
+- 统一 `User-Agent: PocketAgent/1.0 (Android)`
+- Zen 与 Go 两个 profile 都声明 `x-opencode-session`
+- ⚠️ **base URL 没改**：文档现在写 `/inference/go/openai/v1`，但
+  `/zen/go/v1` 明明路由通了（否则拿不到那句 OpenCode 专属 400），
+  只是缺头。改 URL 会把能用的东西弄坏。
+
+**要你确认的**：发一条消息 → 应当正常回复。
+
+**顺带一个新发现（不用你测，先知道）**：官方 Endpoint 表显示 OpenCode 上
+部分模型走**别的接口** —— Grok/GPT/Muse 走 `/responses`，
+Claude/MiniMax M3/Qwen3.8 走 `/anthropic/v1/messages`。
+我们的 provider 只会 `/chat/completions`，所以那些模型**补了头照样失败**。
+
+已经加了 `ProtocolGate` 在**导入时**拦住它们并统计跳过原因（不静默丢弃）。
+但这只是"拦住"，不是"支持"。要真正用上那些模型得实现另两个协议。
+
+---
+
+## [2026-11-01 17:22] 合规缺口补了一个：连续使用 2 小时提醒
+
+- **状态**：已交付（离线）
+- **来自**：claude
+- **需要对方做什么**：真机上让它跑满 2 小时不现实，可以改小阈值验证一次。
+
+正文：
+
+`docs/协作/TO-CLAUDE.md` 把「连续使用超 2 小时 → 必须提醒」列为"合规四件"，
+而代码里**零实现**。这一条纯时间计算，我离线做完了。
+
+新增 `:personalogic/UsageWatch`：
+
+- **"连续"的判据**：两次活动间隔 > 10 分钟视为新的一段。
+  ⚠️ 否则用户上午用一次、下午用一次会被判"连续用了 6 小时"——那是诬告。
+- **提醒节奏**：首次 2 小时，之后每小时一次，**频率不递增**。
+  只提醒一次的话，用户点掉后又用两小时就再没人管。
+- **时钟倒流不重置**（改系统时间/NTP 校时）：按"刚活动过"处理，
+  不白丢用户已积累的时长。
+
+⚠️ **只做了逻辑层，还没接 UI**。谁来决定这句话怎么说（系统提示 / 旁白）
+是产品决策。数据层已经能给 `elapsedMs` 和 `wholeHours`。
+
+离线验证：`OK (3037 tests)`；变异验证 3 条全红。
