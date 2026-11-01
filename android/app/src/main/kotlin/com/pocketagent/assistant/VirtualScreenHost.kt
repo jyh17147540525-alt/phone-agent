@@ -505,10 +505,26 @@ class VirtualScreenHost(private val context: Context) {
             private set
 
         private const val DISPLAY_NAME = "pocketagent-virtual"
-        const val SCREEN_W = 720
-        const val SCREEN_H = 1280
+
+        // ══════════════════════════════════════════════════════════
+        //  ★★ 2026-11-01：尺寸**直接引用** `:mcp` 的常量
+        // ══════════════════════════════════════════════════════════
+        //
+        // 此前这里是两个独立字面量 `720` / `1280`，而
+        // `:mcp/AppHostTool` 里也有一份，注释写着"必须与
+        // `:app` 的 `VirtualScreenHost` 一致"。
+        //
+        // ⚠️ 那种"两份字面量 + 一句注释"的约定**结构上必然漂移** ——
+        //    改一处忘另一处不会报错，只会让模型拿到的 tap 坐标
+        //    与真实虚拟屏尺寸不符，于是**点到不相干的地方**，
+        //    而模型以为点对了。
+        //
+        // ⇒ `:app` 本来就依赖 `:mcp`（要注册 MCP 工具），
+        //   所以直接引用即可 —— 现在**只剩一个来源**。
+        const val SCREEN_W = com.pocketagent.mcp.AppHostTool.VIRTUAL_W
+        const val SCREEN_H = com.pocketagent.mcp.AppHostTool.VIRTUAL_H
         const val DENSITY = 320
-        const val MAX_SNAPSHOT_W = 720
+        const val MAX_SNAPSHOT_W = SCREEN_W
         const val ROOT_TIMEOUT_SECONDS = 15L
 
         /** 转 Bitmap 的节流间隔。见 [lastFrame] 注释。 */

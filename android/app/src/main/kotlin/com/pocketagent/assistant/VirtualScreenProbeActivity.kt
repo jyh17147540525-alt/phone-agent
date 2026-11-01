@@ -281,8 +281,13 @@ class VirtualScreenProbeActivity : Activity() {
         const val EXTRA_TARGET = "target"
         private const val DEFAULT_TARGET = "com.tencent.mobileqq"
         private const val ME_PACKAGE = "com.pocketagent"
-        private const val HD_W = 720
-        private const val HD_H = 1280
+        // ⚠️ 2026-11-01：这两个字面量是虚拟屏尺寸的**第三份副本**
+        //    （另两份在 `VirtualScreenHost` 与 `:mcp/AppHostTool`）。
+        //    探测出来的屏尺寸若与真实虚拟屏不符，`input tap` 会点到
+        //    不相干的位置，而日志看起来完全正常。
+        //    ⇒ 改成引用唯一来源。
+        private const val HD_W = com.pocketagent.mcp.AppHostTool.VIRTUAL_W
+        private const val HD_H = com.pocketagent.mcp.AppHostTool.VIRTUAL_H
         private const val DENSITY = 320
 
         /** 供 `dumpsys` 之外的手工排查用。 */
