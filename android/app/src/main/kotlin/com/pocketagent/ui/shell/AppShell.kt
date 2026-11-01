@@ -534,15 +534,20 @@ fun AppShell(
                         // ★ 只淡入。180ms：快到像"换了一下"，不像"切过去了"。
                         fadeIn(animationSpec = tabSpec)
                     } else {
-                        // 层级的进入：内容从右侧微移进来（方向感是对的）
+                        // ══════════════════════════════════════════════
+                        //  ★★ 2026-11-01：**去掉缩放**
+                        // ══════════════════════════════════════════════
+                        //
+                        // ⚠️ 原来这里还有 `scaleIn(initialScale = 1f)` ——
+                        //    值是恒等变换，但 `scaleIn` 无法在编译期知道这点，
+                        //    仍会**分配一个 graphicsLayer**。整屏大小的图层
+                        //    开销不小，而它产生的是**零视觉变化**。
+                        //
+                        // ⇒ 只留"位移 + 淡入"，那是干净且够用的。
                         fadeIn(animationSpec = layerSpec) +
                             slideInHorizontally(animationSpec = slideSpec) {
                                 enterOffsetX
-                            } +
-                            scaleIn(
-                                animationSpec = layerSpec,
-                                initialScale = PaTransition.ENTER_SCALE,
-                            )
+                            }
                     }
                 },
 
@@ -566,14 +571,12 @@ fun AppShell(
                         //
                         // ⚠️ 时长用 `layerSpec`（与新页一致）而不是 `tabSpec`：
                         //    两页同时动才是"一起推"，一快一慢会显得散。
+                        //
+                        // ★ 2026-11-01：缩放整段去掉（理由同 enterTransition）
                         fadeOut(animationSpec = layerSpec) +
                             slideOutHorizontally(animationSpec = slideSpec) {
                                 exitOffsetX
-                            } +
-                            scaleOut(
-                                animationSpec = layerSpec,
-                                targetScale = PaTransition.EXIT_SCALE,
-                            )
+                            }
                     }
                 },
 
@@ -595,14 +598,12 @@ fun AppShell(
                         // ⚠️ 起始位置用 `exitOffsetX`（-30%）而不是
                         //    `-100%`：因为它不是"从屏幕外进来"，
                         //    而是"从它刚才退让到的位置回来" —— 那才是它真实待过的地方。
+                        //
+                        // ★ 2026-11-01：缩放整段去掉（理由同 enterTransition）
                         fadeIn(animationSpec = layerSpec) +
                             slideInHorizontally(animationSpec = slideSpec) {
                                 exitOffsetX
-                            } +
-                            scaleIn(
-                                animationSpec = layerSpec,
-                                initialScale = PaTransition.EXIT_SCALE,
-                            )
+                            }
                     }
                 },
 
@@ -612,14 +613,12 @@ fun AppShell(
                     } else {
                         // ★ 旧页（被返回的那一层）向**右滑出屏幕** ——
                         //   与 push 进来时的方向相反，形成"退回去"的闭环。
+                        //
+                        // ★ 2026-11-01：缩放整段去掉（理由同 enterTransition）
                         fadeOut(animationSpec = layerSpec) +
                             slideOutHorizontally(animationSpec = slideSpec) {
                                 enterOffsetX
-                            } +
-                            scaleOut(
-                                animationSpec = layerSpec,
-                                targetScale = PaTransition.ENTER_SCALE,
-                            )
+                            }
                     }
                 },
             ) {

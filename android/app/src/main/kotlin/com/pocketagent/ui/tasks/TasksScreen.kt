@@ -37,6 +37,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
@@ -486,6 +487,9 @@ fun TasksScreen(
                     value = vm.draft,
                     onValueChange = vm::onDraftChange,
                     onSend = vm::submit,
+                    // ★★ 2026-11-01：把"发送中"暴露给按钮 ——
+                    //   转圈只在真的发送时出现（见 SendButton 的注释）
+                    sending = vm.sending,
                     leading = {
                         ExpandActionsButton(
                             expanded = actionsExpanded,
@@ -839,6 +843,18 @@ private fun TaskComposer(
     onValueChange: (String) -> Unit,
     onSend: () -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * **正在发送**（模型还没回完这一轮）。
+     *
+     * ★★ 2026-11-01：这个参数是新加的 —— 在此之前界面**没有任何
+     * 可观察的"发送中"状态**（`chatGate` 是 `AtomicBoolean`，
+     * 纯并发控制，不驱动 UI）。
+     *
+     * ⚠️ 后果就是用户看到的那件事：按钮上有个**一直转的图标**，
+     *    因为上一版把"输入框空"误映射成了 `WORKING`。
+     *    现在转圈只在 `sending == true` 时出现。
+     */
+    sending: Boolean = false,
     /** 左边的 + 号（展开功能图标）。 */
     leading: @Composable () -> Unit = {},
     /**
@@ -923,41 +939,95 @@ private fun TaskComposer(
 
         Spacer(Modifier.width(PaSpace.xs))
 
-        SendButton(enabled = canSend, onClick = onSend)
+        SendButton(enabled = canSend, sending = sending, onClick = onSend)
     }
 }
 
 @Composable
-private fun SendButton(enabled: Boolean, onClick: () -> Unit) {
+private fun SendButton(
+    enabled: Boolean,
+    sending: Boolean,
+    onClick: () -> Unit,
+) {
     // ══════════════════════════════════════════════════════════════
-    //  ★★ 2026-10-31：换成 `PaCompleteButton`（原来是一段手写实现）
+    //  ★★ 2026-11-01：回退 `PaCompleteButton`，重写发送按钮
     // ══════════════════════════════════════════════════════════════
     //
-    // ⚠️ `PaCompleteButton` + `CompletionState`（20 条离线测试）在
-    //    `7d0357d` 就建好了，但**零调用方** —— 本项目第六次
-    //    "建好了没接线"。
+    // 用户："对话发送按钮，你优化得很烂啊，没有点击发送，按钮上还是会
+    //      有个一直旋转的图标"
     //
-    // ★ 手写版缺的那一件事：**"已收到"的确认**。
-    //   点了发送后按钮毫无变化 ⇒ 用户不知道点没点上，很可能再点一次。
+    // ⚠️ 那个旋转图标是我上一轮换 `PaCompleteButton` 造成的，两个错：
     //
-    // ⚠️ 这里只做"可发送 / 不可发送"两态映射，不接 WORKING：
-    //    发送中的状态在 `TasksViewModel` 里（`chatGate` 是纯并发控制，
-    //    不驱动 UI），要接得先把它暴露成可观察状态。
-    //    那是下一轮的事 —— 现在先把按钮**换掉**，而不是继续维护
-    //    两份视觉实现（它们已经漂移了：手写版圆角是 `PaRadius.xs`，
-    //    而 `PaCompleteButton` 用 `PaRadius.s`）。
-    val state = if (enabled) {
-        com.pocketagent.agentui.CompletionState.initial()
-    } else {
-        com.pocketagent.agentui.CompletionState.State(
-            phase = com.pocketagent.agentui.CompletionState.Phase.WORKING,
-        )
-    }
+    //  ① **语义完全不同**：`PaCompleteButton` 是「完成任务」按钮 ——
+    //     它的文案是"完成 / 处理中 / 已完成 / 重试"，图标是勾/转圈。
+    //     而发送按钮该是一个**纸飞机箭头**。硬接在一起等于让用户
+    //     对着一个写着"完成"的按钮发消息。
+    //
+    //  ② **映射写反了**（直接导致常驻转圈）：
+    //     ```
+    //     val state = if (enabled) IDLE else WORKING
+    //     ```
+    //     ⇒ 输入框**空**的时候（不可发送）被映射成 `WORKING`，
+    //       而 `PaCompleteButton` 在 `WORKING` 下渲染
+    //       `CircularProgressIndicator` —— 于是"没点发送也在转圈"。
+    //
+    // ★ 正确的三态：
+    //   · 空输入     → 暗色箭头，**不可点**，无转圈
+    //   · 有文字     → 实心箭头，可点
+    //   · 发送中     → 箭头换成转圈，**且不可重复点**
+    //
+    // ⚠️ `sending` 来自 `TasksViewModel`（`chatGate` 原来只是个
+    //    `AtomicBoolean`，不驱动 UI）。现在把它暴露成可观察状态 ——
+    //    这才是"点了发送有反馈"的正确来源，而不是靠禁用态瞎猜。
+    val haptics = rememberHaptics()
 
-    com.pocketagent.ui.design.PaCompleteButton(
-        state = state,
-        onClick = onClick,
+    // 只有"能发 + 不在发送中"才可点。
+    val clickable = enabled && !sending
+
+    // 可发送时图标放大一点点 —— 一个几乎察觉不到但能感觉到的"就绪"信号
+    val scale by animateFloatAsState(
+        targetValue = if (clickable) 1f else 0.92f,
+        animationSpec = PaMotion.standard(),
+        label = "sendButtonScale",
     )
+
+    Box(
+        modifier = Modifier
+            .size(36.dp)
+            .scale(scale)
+            .clip(RoundedCornerShape(PaRadius.xs))
+            .background(
+                when {
+                    sending -> PaColor.SurfaceHigh
+                    enabled -> PaColor.Accent
+                    else -> PaColor.SurfaceHigh
+                },
+            )
+            .clickable(
+                enabled = clickable,
+                onClick = {
+                    haptics.confirm()
+                    onClick()
+                },
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (sending) {
+            // ★ 发送中：转圈**只在真的发送时出现**
+            CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                strokeWidth = 2.dp,
+                color = PaColor.TextTertiary,
+            )
+        } else {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.Send,
+                contentDescription = "发送",
+                tint = if (enabled) Color(0xFF06121F) else PaColor.TextDisabled,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1314,6 +1384,39 @@ class TasksViewModel(
     // 同一时间只允许一个模型请求在飞。
     // 2026-10-26 真机：3 个请求并发 → 互相抢带宽 + 厂商限流 → 全都"卡住"。
     private val chatGate = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /**
+     * **正在发送** —— 给发送按钮显示转圈用。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★★ 2026-11-01：两版都错过，这里是第三版
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 用户："没有点击发送，按钮上还是会有个一直旋转的图标"
+     *
+     * **第一版错**：把"输入框空"映射成 `WORKING` ⇒ 空输入时永久转圈。
+     *
+     * **第二版也错**（差点就这样发出去）：从任务列表派生 ——
+     * ```
+     * val sending get() = tasks.any { it.state == TaskState.Running }
+     * ```
+     * ⚠️ `tasks` 是**跨会话历史**（真机上 183 条）。只要有一条历史任务
+     *    卡在 `Running`（上次进程被杀、没来得及标 Aborted），
+     *    按钮就**永远**转圈 —— 而我改完装机一看，它还在转。
+     *
+     * ⇒ 第三版：**进程内真实在飞的状态**，由 `runChat` 的
+     *   `try/finally` 保证一定复位。
+     *
+     * ★ 为什么不直接用 `chatGate`：它是 `AtomicBoolean`，
+     *   改变不会触发重组 —— 用户看不到任何反馈。
+     *   这里用 `mutableStateOf` 镜像它，只为了驱动 UI。
+     *
+     * ⚠️ 只有**一个**置 false 的地方（`runChat` 的 finally）。
+     *    "另存一份布尔必然漂移"那个担忧是对的，
+     *    所以这里不靠"在几条 return 前各写一次"，而是靠 `finally`。
+     */
+    var sending by mutableStateOf(false)
+        private set
 
     /** 当前会话 id。null = 还没定下来（库没开，或还没说过话）*/
     private var sessionId: String? = null
@@ -1880,6 +1983,11 @@ class TasksViewModel(
         //    闸门不释放 → 后面所有消息永远"排队中"直到 3 分钟超时。
         //    那会把"能中止"变成"中止了但更糟"。
         chatGate.set(false)
+        // ★★ 2026-11-01：界面状态必须与闸门**同步释放**。
+        //    不置 false 的话，用户中止后按钮还在转圈 ——
+        //    而那是"我点了中止但没生效"的观感。
+        //    （旧线程最终也会在 finally 里置一次 false，重复置无害。）
+        sending = false
     }
 
     /**
@@ -1953,6 +2061,11 @@ class TasksViewModel(
                 }
             }
             try {
+                // ★★ 2026-11-01：闸门拿到手 ⇒ 进入"发送中"。
+                //    ⚠️ 必须在 try **里面**设：如果设在 try 之前，
+                //       那个位置之后的代码抛异常时 finally 还没生效。
+                //        这里在 try 内、任何可能失败的操作之前，最稳。
+                sending = true
                 update(taskId) { it.copy(note = "正在等模型回复…", perceptionTier = 0) }
 
             // ★ 流式：第一片正文到达时**替换**掉"正在等模型回复…"，之后追加。
@@ -2204,6 +2317,11 @@ class TasksViewModel(
             }
             } finally {
                 chatGate.set(false)
+                // ★★ 2026-11-01：**唯一**复位"发送中"的地方。
+                //    用 finally 而不是在每个 return 前各写一次 ——
+                //    这条路有异常、超时、排队超时三个出口，
+                //    漏一个就是"按钮永远转圈"。
+                sending = false
             }
         }.apply { isDaemon = true }.start()
     }
