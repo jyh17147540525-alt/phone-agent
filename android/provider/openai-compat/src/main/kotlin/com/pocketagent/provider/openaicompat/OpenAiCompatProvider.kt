@@ -955,6 +955,137 @@ object ProviderProfiles {
         ),
     )
 
+    /**
+     * **OpenCode Go** —— Zen 的**包月档**（$5 首月 / 之后 $10 月），
+     * 同一把 Key 可用。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★★ 2026-11-01：用户追加"还有一个 opencode go 呢"
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 端点（Docker 官方文档 vendor 的 OpenCode 资料 + 第三方实测一致）：
+     *  · Base：`https://opencode.ai/zen/go/v1`（OpenAI 兼容）
+     *  · 模型列表：`/zen/go/v1/models` —— ⚠️ **只返回 id**，
+     *    没有价格/上下文元数据（所以下面那份清单是**静态快照**）
+     *  · 配额：`/zen/go/v1/usage`（rolling 5h / weekly / monthly 三个百分比）
+     *  · 鉴权：与 Zen **同一把** `OPENCODE_API_KEY`
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ⚠️⚠️ Go 的模型分成**两种协议**，这里只列 OpenAI 那半边
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * | 协议 | 模型 | 本 app 能用吗 |
+     * |---|---|---|
+     * | `/v1/chat/completions` | deepseek-* / kimi-* / glm-* / mimo-* / hy3-* | ✅ |
+     * | `/v1/messages`（Anthropic） | **qwen3.x-plus / qwen3.7-max / minimax-*** | ❌ |
+     *
+     * ⚠️ 注意这与 **Zen** 不同：Zen 上 `qwen3-coder` 走 chat/completions，
+     *    但 **Go 上所有 Qwen 都走 Anthropic**。
+     *    照着 Zen 的习惯往 Go 里加 qwen 会让用户**必然 400**。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ⚠️ 价格填 0 是**准确的**，但要理解它的含义
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * Go 是**包月制**：官方 API 的 `cost` 字段恒为字符串 `"0"`。
+     * 边际美元成本确实是 0（钱已经付过了）。
+     *
+     * ⚠️ 但 `ModelConfigMapping` 警告过"把不知道多少钱当成免费"会让
+     *    预算熔断失效。这里不一样 —— 它**真的是 0**，不是"未知"。
+     *
+     * ★ 而 Go 真正的约束是**配额**（滚动 5 小时 $12 / 周 $30 / 月 $60），
+     *   那个数字只能从 `/zen/go/v1/usage` 读，本 app 的预算熔断看不到它。
+     *   ⇒ `AgentBudget` 的另外三维（轮次/时长/能耗）仍然生效，
+     *     不会因为价格填 0 就完全失去保护。
+     *
+     * ⚠️ 上下文窗口取 128K 是**保守假设** —— `/models` 不给这个字段，
+     *    真实值需查官方文档。宁可估小（提前压缩上下文）也不估大（超限报错）。
+     */
+    val OpenCodeGo = ProviderProfile(
+        id = "opencode-go",
+        displayName = "OpenCode Go（包月）",
+        defaultBaseUrl = "https://opencode.ai/zen/go/v1",
+        authScheme = AuthScheme.Bearer,
+        capabilities = setOf(
+            Capability.STREAM, Capability.TOOL_CALL,
+            Capability.JSON_MODE, Capability.LONG_CTX,
+        ),
+        defaultContextWindow = 128_000,
+        defaultModels = listOf(
+            // ★ 默认推荐这个：官方描述是"fast and cost-effective"，
+            //   而包月制下"快"比"最强"更重要（配额按美元折算，
+            //   贵的模型能跑的轮次更少）。
+            ModelInfo(
+                id = "deepseek-v4-flash",
+                displayName = "DeepSeek V4 Flash（Go）",
+                capabilities = setOf(
+                    Capability.STREAM, Capability.TOOL_CALL,
+                    Capability.JSON_MODE, Capability.LONG_CTX,
+                ),
+                contextWindow = 128_000,
+                // ⚠️ 注释说明：包月制 ⇒ 边际成本 0，见上方类注释
+                inputPricePerMillion = 0.0,
+                outputPricePerMillion = 0.0,
+                recommended = true,
+            ),
+            ModelInfo(
+                id = "deepseek-v4-pro",
+                displayName = "DeepSeek V4 Pro（Go）",
+                capabilities = setOf(
+                    Capability.STREAM, Capability.TOOL_CALL,
+                    Capability.JSON_MODE, Capability.LONG_CTX,
+                ),
+                contextWindow = 128_000,
+                inputPricePerMillion = 0.0,
+                outputPricePerMillion = 0.0,
+            ),
+            ModelInfo(
+                id = "kimi-k2.7-code",
+                displayName = "Kimi K2.7 Code（Go）",
+                capabilities = setOf(
+                    Capability.STREAM, Capability.TOOL_CALL,
+                    Capability.JSON_MODE, Capability.LONG_CTX,
+                ),
+                contextWindow = 128_000,
+                inputPricePerMillion = 0.0,
+                outputPricePerMillion = 0.0,
+            ),
+            ModelInfo(
+                id = "glm-5.2",
+                displayName = "GLM 5.2（Go）",
+                capabilities = setOf(
+                    Capability.STREAM, Capability.TOOL_CALL,
+                    Capability.JSON_MODE, Capability.LONG_CTX,
+                ),
+                contextWindow = 128_000,
+                inputPricePerMillion = 0.0,
+                outputPricePerMillion = 0.0,
+            ),
+            ModelInfo(
+                id = "mimo-v2.5",
+                displayName = "MiMo V2.5（Go）",
+                capabilities = setOf(
+                    Capability.STREAM, Capability.TOOL_CALL,
+                    Capability.JSON_MODE, Capability.LONG_CTX,
+                ),
+                contextWindow = 128_000,
+                inputPricePerMillion = 0.0,
+                outputPricePerMillion = 0.0,
+            ),
+            ModelInfo(
+                id = "hy3-preview",
+                displayName = "HY3 Preview（Go）",
+                capabilities = setOf(
+                    Capability.STREAM, Capability.TOOL_CALL,
+                    Capability.JSON_MODE, Capability.LONG_CTX,
+                ),
+                contextWindow = 128_000,
+                inputPricePerMillion = 0.0,
+                outputPricePerMillion = 0.0,
+            ),
+        ),
+    )
+
     /** Moonshot（Kimi 官方）—— 与 Zen 上的 kimi-k2 是**同一模型的不同入口** */
     val Moonshot = ProviderProfile(
         id = "moonshot",
@@ -1142,10 +1273,11 @@ object ProviderProfiles {
 
     /** 全部内置配置，用于 UI 展示与"自定义 Provider"的起点 */
     val all: List<ProviderProfile> = listOf(
-        // ★ 2026-11-01：`OpenCode` 排在前面 —— 它有一个**免费**模型
-        //   （`grok-code`），对"不想先充钱试一下"的用户是最低门槛的起点。
-        //   而列表顺序就是界面上服务商的显示顺序。
-        OpenCode,
+        // ★ 2026-11-01：OpenCode 的两档排在前面 ——
+        //   Zen 有**免费**模型（`grok-code`），是"不想先充钱"的最低门槛；
+        //   Go 是包月制，适合确定要长期用的人。
+        //   列表顺序就是界面上服务商的显示顺序。
+        OpenCode, OpenCodeGo,
         OpenRouter, DeepSeek, OpenAI, DashScope, VolcArk,
         Moonshot, Zhipu, SiliconFlow, Ollama, LmStudio, AzureOpenAi,
     )

@@ -261,6 +261,93 @@ class OpenAiCompatProviderTest {
         )
     }
 
+    // ═══════════════════════════════════════════════════════════
+    //  ★★ OpenCode Go（包月档）
+    // ═══════════════════════════════════════════════════════════
+
+    @Test
+    fun `OpenCode Go 已在内置清单里且端点是 go 那档`() {
+        val p = ProviderProfiles.byId("opencode-go")
+        assertNotNull("用户追加要求：还有一个 opencode go", p)
+        // ⚠️ 与 Zen 的区别就在 `/go` 这一段，写错会连到另一档
+        assertEquals("https://opencode.ai/zen/go/v1", p!!.defaultBaseUrl)
+        assertTrue(p.authScheme is AuthScheme.Bearer)
+    }
+
+    @Test
+    fun `OpenCode Go 不得列出 Qwen 与 MiniMax`() {
+        // ══════════════════════════════════════════════════════
+        //  ★★ 这条防的是最容易犯的一个错
+        // ══════════════════════════════════════════════════════
+        // **Zen** 上 `qwen3-coder` 走 `/chat/completions` ✅
+        // 但 **Go** 上所有 Qwen 都走 `/messages`（Anthropic）❌
+        //
+        // ⚠️ 照着 Zen 的习惯往 Go 里加 qwen，用户选中后**必然 400**。
+        //    同理 `minimax-*` 也全是 Anthropic。
+        //
+        // ⇒ 把"不能加哪些"钉死。
+        val p = ProviderProfiles.byId("opencode-go")!!
+        val forbidden = p.defaultModels
+            .map { it.id.lowercase() }
+            .filter { it.startsWith("qwen") || it.startsWith("minimax") }
+        assertEquals(
+            "Go 上这些模型走 Anthropic /messages，不能列进来：$forbidden",
+            emptyList<String>(),
+            forbidden,
+        )
+    }
+
+    @Test
+    fun `OpenCode Go 的默认模型都声明了工具调用能力`() {
+        val p = ProviderProfiles.byId("opencode-go")!!
+        assertTrue("至少要有一个默认模型", p.defaultModels.isNotEmpty())
+        val noTool = p.defaultModels
+            .filter { Capability.TOOL_CALL !in it.capabilities }
+            .map { it.id }
+        assertEquals("这些模型缺 TOOL_CALL：$noTool", emptyList<String>(), noTool)
+    }
+
+    @Test
+    fun `OpenCode Go 的价格填 0 是包月制而不是未知`() {
+        // ══════════════════════════════════════════════════════
+        //  ★ 这条记录了"0 的两种含义"的区别
+        // ══════════════════════════════════════════════════════
+        // `ModelConfigMapping` 警告过"把不知道多少钱当成免费"会让
+        // 预算熔断失效。而 Go 的 0 是**真的 0**（包月已付过）。
+        //
+        // ⚠️ 但 Go 的真实约束是**配额**（滚动 5h $12 / 周 $30 / 月 $60），
+        //    那个只能从 `/zen/go/v1/usage` 读，本 app 看不到。
+        // ⇒ AgentBudget 的另外三维（轮次/时长/能耗）仍然生效。
+        val p = ProviderProfiles.byId("opencode-go")!!
+        val priced = p.defaultModels.filter {
+            // ⚠️ 价格字段是 `Double?` —— null 表示"未知"，
+            //    对包月制来说两者都不该出现非零值。
+            (it.inputPricePerMillion ?: 0.0) > 0.0 ||
+                (it.outputPricePerMillion ?: 0.0) > 0.0
+        }
+        assertEquals(
+            "包月制下边际成本是 0，不该有非零价格：$priced",
+            emptyList<ModelInfo>(),
+            priced,
+        )
+    }
+
+    @Test
+    fun `两档 OpenCode 的 id 不撞车`() {
+        // ⚠️ 同一把 Key 两档，但 id 必须区分 ——
+        //    否则 `byId` 只能查到其中一个，而用户会配错端点。
+        val zen = ProviderProfiles.byId("opencode")
+        val go = ProviderProfiles.byId("opencode-go")
+        assertNotNull(zen)
+        assertNotNull(go)
+        // ⚠️ 用 assertFalse 而不是 assertNotEquals（后者没导入，
+        //    而且这里本来要断言的就是"两个 BaseUrl 不同"）
+        assertFalse(
+            "两档的 BaseUrl 必须不同，否则连到同一档",
+            zen!!.defaultBaseUrl == go!!.defaultBaseUrl,
+        )
+    }
+
     @Test
     fun `本地厂商被标记为 LOCAL 能力`() {
         // 这是"纯本地模式"（数据不出设备）的判定依据
