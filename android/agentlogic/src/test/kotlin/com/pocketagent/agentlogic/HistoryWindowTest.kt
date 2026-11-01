@@ -190,12 +190,4 @@ class HistoryWindowTest {
         assertEquals(listOf("only"), r.items)
     }
 
-    @Test
-    fun `默认估算只会在明显超长时动手`() {
-        // ⚠️ `selectWithDefaultEstimate` 按每条 1 token 估 ——
-        //    这是**保守下界**，只在条数逼近预算时才动手。
-        //    它不该把正常会话砍掉。
-        val r = HistoryWindow.selectWithDefaultEstimate(msgs(41))
-        assertEquals("41 条远小于 8000 预算，不该丢", 41, r.items.size)
-    }
 }

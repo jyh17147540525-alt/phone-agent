@@ -141,16 +141,4 @@ object HistoryWindow {
         )
     }
 
-    /**
-     * 只需要"丢掉几条"的场合。
-     *
-     * ⚠️ 与 [select] 分开是因为最常见的调用方拿不到估算函数
-     *    （历史在别的层里）。这种情况下按**保守下界**估：
-     *    每条至少 1 token —— 于是它只会在明显超长时才动手。
-     */
-    fun <T> selectWithDefaultEstimate(
-        items: List<T>,
-        budgetTokens: Int = DEFAULT_BUDGET_TOKENS,
-        keepRecent: Int = DEFAULT_KEEP_RECENT,
-    ): Selection<T> = select(items, budgetTokens, keepRecent) { 1 }
 }
