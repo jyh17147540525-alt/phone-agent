@@ -1776,6 +1776,57 @@ class AppContainer(context: Context) {
      * ⚠️ 判断全在 `TaskCheckpointManager.offerResume`（有 25 条离线测试），
      *    这里只做转发 —— 容器进不了验证器，不该承载判断。
      */
+    // ══════════════════════════════════════════════════════════════
+    //  ★★ 2026-11-01：连续使用 2 小时提醒（合规四件之一）
+    // ══════════════════════════════════════════════════════════════
+    //
+    // 逻辑在 `:personalogic` 的 `UsageWatch`（算法）与 `UsageReminder`（文案），
+    // 都有离线测试。这里只做**持有状态**与**接线**。
+    //
+    // ⚠️ 这条提醒此前是**完全没实现**的 —— 规章把它列为合规四件之一。
+    private var usageState: com.pocketagent.personalogic.UsageWatch.State =
+        com.pocketagent.personalogic.UsageWatch.State()
+
+    /**
+     * 记一次活动，并在到点时返回该显示的提醒。
+     *
+     * ★ 调用方应当在**每次用户发消息**时调一次（不是每帧）。
+     *   语义是"应用此刻在前台"，所以间隔远小于 10 分钟。
+     *
+     * @param nowMs 当前时刻
+     * @param isRoleplay 当前是否角色扮演 —— 决定用系统行还是旁白
+     * @return null = 不需要提醒
+     */
+    fun touchUsage(
+        nowMs: Long = System.currentTimeMillis(),
+        isRoleplay: Boolean = false,
+    ): com.pocketagent.personalogic.UsageReminder.Message? {
+        usageState = com.pocketagent.personalogic.UsageWatch.onActive(usageState, nowMs)
+        val due = com.pocketagent.personalogic.UsageWatch.dueReminder(usageState, nowMs)
+            ?: return null
+
+        // ⚠️ 先记"已提醒"再返回：即使界面渲染失败，也不该下次再弹一遍。
+        usageState = com.pocketagent.personalogic.UsageWatch.onReminded(usageState, nowMs)
+
+        val channel = com.pocketagent.personalogic.UsageReminder.preferredChannel(isRoleplay)
+        Timber.i("连续使用提醒：%d 小时（通道 %s）", due.wholeHours, channel)
+        return com.pocketagent.personalogic.UsageReminder.messageFor(due, channel)
+    }
+
+    /**
+     * 当前是否在角色扮演。
+     *
+     * ★ 判据是"有没有自定义角色"。有角色就走旁白通道，
+     *   没有就是普通助理，走系统行。
+     *
+     * ⚠️ 用"有没有角色卡"而不是"模型说了什么"来判 ——
+     *    后者要把回复解析一遍，既不可靠也多余。
+     */
+    fun isRoleplay(): Boolean = activeCustomPersona != null
+
+    /** 仅供测试/调试：当前这一段连续使用了多久。 */
+    fun continuousUsageMs(nowMs: Long = System.currentTimeMillis()): Long =
+        usageState.elapsed(nowMs)
     suspend fun resumeOffer(): com.pocketagent.agentlogic.ResumeOffer =
         runCatching {
             com.pocketagent.agentlogic.TaskCheckpointManager(checkpointStore)

@@ -684,6 +684,13 @@ fun AppShell(
                             container.setThinkingEffort(e)
                             modelRefresh++
                         },
+                        // ★ 2026-11-01：连续使用 2 小时提醒（合规四件之一）
+                        //   算法在 :personalogic/UsageWatch，文案在 UsageReminder，都有离线测试。
+                        onCheckUsage = {
+                            // ★ 是否角色扮演由容器判断（有没有角色卡）——
+                            //   有角色走旁白，没有走系统行。
+                            container.touchUsage(isRoleplay = container.isRoleplay())?.text
+                        },
                     )
                 }
 

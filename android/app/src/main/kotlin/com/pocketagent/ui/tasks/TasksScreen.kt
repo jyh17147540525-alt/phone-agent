@@ -139,6 +139,17 @@ fun TasksScreen(
     /** `null` = 切回自动。 */
     onPickModel: (String?) -> Unit = {},
     onPickEffort: (com.pocketagent.modelrouter.ThinkingEffort) -> Unit = {},
+    /**
+     * ★ 2026-11-01：连续使用提醒。
+     *
+     * 返回 null 表示不需要提醒。
+     * ⚠️ 无参 —— "是否角色扮演"由容器侧判断（有没有角色卡），
+     *    Composable 不该关心这件事。
+     *
+     * ⚠️ 由 AppShell 接到 `container.touchUsage`。做成 lambda 而不是
+     *    直接调容器，是为了让这个 Composable 在预览里也能跑。
+     */
+    onCheckUsage: () -> String? = { null },
 
     /**
      * 打开**语音通话页**。
@@ -359,6 +370,9 @@ fun TasksScreen(
                 androidx.activity.result.contract.ActivityResultContracts.GetContent(),
             ) { uri -> uri?.let { vm.attach(it.toString(), "文件") } }
             var actionHint by remember { mutableStateOf<String?>(null) }
+    // ★ 连续使用提醒（合规四件之一）。与 actionHint 分开：
+    //   它是**要停留一会儿**的，而 actionHint 是操作反馈。
+    var usageNote by remember { mutableStateOf<String?>(null) }
             var actionsExpanded by remember { mutableStateOf(false) }
             var recording by remember { mutableStateOf(false) }
 
@@ -464,6 +478,7 @@ fun TasksScreen(
                     )
                 }
                 actionHint?.let { ComposerHint(text = it) }
+                usageNote?.let { ComposerHint(text = it) }
 
                 // ══════════════════════════════════════════════════════
                 //  ★★ 2026-10-31：「上次没做完」的提示 + 两个明确动作
@@ -629,7 +644,18 @@ fun TasksScreen(
                 TaskComposer(
                     value = vm.draft,
                     onValueChange = vm::onDraftChange,
-                    onSend = vm::submit,
+                    onSend = {
+                        // ★ 2026-11-01：发消息时打一次"连续使用"的活动点。
+                        //   ⚠️ 必须先取提醒再发送：发送会触发重组，
+                        //      放在之后会让提醒晚一条消息才出现。
+                        //
+                        //   `isRoleplay` 决定用系统行还是旁白 ——
+                        //   角色对话里插一句系统话会砸气氛。
+                        // ⚠️ 是否角色扮演由 AppShell 侧的容器判断（有没有角色卡），
+                        //    这里不猜。
+                        usageNote = onCheckUsage()
+                        vm.submit()
+                    },
                     // ★★ 2026-11-01：把"发送中"暴露给按钮 ——
                     //   转圈只在真的发送时出现（见 SendButton 的注释）
                     sending = vm.sending,
