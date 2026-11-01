@@ -109,6 +109,22 @@ LIBRARY_JARS = [
     "org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar",
 ]
 
+# 只编译、**不跑测试**的模块。
+#
+# ⚠️ 加进来的条件很严：生产代码必须零 Android 依赖（否则编译就失败），
+#    但它的测试用了本脚本 classpath 里没有的库。
+#
+# 现状：
+#   · android/provider/tts-openai
+#       生产代码 638 行、零 Android import —— 值得编译保护。
+#       但测试用了 Truth（`com.google.common.truth`），
+#       而 Truth 会拖进 guava / checker-qual / error_prone /
+#       j2objc / failureaccess 一整条链 —— 为几条断言引入这些不值。
+#       ⇒ 它的测试仍然由 Gradle 跑（`gradlew :provider:tts-openai:test`）。
+COMPILE_ONLY_MODULES = {
+    "android/provider/tts-openai",
+}
+
 # 参与验证的模块。
 #
 # ⚠️ 新增模块时必须确认它**零 Android 依赖**（不 import android.* / androidx.*），
@@ -121,9 +137,12 @@ LIBRARY_JARS = [
 #     要在这里跑它，得先给 Room 的注解和 SQLCipher 的工厂类写一整套桩，
 #     而桩一旦与真实现有偏差，测试会变得比没有更不可信。
 #
-#   · android/keymgmt —— CredentialRepository 用了 androidx.room.withTransaction，
-#     且它依赖 core:database。本脚本按模块**整目录**编译 src/main/kotlin，
-#     没法只挑出"纯逻辑的那几个文件"。
+#   · android/keymgmt —— **依赖 core:database（整套 Room）**，这是真正的阻塞。
+#     ⚠️ 2026-11-01 更正：我一度以为它"只差两处 androidx.room.withTransaction
+#        就能纳进来"，那是**错的**。去掉那两处没用 ——
+#        CredentialRepository 直接用 Room DAO 与 entity 类型，
+#        那些类型全来自 core:database。本脚本按模块**整目录**编译，
+#        挑不出"纯逻辑的那几个文件"。
 #
 #   这两个模块的单测由 Gradle 跑（已实测通过）：
 #     ./gradlew :core:database:testDebugUnitTest :keymgmt:testDebugUnitTest
@@ -177,6 +196,7 @@ MODULES = [
     #    `:core:common` 的空标记接口 `SnapshotView` —— 查过事实：
     #    它对快照只做参数传递，**从不读任何字段**。
     "android/agent",
+    "android/provider/tts-openai",
 
     # ★ 2026-11-01：这三个模块**零 Android import**，此前却没纳入离线验证 ——
     #    `:display` / `:github` 各有一整个文件（恰好也是未接线清单里的）。
@@ -442,6 +462,17 @@ def collect_sources(repo_root: Path) -> tuple[list[Path], list[str]]:
             raise SystemExit(f"模块目录不存在：{module_dir}")
 
         main_sources += sorted(module_dir.glob("src/main/kotlin/**/*.kt"))
+
+        # ★ 2026-11-01：只编译、不跑测试的模块（见 COMPILE_ONLY_MODULES）。
+        #
+        # 为什么需要这个开关：有些模块的**生产代码**是纯 Kotlin、完全值得
+        # 编译保护，但它的**测试**依赖只存在于 Gradle 侧（例如 Truth）。
+        # 整个模块排除掉等于放弃 638 行的编译保护；
+        # 为了跑那几条测试而把 Truth 连同 guava 一整条依赖链搬进来，
+        # 代价更大且更容易版本冲突。
+        if module in COMPILE_ONLY_MODULES:
+            continue
+
         module_tests = sorted(module_dir.glob("src/test/kotlin/**/*.kt"))
         test_sources += module_tests
 
