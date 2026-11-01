@@ -185,10 +185,32 @@ fun ThinkingSlider(
     val haptics = com.pocketagent.ui.design.rememberHaptics()
     LaunchedEffect(effort) {
         if (effort == ThinkingEffort.MAX) {
-            repeat(MAX_TICKS) {
-                haptics.tick()
-                kotlinx.coroutines.delay(MAX_TICK_MS)
+            // ══════════════════════════════════════════════════════
+            //  ★★ 2026-11-01：**充能感**
+            // ══════════════════════════════════════════════════════
+            //
+            // 用户："要像充能那样的震动感"。
+            //
+            // ⚠️ 均匀间隔（每次 50ms）听起来是"哒·哒·哒"，像节拍器 ——
+            //    均匀 = 没有方向感 = 不像充能。
+            //
+            // ★ 充能的核心是**由缓到急**：
+            //    间隔从 100ms 递减到 20ms（用 t² 曲线，前段松、后段紧），
+            //    后半程再叠一层 `light()` 加强 —— 人感觉到的是一条
+            //    **越来越密的纹路**，最后收一记 `confirm()` 像"满了"。
+            //
+            // ⚠️ 总时长 ≈ 2.4 秒：比原来 1.8 秒更长，但要的是"绵长"。
+            val steps = CHARGE_STEPS
+            for (i in 0 until steps) {
+                val t = i.toFloat() / (steps - 1)
+                // 后 1/4 加重：从"轻触"过渡到"短振"
+                if (t > 0.75f) haptics.light() else haptics.tick()
+                val gap = (CHARGE_START_MS + (CHARGE_END_MS - CHARGE_START_MS) * t * t)
+                    .toLong()
+                kotlinx.coroutines.delay(gap)
             }
+            // 收尾：一记明确的"充满"
+            haptics.confirm()
         } else {
             haptics.light()
         }
@@ -423,9 +445,15 @@ fun ThinkingSlider(
 /** apex 闪烁周期。源码 1.45s，手机上放慢到 2.6s（见 Canvas 里的注释）。 */
 private const val FLASH_PERIOD_MS = 2600
 
-/** max 档的细密震动：次数与间隔。36 × 50ms ≈ 1.8 秒的"嗡"。 */
-private const val MAX_TICKS = 36
-private const val MAX_TICK_MS = 50L
+/**
+ * max 档的**充能**震动参数。
+ *
+ * 间隔从 [CHARGE_START_MS] 递减到 [CHARGE_END_MS]，共 [CHARGE_STEPS] 次。
+ * ⚠️ 用 t² 曲线而不是线性：前段松、后段紧，才有"充能"的加速度感。
+ */
+private const val CHARGE_STEPS = 34
+private const val CHARGE_START_MS = 100f
+private const val CHARGE_END_MS = 20f
 
 /** 吸附回拉系数（源码 `U = .8`）。 */
 private const val SNAP_PULL = 0.8f
