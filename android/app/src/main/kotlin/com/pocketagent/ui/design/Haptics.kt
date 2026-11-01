@@ -96,4 +96,24 @@ class HapticsHandle internal constructor(
 
     /** 手指划过、长按触发。 */
     fun light() = Haptics.light(haptics)
+
+    /**
+     * **极短的一下** —— 用于"连续纹理"。
+     *
+     * ★★ 2026-11-01：用户要求"max 挡位应该是绵长细腻的震动反馈"。
+     *
+     * ⚠️ 现有的 [confirm] / [light] 都是"一下"，做不出"绵长"。
+     *    绵长的做法是**快速连续发很多极短的** —— 人感觉到的是一条
+     *    连续的纹理，而不是几十次敲击。
+     *
+     * ★ 用 `TextHandleMove`：它是系统里最短最轻的一类触感，
+     *   连续发的时候像"嗡"，而不是"哒哒哒"。
+     *
+     * ⚠️ 它**不需要** `VIBRATE` 权限 —— `performHapticFeedback` 走的是
+     *    系统触感服务，与裸 `Vibrator` 不同。这一点很关键：
+     *    为一个滑块加一条权限是不划算的。
+     */
+    fun tick() = haptics.performHapticFeedback(
+        androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove,
+    )
 }

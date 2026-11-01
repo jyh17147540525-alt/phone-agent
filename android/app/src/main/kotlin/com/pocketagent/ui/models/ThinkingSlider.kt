@@ -48,6 +48,7 @@ import com.pocketagent.ui.design.PaType
 import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.round
 import kotlin.math.sin
@@ -169,6 +170,30 @@ fun ThinkingSlider(
         }
     }
 
+    // ══════════════════════════════════════════════════════════════
+    //  ★★ 2026-11-01：震动反馈
+    // ══════════════════════════════════════════════════════════════
+    //
+    // 用户："加入震动反馈，max 挡位应该是绵长细腻的震动反馈"
+    //
+    // ⚠️ 两档语义不同：
+    //   · 普通档位变化 → 一下轻触（像机械刻度）
+    //   · 到 max       → **连续细密**的一长串（像"嗡"），约 1.8 秒
+    //
+    // ★ 用 `HapticsHandle.tick()`（TextHandleMove）：系统里最短最轻的一类，
+    //   连续发才像纹理，而不是"哒哒哒"。它**不需要 VIBRATE 权限**。
+    val haptics = com.pocketagent.ui.design.rememberHaptics()
+    LaunchedEffect(effort) {
+        if (effort == ThinkingEffort.MAX) {
+            repeat(MAX_TICKS) {
+                haptics.tick()
+                kotlinx.coroutines.delay(MAX_TICK_MS)
+            }
+        } else {
+            haptics.light()
+        }
+    }
+
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
 
         Row(verticalAlignment = Alignment.Bottom) {
@@ -251,19 +276,34 @@ fun ThinkingSlider(
             val accent = PaColor.Accent
             val label = PaColor.TextPrimary
 
-            // 动画相位：源码 period-flash = 1.45s
+            // ══════════════════════════════════════════════════════
+            //  ★★ 动画相位：**不在组合阶段读**
+            // ══════════════════════════════════════════════════════
+            //
+            // ⚠️ 原来写 `val phase by flash.animateFloat(...)` ——
+            //    `by` 会在**组合阶段**读值，于是每一帧都触发重组。
+            //    28×5 个格子的 Canvas 每帧重组一次，就是用户说的"会断"。
+            //
+            // ⇒ 保留 `State`，在 `Canvas` 的绘制 lambda 里读 `.value`：
+            //   只有绘制阶段失效，不触发重组。
+            //
+            // ⚠️ 周期从 1450ms 放慢到 2600ms：用户说"太快，有种廉价感"。
+            //    源码的 period-flash 是 1.45s，但那是网页端的 28 列小格；
+            //    手机上是 5 行更密的网格，同样的周期看起来会躁。
+            //    参考项目自己的 `--dsh-claude-period-breathe: 2.4s` 更合适。
             val flash = rememberInfiniteTransition(label = "apexFlash")
-            val phase by flash.animateFloat(
+            val phaseState = flash.animateFloat(
                 initialValue = 0f,
                 targetValue = 1f,
                 animationSpec = infiniteRepeatable(
-                    animation = tween(1450, easing = LinearEasing),
+                    animation = tween(FLASH_PERIOD_MS, easing = LinearEasing),
                     repeatMode = RepeatMode.Restart,
                 ),
                 label = "phase",
             )
 
             Canvas(Modifier.fillMaxWidth().height(30.dp)) {
+                val phase = phaseState.value
                 val h = size.height
                 val loopH = 26.dp.toPx()
                 val top = (h - loopH) / 2f
@@ -298,23 +338,27 @@ fun ThinkingSlider(
                             // 基础亮度：按**列位置**渐变（源码 h.style.opacity = d(p)）
                             val base = 0.18f + 0.82f * p
 
-                            // 闪烁：源码 Flash 关键帧 0-14 base / 20-34 亮 / 其余 base
-                            // 每格错开相位 —— (1-p)*0.31 让左边的先亮，
-                            // 于是波是**从右往左**…源码就是这么写的（(1-p)）。
-                            val delay = (1f - p) * 0.31f + ((r * 7 + c * 3) % 11) * 0.05f
+                            // 闪烁：每格错开相位，波从右往左推进（源码用 (1-p)）。
+                            //
+                            // ⚠️ 源码的关键帧是"0-14 base / 20-34 亮"，占空比
+                            //    只有 20% —— 在网页小格上像流光，在手机密集网格上
+                            //    会变成"这里闪一下那里闪一下"，也就是廉价感。
+                            // ⇒ 用**更宽更缓**的升余弦：10%~55% 之间平滑起落，
+                            //   没有硬边，看着像一条缓慢流动的光。
+                            val delay = (1f - p) * 0.31f + ((r * 7 + c * 3) % 11) * 0.04f
                             val local = (phase + delay) % 1f
-                            val flashAmt = when {
-                                local < 0.14f -> 0f
-                                local < 0.34f -> {
-                                    sin((local - 0.14f) / 0.20f * PI.toFloat())
-                                }
-                                else -> 0f
-                            }.coerceIn(0f, 1f)
+                            val t = ((local - 0.10f) / 0.45f).coerceIn(0f, 1f)
+                            val flashAmt = (0.5f - 0.5f * cos(t * PI.toFloat()))
 
+                            // ⚠️ 闪烁**只调亮度**，不换底层色 ——
+                            //    否则峰值时整格变成亮色，列位置的渐变会被冲淡，
+                            //    整条看起来就是"一片橙"，失去左暗右亮的方向感。
+                            val alpha = (base * (0.55f + 0.45f * flashAmt)).coerceIn(0f, 1f)
                             val col = lerp(
-                                accent.copy(alpha = base),
-                                flashLight.copy(alpha = (base * (0.6f + 0.4f * flashAmt))),
-                                flashAmt * 0.85f,
+                                accent.copy(alpha = alpha),
+                                flashLight.copy(alpha = alpha),
+                                // 峰值时轻微偏亮，保留一点"闪"的味道
+                                flashAmt * 0.30f,
                             )
 
                             drawRoundRect(
@@ -375,6 +419,13 @@ fun ThinkingSlider(
         }
     }
 }
+
+/** apex 闪烁周期。源码 1.45s，手机上放慢到 2.6s（见 Canvas 里的注释）。 */
+private const val FLASH_PERIOD_MS = 2600
+
+/** max 档的细密震动：次数与间隔。36 × 50ms ≈ 1.8 秒的"嗡"。 */
+private const val MAX_TICKS = 36
+private const val MAX_TICK_MS = 50L
 
 /** 吸附回拉系数（源码 `U = .8`）。 */
 private const val SNAP_PULL = 0.8f
