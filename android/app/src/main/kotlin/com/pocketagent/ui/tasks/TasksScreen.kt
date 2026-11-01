@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -429,6 +430,23 @@ fun TasksScreen(
                                 style = PaType.label,
                                 color = PaColor.AccentText,
                                 modifier = Modifier
+                                    // ══════════════════════════════════════
+                                    //  ★★ 2026-11-01：**触控目标补到 48dp**
+                                    // ══════════════════════════════════════
+                                    //
+                                    // 原来这里是 `padding(xs=8dp, 4dp)`，
+                                    // 文字 12sp/16sp 行高 ⇒ 可点高度只有 **24dp**。
+                                    //
+                                    // ⚠️ 48dp 是 Android 与 iOS 共同的**最小触控目标**
+                                    //    （约 9mm，是成人指尖的接触面积）。
+                                    //    24dp 只有一半 —— 单手拇指经常落空，
+                                    //    而这一行提示本身不常出现，用户更不会瞄准。
+                                    //
+                                    // ★ 用 `minimumInteractiveComponentSize()` 而不是
+                                    //   写死 `.height(48.dp)`：前者保持视觉尺寸不变、
+                                    //   只扩大**可点区域**；后者会把这一行撑高，
+                                    //   破坏原本紧凑的排版。
+                                    .minimumInteractiveComponentSize()
                                     .clickable {
                                         // ★ 只填进输入框，不自动发 —— 见上方注释。
                                         vm.onDraftChange(input)
@@ -442,6 +460,8 @@ fun TasksScreen(
                             style = PaType.label,
                             color = PaColor.TextTertiary,
                             modifier = Modifier
+                                // ★ 同上：触控目标补到 48dp（原来只有 24dp）
+                                .minimumInteractiveComponentSize()
                                 .clickable {
                                     resumeHint = null
                                     resumeUserInput = null

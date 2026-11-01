@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -228,7 +229,27 @@ private fun TurnBubbles(
                     text = "中止",
                     style = PaType.caption,
                     color = PaColor.Warning,
-                    modifier = Modifier.clickable(onClick = onAbort),
+                    modifier = Modifier
+                        // ══════════════════════════════════════════════
+                        //  ★★ 2026-11-01：**中止按钮的触控目标补到 48dp**
+                        // ══════════════════════════════════════════════
+                        //
+                        // ⚠️ 原来是**裸 `clickable` + 零 padding** ——
+                        //    13sp/20sp 的 caption ⇒ 可点高度只有 **20dp**，
+                        //    比 48dp 标准小一半还多。
+                        //
+                        // ⚠️ 而这是**中止操作**：点不准的后果不是"多试一次"，
+                        //    是用户以为停不下来而强行杀应用 ——
+                        //    那会把一个可中止的任务变成"看起来卡死"。
+                        //
+                        // ★ 用 `minimumInteractiveComponentSize()`：
+                        //   视觉上还是一行小字，但可点区域是 48dp。
+                        //   视觉轻、触控重，这是"看起来克制但好用"的做法。
+                        .minimumInteractiveComponentSize()
+                        .clickable(onClick = onAbort)
+                        // ★ 加一点横向内边距：让 48dp 区域不紧贴文字边缘，
+                        //   否则相邻元素可能抢到点击。
+                        .padding(horizontal = PaSpace.xxs),
                 )
             }
         }
