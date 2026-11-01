@@ -3,6 +3,7 @@ package com.pocketagent.agentlogic
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -509,5 +510,70 @@ class PhoneAgentLoopTest {
             requests += request
             return replies.getOrElse(requests.size - 1) { AgentTurnReply.Final("剧本用完") }
         }
+    }
+    // ─────────────────────────────────────────────────────────────
+    //  ★★ 2026-11-01：感知档位真的被算出来了
+    // ─────────────────────────────────────────────────────────────
+
+    /**
+     * **`PerceptionPlanner` 此前建好了但没人调** —— 典型的"建好了没接线"。
+     *
+     * 现在每步都算一次档位并放进 `ProgressSnapshot`。
+     * 这条测试盯的是：**它真的被调用了，而且算得对**。
+     *
+     * ⚠️ 只测"有没有算"是不够的 —— 如果实现里写死一个常数，
+     *    那条测试照样绿。所以这里断言**不同工具名给出不同档位**。
+     */
+    @Test
+    fun `每步都会算出感知档位`() = runTest {
+        val llm = ScriptedLlm(
+            listOf(
+                AgentTurnReply.Calls(
+                    listOf(call(name = "screen_shot", args = "{}", id = "c1")),
+                ),
+                AgentTurnReply.Final("好了"),
+            ),
+        )
+        val runner = RecordingRunner(emptyList())
+        val seen = mutableListOf<Int>()
+
+        PhoneAgentLoop(llm, runner, guard()).run(
+            task(),
+            onProgress = { seen += it.perceptionTier },
+        )
+
+        assertTrue("应当至少报过一次档位", seen.isNotEmpty())
+        assertTrue(
+            "截图类工具的档位必须 > 0（否则算不出来或写死了）：$seen",
+            seen.any { it > 0 },
+        )
+        assertFalse("不该报 -1（-1 = 没算）：$seen", seen.all { it == -1 })
+    }
+
+    @Test
+    fun `不同工具的档位不同`() {
+        // ══════════════════════════════════════════════════════
+        //  ★ 防"写死常数"
+        // ══════════════════════════════════════════════════════
+        // 如果实现里对任何工具都返回同一个数，上一条测试也绿。
+        // 只有"不同输入给出不同输出"才能证明真的在算。
+        val capability = com.pocketagent.agentlogic.PerceptionCapability(
+            accessibilityAvailable = true,
+            screenshotAvailable = true,
+            ocrAvailable = true,
+        )
+        val screenshot = com.pocketagent.agentlogic.PerceptionPlanner.plan(
+            toolName = "screen_shot",
+            capability = capability,
+        )
+        val tap = com.pocketagent.agentlogic.PerceptionPlanner.plan(
+            toolName = "android_tap",
+            capability = capability,
+        )
+        assertNotEquals(
+            "截图工具与点击工具的感知需求不该相同",
+            screenshot.tier,
+            tap.tier,
+        )
     }
 }

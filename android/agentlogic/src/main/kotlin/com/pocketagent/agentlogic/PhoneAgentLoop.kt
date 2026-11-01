@@ -75,7 +75,40 @@ class PhoneAgentLoop(
     private val budgetGuard: BudgetGuard,
     /** 注入时钟 —— 便于离线测试"时长"这一维预算而不真的等 */
     private val clock: () -> Long = { System.currentTimeMillis() },
+    /**
+     * ★ 2026-11-01：当前设备**能**提供什么感知。
+     *
+     * 之前 `PerceptionPlanner` 建好了但没人调 —— 典型的"建好了没接线"。
+     * 现在每一步都算一次档位并放进 [ProgressSnapshot]：
+     *  · 界面顶栏的"感知档位"不再硬编码，有真实数据源
+     *  · 档位算法本身可被离线测试钉住
+     *
+     * ⚠️ 默认全能力开启。真机上由调用方按实际权限传入。
+     */
+    private val perception: com.pocketagent.agentlogic.PerceptionCapability =
+        // ⚠️ 默认全能力 —— 真机上由调用方按实际权限传入。
+        //    `PerceptionCapability` 有四个字段，没有 AllOn 这种快捷构造。
+        com.pocketagent.agentlogic.PerceptionCapability(
+            accessibilityAvailable = true,
+            screenshotAvailable = true,
+            ocrAvailable = true,
+            onUnmeteredNetwork = true,
+        ),
 ) {
+
+    /**
+     * 算这一步的感知档位。
+     *
+     * ★ 抽成一个小函数而不是在三处 onProgress 里各算一次 ——
+     *   三处重复会让"改一处忘两处"成为必然。
+     */
+    // ⚠️ `StepPerception` 是 **嵌套在** `object PerceptionPlanner` 内部的，
+    //    写成 `com.pocketagent.agentlogic.StepPerception` 会编译不过。
+    private fun planOf(toolName: String): com.pocketagent.agentlogic.PerceptionPlanner.StepPerception =
+        com.pocketagent.agentlogic.PerceptionPlanner.plan(
+            toolName = toolName,
+            capability = perception,
+        )
 
     /**
      * 跑一个任务。
@@ -239,7 +272,7 @@ class PhoneAgentLoop(
                                 val line = "${call.name} → ${outcome.text.oneLine()}"
                                 trace += line
                                 onStep(usage.turns, line)
-                                onProgress(ProgressSnapshot(step = usage.turns, action = call.name, usage = usage))
+                                onProgress(ProgressSnapshot(step = usage.turns, action = call.name, usage = usage, perceptionTier = planOf(call.name).tier, perceptionReason = planOf(call.name).reason))
                                 results += AgentMessage.ToolResult(
                                     text = outcome.text,
                                     callId = call.id,
@@ -254,7 +287,7 @@ class PhoneAgentLoop(
                                 val line = "${call.name} 失败：${outcome.reason.oneLine()}"
                                 trace += line
                                 onStep(usage.turns, line)
-                                onProgress(ProgressSnapshot(step = usage.turns, action = call.name, usage = usage))
+                                onProgress(ProgressSnapshot(step = usage.turns, action = call.name, usage = usage, perceptionTier = planOf(call.name).tier, perceptionReason = planOf(call.name).reason))
                                 results += AgentMessage.ToolResult(
                                     text = text,
                                     callId = call.id,
@@ -270,7 +303,7 @@ class PhoneAgentLoop(
                                 val line = "${call.name} 被拦下：${outcome.reason.oneLine()}"
                                 trace += line
                                 onStep(usage.turns, line)
-                                onProgress(ProgressSnapshot(step = usage.turns, action = call.name, usage = usage))
+                                onProgress(ProgressSnapshot(step = usage.turns, action = call.name, usage = usage, perceptionTier = planOf(call.name).tier, perceptionReason = planOf(call.name).reason))
                                 results += AgentMessage.ToolResult(
                                     text = text,
                                     callId = call.id,
@@ -609,4 +642,17 @@ data class ProgressSnapshot(
     val step: Int,
     val action: String,
     val usage: BudgetUsage,
+    /**
+     * 这一步打算用第几档感知（0..4）。
+     *
+     * ★ 由 `PerceptionPlanner.plan` 按**工具名 + 设备能力**算出。
+     *   `-1` = 没算（非感知类工具或旧调用方）。
+     *
+     * ⚠️ 带出来是为了让界面能显示**真实**档位。
+     *    此前顶栏那个徽章是硬编码的 —— 用户看到的和实际发生的事无关，
+     *    那比不显示更糟。
+     */
+    val perceptionTier: Int = -1,
+    /** 为什么是这个档位。可直接展示给用户（"执行过程可见"原则）。 */
+    val perceptionReason: String = "",
 )
