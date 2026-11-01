@@ -65,6 +65,53 @@ SUSPECT = re.compile(r"(\*\*[" + CJK + r"])|([" + CJK + r"]\*\*)")
 
 SKIP_DIR_NAMES = {".gradle", ".build-trash", ".idea", "build", "generated"}
 
+# ═══════════════════════════════════════════════════════════════
+#  ★★ 2026-11-01：**发给模型**的文件不算「用户可见」
+# ═══════════════════════════════════════════════════════════════
+#
+# 这条检查 2026-09-23 建立时，全项目只有 6 处 `**`，全部是真问题。
+# 现在报 99 处 —— 但其中绝大部分在**提示词**与**工具返回文本**里。
+#
+# ⚠️ 那些地方 markdown 是**正确**的：模型读 markdown，而且提示词里
+#    的强调是有意写的。把它们"修"成「」反而降低了提示词的可读性。
+#
+# ⇒ 按文件排除。每一条都要写清"为什么它不是界面文案"。
+MODEL_FACING = {
+    # ── 系统提示词 / 人格 / 安全脚本 ──────────────────────────
+    "assistant/AssistantPrompt.kt",      # 系统提示词本体
+    "assistant/HostingAdapter.kt",       # 注入给模型的托管说明
+    "legacy/ConflictScript.kt",          # 冲突话术（提示词片段）
+    "legacy/MatureContentGate.kt",       # 内容门控的提示词注入
+    "legacy/ArmorBreak.kt",              # 破防/引导式提示词
+    "memorylogic/MemoryDiaryPrompt.kt",  # 日记生成的提示词
+    "memorylogic/MemoryRecall.kt",       # 记忆召回段（拼进提示词）
+    "memorylogic/ContextCompressor.kt",  # 压缩摘要段（拼进提示词）
+    "personalogic/Humanizer.kt",         # 去 AI 腔的改写提示词
+    "personalogic/CustomPersona.kt",     # 角色设定拼进提示词
+    "agentlogic/PhoneAgentLoop.kt",      # 工具结果文本，回流给模型
+    # ── MCP 工具：description 与返回文本都进模型上下文 ────────
+    "mcp/OfficeToolsTool.kt",
+    "mcp/RootExecTool.kt",
+    "mcp/ContextOffloadTool.kt",
+    "mcp/TypeTextTool.kt",
+    "mcp/PersonaBriefTool.kt",
+    "mcp/AppHostTool.kt",
+    "mcp/ScreenShotTool.kt",
+    "assistant/AccessibilityActionExecutor.kt",  # 工具失败原因，回流给模型
+    "assistant/RootShellRunner.kt",
+    "assistant/OfficePorts.kt",          # 工具返回文本（"本工具不会尽力解码"）
+    # ⚠️ `AppContainer.kt` 里那几处是**拼给模型的生活上下文提示词**
+    #    （"现在的处境…不要提天气"），不是界面文案。
+    #    整个文件太大不好整体排除，但它是容器装配层，本来就不该有界面文案。
+    "data/AppContainer.kt",
+}
+
+
+def is_model_facing(path: str) -> bool:
+    """这个文件里的 `**` 是发给模型的，而不是渲染在界面上的。"""
+    normalized = path.replace(os.sep, "/").replace("\\", "/")
+    return any(normalized.endswith(suffix) for suffix in MODEL_FACING)
+
 
 def is_test_source(path: str) -> bool:
     """测试源（`src/test/`、`src/androidTest/`）一律跳过 —— 理由见模块 docstring。
@@ -187,6 +234,9 @@ def scan(root: str):
                 continue
             path = os.path.join(dirpath, name)
             if is_test_source(path):
+                continue
+            # ★ 2026-11-01：提示词 / 工具返回文本里的 markdown 是**正确**的
+            if is_model_facing(path):
                 continue
             try:
                 text = io.open(path, encoding="utf-8").read()

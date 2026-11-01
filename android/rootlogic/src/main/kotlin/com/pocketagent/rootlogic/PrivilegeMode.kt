@@ -46,7 +46,7 @@ enum class PrivilegeMode(
     ROOT(
         displayName = "Root 模式",
         summary = "以 root 身份执行命令。能改系统设置、读写任何目录、" +
-            "操作其他应用的数据。**这些命令一旦跑错，后果不可撤销**，" +
+            "操作其他应用的数据。「这些命令一旦跑错，后果不可撤销」，" +
             "所以每一条都要你确认。",
     ),
 }
@@ -107,7 +107,7 @@ fun RootProbeResult.explain(): String = when (this) {
 
     // ★ 最容易误判的一种，必须点名 Magisk：
     RootProbeResult.Denied ->
-        "手机有 root，但**本应用还没被授权**。" +
+        "手机有 root，但「本应用还没被授权」。" +
             "请打开 Magisk（或你的 root 管理器）→ 超级用户 → 找到 PocketAgent → 允许。" +
             "⚠️ 这不是「手机没 root」，别去重新 root 一遍。"
 
@@ -241,7 +241,7 @@ object CapabilityMatrix {
             nonRoot = CapabilityTier.Unavailable(
                 why = "SAF 只能碰你在系统选择器里授权过的那几个目录；" +
                     "/data/data 下别的应用的数据、系统目录，普通应用一律看不到。" +
-                    "**这是 Android 的沙箱在起作用，不是本应用的限制。**",
+                    "「这是 Android 的沙箱在起作用，不是本应用的限制。」",
             ),
             root = CapabilityTier.Full,
         ),
@@ -291,7 +291,7 @@ object CapabilityMatrix {
             title = "以 root 身份执行命令",
             nonRoot = CapabilityTier.Unavailable(
                 why = "这是 root 本身。普通应用执行 `su` 会被直接拒绝 —— " +
-                    "没有 root 就没有这条通道，**没有任何替代方案**。",
+                    "没有 root 就没有这条通道，「没有任何替代方案」。",
             ),
             root = CapabilityTier.Full,
         ),

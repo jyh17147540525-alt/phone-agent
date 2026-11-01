@@ -273,7 +273,7 @@ fun SessionDrawer(
             title = { Text("删除这段对话？", style = PaType.headline, color = PaColor.TextPrimary) },
             text = {
                 Text(
-                    text = "「${target.title}」以及里面的 ${target.turnCount} 轮对话会被**永久删除**，" +
+                    text = "「${target.title}」以及里面的 ${target.turnCount} 轮对话会被「永久删除」，" +
                         "无法恢复。",
                     style = PaType.body,
                     color = PaColor.TextSecondary,

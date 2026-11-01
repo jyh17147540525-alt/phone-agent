@@ -152,7 +152,7 @@ fun PrivilegeModeScreen(
             PaSectionTitle("能力边界")
             Spacer(Modifier.height(4.dp))
             Text(
-                text = "下面是本应用全部受模式影响的能力，以及在你当前模式下**做到哪一步**。",
+                text = "下面是本应用全部受模式影响的能力，以及在你当前模式下「做到哪一步」。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -175,7 +175,7 @@ fun PrivilegeModeScreen(
             PaSectionTitle("应用托管")
             Spacer(Modifier.height(PaSpace.xxs))
             Text(
-                text = "让角色在**不占用你当前屏幕**的情况下操作 QQ、微信这类应用。",
+                text = "让角色在「不占用你当前屏幕」的情况下操作 QQ、微信这类应用。",
                 style = PaType.body,
                 color = PaColor.TextPrimary,
             )
@@ -211,7 +211,7 @@ fun PrivilegeModeScreen(
                         tone = PaBannerTone.Info,
                         title = "开启 Root 模式可以多得到 ${unlocked.size} 项能力",
                         description = unlocked.joinToString("、") { it.title } +
-                            "。⚠️ 这些能力一旦执行**不可撤销**，每一步都会先问你。",
+                            "。⚠️ 这些能力一旦执行「不可撤销」，每一步都会先问你。",
                     )
                 }
             }

@@ -95,6 +95,9 @@ KNOWN_FAKE = {
     "sk-abcdef1234567890",
     # DshConfigPatchTest：字面写着 "not-a-real-key"
     "sk-placeholder-not-a-real-key",
+    # ProviderCredentialTest：验证"toString 不得泄漏密钥"时用的夹具。
+    # 后半段是连续字母表 —— 明显不是真密钥。
+    "sk-secret-abcdefghijklmnop",
 }
 
 # ═══════════════════════════════════════════════════════════════

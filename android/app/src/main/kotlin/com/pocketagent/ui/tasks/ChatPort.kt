@@ -1185,7 +1185,7 @@ private fun ChatMessage.toAgentMessage(): AgentMessage = when (role) {
             "safety" in lower || "敏感" in raw || "违规" in raw ||
             "审核" in raw || "不合规" in raw
         if (filteredNow) {
-            return "这句话被**模型服务商**拦下来了，不是你这边设置的问题。\n\n" +
+            return "这句话被「模型服务商」拦下来了，不是你这边设置的问题。\n\n" +
                 "本应用的成熟内容开关是开着的，请求也确实发出去了 —— " +
                 "但服务商在它那一侧做了内容审核，把这次请求或回复挡掉了。\n\n" +
                 "能做的三件事：\n" +
@@ -1200,7 +1200,7 @@ private fun ChatMessage.toAgentMessage(): AgentMessage = when (role) {
             ("model" in lower && "not found" in lower)
         if (modelMissing) {
             return "$raw\n\n" +
-                "提示：这句话几乎总是「模型 id 抄错了」。厂商的模型代码**带连字符**，" +
+                "提示：这句话几乎总是「模型 id 抄错了」。厂商的模型代码「带连字符」，" +
                 "例如智谱是 glm-5.3-flash 而不是 glm5.3flash。" +
                 "请到「设置 → 模型配置」核对 id 是否与厂商文档逐字符一致 —— " +
                 "它与你的 Key 和余额无关。"
