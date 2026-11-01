@@ -72,7 +72,22 @@ class StopRequestTracker(private val maxRetained: Int = 32) {
         require(maxRetained > 0) { "maxRetained 必须为正数，当前为 $maxRetained" }
     }
 
-    // 用 LinkedHashMap 保持插入顺序，便于按最旧优先淘汰
+    /**
+     * 用 LinkedHashMap 保持插入顺序，便于按最旧优先淘汰。
+     *
+     * ★★ 2026-11-01：**加同步**（被 `tools/verify/audit_shared_mutable.py` 扫出）
+     *
+     * ⚠️ 它是类级可变 Map，而本类的调用方分布在**两个界面之外的地方**：
+     *    悬浮窗服务、以及处理停止请求的入口。Android 上它们通常都在主线程，
+     *    但"通常"不是保证 —— 一旦某个入口被挪到 `Dispatchers.IO`
+     *    （这在本项目里发生过不止一次），普通 HashMap 就会读到半截数组，
+     *    或静默丢记录。
+     *
+     * ⚠️ 丢记录在这里的后果是**用户点了停止却重复收到旧结果**。
+     *
+     * ★ 所有读写都在 `synchronized(processed)` 里 —— 包括 [trackedCount]，
+     *   它读的是同一个可变结构的 size。
+     */
     private val processed = LinkedHashMap<String, StopOutcome>()
 
     /** 记录一个已处理的请求；超出容量时淘汰最旧的 */
@@ -82,21 +97,24 @@ class StopRequestTracker(private val maxRetained: Int = 32) {
             is StopOutcome.NothingToStop -> outcome.requestId
             is StopOutcome.Duplicate -> outcome.requestId
         }
-        processed[id] = outcome
+        synchronized(processed) {
+            processed[id] = outcome
 
-        while (processed.size > maxRetained) {
-            val oldest = processed.keys.firstOrNull() ?: break
-            processed.remove(oldest)
+            while (processed.size > maxRetained) {
+                val oldest = processed.keys.firstOrNull() ?: break
+                processed.remove(oldest)
+            }
         }
     }
 
     /** 查询某请求是否已处理过，返回其原始结果 */
-    fun findProcessed(requestId: String): StopOutcome? = processed[requestId]
+    fun findProcessed(requestId: String): StopOutcome? =
+        synchronized(processed) { processed[requestId] }
 
     /** 已记录的请求数（供测试与诊断） */
-    val trackedCount: Int get() = processed.size
+    val trackedCount: Int get() = synchronized(processed) { processed.size }
 
-    fun clear() = processed.clear()
+    fun clear() = synchronized(processed) { processed.clear() }
 }
 
 /**

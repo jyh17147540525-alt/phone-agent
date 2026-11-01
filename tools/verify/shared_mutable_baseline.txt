@@ -1,0 +1,29 @@
+# 共享可变集合基线 —— 允许存在的类级可变集合。
+#
+# 格式：  <相对路径>:<变量名>   # 为什么它是安全的
+#
+# ⚠️ 加进基线不是"豁免"，是**记录判断**。
+#    每一条都必须写清"为什么它不会出问题"，
+#    否则下一个人无法分辨"确认安全"和"当时懒得管"。
+#
+# 检查工具：python tools/verify/audit_shared_mutable.py
+
+# ── 已有同步原语 ────────────────────────────────────────────
+android/capabilitylogic/src/main/kotlin/com/pocketagent/capabilitylogic/CapabilityAuditLog.kt:buffer        # 有 @Synchronized（5 处）
+android/filelogic/src/main/kotlin/com/pocketagent/filelogic/FileAuditLog.kt:buffer                          # 有 @Synchronized（4 处）
+android/personalogic/src/main/kotlin/com/pocketagent/personalogic/DefaultPersonaTuner.kt:ledger            # 有同步原语（8 处）
+android/safety/src/main/kotlin/com/pocketagent/safety/DefaultSafetyGuard.kt:auditLog                       # 有同步原语（4 处）
+android/personalogic/src/main/kotlin/com/pocketagent/personalogic/PersonaAudit.kt:buffer                   # 有同步原语
+android/provider/gateway/src/main/kotlin/com/pocketagent/provider/gateway/GatewayCore.kt:_records          # InMemoryUsageRecorder，已 synchronized（2026-11-01 修）
+android/overlaylogic/src/main/kotlin/com/pocketagent/overlaylogic/StopSignal.kt:processed                  # 2026-11-01 加 synchronized
+
+# ── 只在单线程/单协程内访问 ─────────────────────────────────
+android/mcp/src/main/kotlin/com/pocketagent/mcp/ActionRateLimiter.kt:recent                                 # 限流器的滑动窗口，只在 dispatch 单路径内读写
+android/memorylogic/src/main/kotlin/com/pocketagent/memorylogic/Turn.kt:turns                              # 一轮对话内部的累加器，生命周期与单次循环一致
+android/provider/gateway/src/main/kotlin/com/pocketagent/provider/gateway/http/HttpGatewayServer.kt:out     # 函数内的局部收集器（collectAll 的返回缓冲），不跨请求共享
+android/app/src/main/kotlin/com/pocketagent/data/AppContainer.kt:legacyConflicts                           # 容器初始化期一次性填充，之后只读
+
+# ⚠️ 死代码 —— 但**不该靠基线掩盖**
+#    `StreamPump` 在生产代码里根本没有被构造过（见 docs/工程/未接线清单.md）。
+#    基线里留着它，是为了让它一旦被接上时**立刻**被重新审视。
+android/agentui/src/main/kotlin/com/pocketagent/agentui/StreamPump.kt:pending                              # ⚠️ 死代码；若接线需先加同步
