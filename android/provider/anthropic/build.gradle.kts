@@ -35,6 +35,10 @@ android {
 
 dependencies {
     implementation(project(":core:common"))
+// ★ 2026-11-01：本模块原来**没有依赖 `:provider:api`** ——
+//   因为它此前是个零源码的空壳，没人发现。
+//   离线验证器把所有模块一起编译，所以它也没暴露出来。
+implementation(project(":provider:api"))
     implementation(libs.okhttp)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)

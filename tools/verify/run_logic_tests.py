@@ -135,6 +135,10 @@ MODULES = [
     "android/core/common",
     "android/provider/api",
     "android/provider/openai-compat",
+    # ★ 2026-11-01：Anthropic Messages 协议。原本 `:provider:anthropic` 是个
+    #   零源码的空壳模块（settings.gradle 声明着、app 里注释掉），
+    #   现在补上真实实现，并纳入离线验证。
+    "android/provider/anthropic",
     "android/core/network",
     "android/safety",
     "android/plugin/api",
