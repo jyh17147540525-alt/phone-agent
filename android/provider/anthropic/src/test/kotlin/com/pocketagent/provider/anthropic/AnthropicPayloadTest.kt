@@ -35,6 +35,16 @@ class AnthropicPayloadTest {
     private val json = Json { ignoreUnknownKeys = true }
     private fun parse(s: String): JsonObject = json.parseToJsonElement(s).jsonObject
 
+    /** 从 system 字段里取出文本 —— 兼容"字符串"与"内容块数组"两种形式。 */
+    private fun systemTextOf(body: JsonObject): String {
+        val el = body["system"] ?: return ""
+        return runCatching { el.jsonPrimitive.content }.getOrElse {
+            el.jsonArray.joinToString("") { b ->
+                b.jsonObject["text"]?.jsonPrimitive?.content.orEmpty()
+            }
+        }
+    }
+
     private fun req(
         messages: List<ChatMessage>,
         tools: List<ToolSpec> = emptyList(),
@@ -60,7 +70,8 @@ class AnthropicPayloadTest {
                 stream = false,
             ),
         )
-        assertEquals("你是助手", body["system"]?.jsonPrimitive?.content)
+        // ★ 默认开了 prompt 缓存 ⇒ system 是**内容块数组**（字符串形式挂不了 cache_control）
+        assertEquals("你是助手", systemTextOf(body))
         // ⚠️ 系统消息不该出现在 messages 里 —— Anthropic 拒绝 role="system"
         val roles = body["messages"]!!.jsonArray.map { it.jsonObject["role"]!!.jsonPrimitive.content }
         assertFalse("messages 里不能有 system 角色：$roles", roles.contains("system"))
@@ -85,7 +96,7 @@ class AnthropicPayloadTest {
                 stream = false,
             ),
         )
-        val system = body["system"]!!.jsonPrimitive.content
+        val system = systemTextOf(body)
         assertTrue("人格必须保留：$system", system.contains("人格"))
         assertTrue("安全约束也必须保留：$system", system.contains("安全"))
     }
@@ -396,5 +407,114 @@ class AnthropicPayloadTest {
             data = """{"type":"content_block_delta","delta":{"type":"text_delta","text":"嗯"}}""",
         )
         assertEquals(1, chunks.size)
+    }
+    // ═══════════════════════════════════════════════════════════
+    //  ★★ 2026-11-01：prompt 缓存（目标 (B) 响应速度）
+    // ═══════════════════════════════════════════════════════════
+
+    @Test
+    fun `开缓存时 system 变成块数组并带 cache_control`() {
+        // ══════════════════════════════════════════════════════
+        //  ★ 字符串形式的 system **挂不了** cache_control
+        // ══════════════════════════════════════════════════════
+        val body = parse(
+            AnthropicPayload.buildBody(
+                req(listOf(ChatMessage.system("你是助手"), ChatMessage.user("嗨"))),
+                stream = false,
+                promptCaching = true,
+            ),
+        )
+        val sys = body["system"]!!
+        assertTrue("必须是数组形式", sys is kotlinx.serialization.json.JsonArray)
+        val block = sys.jsonArray.first().jsonObject
+        assertEquals("text", block["type"]!!.jsonPrimitive.content)
+        val cc = block["cache_control"]!!.jsonObject
+        assertEquals("ephemeral", cc["type"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `关缓存时 system 仍是字符串`() {
+        // ★ 关掉时用字符串形式：少几个字节，也少一个可能的协议面
+        val body = parse(
+            AnthropicPayload.buildBody(
+                req(listOf(ChatMessage.system("你是助手"), ChatMessage.user("嗨"))),
+                stream = false,
+                promptCaching = false,
+            ),
+        )
+        assertEquals(
+            "你是助手",
+            body["system"]!!.jsonPrimitive.content,
+        )
+    }
+
+    @Test
+    fun `缓存断点只加在最后一个工具上`() {
+        // ══════════════════════════════════════════════════════
+        //  ★ 每个工具都标会浪费配额：一次请求**最多 4 个断点**
+        // ══════════════════════════════════════════════════════
+        val body = parse(
+            AnthropicPayload.buildBody(
+                req(
+                    listOf(ChatMessage.user("嗨")),
+                    tools = listOf(
+                        ToolSpec("a", "第一个", """{"type":"object"}"""),
+                        ToolSpec("b", "第二个", """{"type":"object"}"""),
+                        ToolSpec("c", "第三个", """{"type":"object"}"""),
+                    ),
+                ),
+                stream = false,
+                promptCaching = true,
+            ),
+        )
+        val tools = body["tools"]!!.jsonArray
+        assertEquals(3, tools.size)
+        assertNull("第一个工具不该有断点", tools[0].jsonObject["cache_control"])
+        assertNull("第二个工具不该有断点", tools[1].jsonObject["cache_control"])
+        assertNotNull("最后一个工具**必须**有断点", tools[2].jsonObject["cache_control"])
+    }
+
+    @Test
+    fun `关缓存时工具上没有断点`() {
+        val body = parse(
+            AnthropicPayload.buildBody(
+                req(
+                    listOf(ChatMessage.user("嗨")),
+                    tools = listOf(ToolSpec("a", "x", """{"type":"object"}""")),
+                ),
+                stream = false,
+                promptCaching = false,
+            ),
+        )
+        assertNull(body["tools"]!!.jsonArray.first().jsonObject["cache_control"])
+    }
+
+    @Test
+    fun `没有 system 时开缓存也不发该字段`() {
+        // ⚠️ 空的 system 字段会让部分厂商 400 —— 缓存不该改变这条
+        val body = parse(
+            AnthropicPayload.buildBody(
+                req(listOf(ChatMessage.user("嗨"))),
+                stream = false,
+                promptCaching = true,
+            ),
+        )
+        assertNull(body["system"])
+    }
+
+    @Test
+    fun `缓存默认开启`() {
+        // ★ 默认值很重要：调用方忘了传，也应当拿到缓存收益。
+        //   不命中时不报错，所以"默认开"是安全的方向。
+        val withDefault = parse(
+            AnthropicPayload.buildBody(
+                req(listOf(ChatMessage.system("人格"), ChatMessage.user("嗨"))),
+                stream = false,
+            ),
+        )
+        assertTrue(
+            "默认应当开缓存（system 是数组）",
+            withDefault["system"] is kotlinx.serialization.json.JsonArray,
+        )
     }
 }

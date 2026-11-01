@@ -63,7 +63,17 @@ object AnthropicPayload {
      *
      * @param stream 是否流式
      */
-    fun buildBody(request: ChatRequest, stream: Boolean): String {
+    fun buildBody(
+        request: ChatRequest,
+        stream: Boolean,
+        /**
+         * 是否启用 prompt 缓存。
+         *
+         * ★ 默认开 —— 它对长前缀（persona + 工具定义）是纯收益：
+         *   命中则省延迟省钱，不命中（前缀太短）也**不报错**。
+         */
+        promptCaching: Boolean = true,
+    ): String {
         val systemTexts = request.messages
             .filter { it.role == ChatMessage.Role.SYSTEM }
             .flatMap { m -> m.content.filterIsInstance<ContentPart.Text>().map { it.text } }
@@ -80,21 +90,56 @@ object AnthropicPayload {
             request.messages.filter { it.role != ChatMessage.Role.SYSTEM },
         )
 
+        // ══════════════════════════════════════════════════════════
+        //  ★ system 的形式决定能不能挂 cache_control
+        // ══════════════════════════════════════════════════════════
+        // 字符串形式**放不了** cache_control —— 必须是内容块数组。
+        // 所以开了缓存就发数组，关了就维持字符串（更省字节）。
+        val systemField: JsonElement? = when {
+            system == null -> null
+            !promptCaching -> JsonPrimitive(system)
+            else -> buildJsonArray {
+                add(
+                    buildJsonObject {
+                        put("type", "text")
+                        put("text", system)
+                        // ★ 断点 1：系统提示（persona / 安全约束）。
+                        //   这是全请求里**最稳定**的一段，最适合缓存。
+                        put(
+                            "cache_control",
+                            buildJsonObject { put("type", "ephemeral") },
+                        )
+                    },
+                )
+            }
+        }
+
         val dto = AnthropicRequest(
             model = request.model,
-            system = system,
+            system = systemField,
             messages = dialogue,
             maxTokens = request.maxTokens ?: DEFAULT_MAX_TOKENS,
             temperature = request.temperature,
             stream = stream,
-            tools = request.tools.takeIf { it.isNotEmpty() }?.map { spec ->
-                AnthropicTool(
-                    name = spec.name,
-                    description = spec.description,
-                    // ⚠️ `input_schema` 而不是 `parameters`。
-                    //    发错字段名**不会报错** —— 工具会被静默忽略。
-                    inputSchema = parseSchemaOrEmpty(spec.parametersJsonSchema),
-                )
+            tools = request.tools.takeIf { it.isNotEmpty() }?.let { specs ->
+                specs.mapIndexed { i, spec ->
+                    AnthropicTool(
+                        name = spec.name,
+                        description = spec.description,
+                        // ⚠️ `input_schema` 而不是 `parameters`。
+                        //    发错字段名**不会报错** —— 工具会被静默忽略。
+                        inputSchema = parseSchemaOrEmpty(spec.parametersJsonSchema),
+                        // ★ 断点 2：只加在**最后一个**工具上。
+                        //   缓存是按前缀算的 —— 标在最后一个即可覆盖整组工具定义。
+                        //   ⚠️ 每个工具都标会浪费断点配额（一次最多 4 个），
+                        //      超过 4 个会被服务端拒绝。
+                        cacheControl = if (promptCaching && i == specs.lastIndex) {
+                            AnthropicCacheControl()
+                        } else {
+                            null
+                        },
+                    )
+                }
             },
         )
         return json.encodeToString(AnthropicRequest.serializer(), dto)

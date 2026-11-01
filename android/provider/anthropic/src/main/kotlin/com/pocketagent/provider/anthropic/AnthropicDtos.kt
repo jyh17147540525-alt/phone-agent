@@ -46,8 +46,13 @@ import kotlinx.serialization.json.JsonPrimitive
 @Serializable
 internal data class AnthropicRequest(
     val model: String,
-    /** ⚠️ 顶层字段，不是 messages 里的一条。null 时不发。 */
-    val system: String? = null,
+    /**
+     * ⚠️ 顶层字段，不是 messages 里的一条。null 时不发。
+     *
+     * ★ 可以是**字符串**，也可以是**内容块数组**。
+     *   要挂 `cache_control` 就必须用数组形式 —— 见 [AnthropicCacheControl]。
+     */
+    val system: JsonElement? = null,
     val messages: List<AnthropicMessage>,
     /** ⚠️ **必填**。Anthropic 没有默认值，漏了就 400。 */
     @SerialName("max_tokens") val maxTokens: Int,
@@ -83,6 +88,8 @@ internal data class AnthropicBlock(
     /** type = "tool_result" */
     @SerialName("tool_use_id") val toolUseId: String? = null,
     @SerialName("is_error") val isError: Boolean? = null,
+    /** 缓存断点。见 [AnthropicCacheControl]。 */
+    @SerialName("cache_control") val cacheControl: AnthropicCacheControl? = null,
     /** type = "tool_result" 的内容 */
     val content: JsonElement? = null,
 )
@@ -104,6 +111,40 @@ internal data class AnthropicTool(
      *    这是最难查的一类 bug。
      */
     @SerialName("input_schema") val inputSchema: JsonElement,
+    /**
+     * 缓存断点。
+     *
+     * ★ 工具定义是**大块且几乎不变**的内容，是缓存的最佳目标之一。
+     *   一次请求最多 4 个断点，工具用掉一个很划算。
+     */
+    @SerialName("cache_control") val cacheControl: AnthropicCacheControl? = null,
+)
+
+/**
+ * **prompt 缓存断点**。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  ★★ 2026-11-01：这是目标 (B)「提升响应速度」的核心手段
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * 厂商在断点处把**前缀**缓存起来。下一次请求只要前缀相同，
+ * 就直接读缓存而不是重新计算 —— 于是：
+ *  · **首字延迟下降**（不用重新 prefill 整段前缀）
+ *  · **成本下降**（缓存读取按约 1/10 计费）
+ *
+ * ⚠️ 三个必须知道的约束（见官方 Messages API 规格）：
+ *  ① **一次请求最多 4 个断点**
+ *  ② 前缀必须**完全相同**才命中 —— 所以 persona / 工具定义要放在
+ *     断点**之前**，且不要每轮变动
+ *  ③ 前缀长度不足门槛时**不报错、也不生效**（静默无事发生）
+ *     ⇒ 短对话开了缓存也没坏处，但别指望它有收益
+ */
+@Serializable
+internal data class AnthropicCacheControl(
+    /** 目前只有 "ephemeral" 一种。 */
+    val type: String = "ephemeral",
+    /** `"5m"`（默认）或 `"1h"`。null 时不发，用服务端默认。 */
+    val ttl: String? = null,
 )
 
 /** 厂商返回的错误体。 */
