@@ -31,6 +31,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.pocketagent.agentui.IconGeometry
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
@@ -298,7 +299,7 @@ fun PaButton(
                 imageVector = icon,
                 contentDescription = null,
                 tint = contentColor,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(IconGeometry.Size.COMPACT.dp),
             )
             Spacer(Modifier.width(PaSpace.xs))
         }
@@ -339,7 +340,7 @@ fun PaIconButton(
             imageVector = icon,
             contentDescription = contentDescription,
             tint = tint,
-            modifier = Modifier.size(20.dp),
+            modifier = Modifier.size(IconGeometry.Size.COMPACT.dp),
         )
     }
 }

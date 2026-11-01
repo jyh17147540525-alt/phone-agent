@@ -30,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.pocketagent.agentui.IconGeometry
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
@@ -171,7 +172,7 @@ private fun NavItemView(
             imageVector = item.icon,
             contentDescription = item.label,
             tint = tint,
-            modifier = Modifier.size(24.dp),
+            modifier = Modifier.size(IconGeometry.Size.DEFAULT.dp),
         )
         Spacer(Modifier.height(3.dp))
         Text(

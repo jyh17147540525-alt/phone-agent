@@ -57,6 +57,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.pocketagent.agentui.IconGeometry
+import com.pocketagent.ui.design.dp
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
@@ -596,7 +598,7 @@ fun TasksScreen(
                             imageVector = Icons.Default.KeyboardArrowDown,
                             contentDescription = null,
                             tint = PaColor.TextTertiary,
-                            modifier = Modifier.size(16.dp),
+                            modifier = Modifier.size(IconGeometry.Size.INLINE.dp),
                         )
                     }
 
@@ -1216,7 +1218,7 @@ private fun SendButton(
                 imageVector = Icons.AutoMirrored.Filled.Send,
                 contentDescription = "发送",
                 tint = if (enabled) Color(0xFF06121F) else PaColor.TextDisabled,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(IconGeometry.Size.COMPACT.dp),
             )
         }
     }

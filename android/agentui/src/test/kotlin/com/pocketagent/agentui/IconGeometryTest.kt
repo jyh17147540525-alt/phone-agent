@@ -29,7 +29,7 @@ class IconGeometryTest {
     fun `所有档位都落在 4dp 网格上`() {
         for (s in IconGeometry.Size.entries) {
             assertTrue(
-                "「${s.name}」= ${s.dp}dp 不在 ${IconGeometry.GRID_DP}dp 网格上",
+                "「${s.name}」= ${s.value}dp 不在 ${IconGeometry.GRID_DP}dp 网格上",
                 s.onGrid,
             )
         }
@@ -39,7 +39,7 @@ class IconGeometryTest {
     fun `档位严格递增`() {
         // ★ 递增保证 nearest() 不会有两个等距候选 —— 等距时行为不确定，
         //   而"不确定"意味着这个 bug 只在某些尺寸上复现。
-        val dps = IconGeometry.Size.entries.map { it.dp }
+        val dps = IconGeometry.Size.entries.map { it.value }
         assertEquals(dps.sorted(), dps)
         assertEquals("档位不该有重复值", dps.size, dps.toSet().size)
     }
@@ -47,14 +47,14 @@ class IconGeometryTest {
     @Test
     fun `默认档位是 Material 的 24dp`() {
         // ★ 24 是 Material 图标的基准尺寸。改成别的会让整套图标显得偏大或偏小。
-        assertEquals(24, IconGeometry.Size.DEFAULT.dp)
+        assertEquals(24, IconGeometry.Size.DEFAULT.value)
     }
 
     @Test
     fun `档位覆盖常用区间`() {
         // 16（与文字同行）到 48（引导页）都该有
-        assertEquals(16, IconGeometry.Size.INLINE.dp)
-        assertEquals(48, IconGeometry.Size.HERO.dp)
+        assertEquals(16, IconGeometry.Size.INLINE.value)
+        assertEquals(48, IconGeometry.Size.HERO.value)
     }
 
     @Test

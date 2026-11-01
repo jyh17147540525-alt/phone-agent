@@ -29,6 +29,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.pocketagent.agentui.IconGeometry
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
@@ -134,7 +135,7 @@ fun PaTriStateCheckbox(
                 imageVector = Icons.Default.Check,
                 contentDescription = null,
                 tint = Color(0xFF06121F),
-                modifier = Modifier.size(16.dp).scale(markScale),
+                modifier = Modifier.size(IconGeometry.Size.INLINE.dp).scale(markScale),
             )
             // ★ 半选是一条短横，不是勾 —— 用户必须能一眼区分
             //   "全选中"和"选了一部分"。
@@ -142,7 +143,7 @@ fun PaTriStateCheckbox(
                 imageVector = Icons.Default.Remove,
                 contentDescription = null,
                 tint = Color(0xFF06121F),
-                modifier = Modifier.size(16.dp).scale(markScale),
+                modifier = Modifier.size(IconGeometry.Size.INLINE.dp).scale(markScale),
             )
         }
     }
@@ -306,7 +307,7 @@ fun PaCompleteButton(
                     imageVector = Icons.Default.Check,
                     contentDescription = null,
                     tint = fg,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(IconGeometry.Size.COMPACT.dp),
                 )
                 Spacer(Modifier.width(PaSpace.xxs))
             }

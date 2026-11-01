@@ -54,7 +54,7 @@ object IconGeometry {
      * | [PROMINENT] | 32 | 空状态、卡片主图标 |
      * | [HERO] | 48 | 引导页、大按钮 |
      */
-    enum class Size(val dp: Int) {
+    enum class Size(val value: Int) {
         /** 与文字同行。最小可用尺寸 —— 再小就看不清了。 */
         INLINE(16),
 
@@ -78,7 +78,7 @@ object IconGeometry {
          *   落在网格外的尺寸会让"图标 + 文字"的基线对不齐 ——
          *   而那种错位正是"看起来不精致"的来源。
          */
-        val onGrid: Boolean get() = dp % GRID_DP == 0
+        val onGrid: Boolean get() = value % GRID_DP == 0
     }
 
     /** 基础网格。Material 的图标与间距都以 4dp 为单位。 */
@@ -101,11 +101,11 @@ object IconGeometry {
             // ⚠️ 这条不是可选的：不指定次序时 `minByOrNull` 取**先出现的**，
             //    而档位表一改（比如把 COMPACT 挪到 INLINE 前面），
             //    同样的 18 就会给出不同结果 —— 那是一个只在某些尺寸上复现的 bug。
-            compareBy({ kotlin.math.abs(it.dp - dp) }, { -it.dp }),
+            compareBy({ kotlin.math.abs(it.value - dp) }, { -it.value }),
         ) ?: Size.DEFAULT
 
     /** 这个尺寸在档位表里吗。用于测试与静态检查。 */
-    fun isCanonical(dp: Int): Boolean = Size.entries.any { it.dp == dp }
+    fun isCanonical(dp: Int): Boolean = Size.entries.any { it.value == dp }
 
     // ─────────────────────────────────────────────────────────────
     //  二、自适应图标安全区

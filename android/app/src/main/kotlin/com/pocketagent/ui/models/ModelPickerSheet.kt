@@ -22,6 +22,8 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.pocketagent.agentui.IconGeometry
+import com.pocketagent.ui.design.dp
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.pocketagent.modelrouter.ModelChoice
@@ -224,7 +226,7 @@ private fun ModelRow(
                 imageVector = Icons.Default.Check,
                 contentDescription = null,
                 tint = PaColor.AccentText,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(IconGeometry.Size.COMPACT.dp),
             )
         }
     }

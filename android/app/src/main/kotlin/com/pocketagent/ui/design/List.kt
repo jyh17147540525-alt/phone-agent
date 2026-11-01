@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.pocketagent.agentui.IconGeometry
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
@@ -103,7 +104,7 @@ fun PaListRow(
                 imageVector = icon,
                 contentDescription = null,
                 tint = PaColor.TextSecondary,
-                modifier = Modifier.size(16.dp),
+                modifier = Modifier.size(IconGeometry.Size.INLINE.dp),
             )
         }
 
@@ -145,7 +146,7 @@ fun PaListRow(
                 imageVector = Icons.Default.ChevronRight,
                 contentDescription = null,
                 tint = PaColor.TextDisabled,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(IconGeometry.Size.COMPACT.dp),
             )
         }
     }
