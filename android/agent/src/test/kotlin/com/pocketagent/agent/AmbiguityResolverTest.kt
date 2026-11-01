@@ -270,4 +270,93 @@ class AmbiguityResolverTest {
         assertEquals(0.2f, AmbiguityResolver.DEFAULT_MIN_GAP, 0.0001f)
         assertEquals(2, AmbiguityResolver.DEFAULT_MAX_ASK_BACKS)
     }
+    // ─────────────────────────────────────────────────────────────
+    //  ★★ 2026-11-01：被自己的质量清单逮到的两处
+    // ─────────────────────────────────────────────────────────────
+
+    private fun twoCandidates() = listOf(
+        AmbiguousCandidate(label = "确定", confidence = 0.80f, refKey = "a"),
+        AmbiguousCandidate(label = "确定", confidence = 0.78f, refKey = "b"),
+    )
+
+    @Test
+    fun `反问计数不会无界增长`() {
+        // ══════════════════════════════════════════════════════
+        //  ★ 这张表的键是"目标描述"（模型给的自然语言）——**理论上无界**
+        // ══════════════════════════════════════════════════════
+        // 一次长会话可能出现成百上千种不同描述，长期运行会一直涨。
+        val r = AmbiguityResolver()
+        repeat(AmbiguityResolver.MAX_ASK_TRACKED * 3) { i ->
+            r.resolve("目标-$i", twoCandidates())
+        }
+        assertTrue(
+            "反问计数表必须有上限：实际 ${r.pendingAsks}",
+            r.pendingAsks <= AmbiguityResolver.MAX_ASK_TRACKED,
+        )
+    }
+
+    @Test
+    fun `超上限时淘汰最旧的`() {
+        val r = AmbiguityResolver()
+        // 先把上限填满
+        repeat(AmbiguityResolver.MAX_ASK_TRACKED) { i ->
+            r.resolve("目标-$i", twoCandidates())
+        }
+        assertEquals(AmbiguityResolver.MAX_ASK_TRACKED, r.pendingAsks)
+
+        // 再推进一条 —— 最旧的那条被淘汰
+        r.resolve("最新目标", twoCandidates())
+        assertEquals(
+            "总数仍应等于上限",
+            AmbiguityResolver.MAX_ASK_TRACKED,
+            r.pendingAsks,
+        )
+
+        // ⚠️ 被淘汰的目标如果再来一次，会被**重新计数** ——
+        //    最坏后果是多问用户一次，不会出错。这是可接受的。
+        val again = r.resolve("目标-0", twoCandidates())
+        assertTrue(
+            "被淘汰过的目标应当能重新被问：$again",
+            again is AmbiguityResolution.AskUser,
+        )
+    }
+
+    /**
+     * ⚠️ **这条是冒烟测试，不是线程安全的证明。**
+     *
+     * 2026-11-01 实测：把 `synchronized` 去掉之后连跑本测试 —— **仍然绿**。
+     * 16 个线程各调一次撞不出那个窗口，竞态窗口只有几条指令宽。
+     *
+     * ⇒ 线程安全的**论证**靠的是"读-判-写在同一把锁里"这个结构性事实，
+     *    不是这条测试。留着它是为了：
+     *      · 如果有人把实现改成明显错误（比如每次都 new 一个计数器），它会红
+     *      · 给后来的人一个提醒：这里**需要**锁
+     *
+     * ★ 与 `TaskStateMachineTest.多任务并发访问不会崩也不会串` 同一处理方式 ——
+     *   那次去掉锁也没抓到。承诺过的诚实比一条绿的假证据值钱。
+     */
+    @Test
+    fun `并发反问不会绕过限次`() {
+        // ══════════════════════════════════════════════════════
+        //  ★ "读-判-写"必须在同一把锁里（实现侧保证）
+        // ══════════════════════════════════════════════════════
+        // 否则两个并发调用会都读到 asked=0，各记一次，
+        // `maxAskBacks` 的限制被绕过。
+        val r = AmbiguityResolver()
+        val target = "同一个目标"
+        val results = java.util.Collections.synchronizedList(
+            mutableListOf<AmbiguityResolution>(),
+        )
+        val threads = (1..16).map {
+            Thread { results += r.resolve(target, twoCandidates()) }
+        }
+        threads.forEach { it.start() }
+        threads.forEach { it.join() }
+
+        val asked = results.count { it is AmbiguityResolution.AskUser }
+        assertTrue(
+            "反问次数不能超过 maxAskBacks（默认 2）：实际 $asked",
+            asked <= AmbiguityResolver.DEFAULT_MAX_ASK_BACKS,
+        )
+    }
 }

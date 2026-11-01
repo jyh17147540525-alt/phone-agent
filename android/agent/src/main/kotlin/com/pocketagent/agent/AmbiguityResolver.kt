@@ -43,8 +43,35 @@ class AmbiguityResolver(
         require(maxAskBacks > 0) { "maxAskBacks 必须为正数，当前为 $maxAskBacks" }
     }
 
-    /** 每个目标已反问的次数 */
-    private val askCounts = mutableMapOf<String, Int>()
+    /**
+     * 每个目标已反问的次数。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★★ 2026-11-01：两处修正（被自己的质量清单逮到）
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * `docs/工程/质量清单-并发与共享状态.md` 第 1 条：
+     * 「一个类级 `mutableMapOf` 被多线程路径写入 ⇒ 并发写风险」
+     *
+     * **① 线程安全**
+     * 本类被设计成**由调用方长期持有**（见 [AutoLocator.locate] 的参数注释），
+     * 而 `resolve` 没有 `suspend` 修饰不代表不会被并发调用 ——
+     * 调用方在协程里跑，同一实例就可能被多个任务同时进入。
+     * 普通 `HashMap` 并发写会读到半截数组，或**静默丢数据**。
+     *
+     * **② 容量上限**
+     * 这张表的键是"目标描述"（模型给的自然语言），**理论上无界**。
+     * 一次长会话可能出现成百上千种不同描述 ⇒ 长期运行会一直涨。
+     *
+     * ⚠️ 上限取 [MAX_ASK_TRACKED] = 128：
+     *    比任何一次真实会话里"同时未决的目标数"都大得多，
+     *    正常使用永远碰不到；碰到说明有异常（比如描述里带了随机内容），
+     *    那时淘汰最旧的一条 —— 最坏后果只是那个目标可能被多问一次，
+     *    不会出错。
+     *
+     * ★ 用 `LinkedHashMap` 而不是 `HashMap`：需要**插入顺序**来淘汰最旧的。
+     */
+    private val askCounts = java.util.LinkedHashMap<String, Int>()
 
     /**
      * 决定如何消歧。
@@ -104,13 +131,23 @@ class AmbiguityResolver(
         }
 
         // ── 差距太小 → 问用户，但要限次 ────────────────────────
-        val asked = askCounts[targetDescription] ?: 0
-        if (asked >= maxAskBacks) {
-            return AmbiguityResolution.GiveUp(
-                "已就「$targetDescription」反问用户 $asked 次仍未确定，转手动引导",
-            )
+        // ⚠️ 整个"读-判-写"必须在同一把锁里：
+        //    否则两个并发调用会都读到 asked=0，于是各记一次，
+        //    `maxAskBacks` 的限制被绕过。
+        synchronized(askCounts) {
+            val asked = askCounts[targetDescription] ?: 0
+            if (asked >= maxAskBacks) {
+                return AmbiguityResolution.GiveUp(
+                    "已就「$targetDescription」反问用户 $asked 次仍未确定，转手动引导",
+                )
+            }
+            askCounts[targetDescription] = asked + 1
+            // 超上限时淘汰最旧的一条（插入顺序）
+            while (askCounts.size > MAX_ASK_TRACKED) {
+                val eldest = askCounts.keys.firstOrNull() ?: break
+                askCounts.remove(eldest)
+            }
         }
-        askCounts[targetDescription] = asked + 1
 
         return AmbiguityResolution.AskUser(
             options = sorted.map { it.label },
@@ -121,15 +158,26 @@ class AmbiguityResolver(
 
     /** 用户选定后，清掉该目标的反问计数 */
     fun onUserResolved(targetDescription: String) {
-        askCounts.remove(targetDescription)
+        synchronized(askCounts) { askCounts.remove(targetDescription) }
     }
 
     /** 已反问过的目标数（诊断用） */
-    val pendingAsks: Int get() = askCounts.size
+    val pendingAsks: Int get() = synchronized(askCounts) { askCounts.size }
 
     private fun fmt(v: Float): String = String.format(java.util.Locale.ROOT, "%.2f", v)
 
     companion object {
+
+        /**
+         * 反问计数表的上限。
+         *
+         * ⚠️ 见 [askCounts] 的注释：正常使用永远碰不到（128 远大于任何
+         *    一次真实会话里"同时未决的目标数"）。碰到说明有异常
+         *    （比如目标描述里带了随机内容），那时淘汰最旧的一条 ——
+         *    最坏后果只是那个目标可能被多问一次，不会出错。
+         */
+        const val MAX_ASK_TRACKED = 128
+
         /** D-AT 建议的阈值 */
         const val DEFAULT_MIN_GAP = 0.2f
 
