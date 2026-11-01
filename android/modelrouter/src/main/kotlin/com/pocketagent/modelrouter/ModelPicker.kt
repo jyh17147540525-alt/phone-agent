@@ -77,6 +77,39 @@ enum class ThinkingEffort(val label: String, val hint: String) {
     ),
     ;
 
+    /**
+     * **这一档要发给模型的 `reasoning_effort`**。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★★ 2026-11-01：回答"滑块真的能调节思考强度吗"
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * ⚠️ 在此之前，`ThinkingEffort` 只有 [preferredTier] 一条去向 ——
+     *    也就是说**滑块只是换了个模型**，请求里从来没有推理参数。
+     *
+     *    后果很具体：
+     *    · 只有一个模型的用户 —— 拉条**完全无效**
+     *    · `off` 与 `low` 都映射 LIGHT —— 前两档没有任何区别
+     *    · 界面上"深入推理""最长推理链"，请求侧没有对应字段
+     *
+     * ⇒ 现在多这一条去向。`null` = 不指定（由模型自己决定）。
+     *
+     * ⚠️ 为什么 `HIGH` 是 `medium` 而不是 `high`：
+     *    OpenAI 的 `reasoning_effort` 只有 low / medium / high 三档，
+     *    而本 UI 有四档。留 `high` 给 [MAX]，`HIGH` 落在 `medium` ——
+     *    否则四档压成三档时，最高的两档又会变成一样。
+     *
+     * ⚠️ 发不发仍由 Provider 决定：只有 `supportsReasoningEffort`
+     *    的厂商才会真的写进请求体。
+     */
+    val wireValue: String?
+        get() = when (this) {
+            OFF -> null
+            LOW -> "low"
+            HIGH -> "medium"
+            MAX -> "high"
+        }
+
     /** 这一档想要的模型档位。 */
     val preferredTier: ModelTier
         get() = when (this) {

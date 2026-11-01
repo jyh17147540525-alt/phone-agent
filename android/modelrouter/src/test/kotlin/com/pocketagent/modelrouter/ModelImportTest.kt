@@ -164,13 +164,49 @@ class ModelImportTest {
     // ═══════════════════════════════════════════════════════════
 
     @Test
-    fun `默认给对话和执行任务两个角色`() {
+    fun `标准与轻量档只给对话和执行任务`() {
         // ★ 零配置的关键：用户不用再勾选
-        val roles = ModelImport.rolesFor()
-        assertTrue("必须有 CHAT", ModelRole.CHAT in roles)
-        assertTrue("必须有 WORKER", ModelRole.WORKER in roles)
-        // ⚠️ 不给 SCHEDULER：那需要较强模型，全给等于没有选择
-        assertFalse("不该默认当调度者", ModelRole.SCHEDULER in roles)
+        for (tier in listOf(ModelTier.STANDARD, ModelTier.LIGHT)) {
+            val roles = ModelImport.rolesFor(tier)
+            assertTrue("$tier 必须有 CHAT", ModelRole.CHAT in roles)
+            assertTrue("$tier 必须有 WORKER", ModelRole.WORKER in roles)
+            // ⚠️ 不让所有模型都当调度者 —— 那等于没有选择
+            assertFalse("$tier 不该当调度者", ModelRole.SCHEDULER in roles)
+        }
+    }
+
+    @Test
+    fun `重型档自动兼调度者`() {
+        // ══════════════════════════════════════════════════════
+        //  ★ 2026-11-01：模型配置页删除后，这是**唯一**的调度者来源
+        // ══════════════════════════════════════════════════════
+        //
+        // ⚠️ 原来 `rolesFor()` 一律不给 SCHEDULER，而唯一能手动指定的
+        //    界面（设置 → 模型配置）已被删除。若仍不给，
+        //    多模型用户就没有任何办法指定调度者 —— 那会**静默降级**。
+        val roles = ModelImport.rolesFor(ModelTier.HEAVY)
+        assertTrue("重型必须有 CHAT", ModelRole.CHAT in roles)
+        assertTrue("重型必须有 WORKER", ModelRole.WORKER in roles)
+        assertTrue("重型应当兼调度者", ModelRole.SCHEDULER in roles)
+    }
+
+    @Test
+    fun `导入清单里最强的那一个会成为调度者候选`() {
+        // ⚠️ 清单按档位从强到弱排序，所以 `schedulers.first()` 天然最强
+        val plans = ModelImport.plan(
+            discovered = listOf(
+                m("cheap", price = 0.2),
+                m("mid", price = 2.0),
+                m("top", price = 20.0),
+            ),
+        )
+        val schedulers = plans.filter { ModelRole.SCHEDULER in it.roles }
+        assertTrue("至少要有一个调度者候选", schedulers.isNotEmpty())
+        assertEquals(
+            "最强的那一个应当是第一个调度者候选",
+            "top",
+            schedulers.first().modelId,
+        )
     }
 
     @Test

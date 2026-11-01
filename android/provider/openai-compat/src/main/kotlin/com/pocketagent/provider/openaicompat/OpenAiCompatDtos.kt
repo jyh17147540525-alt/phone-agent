@@ -34,6 +34,15 @@ internal data class ChatCompletionRequest(
     @SerialName("response_format") val responseFormat: ResponseFormat? = null,
     /** 部分厂商要求显式关闭流式用量统计 */
     @SerialName("stream_options") val streamOptions: StreamOptions? = null,
+    /**
+     * 思考强度。`null` = **不写进 JSON**（而不是写 `null`）。
+     *
+     * ⚠️ 与 `temperature` 同一纪律：本项目见过厂商对"多余的
+     *    `temperature: null`"直接返回 400 —— 凡是可能不被支持的字段，
+     *    一律**缺席**而不是 `null`。序列化器的 `encodeDefaults = false`
+     *    已经保证了这一点。
+     */
+    @SerialName("reasoning_effort") val reasoningEffort: String? = null,
 )
 
 @Serializable

@@ -599,4 +599,75 @@ class OpenAiCompatProviderTest {
         assertTrue("tool_call_id 丢了：$out", out.contains("\"tool_call_id\":\"call_1\""))
         assertFalse("role=tool 的 content 不能是空数组：$out", out.contains("\"content\":[]"))
     }
+    // ═══════════════════════════════════════════════════════════
+    //  ★★ 2026-11-01：思考强度真的进请求体了吗
+    // ═══════════════════════════════════════════════════════════
+
+    private fun payloadOf(body: String) = body
+
+    @Test
+    fun `支持 reasoning_effort 的厂商会把它写进请求体`() {
+        // ⚠️ 在此之前请求体里**没有这个字段** —— 滑块只换模型。
+        val p = OpenAiCompatProvider(ProviderProfiles.OpenAI)
+        val body = p.buildChatPayload(
+            ChatRequest(
+                model = "gpt-5",
+                messages = listOf(ChatMessage.user("hi")),
+                reasoningEffort = "high",
+            ),
+            stream = true,
+        )
+        assertTrue("请求体里应当有 reasoning_effort：$body", body.contains("\"reasoning_effort\""))
+        assertTrue("值应当是 high：$body", body.contains("\"high\""))
+    }
+
+    @Test
+    fun `不支持的厂商不会发出这个字段`() {
+        // ══════════════════════════════════════════════════════
+        //  ⚠️ 这是**防 400** 的关键一条
+        // ══════════════════════════════════════════════════════
+        // 本项目见过厂商对"多余的字段"直接返回 400
+        // （见 ChatCompletionRequest 的注释）。所以默认不发。
+        val p = OpenAiCompatProvider(ProviderProfiles.SiliconFlow)
+        val body = p.buildChatPayload(
+            ChatRequest(
+                model = "Qwen/Qwen3-8B",
+                messages = listOf(ChatMessage.user("hi")),
+                reasoningEffort = "high",
+            ),
+            stream = true,
+        )
+        assertFalse("不该出现 reasoning_effort：$body", body.contains("reasoning_effort"))
+    }
+
+    @Test
+    fun `off 档（null）什么也不发`() {
+        // ⚠️ 必须是**缺席**，不是 `"reasoning_effort": null` ——
+        //    后者同样可能被厂商拒绝。
+        val p = OpenAiCompatProvider(ProviderProfiles.OpenAI)
+        val body = p.buildChatPayload(
+            ChatRequest(
+                model = "gpt-5",
+                messages = listOf(ChatMessage.user("hi")),
+                reasoningEffort = null,
+            ),
+            stream = true,
+        )
+        assertFalse("不该出现 reasoning_effort：$body", body.contains("reasoning_effort"))
+        assertFalse("也不该出现裸 null：$body", body.contains("\"reasoning_effort\":null"))
+    }
+
+    @Test
+    fun `OpenRouter 也支持`() {
+        val p = OpenAiCompatProvider(ProviderProfiles.OpenRouter)
+        val body = p.buildChatPayload(
+            ChatRequest(
+                model = "deepseek/deepseek-r1",
+                messages = listOf(ChatMessage.user("hi")),
+                reasoningEffort = "low",
+            ),
+            stream = true,
+        )
+        assertTrue("OpenRouter 应当透传：$body", body.contains("reasoning_effort"))
+    }
 }

@@ -205,6 +205,29 @@ data class ChatRequest(
     val maxTokens: Int? = null,
     /** 强制 JSON 输出；需 Provider 声明 JSON_MODE 能力 */
     val jsonMode: Boolean = false,
+    /**
+     * **思考强度**，直接映射到 OpenAI 的 `reasoning_effort`。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★★ 2026-11-01：这个字段以前**不存在**
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * ⚠️ 用户问："滑块拉条真的能真正的调节到模型的思考强度吗" ——
+     *    查完的答案是**不能**：`ThinkingEffort` 只有一条去向
+     *    （`preferredTier`，换个模型），请求里**从来没带过任何推理参数**。
+     *
+     *      · 只有一个模型的用户，拉条完全无效
+     *      · `off` 与 `low` 映射到同一个档位，两档没有区别
+     *      · 界面上"深入推理""最长推理链"的说法，请求侧没有对应
+     *
+     * ⇒ 加上这个字段，由 Provider 决定发不发：
+     *    `ProviderProfile.supportsReasoningEffort` 为 true 才写进请求体。
+     *    ⚠️ 默认 false —— 本项目见过"多余字段直接 400"的厂商，
+     *    不能一律发。
+     *
+     * 取值：`"low"` / `"medium"` / `"high"`；`null` = 不指定。
+     */
+    val reasoningEffort: String? = null,
     /** 请求超时（毫秒） */
     val timeoutMs: Long = 60_000,
 )

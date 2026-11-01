@@ -109,10 +109,30 @@ object ModelImport {
      *   · 只给"执行任务"会让聊天用不了它（回落到别的）
      *   · 只给"对话"会让 agent 用不了它
      *
-     * ⚠️ **不给「调度者」**：调度者要判断任务难度，那需要较强的模型。
-     *    把所有模型都设成调度者候选等于没有选择。
+     * ═══════════════════════════════════════════════════════════════
+     *  ★★ 2026-11-01：**重型模型自动兼「调度者」**
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * ⚠️ 背景：原来这里一律不给「调度者」，而**唯一能手动指定的界面
+     *    （设置 → 模型配置）已被删除**（用户："那是一个冗余设计，
+     *    用 key 现在就可以自动加载出来了"）。
+     *
+     * 若不给，多模型用户就没有任何办法指定调度者 ——
+     * 而调度模式需要它。那会**静默降级**（不是报错，只是路由变差）。
+     *
+     * ⇒ 按档位自动给：重型模型兼调度者。
+     *   · 计划列表**按档位从强到弱排序**，所以 `schedulers.first()`
+     *     天然就是最强的那一个（见 [buildPlans] 的排序注释）
+     *   · 没有重型模型（全是标准/轻量）时谁也不当调度者，
+     *     路由走单模型或多 worker 模式，不会卡住
+     *
+     * ⚠️ 保留原注释里的那条纪律：**不给所有模型都设成调度者** ——
+     *    那等于没有选择。所以只给 HEAVY 档。
      */
-    fun rolesFor(): Set<ModelRole> = setOf(ModelRole.CHAT, ModelRole.WORKER)
+    fun rolesFor(tier: ModelTier): Set<ModelRole> {
+        val base = setOf(ModelRole.CHAT, ModelRole.WORKER)
+        return if (tier == ModelTier.HEAVY) base + ModelRole.SCHEDULER else base
+    }
 
     /**
      * 一个待导入的模型。
@@ -198,11 +218,13 @@ object ModelImport {
                 }
             }
             .map { m ->
+                // ⚠️ 先算档位再传进去 —— `rolesFor` 要按档位决定谁是调度者
+                val tier = tierFor(m.id, discovered)
                 Plan(
                     modelId = m.id,
                     label = m.displayName.ifBlank { m.id },
-                    tier = tierFor(m.id, discovered),
-                    roles = rolesFor(),
+                    tier = tier,
+                    roles = rolesFor(tier),
                     inputPricePerMillion = m.inputPricePerMillion,
                     outputPricePerMillion = m.outputPricePerMillion,
                 )

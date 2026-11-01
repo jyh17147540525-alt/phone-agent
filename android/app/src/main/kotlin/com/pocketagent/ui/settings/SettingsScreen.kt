@@ -81,7 +81,6 @@ fun SettingsScreen(
      */
     permissionSummary: PermissionSummary? = null,
     onOpenKeys: (() -> Unit)? = null,
-    onOpenModels: (() -> Unit)? = null,
     onOpenDsh: (() -> Unit)? = null,
     onOpenSources: (() -> Unit)? = null,
     onOpenImport: (() -> Unit)? = null,
@@ -208,18 +207,24 @@ fun SettingsScreen(
                         onClick = onOpenKeys,
                     )
                     PaListDivider()
-                    // ⚠️ 这一行与上一行是**两步**，不是同一件事的两半：
-                    //    上面是"通行证"（填 Key），下面是"派活规则"（挑模型、定档位）。
-                    //    合成一项的后果是用户填完 Key 就以为完事了 ——
-                    //    而实际上一个模型都没配，任务跑不起来。
-                    PaListRow(
-                        icon = Icons.Default.Memory,
-                        title = "模型配置",
-                        subtitle = "挑模型、定档位、指定谁来做调度",
-                        onClick = onOpenModels,
-                    )
-                    PaListDivider()
-                    // ⚠️ 第三行是"把模型**接到别处去**"，与前两行是另一个方向：
+                    // ══════════════════════════════════════════════════
+                    //  ★★ 2026-11-01：**「模型配置」整页已删除**
+                    // ══════════════════════════════════════════════════
+                    //
+                    // 用户："设置里的模型页面你可以删了，因为这我觉得是一个
+                    //      冗余设计，思考强度有拉条滑块可以设置，
+                    //      api 模型拉取，用 key 现在就可以自动加载出来了"
+                    //
+                    // ⇒ 那一页要求逐模型手填「档位 / 用途 / 价格 / 启用」四项，
+                    //   而现在：
+                    //    · 填完 Key 就自动导入全部模型（`ModelImport`）
+                    //    · 用哪个模型、多用力想，在聊天页顶栏的 chip + 拉条上选
+                    //    · 档位由价格自动推断（`ModelImport.tierFor`）
+                    //
+                    // ⚠️ 保留的必要性：`ModelConfig` 这张表仍在用
+                    //    （模型路由、预算熔断都要它），删的是**那一页界面**。
+                    //
+                    // ⚠️ 这一行下面是"把模型接到别处去"，与 Key 是另一个方向：
                     //    前两行解决"本应用自己怎么调模型"，这一行解决
                     //    "让 dsh 也用上这些模型"。合成一行的后果是用户以为
                     //    配好模型就自动对 dsh 生效了 —— 而它需要**单独开启**。

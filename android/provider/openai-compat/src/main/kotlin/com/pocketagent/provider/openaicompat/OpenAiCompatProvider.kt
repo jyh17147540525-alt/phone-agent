@@ -428,6 +428,9 @@ class OpenAiCompatProvider(
             },
             responseFormat = if (request.jsonMode) ResponseFormat("json_object") else null,
             streamOptions = if (stream && profile.supportsStreamUsage) StreamOptions(true) else null,
+            // ⚠️ 只有 profile 声明支持才写 —— 见 supportsReasoningEffort 的注释
+            reasoningEffort = request.reasoningEffort
+                .takeIf { profile.supportsReasoningEffort },
         )
         return json.encodeToString(ChatCompletionRequest.serializer(), payload)
     }
@@ -679,6 +682,19 @@ data class ProviderProfile(
     val defaultContextWindow: Int = 32_768,
     /** 是否支持 `stream_options.include_usage`（部分厂商不支持，会报错） */
     val supportsStreamUsage: Boolean = true,
+    /**
+     * 是否接受 `reasoning_effort`。
+     *
+     * ⚠️ **默认 false**。理由与 [supportsStreamUsage] 同源：
+     *    本项目见过厂商对"多余的字段"直接返回 400。
+     *    思考强度是**可选**能力，不值得为了它在别的厂商那里换一个 400。
+     *
+     * 已知支持：OpenAI 自家、OpenRouter（透传）。
+     * ⚠️ 其余厂商即使底层模型是推理模型（如 DeepSeek-R1 系），
+     *    也不一定接受这个字段 —— 所以**逐个确认后才开**，
+     *    不要凭"它是 OpenAI 兼容的"就默认打开。
+     */
+    val supportsReasoningEffort: Boolean = false,
     val extraHeaders: Map<String, String> = emptyMap(),
     /**
      * 要求客户端上报会话标识的头名。OpenCode 用 `x-opencode-session`。
@@ -700,6 +716,8 @@ object ProviderProfiles {
         displayName = "OpenAI",
         defaultBaseUrl = "https://api.openai.com/v1",
         authScheme = AuthScheme.Bearer,
+        // ★ 2026-11-01：这家接受 reasoning_effort（思考强度滑块在它上面才真的生效）
+        supportsReasoningEffort = true,
         capabilities = setOf(
             Capability.STREAM, Capability.VISION, Capability.TOOL_CALL,
             Capability.JSON_MODE, Capability.LONG_CTX,
@@ -867,6 +885,8 @@ object ProviderProfiles {
         displayName = "OpenRouter",
         defaultBaseUrl = "https://openrouter.ai/api/v1",
         authScheme = AuthScheme.Bearer,
+        // ★ 2026-11-01：这家接受 reasoning_effort（思考强度滑块在它上面才真的生效）
+        supportsReasoningEffort = true,
         capabilities = setOf(
             Capability.STREAM, Capability.VISION, Capability.TOOL_CALL,
             Capability.JSON_MODE, Capability.LONG_CTX,

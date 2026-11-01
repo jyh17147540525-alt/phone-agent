@@ -519,6 +519,10 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                     model = model,
                     // ★ "眼睛"：`app_host shot` 存下的那一帧，这一轮交给模型看。
                     pendingImage = { container.virtualScreenHost.takePendingImage() },
+                    // ★★ 2026-11-01：**agent 路径也看滑块**
+                    //   此前只有聊天路径传思考强度，于是"同一个拉条，
+                    //   聊天会思考、干活不会" —— 界面上看不出来。
+                    reasoningEffort = container.thinkingEffort().wireValue,
                 ),
                 runner = AgentAdapters.toolRunner(tools),
                 budgetGuard = BudgetGuard(AgentBudget(maxTurns = CHAT_MAX_TURNS)),
@@ -798,6 +802,14 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
             model = model,
             messages = listOf(ChatMessage.system(system)) + history,
             tools = emptyList(),
+            // ★★ 2026-11-01：**思考强度真的发出去**
+            //
+            // ⚠️ 在这之前滑块只换模型，请求里没有任何推理参数 ——
+            //    单模型用户的拉条完全无效。见 `ThinkingEffort.wireValue`。
+            //
+            // ⚠️ 发不发由 Provider 决定（`supportsReasoningEffort`）：
+            //    不支持的厂商会忽略这个字段，而不是 400。
+            reasoningEffort = container.thinkingEffort().wireValue,
         )
 
         val sb = StringBuilder()

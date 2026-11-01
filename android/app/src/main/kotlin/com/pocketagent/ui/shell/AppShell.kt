@@ -66,8 +66,6 @@ import com.pocketagent.ui.keys.KeysScreen
 import com.pocketagent.ui.keys.KeysViewModel
 import com.pocketagent.ui.market.MarketScreen
 import com.pocketagent.ui.market.MarketViewModel
-import com.pocketagent.ui.models.ModelsScreen
-import com.pocketagent.ui.models.ModelsViewModel
 import com.pocketagent.ui.capability.CapabilityScreen
 import com.pocketagent.ui.capability.CapabilityViewModel
 import com.pocketagent.ui.permissions.PermissionsScreen
@@ -138,7 +136,6 @@ object Routes {
     const val IMPORT = "import"
     const val SOURCES = "sources"
     const val KEYS = "keys"
-    const val MODELS = "models"
     const val DSH = "dsh"
     const val PERMISSIONS = "permissions"
     // 第 0 档能力的入口。它是"用户真的能用一次"的那一页 ——
@@ -806,8 +803,7 @@ fun AppShell(
                     SettingsScreen(
                         keyStatus = keyStatus,
                         onOpenKeys = { navController.navigate(Routes.KEYS) },
-                        onOpenModels = { navController.navigate(Routes.MODELS) },
-                        onOpenDsh = { navController.navigate(Routes.DSH) },
+                                            onOpenDsh = { navController.navigate(Routes.DSH) },
                         onOpenSources = { navController.navigate(Routes.SOURCES) },
                         onOpenImport = { navController.navigate(Routes.IMPORT) },
                         permissionSummary = permissionSummary,
@@ -1137,28 +1133,22 @@ fun AppShell(
                 //
                 // ⚠️ 与 Key 页共用同一把存储钥匙，所以这一页自己也走一遍
                 //    openCredentialStore —— 它带缓存，从 Key 页过来时是零开销的。
-                //    不把 Key 页打开的结果传过来，是因为两个页面在导航栈里
-                //    **互不依赖**：用户可能从设置直接进模型页，此时存储还没开。
+                // ══════════════════════════════════════════════════════
+                //  ★★ 2026-11-01：**「模型配置」整页已删除**
+                // ══════════════════════════════════════════════════════
                 //
-                // modelRepository() 返回 null = 存储还没打开。那**不是**"没有模型"，
-                // 见 AppContainer 的注释 —— 两者在界面上的说法完全不同。
-                composable(Routes.MODELS) {
-                    val vm: ModelsViewModel = viewModel(
-                        factory = viewModelFactory {
-                            initializer {
-                                ModelsViewModel(
-                                    openStore = container::openCredentialStore,
-                                    modelRepository = container::modelRepository,
-                                )
-                            }
-                        }
-                    )
-                    ModelsScreen(
-                        viewModel = vm,
-                        onBack = { navController.popBackStack() },
-                        onOpenKeys = { navController.navigate(Routes.KEYS) },
-                    )
-                }
+                // 用户："设置里的模型页面你可以删了，因为这我觉得是一个
+                //      冗余设计，思考强度有拉条滑块可以设置，
+                //      api 模型拉取，用 key 现在就可以自动加载出来了"
+                //
+                // ⇒ 那一页要求逐模型手填「档位 / 用途 / 价格 / 启用」四项，
+                //   而这三件事现在都有替代：
+                //   · **导入**：填完 Key 自动拉全部模型（`ModelImport`）
+                //   · **档位**：按同厂商相对价格自动推断（`tierFor`）
+                //   · **用力程度**：聊天页顶栏 chip + 拉条
+                //   · **角色**：重型模型自动兼调度者（`rolesFor(tier)`）
+                //
+                // ⚠️ `ModelConfig` 这张表**仍在用** —— 删的是界面，不是数据。
 
                 composable(Routes.DSH) {
                     val vm: DshIntegrationViewModel = viewModel(

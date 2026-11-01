@@ -161,6 +161,18 @@ object AgentAdapters {
          *   也不能让整轮对话崩掉（那会表现成"配了图就说话失败"）。
          */
         pendingImage: () -> ByteArray? = { null },
+        /**
+         * **思考强度**（agent 路径）。
+         *
+         * ⚠️ 2026-11-01 之前 agent 循环的请求里**没有任何推理参数** ——
+         *    滑块只在聊天那条路上（现在）生效，动手那条路完全不看它。
+         *    同一个用户、同一个档位，聊天会思考、干活不会思考，
+         *    而界面上只有一个拉条 —— 那是不一致。
+         *
+         * ⚠️ 默认 null 是刻意的：`llmPort` 有别的调用方（例如
+         *    不需要推理的探针），它们不该被硬塞一个档位。
+         */
+        reasoningEffort: String? = null,
     ): AgentLlmPort = AgentLlmPort { request ->
         val base = request.messages.map { it.toChatMessage() }
         val shot = runCatching { pendingImage() }.getOrNull()
@@ -189,7 +201,13 @@ object AgentAdapters {
          */
         suspend fun runOnce(msgs: List<ChatMessage>) {
             provider.chat(
-                request = ChatRequest(model = model, messages = msgs, tools = tools),
+                request = ChatRequest(
+                    model = model,
+                    messages = msgs,
+                    tools = tools,
+                    // ★ 与聊天路径同源 —— 见 llmPort 的 reasoningEffort 参数
+                    reasoningEffort = reasoningEffort,
+                ),
                 credential = credential,
             ).collect { chunk ->
                 when (chunk) {
