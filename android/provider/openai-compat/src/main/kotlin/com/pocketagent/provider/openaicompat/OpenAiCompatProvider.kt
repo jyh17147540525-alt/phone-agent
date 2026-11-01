@@ -864,6 +864,98 @@ object ProviderProfiles {
         ),
     )
 
+    /**
+     * **OpenCode Zen** —— opencode 团队的 AI 网关。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★★ 2026-11-01：用户指出"模型配置 API Key 上面少了一个 opencode"
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 端点依据官方文档（`opencode.ai/docs/zen`）：
+     *  · Base（OpenAI 兼容）：`https://opencode.ai/zen/v1`
+     *  · 模型列表：`https://opencode.ai/zen/v1/models`
+     *  · 鉴权：`Authorization: Bearer <key>`
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ⚠️⚠️ 只列了三个模型，这是**故意的**
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * Zen 的模型走**三种不同的协议**，官方文档明确写了：
+     *
+     * | 模型 | 端点 | 本 app 能用吗 |
+     * |---|---|---|
+     * | `claude-sonnet-4` / `claude-3-5-haiku` / `claude-opus-4-1` | `/zen/v1/messages` | ❌ Anthropic 协议 |
+     * | `gpt-5` | `/zen/v1/responses` | ❌ OpenAI Responses 协议 |
+     * | `qwen3-coder` / `grok-code` / `kimi-k2` | `/zen/v1/chat/completions` | ✅ |
+     *
+     * ⚠️ 本类走的是 `/chat/completions`。把 Claude / GPT-5 也列进来，
+     *    用户选中后**必然 400** —— 而那个错误信息对用户毫无意义
+     *    （他只会觉得"这个 app 坏了"）。
+     *
+     * ⇒ 只列能跑通的三个。将来若要支持另两种协议，
+     *   需要的是**新的 Provider 实现类**，不是往这张表里加名字。
+     *
+     * ⚠️ 这三个都是**代码模型**，没有视觉能力 ——
+     *    所以 `capabilities` 里**不含 `VISION`**。
+     *    本 app 的截图功能（`screen_shot`）对它们不可用，
+     *    这是如实标注而不是遗漏。
+     *
+     * ★ 价格来自官方定价表（2026-11 核对）。`grok-code` 目前**免费**
+     *   （xAI 在收集反馈期间），标 `Free` 会在预算熔断里按 0 计。
+     */
+    val OpenCode = ProviderProfile(
+        id = "opencode",
+        displayName = "OpenCode Zen",
+        defaultBaseUrl = "https://opencode.ai/zen/v1",
+        authScheme = AuthScheme.Bearer,
+        capabilities = setOf(
+            Capability.STREAM, Capability.TOOL_CALL,
+            Capability.JSON_MODE, Capability.LONG_CTX,
+        ),
+        // ⚠️ 这三个模型的实际上下文窗口由上游决定。
+        //    取 256K 是保守值；真实值可在 `/zen/v1/models` 里核对。
+        defaultContextWindow = 256_000,
+        defaultModels = listOf(
+            ModelInfo(
+                id = "grok-code",
+                displayName = "Grok Code Fast 1（Zen · 免费）",
+                capabilities = setOf(
+                    Capability.STREAM, Capability.TOOL_CALL,
+                    Capability.JSON_MODE, Capability.LONG_CTX,
+                ),
+                contextWindow = 256_000,
+                // ★ 官方定价表写的是 Free —— 这是**真实价格 0**，
+                //   不是 `ModelConfigMapping` 警告的"未知当免费"。
+                inputPricePerMillion = 0.0,
+                outputPricePerMillion = 0.0,
+                recommended = true,
+            ),
+            ModelInfo(
+                id = "qwen3-coder",
+                displayName = "Qwen3 Coder 480B（Zen）",
+                capabilities = setOf(
+                    Capability.STREAM, Capability.TOOL_CALL,
+                    Capability.JSON_MODE, Capability.LONG_CTX,
+                ),
+                contextWindow = 256_000,
+                inputPricePerMillion = 0.45,
+                outputPricePerMillion = 1.50,
+            ),
+            ModelInfo(
+                id = "kimi-k2",
+                displayName = "Kimi K2（Zen）",
+                capabilities = setOf(
+                    Capability.STREAM, Capability.TOOL_CALL,
+                    Capability.JSON_MODE, Capability.LONG_CTX,
+                ),
+                contextWindow = 256_000,
+                inputPricePerMillion = 0.60,
+                outputPricePerMillion = 2.50,
+            ),
+        ),
+    )
+
+    /** Moonshot（Kimi 官方）—— 与 Zen 上的 kimi-k2 是**同一模型的不同入口** */
     val Moonshot = ProviderProfile(
         id = "moonshot",
         displayName = "月之暗面 Kimi",
@@ -1050,6 +1142,10 @@ object ProviderProfiles {
 
     /** 全部内置配置，用于 UI 展示与"自定义 Provider"的起点 */
     val all: List<ProviderProfile> = listOf(
+        // ★ 2026-11-01：`OpenCode` 排在前面 —— 它有一个**免费**模型
+        //   （`grok-code`），对"不想先充钱试一下"的用户是最低门槛的起点。
+        //   而列表顺序就是界面上服务商的显示顺序。
+        OpenCode,
         OpenRouter, DeepSeek, OpenAI, DashScope, VolcArk,
         Moonshot, Zhipu, SiliconFlow, Ollama, LmStudio, AzureOpenAi,
     )

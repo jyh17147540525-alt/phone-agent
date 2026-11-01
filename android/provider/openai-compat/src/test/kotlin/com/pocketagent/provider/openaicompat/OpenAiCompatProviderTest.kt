@@ -196,6 +196,71 @@ class OpenAiCompatProviderTest {
         assertNull(ProviderProfiles.byId("不存在的厂商"))
     }
 
+    // ═══════════════════════════════════════════════════════════
+    //  ★★ 2026-11-01：OpenCode Zen —— 只能列 chat/completions 兼容的模型
+    // ═══════════════════════════════════════════════════════════
+
+    @Test
+    fun `OpenCode Zen 已在内置清单里`() {
+        val p = ProviderProfiles.byId("opencode")
+        assertNotNull("用户反馈缺少 opencode", p)
+        assertEquals("https://opencode.ai/zen/v1", p!!.defaultBaseUrl)
+        // ★ 官方文档：OpenAI 兼容端用 Authorization: Bearer
+        assertTrue("应当用 Bearer 鉴权", p.authScheme is AuthScheme.Bearer)
+    }
+
+    @Test
+    fun `OpenCode 不得列出走 Anthropic 或 Responses 协议的模型`() {
+        // ══════════════════════════════════════════════════════
+        //  ★★ 这条测试防的是一个**会让用户必然踩到 400** 的误加
+        // ══════════════════════════════════════════════════════
+        // OpenCode Zen 的模型走三种协议（官方文档明确列出）：
+        //   · claude-*  → `/zen/v1/messages`（Anthropic）
+        //   · gpt-5     → `/zen/v1/responses`（OpenAI Responses）
+        //   · qwen3-coder / grok-code / kimi-k2 → `/chat/completions` ✅
+        //
+        // ⚠️ 本类是 OpenAI **chat/completions** 实现。
+        //    把前两类加进来，用户选中后请求必然 400 ——
+        //    而错误信息对用户毫无意义（他只会觉得"app 坏了"）。
+        //
+        // ⇒ 这条测试把"只能列哪些"钉住。将来要支持另两种协议，
+        //   需要的是新的 Provider 实现类，不是往这张表加名字。
+        val p = ProviderProfiles.byId("opencode")!!
+        val forbidden = p.defaultModels.filter { m ->
+            val id = m.id.lowercase()
+            id.startsWith("claude") || id.startsWith("gpt-5")
+        }
+        assertEquals(
+            "这些模型走非 chat/completions 协议，不能列在 OpenCode 下：$forbidden",
+            emptyList<ModelInfo>(),
+            forbidden,
+        )
+    }
+
+    @Test
+    fun `OpenCode 的默认模型都声明了工具调用能力`() {
+        // ★ 本产品是 agent —— 模型不能调工具就没有意义。
+        //   （`grok-code` / `qwen3-coder` / `kimi-k2` 都是 agent 模型，确实支持）
+        val p = ProviderProfiles.byId("opencode")!!
+        assertTrue("至少要有一个默认模型", p.defaultModels.isNotEmpty())
+        val noTool = p.defaultModels
+            .filter { Capability.TOOL_CALL !in it.capabilities }
+            .map { it.id }
+        assertEquals("这些模型缺 TOOL_CALL：$noTool", emptyList<String>(), noTool)
+    }
+
+    @Test
+    fun `OpenCode 不谎报视觉能力`() {
+        // ⚠️ 它目前列出的三个都是**代码模型**，没有视觉。
+        //    谎报 VISION 会让 `screen_shot` 把图片发过去然后被拒 ——
+        //    而用户看到的是"截图功能坏了"。
+        val p = ProviderProfiles.byId("opencode")!!
+        assertFalse(
+            "没有视觉能力就不该声明 VISION",
+            Capability.VISION in p.capabilities,
+        )
+    }
+
     @Test
     fun `本地厂商被标记为 LOCAL 能力`() {
         // 这是"纯本地模式"（数据不出设备）的判定依据
