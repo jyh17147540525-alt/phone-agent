@@ -278,10 +278,44 @@ data class DisplayCapture(
     val bytes: ByteArray,
     val mimeType: String = "image/webp",
 ) {
-    override fun equals(other: Any?): Boolean =
-        this === other || (other is DisplayCapture && bytes.contentEquals(other.bytes))
+    /**
+     * ═══════════════════════════════════════════════════════════════
+     *  ★★ 2026-11-01：修了一个**只比较 bytes** 的 equals
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 原来的实现只比 `bytes`：
+     * ```kotlin
+     * override fun equals(other: Any?) =
+     *     this === other || (other is DisplayCapture && bytes.contentEquals(other.bytes))
+     * ```
+     *
+     * ⚠️ 后果：`DisplayCapture(100, 100, 同一份字节, "image/webp")` 与
+     *    `DisplayCapture(200, 200, 同一份字节, "image/png")` 会被判**相等** ——
+     *    尺寸与格式都不同，但 equals 说它们一样。
+     *
+     * 这种 bug 很难在运行时暴露（谁会把两张不同尺寸的截图拿来比），
+     * 但会让"用 equals 去重/判缓存命中"的代码产生错误结论。
+     *
+     * ⇒ 四个字段全比。`ByteArray` 必须用 `contentEquals` 而不是 `==`
+     *   （后者是引用比较 —— 与 `ToolOutcome.Success` 那处同一个陷阱）。
+     */
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is DisplayCapture) return false
+        return sourceWidth == other.sourceWidth &&
+            sourceHeight == other.sourceHeight &&
+            mimeType == other.mimeType &&
+            bytes.contentEquals(other.bytes)
+    }
 
-    override fun hashCode(): Int = bytes.contentHashCode()
+    /** 必须与 [equals] 一致：四个字段全参与。 */
+    override fun hashCode(): Int {
+        var result = sourceWidth
+        result = 31 * result + sourceHeight
+        result = 31 * result + mimeType.hashCode()
+        result = 31 * result + bytes.contentHashCode()
+        return result
+    }
 }
 
 /**
