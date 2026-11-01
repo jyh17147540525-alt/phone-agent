@@ -142,23 +142,76 @@ object ModelImport {
     fun plan(
         discovered: List<ModelInfo>,
         alreadyConfigured: Set<String> = emptySet(),
-    ): List<Plan> = discovered
-        .filter { isChatCapable(it.id) }
-        .filter { it.id !in alreadyConfigured }
-        // 去重：`/models` 偶尔会返回重复 id
-        .distinctBy { it.id }
-        .map { m ->
-            Plan(
-                modelId = m.id,
-                label = m.displayName.ifBlank { m.id },
-                tier = tierFor(m.id, discovered),
-                roles = rolesFor(),
-                inputPricePerMillion = m.inputPricePerMillion,
-                outputPricePerMillion = m.outputPricePerMillion,
+    ): List<Plan> = planDetailed(discovered, alreadyConfigured).plans
+
+    /**
+     * 一次导入的**完整结果** —— 包括"跳过了什么、为什么"。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★★ 2026-11-01：为什么要返回跳过原因
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * OpenCode 的部分模型走 `/responses` 或 `/anthropic/v1/messages`，
+     * 而本 provider 只会 `/chat/completions`。把它们导进来，
+     * 用户选中后**必然失败** —— 正是他刚报的那类 bug。
+     *
+     * ⚠️ 但也不能**静默丢弃**：用户明确要求"填完 Key 自动识别所有模型"，
+     *    悄悄少几个他会以为厂商没有那些模型。
+     * ⇒ 跳过的记下原因，由界面告知"跳过 N 个，因为它们要另一种接口"。
+     */
+    data class ImportResult(
+        val plans: List<Plan>,
+        val skippedByProtocol: List<Skipped>,
+    ) {
+        /** 厂商给了多少个能聊的模型（含被协议挡掉的）。 */
+        val discoveredChatCount: Int get() = plans.size + skippedByProtocol.size
+    }
+
+    /** 被协议挡掉的一个模型。 */
+    data class Skipped(val modelId: String, val reason: String)
+
+    /**
+     * 算出该导入哪些，并记录被协议挡掉的。
+     *
+     * @param providerId 用于 [ProtocolGate] 分派。
+     *   ⚠️ 空字符串 = 未知厂商 ⇒ 一律按 chat/completions，不拦任何东西。
+     */
+    fun planDetailed(
+        discovered: List<ModelInfo>,
+        alreadyConfigured: Set<String> = emptySet(),
+        providerId: String = "",
+    ): ImportResult {
+        val skipped = mutableListOf<Skipped>()
+
+        val plans = discovered
+            .filter { isChatCapable(it.id) }
+            .filter { it.id !in alreadyConfigured }
+            // 去重：`/models` 偶尔会返回重复 id
+            .distinctBy { it.id }
+            .filter { m ->
+                val reason = ProtocolGate.unsupportedReason(providerId, m.id)
+                if (reason != null) {
+                    skipped += Skipped(modelId = m.id, reason = reason)
+                    false
+                } else {
+                    true
+                }
+            }
+            .map { m ->
+                Plan(
+                    modelId = m.id,
+                    label = m.displayName.ifBlank { m.id },
+                    tier = tierFor(m.id, discovered),
+                    roles = rolesFor(),
+                    inputPricePerMillion = m.inputPricePerMillion,
+                    outputPricePerMillion = m.outputPricePerMillion,
+                )
+            }
+            .sortedWith(
+                compareByDescending<Plan> { it.tier.rank }
+                    .thenBy { it.outputPricePerMillion ?: Double.MAX_VALUE },
             )
-        }
-        .sortedWith(
-            compareByDescending<Plan> { it.tier.rank }
-                .thenBy { it.outputPricePerMillion ?: Double.MAX_VALUE },
-        )
+
+        return ImportResult(plans = plans, skippedByProtocol = skipped)
+    }
 }

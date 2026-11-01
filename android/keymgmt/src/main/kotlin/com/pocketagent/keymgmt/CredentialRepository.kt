@@ -298,6 +298,16 @@ class CredentialRepository(
      *   ⚠️ 返回 null 而不是抛异常：自动导入是**锦上添花**，
      *      拉不到清单不该让"Key 已保存"这件事看起来失败了。
      */
+    /**
+     * 这条凭据属于哪个厂商。
+     *
+     * ★ 自动导入要用它做**协议闸门**分派：
+     *   OpenCode 的部分模型走别的接口，而别家厂商的同名模型不受影响。
+     *
+     * @return null = 这条凭据已经不存在
+     */
+    suspend fun providerIdOf(id: String): String? = dao.byId(id)?.providerId
+
     suspend fun listModelsOf(id: String): List<com.pocketagent.provider.api.ModelInfo>? {
         val entity = dao.byId(id) ?: return null
         // ⚠️ 只有模型接口的 Key 才有模型清单；语音 Key 问它没有意义

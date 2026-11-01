@@ -1201,6 +1201,16 @@ class AppContainer(context: Context) {
      *
      * @return 这次导入了几个（0 = 没新增，可能是全都配过了，或拉不到清单）
      */
+    /**
+     * 上一次自动导入里**因协议不支持被跳过**的模型。
+     *
+     * ⚠️ 存在的理由：用户明确要求"自动识别所有模型"，
+     *    所以"少导入了几个"必须能被界面说出来。
+     *    静默丢弃会让他以为厂商没有那些模型。
+     */
+    var lastImportSkips: List<com.pocketagent.modelrouter.ModelImport.Skipped> = emptyList()
+        private set
+
     suspend fun importModelsFromCredential(credentialId: String): Int {
         val opened = openCredentialStore()
         val repository = when (opened) {
@@ -1218,10 +1228,28 @@ class AppContainer(context: Context) {
                 .map { it.modelId }
                 .toSet()
 
-            val plan = com.pocketagent.modelrouter.ModelImport.plan(
+            // ★★ 2026-11-01：用 planDetailed 而不是 plan ——
+            //    要把"因协议不支持而跳过"的模型统计出来告诉用户，
+            //    而不是静默丢弃（用户要求"自动识别所有模型"）。
+            val providerId = repository.providerIdOf(credentialId).orEmpty()
+            val detailed = com.pocketagent.modelrouter.ModelImport.planDetailed(
                 discovered = models,
                 alreadyConfigured = existing,
+                providerId = providerId,
             )
+            val plan = detailed.plans
+            if (detailed.skippedByProtocol.isNotEmpty()) {
+                // ⚠️ 只记日志不够，但这一层没有 UI。真正的告知在
+                //    `lastImportSkips` 里，由 KeysViewModel 读出来展示。
+                Timber.i(
+                    "模型自动导入：跳过 %d 个（协议不支持）—— %s",
+                    detailed.skippedByProtocol.size,
+                    detailed.skippedByProtocol.joinToString { it.modelId },
+                )
+                lastImportSkips = detailed.skippedByProtocol
+            } else {
+                lastImportSkips = emptyList()
+            }
             var count = 0
             for (p in plan) {
                 val result = modelRepository()?.add(
