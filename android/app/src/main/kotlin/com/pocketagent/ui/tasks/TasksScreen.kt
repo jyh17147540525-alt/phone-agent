@@ -1216,7 +1216,7 @@ private fun SendButton(
                 imageVector = Icons.AutoMirrored.Filled.Send,
                 contentDescription = "发送",
                 tint = if (enabled) Color(0xFF06121F) else PaColor.TextDisabled,
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(20.dp),
             )
         }
     }

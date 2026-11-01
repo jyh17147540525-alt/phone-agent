@@ -306,7 +306,7 @@ fun PaCompleteButton(
                     imageVector = Icons.Default.Check,
                     contentDescription = null,
                     tint = fg,
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier.size(20.dp),
                 )
                 Spacer(Modifier.width(PaSpace.xxs))
             }

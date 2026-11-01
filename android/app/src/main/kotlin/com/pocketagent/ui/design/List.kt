@@ -103,7 +103,7 @@ fun PaListRow(
                 imageVector = icon,
                 contentDescription = null,
                 tint = PaColor.TextSecondary,
-                modifier = Modifier.size(17.dp),
+                modifier = Modifier.size(16.dp),
             )
         }
 
@@ -145,7 +145,7 @@ fun PaListRow(
                 imageVector = Icons.Default.ChevronRight,
                 contentDescription = null,
                 tint = PaColor.TextDisabled,
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(20.dp),
             )
         }
     }

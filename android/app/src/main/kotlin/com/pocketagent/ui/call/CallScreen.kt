@@ -215,7 +215,7 @@ private fun CallButton(
                 imageVector = icon,
                 contentDescription = label,
                 tint = tint,
-                modifier = Modifier.size(26.dp),
+                modifier = Modifier.size(24.dp),
             )
         }
         Spacer(Modifier.height(PaSpace.xxs))

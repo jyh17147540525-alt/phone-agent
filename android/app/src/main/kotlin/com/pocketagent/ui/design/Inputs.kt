@@ -94,7 +94,7 @@ fun PaTextField(
                 imageVector = leadingIcon,
                 contentDescription = null,
                 tint = PaColor.TextTertiary,
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(20.dp),
             )
             Spacer(Modifier.width(PaSpace.xs))
         }

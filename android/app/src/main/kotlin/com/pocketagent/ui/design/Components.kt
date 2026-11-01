@@ -298,7 +298,7 @@ fun PaButton(
                 imageVector = icon,
                 contentDescription = null,
                 tint = contentColor,
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(20.dp),
             )
             Spacer(Modifier.width(PaSpace.xs))
         }

@@ -171,7 +171,7 @@ private fun NavItemView(
             imageVector = item.icon,
             contentDescription = item.label,
             tint = tint,
-            modifier = Modifier.size(22.dp),
+            modifier = Modifier.size(24.dp),
         )
         Spacer(Modifier.height(3.dp))
         Text(

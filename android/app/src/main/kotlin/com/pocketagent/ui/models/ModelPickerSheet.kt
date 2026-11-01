@@ -224,7 +224,7 @@ private fun ModelRow(
                 imageVector = Icons.Default.Check,
                 contentDescription = null,
                 tint = PaColor.AccentText,
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(20.dp),
             )
         }
     }
