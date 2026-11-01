@@ -647,15 +647,21 @@ internal fun TaskCard(
                 },
                 label = "taskReply",
             ) { note ->
-                Text(
-                    // ★ 2026-10-25：模型输出带 Markdown 标记（`**35**`），
-                    //   原来原样显示成星号，看起来像"没渲染好的机器输出"。
-                    //   这里过一层极简渲染（只认加粗与行内代码，见 SimpleMarkdown）。
-                    text = SimpleMarkdown.render(note),
-                    style = PaType.body,
-                    color = PaColor.TextPrimary,
-                    modifier = Modifier.padding(top = PaSpace.s),
-                )
+                // ★★ 2026-11-01：卡片里的回复**也能选中复制** ——
+                //   与 `ConversationList` 的气泡流保持一致。
+                //   在此之前只有设置类页面有 `SelectionContainer`，
+                //   而聊天路径（气泡 + 卡片）全都没有。
+                androidx.compose.foundation.text.selection.SelectionContainer {
+                    Text(
+                        // ★ 2026-10-25：模型输出带 Markdown 标记（`**35**`），
+                        //   原来原样显示成星号，看起来像"没渲染好的机器输出"。
+                        //   这里过一层极简渲染（只认加粗与行内代码，见 SimpleMarkdown）。
+                        text = SimpleMarkdown.render(note),
+                        style = PaType.body,
+                        color = PaColor.TextPrimary,
+                        modifier = Modifier.padding(top = PaSpace.s),
+                    )
+                }
             }
         }
 

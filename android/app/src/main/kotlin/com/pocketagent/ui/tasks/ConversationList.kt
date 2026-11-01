@@ -284,19 +284,38 @@ private fun TurnBubbles(
             enter = fadeIn(PaMotion.standard()) + expandVertically(PaMotion.settled()),
         ) {
             Row(modifier = Modifier.fillMaxWidth().padding(top = PaSpace.xs)) {
-                Text(
-                    text = SimpleMarkdown.render(reply),
-                    style = PaType.body,
-                    color = if (task.state == TaskState.Failed) {
-                        PaColor.Danger
-                    } else {
-                        // ★ 正文用主色、**不加背景** —— 这一条是 ChatGPT 观感的核心：
-                        //   AI 说的话是"文章"，不需要被框起来。
-                        PaColor.TextPrimary
-                    },
-                    // 留一点右侧空白，避免长行顶到屏幕边
-                    modifier = Modifier.fillMaxWidth(0.96f),
-                )
+                // ══════════════════════════════════════════════════
+                //  ★★ 2026-11-01：**AI 的回复可以选中复制**
+                // ══════════════════════════════════════════════════
+                //
+                // ⚠️ 在此之前**聊天页没有 `SelectionContainer`** ——
+                //    用户长按回复什么也选不了，想复制一段话只能截屏。
+                //
+                // ★ 这是日常使用里**高频**的一个动作：
+                //   "这句话挺好，我发给朋友" / "这段代码我拿走"。
+                //   而它缺了不会报错，只会让人觉得"这 app 不够成品"。
+                //
+                // ⚠️ 安全性上没问题：这是用户**自己的**对话内容，
+                //    显示在他自己的屏幕上 —— `SelectionContainer`
+                //    不会上传任何东西。
+                //
+                // ★ 设置页 / 能力页 / 权限页早就用了 `SelectionContainer`，
+                //   只有聊天页漏了 —— 而聊天页才是最需要它的地方。
+                androidx.compose.foundation.text.selection.SelectionContainer {
+                    Text(
+                        text = SimpleMarkdown.render(reply),
+                        style = PaType.body,
+                        color = if (task.state == TaskState.Failed) {
+                            PaColor.Danger
+                        } else {
+                            // ★ 正文用主色、**不加背景** —— 这一条是 ChatGPT 观感的核心：
+                            //   AI 说的话是"文章"，不需要被框起来。
+                            PaColor.TextPrimary
+                        },
+                        // 留一点右侧空白，避免长行顶到屏幕边
+                        modifier = Modifier.fillMaxWidth(0.96f),
+                    )
+                }
             }
         }
 
