@@ -50,6 +50,16 @@ data class PersonaCard(
     val background: String? = null,
     /** 示例对话锚点（few-shot），进装配器最内层。 */
     val anchors: List<DialogueAnchor> = emptyList(),
+    
+    /**
+     * **世界设定**（见 [WorldBook]）。
+     *
+     * 2026-11-02 加。**纯数据** —— 检索与渲染在 PersonaAssembler 里（可测），
+     * 这里只负责存。
+     *
+     * 约定：SETTING 由用户填、AI 不得修改；FACT 需用户确认后才进来。
+     */
+     val worldEntries: List<WorldEntry> = emptyList(),
 ) {
 
     init {

@@ -62,6 +62,13 @@ class PersonaAssembler(
         val effectiveTone = input.state
             ?.let { it.hormones.toneDelta().applyTo(input.tone) }
             ?: input.tone
+        // ★ 2026-11-02：**世界设定**（检索是确定性计算，不用模型）
+        if (input.card.worldEntries.isNotEmpty()) {
+            val world = WorldBook(input.card.worldEntries)
+            val section = world.promptSection(input.currentQuery)
+            if (section.isNotBlank()) layers[PromptLayer.L6_WORLD] = section
+        }
+
         layers[PromptLayer.L1_CORE] = renderCore(input.card, effectiveTone)
         layers[PromptLayer.L2_FINGERPRINT] = input.card.fingerprint.render()
         input.state?.let { layers[PromptLayer.L3_STATE] = renderState(it) }
@@ -107,6 +114,10 @@ class PersonaAssembler(
             PromptLayer.L5_ANCHORS to { m -> reduceAnchors(m, input.card.anchors) },
             // L3 状态
             PromptLayer.L3_STATE to { m -> m.remove(PromptLayer.L3_STATE) != null },
+            // ⚠️ 2026-11-02：世界设定**排在最后** —— 设定被裁掉比记忆被裁掉更糟。
+            //    丢一条记忆只是"这个没想起来"；丢一条设定会让角色说出
+            //    **与世界观矛盾的话**，而那正是"世界书崩了"。
+            PromptLayer.L6_WORLD to { m -> m.remove(PromptLayer.L6_WORLD) != null },
             // L1 人格核心：最后才动，且只缩不删
             PromptLayer.L1_CORE to { m -> summarizeCore(m, input.card) },
         )
@@ -462,11 +473,24 @@ enum class PromptLayer(val title: String) {
     L3_STATE("状态"),
     L4_MEMORY("记忆召回"),
     L5_ANCHORS("锚点与反 OOC 指令"),
+    /**
+     * **世界设定**（见 [WorldBook]）。
+     *
+     * ⚠️ 2026-11-02 加，且**排在最后裁**：设定被裁掉比记忆被裁掉更糟 ——
+     *    记忆丢一条只是"这个没想起来"，设定丢一条会让角色**说出与世界观矛盾的话**。
+     */
+    L6_WORLD("世界设定"),
 }
 
 /** 装配的输入。 */
 data class AssemblyInput(
     val card: PersonaCard,
+    /**
+     * 用户**这一句话** —— 世界书按它检索该注入哪些设定。
+     *
+     * ⚠️ 空串 = 只有常驻设定在场。这是合法的（例如开场、或从通知直接进来）。
+     */
+    val currentQuery: String = "",
     /** ④ 性格轴 —— 来自 [PersonaSpec.tone]（本卡刻意不存一份，见 [PersonaCard] 注释） */
     val tone: ToneAxes,
     val state: PersonaState? = null,

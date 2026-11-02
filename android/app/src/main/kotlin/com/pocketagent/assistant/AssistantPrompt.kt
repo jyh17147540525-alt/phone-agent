@@ -106,6 +106,10 @@ class AssistantPromptBuilder(
                 state = persona.runtime.currentState(),
                 // ★ 按**这一句**检索该想起什么（见 recallMemories 的注释）
                 memories = recallMemories(currentUserText),
+                // ★ 2026-11-02：世界书也按**这一句**检索。
+                //   ⚠️ 不传的话只有 `alwaysInclude` 的条目在场 ——
+                //      那等于世界书只生效了十分之一，而且看不出来。
+                currentQuery = currentUserText,
             ),
         )
         val capability = if (canAct) CAPABILITY_BOUNDARY else CHAT_ONLY_BOUNDARY
