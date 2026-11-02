@@ -2748,7 +2748,23 @@ class AppContainer(context: Context) {
      * ★ 它让「助理有人格」第一次**真的生效**：在此之前聊天页用的是一个
      *   硬编码常量，用户改口癖、改称呼，模型那边一个字都不会变。
      */
-    private val assistantPrompt by lazy { AssistantPromptBuilder(assistantPersona) }
+    /**
+     * **记忆的读取端**（`MemoryWriter` 的对称面）。
+     *
+     * ⚠️ 2026-11-02 之前没有这个东西 —— 写入端一直在跑，读回端不存在，
+     *    于是助理的提示词里**一条记忆都没有**。
+     */
+    private val memoryReader by lazy {
+        com.pocketagent.memory.MemoryReader(store = atomStore)
+    }
+
+    private val assistantPrompt by lazy {
+        AssistantPromptBuilder(
+            persona = assistantPersona,
+            // ★ 按这一句检索该想起什么（见 recallMemories 的注释）
+            recallMemories = { query -> memoryReader.recall(query) },
+        )
+    }
 
     /**
      * 组装一份系统提示词。
@@ -2814,7 +2830,9 @@ class AppContainer(context: Context) {
         val base = if (custom != null) {
             custom.describeForPrompt() + "\n\n" + capability
         } else {
-            assistantPrompt.build(canAct)
+            // ★ 2026-11-02：把"这一句"交给记忆检索 —— 不传的话
+        //   每轮都会想起同样的事，那不是记忆，是背景板。
+        assistantPrompt.build(canAct, currentUserText)
         }
         val withConflict = if (conflict.isBlank()) base else base + "\n\n" + conflict
 

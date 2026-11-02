@@ -55,6 +55,26 @@ class AssistantPersona(
 class AssistantPromptBuilder(
     private val persona: AssistantPersona,
     private val assembler: PersonaAssembler = PersonaAssembler(),
+    /**
+     * **这一轮该想起什么**。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★★ 2026-11-02：记忆层第一次真的接上
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * ⚠️ 在此之前这里固定是 `emptyList()`（见上面的类注释）——
+     *    后果是"助理**不会记住任何事**"：换个会话，它连你叫什么都不知道。
+     *
+     *    ⇒ 那比"遗忘"严重得多：**忘不掉的前提是记得住**。
+     *
+     * ★ 参数是**函数**而不是 `List`：记忆要按**当前这句话**去检索，
+     *   而 `build()` 的调用点才知道那句话。传一个固定列表进来，
+     *   等于每轮都想起同样的事 —— 那不是记忆，那是背景板。
+     *
+     * @param query 用户这一句（用于相关性打分）
+     */
+    private val recallMemories: (String) -> List<com.pocketagent.personalogic.MemoryItem> =
+        { emptyList() },
 ) {
 
     /**
@@ -76,7 +96,7 @@ class AssistantPromptBuilder(
      *
      * @return 装配器的输出 + 与 [canAct] 匹配的能力声明
      */
-    fun build(canAct: Boolean = true): String {
+    fun build(canAct: Boolean = true, currentUserText: String = ""): String {
         val spec = persona.runtime.currentSpec()
         val assembled = assembler.assemble(
             AssemblyInput(
@@ -84,8 +104,8 @@ class AssistantPromptBuilder(
                 tone = spec.tone,
                 // ★ 现读：`currentState()` 会推进时间，冻结的状态等于说一句假话
                 state = persona.runtime.currentState(),
-                // ⚠️ 记忆层未接，如实传空（见类注释）
-                memories = emptyList(),
+                // ★ 按**这一句**检索该想起什么（见 recallMemories 的注释）
+                memories = recallMemories(currentUserText),
             ),
         )
         val capability = if (canAct) CAPABILITY_BOUNDARY else CHAT_ONLY_BOUNDARY

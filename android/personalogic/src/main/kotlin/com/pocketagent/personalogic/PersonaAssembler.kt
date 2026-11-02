@@ -71,7 +71,24 @@ class PersonaAssembler(
         }
         val anchors = input.card.anchors
         if (anchors.isNotEmpty()) {
-            layers[PromptLayer.L5_ANCHORS] = renderAnchors(anchors) + "\n\n" + ANTI_OOC_INSTRUCTION
+            // ══════════════════════════════════════════════════════════
+        //  ★★ 2026-11-02：**常驻的"像人"层**
+        // ══════════════════════════════════════════════════════════
+        //
+        // ⚠️ 与 `Humanizer`（诊断出问题才写）分工不同：
+        //    这一段写的是**任何时候都错**的句式（"作为一个 AI"、
+        //    "建议你考虑"、"希望能帮到你"），以及**由状态决定的
+        //    输出形态**（累 → 短句；亢奋 → 连写）。
+        //
+        // ⚠️ 必须短。项目里已记过："长禁令清单本身会让模型变僵，
+        //    而僵硬是另一种 AI 味"。这里最多 4 条 + 最多 2 条状态。
+        val human = buildString {
+            appendLine(HumanText.alwaysSection())
+            input.state?.let { st -> HumanText.shapeSection(st)?.let { appendLine(); appendLine(it) } }
+        }.trimEnd()
+
+        layers[PromptLayer.L5_ANCHORS] =
+            renderAnchors(anchors) + "\n\n" + ANTI_OOC_INSTRUCTION + "\n\n" + human
         }
 
         // ── 预算裁剪 ─────────────────────────────────────────────
@@ -195,7 +212,19 @@ class PersonaAssembler(
 
     private fun renderMemories(memories: List<MemoryItem>): String = buildString {
         appendLine("## 你记得的事")
-        for (m in memories) append("- ").appendLine(m.text)
+        // ⚠️ 模糊的记忆**不是**照抄原文，而是要「说得含糊一点」。
+        //    这一步必须在提示词里写清楚 —— 否则模型会拿模糊记忆当真话说。
+        val anyHedged = memories.any { it.fidelity == MemoryFidelity.HEDGED }
+        for (m in memories) {
+            when (m.fidelity) {
+                MemoryFidelity.EXACT -> append("- ").appendLine(m.text)
+                MemoryFidelity.HEDGED -> append("- （记不太清）").appendLine(m.text)
+            }
+        }
+        if (anyHedged) {
+            appendLine()
+            append("- 标了「记不太清」的那些，说的时候要带不确定的语气（好像 / 隐约记得），不要当成确定的事。")
+        }
     }.trimEnd()
 
     /**
@@ -361,7 +390,26 @@ data class MemoryItem(
     val text: String,
     /** 相关度（0..1）。排序主键 */
     val score: Double,
+    /**
+     * 这条记忆**有多清楚**。
+     *
+     * ★ 2026-11-02 加。默认 [MemoryFidelity.EXACT] 是为了让既有调用点
+     *   （以及测试）不受影响；接上 `:memorylogic` 的 `Salience` 之后
+     *   会按真实强度给出 HEDGED。
+     *
+     * ⚠️ 三档的意义见 `Salience` 的注释：人的记忆有中间态 ——
+     *    「记得但记不清」。少了这一档，遗忘就只能表现为"消失"。
+     */
+    val fidelity: MemoryFidelity = MemoryFidelity.EXACT,
 )
+
+/** 一条记忆被说出来时的确定程度（与 `:memorylogic/Salience` 对齐）。 */
+enum class MemoryFidelity {
+    /** 清楚 —— 照实说。 */
+    EXACT,
+    /** 模糊 —— **必须带不确定措辞**，否则就成了编造。 */
+    HEDGED,
+}
 
 /** 装配结果。 */
 data class AssembledPrompt(
