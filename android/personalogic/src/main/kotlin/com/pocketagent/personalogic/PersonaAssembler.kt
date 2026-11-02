@@ -182,12 +182,24 @@ class PersonaAssembler(
 
     /** L3：状态调制。**必须可解释** —— 无由头就不渲染（设计稿 §4.2）。 */
     private fun renderState(state: PersonaState): String {
+        // ══════════════════════════════════════════════════════════
+        //  ★★ 2026-11-02：**精力现在是"事件的 + 生理的"**
+        // ══════════════════════════════════════════════════════════
+        //
+        // ⚠️ 在此之前只看事件 —— 凌晨三点和上午十点一样精神。
+        //    现在由 [PhysiologyEngine] 按时钟修正。
+        //
+        // ⚠️ 修正**不改** `state.energy`（那是事件留下的底子），
+        //    只在这里叠加 —— 否则"睡一觉"会把事件的影响也抹掉。
+        val hour = localHourOf(state.physiology.lastActiveAtMs)
+        val energy = (state.energy + PhysiologyEngine.energyModifier(state.physiology, hour))
+            .coerceIn(0, 100)
         if (state.isNeutral()) return ""
         val parts = buildString {
             if (state.mood >= 65) append("心情不错")
             if (state.mood <= 35) append("兴致不高")
-            if (state.energy <= 35) append("有点累")
-            if (state.energy >= 70 && state.mood >= 50) append("精神很好")
+            if (energy <= 35) append("有点累")
+            if (energy >= 70 && state.mood >= 50) append("精神很好")
         }
         if (parts.isBlank()) return ""
         // ★ 2026-11-02：激素里最突出的那一条，可以"说出来"。
@@ -195,6 +207,12 @@ class PersonaAssembler(
         //      状态可以被表达，但不能拿来要挟用户（§4.6）。
         val hormonal = state.hormones.dominant()
         val reason = state.reason?.takeIf { it.isNotBlank() }
+        val physiological = PhysiologyEngine.promptLine(
+            body = state.physiology,
+            hourOfDay = hour,
+            nowMs = state.physiology.lastActiveAtMs,
+        )
+
         return buildString {
             append("## 此刻的状态\n")
             append("你现在").append(parts)
@@ -207,7 +225,26 @@ class PersonaAssembler(
                 append("（由头：").append(reason).append("）")
             }
             append("。语气随之自然一点即可，不要刻意强调自己的状态。")
+            // ★ 生理那一段单独成段 —— 它说的是"身体怎样"，不是"心情怎样"
+            if (physiological != null) {
+                append("\n\n").append(physiological)
+            }
         }
+    }
+
+    /**
+     * 从时间戳取**本地小时**（0..24）。
+     *
+     * ⚠️ 用本地时区：角色过的是用户的"一天"。
+     *    `lastActiveAtMs <= 0`（还没交互过）时按**中午 12 点**算 ——
+     *    那是最中性的时刻，不会凭空制造"凌晨很困"。
+     */
+    private fun localHourOf(epochMs: Long): Double {
+        if (epochMs <= 0L) return 12.0
+        val cal = java.util.Calendar.getInstance()
+        cal.timeInMillis = epochMs
+        return cal.get(java.util.Calendar.HOUR_OF_DAY) +
+            cal.get(java.util.Calendar.MINUTE) / 60.0
     }
 
     private fun renderMemories(memories: List<MemoryItem>): String = buildString {

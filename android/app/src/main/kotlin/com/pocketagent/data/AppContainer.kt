@@ -955,6 +955,18 @@ class AppContainer(context: Context) {
             }
         }.onFailure { Timber.w(it, "激素事件发送失败（不影响对话）") }
 
+        // ★ 2026-11-02：**生理** —— 此刻几点、这一轮在不在深夜。
+        //   ⚠️ 夜里聊天会累积睡眠债；白天不会。见 `Physiology`。
+        runCatching {
+            val now = System.currentTimeMillis()
+            val cal = java.util.Calendar.getInstance()
+            cal.timeInMillis = now
+            val hour = cal.get(java.util.Calendar.HOUR_OF_DAY) +
+                cal.get(java.util.Calendar.MINUTE) / 60.0
+            // ⚠️ 交给 runtime 而不是自己存一份 —— 那会变成两份真相
+            assistantPersona.runtime.recordTurn(hourOfDay = hour)
+        }.onFailure { Timber.w(it, "生理推进失败（不影响对话）") }
+
         // ★ 2026-11-02：每聊一轮都消耗一点意愿（见 `Willingness`）。
         //   ⚠️ 开关关掉时**仍然消耗** —— 否则打开开关的瞬间会突然很累，
         //      那比一直开着更奇怪。
@@ -1182,6 +1194,8 @@ class AppContainer(context: Context) {
     private var willingnessValue = com.pocketagent.personalogic.Willingness()
 
     private val willingnessEngine = com.pocketagent.personalogic.WillingnessEngine()
+
+
 
     /** 设置页的开关状态。 */
     fun allowRefusal(): Boolean = allowRefusalValue

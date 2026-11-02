@@ -190,6 +190,14 @@ data class PersonaState(
      * ★ 默认值是中性常量，所以**既有构造点与测试全都不受影响**。
      */
      val hormones: Hormones = Hormones(),
+     
+     /**
+      * **生理状态**（见 [Physiology]）。
+      *
+      * 2026-11-02 加。在此之前 energy 只由事件驱动、不看时钟，
+      * 凌晨三点和上午十点一样精神 —— 那是最容易被察觉的假。
+      */
+      val physiology: Physiology = Physiology(),
 ) {
 
     init {

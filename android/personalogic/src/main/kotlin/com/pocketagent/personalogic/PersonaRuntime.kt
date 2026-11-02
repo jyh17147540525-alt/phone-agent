@@ -98,6 +98,8 @@ class PersonaRuntime(
         state = stateEngine.advance(state, elapsed)
         // ★ 2026-11-02：激素也随时间回落（各自不同的半衰期）
         state = state.copy(hormones = hormoneEngine.advance(state.hormones, elapsed))
+        // ★ 2026-11-02：生理 —— 不交互的那段时间它在休息，睡眠债在还
+        state = state.copy(physiology = PhysiologyEngine.advance(state.physiology, elapsed))
         return state
     }
 
@@ -129,6 +131,26 @@ class PersonaRuntime(
      */
     @Synchronized
     fun stateSnapshot(): PersonaState = state
+
+    /**
+     * **记一轮交互**（生理维度）。
+     *
+     * ⚠️ 深夜聊天会累积睡眠债，白天不会 —— 见 `PhysiologyEngine.recordTurn`。
+     *
+     * ★ 为什么放在这里而不是放容器：生理状态是 [PersonaState] 的一部分，
+     *   而本类是这个 state 的**唯一持有者**。放进容器会变成两份真相，
+     *   而两份真相必然漂移 —— 表现就是"提示词里说它累，界面上说不累"。
+     *
+     * @param hourOfDay 这一轮发生在本地时间的几点（0..24）
+     */
+    @Synchronized
+    fun recordTurn(hourOfDay: Double): PersonaState {
+        val now = clock()
+        state = state.copy(
+            physiology = PhysiologyEngine.recordTurn(state.physiology, hourOfDay, now),
+        )
+        return state
+    }
 
     /**
      * 把 [PersonaEvent] 翻译成激素事件。
