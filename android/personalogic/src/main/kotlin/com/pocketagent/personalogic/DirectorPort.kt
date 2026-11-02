@@ -239,3 +239,122 @@ object DirectorParser {
     private fun kotlinx.serialization.json.JsonPrimitive.contentOrNull(): String? =
         runCatching { content }.getOrNull()
 }
+
+/**
+ * **生理导演的提示词** —— 与场记**完全不同**。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  ★ 为什么必须分开
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * 场记在看"有没有事实、有没有事件"（世界书 / 关系）。
+ * 生理导演在看**身体**：累不累、冷不冷、疼不疼、睡没睡。
+ *
+ * ⚠️ 用同一个提示词会让模型两边都想答，输出变成一锅粥 ——
+ *    而那一锅粥里的生理线索往往被世界书事实挤掉。
+ *
+ * ⚠️ 它**不产出世界书事实**，只产出**生理线索**。
+ */
+object PhysioPrompt {
+
+    /**
+     * 生理线索的类型。**闭集** —— 与场记的事件类型不重叠。
+     */
+    enum class Clue(val label: String) {
+        /** 疲劳 / 困 */
+        TIRED("疲累"),
+
+        /** 不适 / 疼痛 */
+        UNWELL("身体不适"),
+
+        /** 冷 / 热 */
+        TEMPERATURE("冷热"),
+
+        /** 饿 / 渴 */
+        HUNGER("饥渴"),
+
+        /** 睡眠相关 */
+        SLEEP("睡眠"),
+
+        /** 情绪的身体表现（心慌、发抖） */
+        BODY_STRESS("紧张的身体反应"),
+
+        /** 生理期相关 */
+        CYCLE("生理期"),
+    }
+
+    fun build(recentTurns: List<Pair<String, String>>, armor: String): String = buildString {
+        if (armor.isNotBlank()) {
+            appendLine(armor)
+            appendLine()
+        }
+        appendLine("## 任务")
+        appendLine("读下面的对话，只回答一个问题：")
+        appendLine("**用户或角色有没有提到跟身体有关的事？**")
+        appendLine()
+        appendLine("⚠️ 大多数轮次答案是「没有」—— 这是正常的，不要为了凑而编。")
+        appendLine("⚠️ 比喻不算：「冷死了」如果是在夸张，不算体温线索；")
+        appendLine("    但如果上下文是冬天、在室外，那就是。**看上下文**。")
+        appendLine()
+
+        appendLine("## 线索类型（只能取这些值）")
+        for (c in Clue.entries) {
+            appendLine("- `${c.name}` = ${c.label}")
+        }
+        appendLine()
+
+        appendLine("## 输出格式（严格 JSON，不要代码块）")
+        appendLine(
+            """
+            {"clues": [{"kind": "枚举值", "evidence": "原话里支撑这一判断的片段"}]}
+            """.trimIndent(),
+        )
+        appendLine()
+        appendLine("⚠️ `evidence` 必须是**用户或角色真的说过的话**，不能是你总结的。")
+        appendLine()
+
+        appendLine("## 最近的对话")
+        if (recentTurns.isEmpty()) {
+            appendLine("（没有内容 —— 输出 {\"clues\": []}）")
+        } else {
+            for ((user, assistant) in recentTurns) {
+                appendLine("用户：$user")
+                appendLine("你：$assistant")
+                appendLine()
+            }
+        }
+    }.trimEnd()
+
+    /** 解析结果。 */
+    data class Parsed(val clues: List<Pair<Clue, String>>, val dropped: Int)
+
+    /** @return null = 整段不是 JSON */
+    fun parse(raw: String): Parsed? {
+        val text = raw.trim().removePrefix("```json").removePrefix("```")
+            .removeSuffix("```").trim()
+        if (text.isEmpty()) return null
+        val root = runCatching {
+            Json.parseToJsonElement(text).jsonObject
+        }.getOrNull() ?: return null
+
+        var dropped = 0
+        val out = mutableListOf<Pair<Clue, String>>()
+        (root["clues"] as? JsonArray)?.forEach { el ->
+            val obj = el as? JsonObject ?: run { dropped++; return@forEach }
+            val name = (obj["kind"] as? JsonPrimitive)?.let {
+                runCatching { it.content }.getOrNull()
+            }
+            val ev = (obj["evidence"] as? JsonPrimitive)?.let {
+                runCatching { it.content }.getOrNull()
+            }?.trim()
+            val clue = Clue.entries.firstOrNull { it.name == name }
+            if (clue == null || ev.isNullOrBlank()) dropped++ else out += clue to ev
+        }
+        return Parsed(out, dropped)
+    }
+
+    private val Json = kotlinx.serialization.json.Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+    }
+}

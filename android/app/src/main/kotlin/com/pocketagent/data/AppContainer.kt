@@ -1425,6 +1425,35 @@ class AppContainer(context: Context) {
         )
 
         val raw = backgroundLlmComplete(prompt, purpose, modelId, effort)
+
+        // ── 生理导演：另一条解析与生效路径 ──────────────────
+        if (task == com.pocketagent.personalogic.BackgroundTask.PHYSIO) {
+            val p = com.pocketagent.personalogic.PhysioPrompt.parse(raw) ?: run {
+                Timber.i("生理导演返回无法解析（静默跳过）")
+                return
+            }
+            if (p.dropped > 0) Timber.w("生理导演丢弃了 %d 条线索", p.dropped)
+            if (p.clues.isEmpty()) return
+
+            // ⚠️ 线索**不直接改状态**，而是转成一次激素/生理冲量 ——
+            //    与"场记只输出事件"同一条纪律：状态归代码。
+            val cortisolBump = p.clues.count {
+                it.first == com.pocketagent.personalogic.PhysioPrompt.Clue.UNWELL ||
+                    it.first == com.pocketagent.personalogic.PhysioPrompt.Clue.BODY_STRESS
+            }
+            if (cortisolBump > 0) {
+                assistantPersona.runtime.apply(
+                    com.pocketagent.personalogic.PersonaEvent(
+                        kind = com.pocketagent.personalogic.PersonaEventKind.DISAPPOINTED,
+                        reason = p.clues.first().second.take(24),
+                    ),
+                )
+            }
+            backgroundRuns++
+            Timber.i("生理导演：识别到 %d 条线索", p.clues.size)
+            return
+        }
+
         val parsed = com.pocketagent.personalogic.DirectorParser.parse(raw) ?: run {
             Timber.i("后台任务 %s 返回无法解析（静默跳过）", task.label)
             return
@@ -2082,8 +2111,14 @@ class AppContainer(context: Context) {
                     is CredentialStoreResult.Ready -> opened.repository
                     else -> return@runBlocking ""
                 }
-                val config = when (
-                    val r = modelRepository()?.all().orEmpty().resolveForPurpose(ModelRole.CHAT)
+                // ★ 2026-11-03：**读设置页配的记忆模型**（此前固定用对话模型）
+                //
+                // ⚠️ 配了模型但不在这台机器的模型库里（删了、或换了 Key），
+                //    退回对话模型 —— 而不是静默不跑。
+                val all = modelRepository()?.all().orEmpty()
+                val configured = memoryModelId?.let { id -> all.firstOrNull { it.modelId == id } }
+                val config = configured ?: when (
+                    val r = all.resolveForPurpose(ModelRole.CHAT)
                 ) {
                     is ModelResolution.Found -> r.config
                     is ModelResolution.None -> return@runBlocking ""
@@ -2093,6 +2128,10 @@ class AppContainer(context: Context) {
                         model = config.modelId,
                         messages = listOf(ChatMessage.user(prompt)),
                         tools = emptyList(),
+                        // ★ 温度 0.2：抽取要稳定，不要创意
+                        temperature = 0.2,
+                        // ★ 读设置页配的思考强度
+                        reasoningEffort = memoryEffort.wireValue,
                     )
                     val sb = StringBuilder()
                     provider.chat(request = request, credential = credential).collect { chunk ->
