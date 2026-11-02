@@ -114,6 +114,7 @@ MODEL_FACING = {
     "personalogic/HumanText.kt",
     "personalogic/PersonaAssembler.kt",
     "personalogic/PersonaCard.kt",
+    "personalogic/DirectorPort.kt",   # 场记的提示词与解析（写给模型）
 }
 
 

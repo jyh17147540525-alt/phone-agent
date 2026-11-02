@@ -692,6 +692,15 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                     )
                 }.onFailure { Timber.w(it, "标记任务完成失败（不影响对话）") }
             }
+
+            // ★ 2026-11-03：**后台任务在这里被调度**
+            //
+            // ⚠️ 位置很要紧：必须在**回复已经拿到之后**。
+            //    放在之前的话，场记读不到这一轮的回复。
+            // ⚠️ 非阻塞：`scheduleBackground` 内部起协程，
+            //    这次调用本身**立刻返回** —— 用户不会多等。
+            runCatching { container.scheduleBackgroundAfterTurn(userText, text) }
+                .onFailure { Timber.w(it, "后台任务调度失败（不影响对话）") }
             ChatResult.Ok(
                 text = text,
                 isAgentRun = didAct,

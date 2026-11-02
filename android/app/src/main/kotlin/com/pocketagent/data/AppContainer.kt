@@ -1338,6 +1338,222 @@ class AppContainer(context: Context) {
         }
     }
 
+    // ══════════════════════════════════════════════════════════════
+    //  ★★ 2026-11-03：**后台任务的调度**
+    // ══════════════════════════════════════════════════════════════
+    //
+    // ⚠️ 用户要求："让每一个功能都不是摆设"。
+    //    在此之前 `BackgroundScheduler` / `DirectorPrompt` /
+    //    `DirectorGate` / 三个模型配置位**全都没有消费方**。
+    @Volatile
+    private var schedulerState = com.pocketagent.personalogic.SchedulerState()
+
+    @Volatile
+    private var directorTrace = com.pocketagent.personalogic.DirectorTrace()
+
+    /** 经过调度器过滤后真正被执行的后台任务数（诊断用）。 */
+    @Volatile
+    private var backgroundRuns: Int = 0
+
+    /**
+     * 一轮结束之后：**决定要不要跑后台任务，跑哪个**。
+     *
+     * ⚠️ **非阻塞**：立刻返回，真正的工作在 IO 协程里。
+     *    用户不会因为后台分析多等一毫秒。
+     *
+     * ⚠️ 全程 `runCatching`：后台任务失败**绝不能影响对话**。
+     */
+    fun scheduleBackgroundAfterTurn(userText: String, assistantText: String) {
+        val turn = totalUserTurns
+        val due = com.pocketagent.personalogic.BackgroundScheduler.decide(
+            turnIndex = turn,
+            userText = userText,
+            state = schedulerState,
+        )
+        // ⚠️ 无论跑不跑，都要记账 —— 否则攒批不会增长，
+        //    "跳过的轮次不丢"这个承诺就是假的。
+        schedulerState = com.pocketagent.personalogic.BackgroundScheduler.advance(
+            state = schedulerState,
+            ran = due,
+            turnIndex = turn,
+        )
+        if (due.isEmpty()) return
+
+        startupScope.launch(Dispatchers.IO) {
+            for (task in due) {
+                runCatching { runBackgroundTask(task, userText, assistantText, turn) }
+                    .onFailure { Timber.w(it, "后台任务 %s 失败（静默跳过）", task.label) }
+            }
+        }
+    }
+
+    private suspend fun runBackgroundTask(
+        task: com.pocketagent.personalogic.BackgroundTask,
+        userText: String,
+        assistantText: String,
+        turn: Int,
+    ) {
+        // 场记与生理导演共用一套「调模型 → 解 JSON → 过滤」的流程，
+        // 只是 purpose 与提示词不同。
+        if (task == com.pocketagent.personalogic.BackgroundTask.MEMORY) {
+            // 记忆抽取走既有路径（`MemoryWriter` 已在跑），这里不重复做
+            return
+        }
+        val purpose = when (task) {
+            com.pocketagent.personalogic.BackgroundTask.DIRECTOR ->
+                com.pocketagent.personalogic.BackgroundLlmPort.BackgroundPurpose.DIRECTOR
+            else -> com.pocketagent.personalogic.BackgroundLlmPort.BackgroundPurpose.PHYSIO
+        }
+
+        val modelId = when (task) {
+            com.pocketagent.personalogic.BackgroundTask.DIRECTOR -> directorModelId
+            else -> physioModelId
+        }
+        val effort = when (task) {
+            com.pocketagent.personalogic.BackgroundTask.DIRECTOR -> directorEffort
+            else -> physioEffort
+        }
+
+        val armor = com.pocketagent.legacy.BackgroundArmor.promptSection(
+            tier = armorTier(),
+            isAdultContext = maturePermissionValue.matureEnabled,
+        )
+        val prompt = com.pocketagent.personalogic.DirectorPrompt.build(
+            recentTurns = listOf(userText to assistantText),
+            armor = armor,
+            knownFactIds = assistantPersona.runtime.currentSpec().let { emptySet<String>() },
+        )
+
+        val raw = backgroundLlmComplete(prompt, purpose, modelId, effort)
+        val parsed = com.pocketagent.personalogic.DirectorParser.parse(raw) ?: run {
+            Timber.i("后台任务 %s 返回无法解析（静默跳过）", task.label)
+            return
+        }
+        if (parsed.dropped > 0) {
+            Timber.w("后台任务 %s 丢弃了 %d 条（枚举不认识或缺字段）", task.label, parsed.dropped)
+        }
+
+        // ── 过滤：限频、上限、去重 ──────────────────────────
+        val accepted = com.pocketagent.personalogic.DirectorGate.accept(
+            output = parsed.output,
+            trace = directorTrace,
+            turnIndex = turn,
+            dayIndex = System.currentTimeMillis() / 86_400_000L,
+            knownFactIds = assistantPersona.runtime.currentSpec().let { emptySet<String>() },
+        )
+        directorTrace = accepted.trace
+        backgroundRuns++
+
+        // ── 生效：事件 → 激素 ──────────────────────────────
+        for (e in accepted.events) {
+            assistantPersona.runtime.apply(
+                com.pocketagent.personalogic.PersonaEvent(
+                    kind = e.kind.toPersonaEventKind(),
+                    reason = e.reason,
+                ),
+            )
+        }
+        // ⚠️ 提议的事实**不自动入库** —— 需要用户确认（见 WorldBook.withFact）。
+        //    这里只记日志，等世界书面板做出来再走确认流程。
+        if (accepted.proposedFacts.isNotEmpty()) {
+            Timber.i(
+                "后台任务 %s 提议了 %d 条事实（待确认，未入库）",
+                task.label, accepted.proposedFacts.size,
+            )
+        }
+    }
+
+    /**
+     * **后台任务真的调了模型** —— 用用户配的那个。
+     *
+     * ⚠️ 这是"不是摆设"的最后一环：设置页那三个模型位，到这里才被读。
+     *
+     * ⚠️ 用**同一个 provider**（按 Key 解密），只是换 model 与 thinking。
+     *    密码学与计量都走既有路径，不开第二条。
+     */
+    private suspend fun backgroundLlmComplete(
+        prompt: String,
+        purpose: com.pocketagent.personalogic.BackgroundLlmPort.BackgroundPurpose,
+        modelId: String?,
+        effort: com.pocketagent.modelrouter.ThinkingEffort,
+    ): String {
+        // ── 选模型与它绑的 Key ──────────────────────────────
+        //
+        // ⚠️ `modelId == null` 表示"跟随对话模型"（设置页的默认）。
+        //    指定了模型时，必须用**那个模型自己绑的 Key** ——
+        //    与 ChatPort 同一条纪律：一个模型一条 Key。
+        val pick = pickModelFor(com.pocketagent.modelrouter.Scenario.CHAT)
+        val chosen: String
+        val credentialId: String
+        if (modelId.isNullOrBlank()) {
+            val cfg = pick.config ?: return ""
+            chosen = cfg.modelId
+            credentialId = cfg.credentialId
+        } else {
+            val all = runCatching { modelRepository()?.all().orEmpty() }.getOrDefault(emptyList())
+            val cfg = all.firstOrNull { it.modelId == modelId } ?: run {
+                Timber.w("后台任务：配的模型 %s 不在库里，跳过", modelId)
+                return ""
+            }
+            chosen = cfg.modelId
+            credentialId = cfg.credentialId
+        }
+
+        val store = when (val opened = openCredentialStore()) {
+            is CredentialStoreResult.Ready -> opened.repository
+            else -> return ""
+        }
+
+        val sb = StringBuilder()
+        store.useKey(credentialId) { provider, credential ->
+            provider.chat(
+                request = com.pocketagent.provider.api.ChatRequest(
+                    model = chosen,
+                    // ⚠️ 后台任务是**分析**，不是角色对话：
+                    //    用 user 而不是 system（部分厂商对纯 system 请求更严），
+                    //    温度调到 0.2 —— 要的是稳定分类，不是创意。
+                    messages = listOf(com.pocketagent.provider.api.ChatMessage.user(prompt)),
+                    tools = emptyList(),
+                    temperature = 0.2,
+                    reasoningEffort = effort.wireValue,
+                ),
+                credential = credential,
+            ).collect { chunk ->
+                if (chunk is com.pocketagent.provider.api.ChatChunk.Delta) sb.append(chunk.text)
+            }
+        }
+        return sb.toString()
+    }
+
+    /**
+     * 场记说的事件 → 状态机认识的事件。
+     *
+     * ⚠️ 不是一一对应：场记的事件更细（"用户敷衍"），
+     *    而状态机只认六种。**映射不上的就丢掉** ——
+     *    硬塞会让"敷衍"变成"被否定"，那是误伤用户。
+     */
+    private fun com.pocketagent.personalogic.DirectorEventKind.toPersonaEventKind():
+        com.pocketagent.personalogic.PersonaEventKind = when (this) {
+        com.pocketagent.personalogic.DirectorEventKind.USER_UNWELL ->
+            com.pocketagent.personalogic.PersonaEventKind.HELPED
+        com.pocketagent.personalogic.DirectorEventKind.USER_BIG_NEWS ->
+            com.pocketagent.personalogic.PersonaEventKind.REUNION
+        com.pocketagent.personalogic.DirectorEventKind.USER_CLINGY ->
+            com.pocketagent.personalogic.PersonaEventKind.HELPED
+        com.pocketagent.personalogic.DirectorEventKind.USER_DISTANT ->
+            com.pocketagent.personalogic.PersonaEventKind.DISAPPOINTED
+        com.pocketagent.personalogic.DirectorEventKind.HURT ->
+            com.pocketagent.personalogic.PersonaEventKind.REPRIMANDED
+        com.pocketagent.personalogic.DirectorEventKind.WARMED ->
+            com.pocketagent.personalogic.PersonaEventKind.PRAISED
+        com.pocketagent.personalogic.DirectorEventKind.REMINDED ->
+            com.pocketagent.personalogic.PersonaEventKind.LONG_SESSION
+        com.pocketagent.personalogic.DirectorEventKind.WORLD_TOUCHED ->
+            com.pocketagent.personalogic.PersonaEventKind.REUNION
+        com.pocketagent.personalogic.DirectorEventKind.OUTSIDE_CHANGED ->
+            com.pocketagent.personalogic.PersonaEventKind.REUNION
+    }
+
     /**
      * 当前人格状态的**只读快照**（不推进时间）。
      *
