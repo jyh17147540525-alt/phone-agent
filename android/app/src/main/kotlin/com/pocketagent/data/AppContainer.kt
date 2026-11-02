@@ -849,7 +849,26 @@ class AppContainer(context: Context) {
      *    账本持久化归 `:memory`、微调入口是向导 UI、状态事件归 `:assistant`，
      *    三者都还没接。预支它们的后果是猜一个还没问出口的需求。
      */
-    private val assistantPersona by lazy { defaultAssistantPersona() }
+    /**
+     * 助理人格。
+     *
+     * ⚠️ 2026-11-03：**必须把世界书与体检报告的 provider 注进去** ——
+     *    否则那两样只在面板里存在，角色一个字都收不到。
+     *    （这正是用户说的"不要再留一个尾巴"。）
+     */
+    private val assistantPersona by lazy {
+        com.pocketagent.assistant.AssistantPersona(
+            preset = com.pocketagent.personalogic.PersonaPresets.MALE,
+            runtime = com.pocketagent.personalogic.PersonaRuntime(
+                com.pocketagent.personalogic.DefaultPersonaTuner(
+                    com.pocketagent.personalogic.PersonaPresets.MALE,
+                ),
+            ),
+            // ★ 现读：面板上刚加的设定，下一轮就该生效
+            worldEntries = { worldEntriesValue },
+            healthReport = { healthReportValue },
+        )
+    }
 
     /**
      * 上一次给激素发事件的时间。
@@ -1351,6 +1370,43 @@ class AppContainer(context: Context) {
     @Volatile
     private var pendingFactsValue: List<com.pocketagent.personalogic.ProposedFact> = emptyList()
 
+    // ── 体检报告 ────────────────────────────────────────────
+    //
+    // ★ 2026-11-03：用户要求"生理设定输入面板"。
+    //   它决定疲劳阈值 / 恢复速率 / 怕冷 / 昼夜偏移 / 压力敏感。
+    @Volatile
+    private var healthReportValue = com.pocketagent.personalogic.HealthReport()
+
+    fun healthReport(): com.pocketagent.personalogic.HealthReport = healthReportValue
+
+    /** 面板保存时整体替换（表单一次提交，不做增量）。 */
+    fun setHealthReport(report: com.pocketagent.personalogic.HealthReport) {
+        healthReportValue = report
+        startupScope.launch {
+            runCatching {
+                val json = kotlinx.serialization.json.Json.encodeToString(
+                    com.pocketagent.personalogic.HealthReport.serializer(),
+                    report,
+                )
+                pluginSourceStore.edit { it[KEY_HEALTH] = json }
+            }.onFailure { Timber.e(it, "体检报告保存失败") }
+        }
+    }
+
+    // ── 生理线索（生理导演给的，进下一轮提示词）────────────
+    @Volatile
+    private var physioCluesValue: List<String> = emptyList()
+
+    fun physioClues(): List<String> = physioCluesValue
+
+    /**
+     * 生理线索的**有效期**：90 分钟。
+     *
+     * ⚠️ 过期就丢掉 —— "她今天有点冷"隔一天还挂着会很怪。
+     */
+    @Volatile
+    private var physioCluesAtMs: Long = 0L
+
     fun worldEntries(): List<com.pocketagent.personalogic.WorldEntry> = worldEntriesValue
 
     fun pendingFacts(): List<com.pocketagent.personalogic.ProposedFact> = pendingFactsValue
@@ -1532,6 +1588,9 @@ class AppContainer(context: Context) {
                 )
             }
             backgroundRuns++
+            // ★ 线索进**下一轮提示词**（有效期 90 分钟）
+            physioCluesValue = p.clues.map { "${it.first.label}：${it.second.take(20)}" }
+            physioCluesAtMs = System.currentTimeMillis()
             Timber.i("生理导演：识别到 %d 条线索", p.clues.size)
             return
         }
@@ -1695,6 +1754,17 @@ class AppContainer(context: Context) {
             )
             // ★ 拒绝开关（默认 true：见 allowRefusalValue 的注释）
             allowRefusalValue = prefs[KEY_ALLOW_REFUSAL] ?: true
+
+            // ★ 体检报告
+            runCatching {
+                val raw = prefs[KEY_HEALTH]
+                if (!raw.isNullOrBlank()) {
+                    healthReportValue = kotlinx.serialization.json.Json.decodeFromString(
+                        com.pocketagent.personalogic.HealthReport.serializer(),
+                        raw,
+                    )
+                }
+            }.onFailure { Timber.w(it, "体检报告读取失败（按默认）") }
 
             // ★ 世界书
             runCatching {
@@ -3490,7 +3560,24 @@ class AppContainer(context: Context) {
         val willing = willingnessPrompt()
 
         val withHuman = if (human.isBlank()) withRelation else withRelation + "\n\n" + human
-        val final = if (willing.isNullOrBlank()) withHuman else withHuman + "\n\n" + willing
+
+        // ★ 2026-11-03：**生理线索**（生理导演给的）进提示词
+        // ⚠️ 有效期 90 分钟 —— "她今天有点冷"隔一天还挂着会很怪
+        val clues = runCatching {
+            if (System.currentTimeMillis() - physioCluesAtMs <= 90L * 60_000L) {
+                physioCluesValue
+            } else {
+                emptyList()
+            }
+        }.getOrDefault(emptyList())
+        val clueSection = if (clues.isEmpty()) {
+            ""
+        } else {
+            "## 她身体上此刻的事\n" + clues.joinToString("\n") { "- $it" } +
+                "\n说得自然一点，不要逐条汇报。"
+        }
+        val withClues = if (clueSection.isBlank()) withHuman else withHuman + "\n\n" + clueSection
+        val final = if (willing.isNullOrBlank()) withClues else withClues + "\n\n" + willing
 
         // ══════════════════════════════════════════════════════════
         //  ★★ 2026-10-29：**如实记录每一层是否真的在场**
@@ -4124,6 +4211,8 @@ class AppContainer(context: Context) {
         androidx.datastore.preferences.core.stringPreferencesKey("director_model_v1")
     private val KEY_DIRECTOR_EFFORT =
         androidx.datastore.preferences.core.stringPreferencesKey("director_effort_v1")
+    private val KEY_HEALTH =
+        androidx.datastore.preferences.core.stringPreferencesKey("health_report_v1")
     private val KEY_WORLD_BOOK =
         androidx.datastore.preferences.core.stringPreferencesKey("world_book_v1")
     private val KEY_PHYSIO_MODEL =

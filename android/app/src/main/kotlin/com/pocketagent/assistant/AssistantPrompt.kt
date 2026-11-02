@@ -17,6 +17,22 @@ import com.pocketagent.personalogic.PersonaRuntime
 class AssistantPersona(
     val preset: PersonaPreset,
     val runtime: PersonaRuntime,
+    /**
+     * **世界书**。每次组装时现读 —— 用户在面板上刚加的设定，
+     * 下一轮就该生效。
+     *
+     * ⚠️ 2026-11-03：在此之前世界书**存进去了但提示词没读它** ——
+     *    面板上看得见、角色却不知道。那是这一整轮里最严重的一条尾巴。
+     */
+    val worldEntries: () -> List<com.pocketagent.personalogic.WorldEntry> = { emptyList() },
+    /**
+     * **体检报告**。同样现读。
+     *
+     * ⚠️ 它决定疲劳阈值、恢复速率、怕冷、昼夜偏移、压力敏感 ——
+     *    不进提示词就等于设定白填。
+     */
+    val healthReport: () -> com.pocketagent.personalogic.HealthReport =
+        { com.pocketagent.personalogic.HealthReport() },
 )
 
 /**
@@ -100,10 +116,13 @@ class AssistantPromptBuilder(
         val spec = persona.runtime.currentSpec()
         val assembled = assembler.assemble(
             AssemblyInput(
-                card = PersonaCard.of(persona.preset, spec),
+                // ★ 世界书进卡片（检索在装配器里，可测）
+                card = PersonaCard.of(persona.preset, spec)
+                    .copy(worldEntries = persona.worldEntries()),
                 tone = spec.tone,
                 // ★ 现读：`currentState()` 会推进时间，冻结的状态等于说一句假话
-                state = persona.runtime.currentState(),
+                // ★ 体检报告进状态 —— `renderState` 会用它推导体质
+                state = persona.runtime.currentState().copy(health = persona.healthReport()),
                 // ★ 按**这一句**检索该想起什么（见 recallMemories 的注释）
                 memories = recallMemories(currentUserText),
                 // ★ 2026-11-02：世界书也按**这一句**检索。
@@ -124,9 +143,12 @@ class AssistantPromptBuilder(
         val spec = persona.runtime.currentSpec()
         val assembled = assembler.assemble(
             AssemblyInput(
-                card = PersonaCard.of(persona.preset, spec),
+                // ★ 世界书进卡片（检索在装配器里，可测）
+                card = PersonaCard.of(persona.preset, spec)
+                    .copy(worldEntries = persona.worldEntries()),
                 tone = spec.tone,
-                state = persona.runtime.currentState(),
+                // ★ 体检报告进状态 —— `renderState` 会用它推导体质
+                state = persona.runtime.currentState().copy(health = persona.healthReport()),
             ),
         )
         return PromptDiagnostics(

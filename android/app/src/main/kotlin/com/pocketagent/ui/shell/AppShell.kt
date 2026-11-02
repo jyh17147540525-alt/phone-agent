@@ -146,6 +146,9 @@ object Routes {
 
     /** 世界书：设定与事实。 */
     const val WORLD_BOOK = "world-book"
+
+    /** 身体：按体检报告填的生理设定。 */
+    const val HEALTH = "health"
     const val SOURCES = "sources"
     const val KEYS = "keys"
     const val DSH = "dsh"
@@ -820,6 +823,7 @@ fun AppShell(
         onToggleAllowRefusal = { container.setAllowRefusal(it) },
         onOpenBackgroundAi = { navController.navigate(Routes.BACKGROUND_AI) },
         onOpenWorldBook = { navController.navigate(Routes.WORLD_BOOK) },
+        onOpenHealth = { navController.navigate(Routes.HEALTH) },
         onOpenDsh = { navController.navigate(Routes.DSH) },
                         onOpenSources = { navController.navigate(Routes.SOURCES) },
                         onOpenImport = { navController.navigate(Routes.IMPORT) },
@@ -1200,6 +1204,19 @@ fun AppShell(
                         onPhysioEffort = { physioEffort = it; container.setPhysioEffort(it) },
                         onPickMemoryModel = { memoryModel = it; container.setMemoryModel(it) },
                         onMemoryEffort = { memoryEffort = it; container.setMemoryEffort(it) },
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+
+                composable(Routes.HEALTH) {
+                    var report by remember { mutableStateOf(container.healthReport()) }
+                    com.pocketagent.ui.settings.HealthReportScreen(
+                        initial = report,
+                        onSave = {
+                            container.setHealthReport(it)
+                            report = it
+                            navController.popBackStack()
+                        },
                         onBack = { navController.popBackStack() },
                     )
                 }

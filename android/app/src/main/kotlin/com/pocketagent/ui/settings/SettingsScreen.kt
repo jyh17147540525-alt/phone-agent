@@ -97,6 +97,8 @@ fun SettingsScreen(
     onOpenBackgroundAi: (() -> Unit)? = null,
     /** 世界书面板。为 null 时不显示入口。 */
     onOpenWorldBook: (() -> Unit)? = null,
+    /** 身体的输入面板。 */
+    onOpenHealth: (() -> Unit)? = null,
     onOpenSources: (() -> Unit)? = null,
     onOpenImport: (() -> Unit)? = null,
     onOpenPermissions: (() -> Unit)? = null,
@@ -321,6 +323,14 @@ fun SettingsScreen(
                         subtitle = "不占屏幕就能做的事：读写文件、发通知",
                         onClick = onOpenCapabilities,
                     )
+                    PaListRow(
+                        icon = Icons.Default.Person,
+                        title = "身体",
+                        subtitle = "按体检报告填：贫血会让她更累、夜猫子会晚睡",
+                        onClick = onOpenHealth,
+                    )
+                    PaListDivider()
+
                     PaListRow(
                         icon = Icons.Default.Psychology,
                         title = "世界书",
