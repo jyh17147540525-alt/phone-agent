@@ -385,7 +385,8 @@ private fun ObsBody(card: Card.Obs) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = "${card.nodeCount} 个节点",
-                style = PaType.caption,
+                // ★ 2026-11-02：等宽数字 —— 否则节点数变化时右边缘会抖
+                style = PaType.tnum(PaType.caption),
                 color = PaColor.TextTertiary,
             )
             if (card.redacted) {
@@ -539,7 +540,8 @@ fun WhyPanel(
             )
             Text(
                 text = if (expanded) "收起" else "${evidence.size} 条",
-                style = PaType.label,
+                // ★ 2026-11-02：等宽数字
+                style = PaType.tnum(PaType.label),
                 color = PaColor.TextTertiary,
             )
         }

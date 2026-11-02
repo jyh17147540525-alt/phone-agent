@@ -852,6 +852,16 @@ class AppContainer(context: Context) {
     private val assistantPersona by lazy { defaultAssistantPersona() }
 
     /**
+     * 上一次给激素发事件的时间。
+     *
+     * ⚠️ 初值必须让**第一轮不触发**"久别重逢" —— 用 0 表示"还没有过上一轮"。
+     */
+    private var lastPersonaEventAtMs: Long = 0L
+
+    /** 隔多久没说话算"久别重逢"。3 小时：睡一觉或上半天班回来。 */
+    private val reunionGapMs: Long = 3L * 60L * 60L * 1000L
+
+    /**
      * 用户自定义角色的存储。
      *
      * ★ 2026-10-25：在此之前「自定义角色」**是不成立的** ——
@@ -895,6 +905,53 @@ class AppContainer(context: Context) {
      * ★ 它做三件事：累计轮数、识别摩擦信号、把"该吵了"记下来。
      */
     fun recordUserTurn(userText: String, nowMs: Long = System.currentTimeMillis()) {
+        // ══════════════════════════════════════════════════════════
+        //  ★★ 2026-11-02：**给激素喂事件**
+        // ══════════════════════════════════════════════════════════
+        //
+        // ⚠️ 在此之前 `PersonaEvent` **在生产里从来没被构造过** ——
+        //    激素会随时间衰减，但永远收不到冲量，于是永远停在中性。
+        //    那是本项目反复出现的那个陷阱，而且更深一层：
+        //    **状态机制接好了，但没人往里发事件。**
+        //
+        // ⇒ 这里每轮发一个。三类事件都可**确定性判断**，不猜：
+        //    · 久别重逢 —— 上一次说话离现在多久
+        //    · 被否定   —— `FrictionLevel` 已有判据
+        //    · 被认可   —— `PraiseSignal`（本轮新增）
+        runCatching {
+            val gapMs = nowMs - lastPersonaEventAtMs
+            // 3 小时没说话算"久别重逢"。⚠️ 只在**真的有过上一轮**时才算，
+            // 否则首次安装就会立刻触发一次"重逢"。
+            if (lastPersonaEventAtMs > 0L && gapMs >= reunionGapMs) {
+                assistantPersona.runtime.apply(
+                    com.pocketagent.personalogic.PersonaEvent(
+                        kind = com.pocketagent.personalogic.PersonaEventKind.REUNION,
+                        reason = "隔了一阵才回来",
+                    ),
+                )
+            }
+            lastPersonaEventAtMs = nowMs
+
+            val kind = when {
+                com.pocketagent.legacy.FrictionLevel.of(userText) !=
+                    com.pocketagent.legacy.FrictionLevel.NONE ->
+                    com.pocketagent.personalogic.PersonaEventKind.REPRIMANDED
+                com.pocketagent.personalogic.PraiseSignal.isPraise(userText) ->
+                    com.pocketagent.personalogic.PersonaEventKind.PRAISED
+                else -> null
+            }
+            if (kind != null) {
+                assistantPersona.runtime.apply(
+                    com.pocketagent.personalogic.PersonaEvent(
+                        kind = kind,
+                        // ⚠️ 由头必须是**可复述的用户原话**，不是"检测到认可"。
+                        //    随机情绪 = 崩人设；由头对不上同样崩。
+                        reason = userText.take(24),
+                    ),
+                )
+            }
+        }.onFailure { Timber.w(it, "激素事件发送失败（不影响对话）") }
+
         if (legacyFirstSeenMs == 0L) legacyFirstSeenMs = nowMs
         legacyTurnCount++
         totalUserTurns++

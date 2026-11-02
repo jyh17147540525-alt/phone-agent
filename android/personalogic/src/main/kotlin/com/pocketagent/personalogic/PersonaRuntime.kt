@@ -57,6 +57,7 @@ package com.pocketagent.personalogic
 class PersonaRuntime(
     private val tuner: PersonaTuner,
     private val stateEngine: PersonaStateEngine = PersonaStateEngine(),
+    private val hormoneEngine: HormoneEngine = HormoneEngine(),
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
 
@@ -95,6 +96,8 @@ class PersonaRuntime(
         if (elapsed <= 0) return state
         lastTickAtMs = now
         state = stateEngine.advance(state, elapsed)
+        // ★ 2026-11-02：激素也随时间回落（各自不同的半衰期）
+        state = state.copy(hormones = hormoneEngine.advance(state.hormones, elapsed))
         return state
     }
 
@@ -108,6 +111,13 @@ class PersonaRuntime(
     fun apply(event: PersonaEvent): PersonaState {
         tick()
         state = stateEngine.apply(state, event)
+        // ★ 2026-11-02：事件也要喂给激素。
+        //   ⚠️ 用 `step(0)` 而不是 `apply`：时间已经在 tick() 里推进过了，
+        //      这里再推一次会把衰减算两遍。
+        val hormoneEvent = event.toHormoneEvent()
+        if (hormoneEvent != null) {
+            state = state.copy(hormones = hormoneEngine.step(state.hormones, hormoneEvent, 0))
+        }
         return state
     }
 
@@ -119,4 +129,30 @@ class PersonaRuntime(
      */
     @Synchronized
     fun stateSnapshot(): PersonaState = state
+
+    /**
+     * 把 [PersonaEvent] 翻译成激素事件。
+     *
+     * ⚠️ 不返回 null 的那些才是"有内分泌意义"的事件。
+     *    例如 `PersonaEvent.Reason`（只是换了个由头）不该动激素 ——
+     *    它没有发生过任何事，只是叙述变了。
+     */
+    private fun PersonaEvent.toHormoneEvent(): HormoneEvent? = when (kind) {
+        // 被认可 —— 多巴胺与血清素一起
+        PersonaEventKind.PRAISED -> HormoneEvent.Praise
+        // 帮上忙 —— 被需要，催产素为主
+        PersonaEventKind.HELPED -> HormoneEvent.BeingNeeded
+        // 久别重逢 —— 催产素回一点
+        PersonaEventKind.REUNION -> HormoneEvent.Intimacy
+        // 长时间协作 —— 疲惫不直接等于激素事件；
+        //   ⚠️ 但持续高压确实会积累皮质醇，所以映射成"被催"
+        //   （那是同一类体感：一直在赶，没得停）
+        PersonaEventKind.LONG_SESSION -> HormoneEvent.Rushed
+        // 被否定 —— 争执
+        PersonaEventKind.REPRIMANDED -> HormoneEvent.Conflict
+        // 让用户失望 —— 压力，但不是争执。
+        //   ⚠️ 不映射成 Conflict：那会让血清素也掉，
+        //      而"没帮上忙"不该等同于"被骂"。
+        PersonaEventKind.DISAPPOINTED -> HormoneEvent.Rushed
+    }
 }

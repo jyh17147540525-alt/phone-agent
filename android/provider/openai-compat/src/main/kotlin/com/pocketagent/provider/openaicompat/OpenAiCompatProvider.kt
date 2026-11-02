@@ -973,6 +973,9 @@ object ProviderProfiles {
         displayName = "OpenCode Zen",
         defaultBaseUrl = "https://opencode.ai/zen/v1",
         authScheme = AuthScheme.Bearer,
+        // ⚠️ 2026-11-01：**实测中**。OpenCode 是否透传 reasoning_effort 未确认。
+        //    实测期临时打开；若 400 立即退回。
+        supportsReasoningEffort = true,
         // ★★ 2026-11-01：同 Go —— 不带这个头会 400。
         sessionHeaderName = "x-opencode-session",
         capabilities = setOf(

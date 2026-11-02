@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.pocketagent.agentui.CompletionState
 import com.pocketagent.agentui.SelectionState
+import androidx.compose.animation.Crossfade
 
 /**
  * 交互类组件：勾选框、完成反馈按钮、叠卡。
@@ -383,29 +384,57 @@ fun PaCardStack(
                     },
                 ),
         ) {
-            if (!expanded && stacked) {
+            // ══════════════════════════════════════════════════════
+            //  ★★ 2026-11-02：叠卡**开始有动画了**
+            // ══════════════════════════════════════════════════════
+            //
+            // ⚠️ 在此之前这里是 `if (expanded) A else B` —— 两棵完全不同的
+            //    子树瞬间替换。用户点一下，3 张卡片"边"凭空消失，
+            //    列表凭空出现。功能上没错，但那是**切换**，不是**展开**。
+            //
+            // ⇒ 现在两条路径合成一条：**永远画背景边**，用 `unfold` 驱动。
+            //    · 叠着时 unfold=0 → 边错开、半透明、有缩放
+            //    · 展开时 unfold=1 → 边收拢到 0、透明到 1、缩放归 1
+            //
+            // ★ 为什么用 `settled()`（阻尼 0.8）而不是标准缓动：
+            //   与 AI 回复出现用的是同一档 —— 那处注释写过理由：
+            //   "内容压实了、有了重量"。展开一叠卡也该有重量，
+            //   而不是匀速平移。
+            //
+            // ★ 层级错开的理由（本方案的"纵深视差"）：
+            //   最深的那张（i=2）**先走**，最近的（i=1）**后走**。
+            //   这样看起来是"从底下开始抽"，而不是"三张一起走"。
+            //   全部同时走 = 一叠纸被整体推走；错开才有厚度。
+            val unfold by animateFloatAsState(
+                targetValue = if (expanded) 1f else 0f,
+                animationSpec = PaMotion.settled(),
+                label = "cardStackUnfold",
+            )
+
+            if (stacked) {
                 // ⚠️ 从**最底下**往上画，这样最上面那张压在最前。
                 //    反过来的话看起来像"卡片向右下角歪"。
-                //
-                // ★ 偏移量：`stackOffset` 返回 0..0.08 的比例，
-                //   乘上"一张卡露出的高度"（[STACK_PEEK]）就是实际错位。
-                //   ⚠️ 这里第一版写成了 `offset * 400` —— 那个 400 是
-                //      屏幕高度量级，会算出 32dp 的巨大错位，看起来像散架。
-                //      正确的基准是"露出的边"本身。
                 for (i in (com.pocketagent.agentui.CardStack.STACK_VISIBLE - 1) downTo 1) {
                     val offset = com.pocketagent.agentui.CardStack.stackOffset(i) ?: continue
-                    val alpha = com.pocketagent.agentui.CardStack.stackAlpha(i) ?: continue
-                    val scale = com.pocketagent.agentui.CardStack.stackScale(i) ?: continue
+                    val baseAlpha = com.pocketagent.agentui.CardStack.stackAlpha(i) ?: continue
+                    val baseScale = com.pocketagent.agentui.CardStack.stackScale(i) ?: continue
+
+                    // 越深的层 lag 越小 ⇒ 越早开始收
+                    val lag = (com.pocketagent.agentui.CardStack.STACK_VISIBLE - 1 - i) * 0.10f
+                    val p = ((unfold - lag) / (1f - lag)).coerceIn(0f, 1f)
+
+                    val top = STACK_PEEK * i * (1f - p)
+                    val alpha = baseAlpha * (1f - p)
+                    val scale = baseScale + (1f - baseScale) * p
+
+                    // ⚠️ 完全收进去之后不画 —— 否则那些 0 alpha 的 Box 仍在
+                    //    参与布局与命中测试，是白白的开销。
+                    if (p >= 1f) continue
+
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            // 每张下移 `offset / 0.04 * STACK_PEEK`
-                            // （0.04 是 stackOffset 的步长，见 CardStack）
-                            //
-                            // ⚠️ `STACK_PEEK` 已经是 Dp，不能再 `.dp` ——
-                            //    `Dp * Dp` 没有定义，编译器会报
-                            //    "None of the following candidates is applicable"。
-                            .padding(top = STACK_PEEK * (offset / 0.04f))
+                            .padding(top = top)
                             .scale(scale)
                             .alpha(alpha)
                             .clip(RoundedCornerShape(PaRadius.m))
@@ -413,11 +442,19 @@ fun PaCardStack(
                             .height(STACK_PEEK),
                     )
                 }
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    collapsedContent()
+            }
+
+            // 内容本体：叠着时画折叠版，展开时画完整版。
+            // ⚠️ 用 Crossfade 而不是硬切 —— 背景边在收的同时，**前景也在换**，
+            //    两者叠起来才像"同一叠卡在变形"，而不是"两样东西交替出现"。
+            Box(modifier = Modifier.fillMaxWidth()) {
+                Crossfade(
+                    targetState = expanded && stacked,
+                    animationSpec = PaMotion.standard(),
+                    label = "cardStackContent",
+                ) { isExpanded ->
+                    if (isExpanded) expandedContent() else collapsedContent()
                 }
-            } else {
-                expandedContent()
             }
         }
     }

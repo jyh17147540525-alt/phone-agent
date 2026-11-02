@@ -180,6 +180,16 @@ data class PersonaState(
     val energy: Int = NEUTRAL,
     /** 状态的由头（可被复述，如「陪你熬到三点」）。null = 无特别由头 */
     val reason: String? = null,
+    /**
+     * **激素**（见 [Hormones]）。
+     *
+     * ⚠️ 2026-11-02 加。它比 mood / energy 多出的是**不同时间常数**与
+     * **相互耦合** —— 两条轴只能同涨同落，四条激素才说得出
+     * "亢奋但不稳"、"想亲近又想躲"这种真实状态。
+     *
+     * ★ 默认值是中性常量，所以**既有构造点与测试全都不受影响**。
+     */
+     val hormones: Hormones = Hormones(),
 ) {
 
     init {
@@ -188,7 +198,8 @@ data class PersonaState(
     }
 
     /** 是否处于中位（无需在 prompt 里调制语气）。 */
-    fun isNeutral(): Boolean = mood == NEUTRAL && energy == NEUTRAL
+    fun isNeutral(): Boolean =
+        mood == NEUTRAL && energy == NEUTRAL && hormones.isNeutral()
 
     companion object {
         const val NEUTRAL = 50

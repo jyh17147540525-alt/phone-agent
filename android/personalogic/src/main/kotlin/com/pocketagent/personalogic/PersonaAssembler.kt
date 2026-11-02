@@ -48,7 +48,21 @@ class PersonaAssembler(
         // ── 逐层渲染 ─────────────────────────────────────────────
         val layers = mutableMapOf<PromptLayer, String>()
         layers[PromptLayer.L0_BONES] = BONES_DECLARATION
-        layers[PromptLayer.L1_CORE] = renderCore(input.card, input.tone)
+        // ══════════════════════════════════════════════════════════
+        //  ★★ 2026-11-02：**激素在这里变成语气**
+        // ══════════════════════════════════════════════════════════
+        //
+        // ⚠️ 激素**不写自己的提示词段落** —— 项目里已经记过一条教训：
+        //    "长禁令清单本身会让模型变僵，而僵硬是另一种 AI 味"。
+        //    再加一段"你现在多巴胺偏高"只会让它更僵。
+        //
+        // ⇒ 它只做一件事：微调 `ToneAxes` 六轴，由现有那条
+        //    `toneLine()` 带出去。用户看不到任何数字，
+        //    只会在某些时候觉得"它今天语气不太一样"。
+        val effectiveTone = input.state
+            ?.let { it.hormones.toneDelta().applyTo(input.tone) }
+            ?: input.tone
+        layers[PromptLayer.L1_CORE] = renderCore(input.card, effectiveTone)
         layers[PromptLayer.L2_FINGERPRINT] = input.card.fingerprint.render()
         input.state?.let { layers[PromptLayer.L3_STATE] = renderState(it) }
         val memories = selectMemories(input.memories, input.memoryLimit)
@@ -159,12 +173,19 @@ class PersonaAssembler(
             if (state.energy >= 70 && state.mood >= 50) append("精神很好")
         }
         if (parts.isBlank()) return ""
+        // ★ 2026-11-02：激素里最突出的那一条，可以"说出来"。
+        //   ⚠️ `dominant()` 的文案里**不含任何索取**（有测试钉着）——
+        //      状态可以被表达，但不能拿来要挟用户（§4.6）。
+        val hormonal = state.hormones.dominant()
         val reason = state.reason?.takeIf { it.isNotBlank() }
         return buildString {
             append("## 此刻的状态\n")
             append("你现在").append(parts)
             // ⚠️ 只允许"如实带一句由头"，**不许**拿状态做情绪操纵
             //    （「因为你不理我，我很难过」是明令禁止的反模式，见 §4.6）。
+            if (hormonal != null) {
+                append("，").append(hormonal)
+            }
             if (reason != null) {
                 append("（由头：").append(reason).append("）")
             }
