@@ -1165,16 +1165,37 @@ fun AppShell(
 
                 // ── 后台 AI 调度 ────────────────────────────────
                 composable(Routes.BACKGROUND_AI) {
+                    // ══════════════════════════════════════════════════
+                    //  ★★ 2026-11-03：这几项必须是**Compose 状态**
+                    // ══════════════════════════════════════════════════
+                    //
+                    // ⚠️ 真机抓到：直接读 `container.directorThinking()` 时，
+                    //    点拉条**值存下来了但界面不刷新** —— 因为容器里那些是
+                    //    普通 `@Volatile var`，改它不会触发重组。
+                    //    表现是"点了没反应"，而实际上设置已经生效。
+                    //
+                    // ⇒ 在组合里持一份状态：初始值来自容器，改动同时写两处。
+                    var directorModel by remember { mutableStateOf(container.directorModel()) }
+                    var directorEffort by remember { mutableStateOf(container.directorThinking()) }
+                    var physioModel by remember { mutableStateOf(container.physioModel()) }
+                    var physioEffort by remember { mutableStateOf(container.physioThinking()) }
+                    var memoryModel by remember { mutableStateOf(container.memoryModel()) }
+                    var memoryEffort by remember { mutableStateOf(container.memoryThinking()) }
+
                     com.pocketagent.ui.settings.BackgroundAiScreen(
                         models = modelModelsState,
-                        directorModelId = container.directorModel(),
-                        directorEffort = container.directorThinking(),
-                        memoryModelId = container.memoryModel(),
-                        memoryEffort = container.memoryThinking(),
-                        onPickDirectorModel = { container.setDirectorModel(it) },
-                        onDirectorEffort = { container.setDirectorEffort(it) },
-                        onPickMemoryModel = { container.setMemoryModel(it) },
-                        onMemoryEffort = { container.setMemoryEffort(it) },
+                        directorModelId = directorModel,
+                        directorEffort = directorEffort,
+                        physioModelId = physioModel,
+                        physioEffort = physioEffort,
+                        memoryModelId = memoryModel,
+                        memoryEffort = memoryEffort,
+                        onPickDirectorModel = { directorModel = it; container.setDirectorModel(it) },
+                        onDirectorEffort = { directorEffort = it; container.setDirectorEffort(it) },
+                        onPickPhysioModel = { physioModel = it; container.setPhysioModel(it) },
+                        onPhysioEffort = { physioEffort = it; container.setPhysioEffort(it) },
+                        onPickMemoryModel = { memoryModel = it; container.setMemoryModel(it) },
+                        onMemoryEffort = { memoryEffort = it; container.setMemoryEffort(it) },
                         onBack = { navController.popBackStack() },
                     )
                 }

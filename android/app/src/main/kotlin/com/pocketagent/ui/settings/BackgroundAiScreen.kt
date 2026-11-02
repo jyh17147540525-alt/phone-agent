@@ -77,10 +77,14 @@ fun BackgroundAiScreen(
     models: List<ModelConfig>,
     directorModelId: String?,
     directorEffort: ThinkingEffort,
+    physioModelId: String?,
+    physioEffort: ThinkingEffort,
     memoryModelId: String?,
     memoryEffort: ThinkingEffort,
     onPickDirectorModel: (String?) -> Unit,
     onDirectorEffort: (ThinkingEffort) -> Unit,
+    onPickPhysioModel: (String?) -> Unit,
+    onPhysioEffort: (ThinkingEffort) -> Unit,
     onPickMemoryModel: (String?) -> Unit,
     onMemoryEffort: (ThinkingEffort) -> Unit,
     onBack: () -> Unit,
@@ -99,8 +103,9 @@ fun BackgroundAiScreen(
 
             Column(modifier = Modifier.padding(horizontal = PaSpace.m)) {
                 Text(
-                    text = "这两件事在每轮之后异步跑，不占用你等回复的时间。" +
+                    text = "这三件事在每轮之后异步跑，不占用你等回复的时间。" +
                         "它们只需要看懂和归类，用便宜快的模型就够。",
+
                     style = PaType.body,
                     color = PaColor.TextSecondary,
                 )
@@ -120,7 +125,25 @@ fun BackgroundAiScreen(
 
                 Spacer(Modifier.height(PaSpace.m))
 
-                // ── 窗口二：记忆抽取 ────────────────────────────
+                // ── 窗口二：生理导演 ────────────────────────────
+                //
+                // ⚠️ 与场记**分开**：场记管世界书与事件，
+                //    生理导演管用户这句话该让她身体怎样。
+                //    共用一个模型位会让两种负载互相干扰。
+                SlotCard(
+                    icon = "🫀",
+                    title = "生理导演",
+                    subtitle = "读用户话里的线索，给她一点身体反应",
+                    modelLabel = modelLabel(physioModelId),
+                    effort = physioEffort,
+                    recommendation = "推荐 off —— 只需识别他发烧了这类线索，推理帮不上忙",
+                    onOpenDrawer = { drawer = Slot.PHYSIO },
+                    onEffort = onPhysioEffort,
+                )
+
+                Spacer(Modifier.height(PaSpace.m))
+
+                // ── 窗口三：记忆抽取 ────────────────────────────
                 SlotCard(
                     icon = "🧠",
                     title = "记忆抽取",
@@ -169,7 +192,11 @@ fun BackgroundAiScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = if (open == Slot.DIRECTOR) "场记用哪个模型" else "记忆抽取用哪个模型",
+                        text = when (open) {
+                            Slot.DIRECTOR -> "场记用哪个模型"
+                            Slot.PHYSIO -> "生理导演用哪个模型"
+                            Slot.MEMORY -> "记忆抽取用哪个模型"
+                        },
                         style = PaType.headline,
                         color = PaColor.TextPrimary,
                     )
@@ -190,13 +217,25 @@ fun BackgroundAiScreen(
                 //    ⇒ 用一个精简的清单（见 ModelListOnly）。
                 ModelListOnly(
                     models = models,
-                    selectedId = if (open == Slot.DIRECTOR) directorModelId else memoryModelId,
+                    selectedId = when (open) {
+                        Slot.DIRECTOR -> directorModelId
+                        Slot.PHYSIO -> physioModelId
+                        Slot.MEMORY -> memoryModelId
+                    },
                     onPickAuto = {
-                        if (open == Slot.DIRECTOR) onPickDirectorModel(null) else onPickMemoryModel(null)
+                        when (open) {
+                            Slot.DIRECTOR -> onPickDirectorModel(null)
+                            Slot.PHYSIO -> onPickPhysioModel(null)
+                            Slot.MEMORY -> onPickMemoryModel(null)
+                        }
                         drawer = null
                     },
                     onPick = { id ->
-                        if (open == Slot.DIRECTOR) onPickDirectorModel(id) else onPickMemoryModel(id)
+                        when (open) {
+                            Slot.DIRECTOR -> onPickDirectorModel(id)
+                            Slot.PHYSIO -> onPickPhysioModel(id)
+                            Slot.MEMORY -> onPickMemoryModel(id)
+                        }
                         drawer = null
                     },
                 )
@@ -205,7 +244,7 @@ fun BackgroundAiScreen(
     }
 }
 
-private enum class Slot { DIRECTOR, MEMORY }
+private enum class Slot { DIRECTOR, PHYSIO, MEMORY }
 
 /** null = 跟随对话模型。 */
 private fun modelLabel(id: String?): String = id ?: "跟随对话模型"

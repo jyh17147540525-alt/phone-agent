@@ -1246,6 +1246,19 @@ class AppContainer(context: Context) {
     private var directorEffort: com.pocketagent.modelrouter.ThinkingEffort =
         com.pocketagent.modelrouter.ThinkingEffort.LOW
 
+    // ── 生理导演 ────────────────────────────────────────────
+    //
+    // ★ 2026-11-03：与场记**分开**。
+    //   场记管世界书与事件；生理导演管"用户这句话该让她身体怎样"。
+    //   两者共用一个模型位会让配置互相干扰 —— 而它们的负载完全不同
+    //   （生理判断更短、更在意措辞，世界书整理更在意结构化输出）。
+    @Volatile
+    private var physioModelId: String? = null
+
+    @Volatile
+    private var physioEffort: com.pocketagent.modelrouter.ThinkingEffort =
+        com.pocketagent.modelrouter.ThinkingEffort.OFF
+
     @Volatile
     private var memoryModelId: String? = null
 
@@ -1274,6 +1287,30 @@ class AppContainer(context: Context) {
         startupScope.launch {
             runCatching { pluginSourceStore.edit { it[KEY_DIRECTOR_EFFORT] = effort.name } }
                 .onFailure { Timber.e(it, "场记思考强度保存失败") }
+        }
+    }
+
+    /** 「生理导演」用的模型。null = 跟随对话模型。 */
+    fun physioModel(): String? = physioModelId
+
+    fun physioThinking(): com.pocketagent.modelrouter.ThinkingEffort = physioEffort
+
+    fun setPhysioModel(id: String?) {
+        physioModelId = id
+        startupScope.launch {
+            runCatching {
+                pluginSourceStore.edit {
+                    if (id == null) it.remove(KEY_PHYSIO_MODEL) else it[KEY_PHYSIO_MODEL] = id
+                }
+            }.onFailure { Timber.e(it, "生理导演模型保存失败") }
+        }
+    }
+
+    fun setPhysioEffort(effort: com.pocketagent.modelrouter.ThinkingEffort) {
+        physioEffort = effort
+        startupScope.launch {
+            runCatching { pluginSourceStore.edit { it[KEY_PHYSIO_EFFORT] = effort.name } }
+                .onFailure { Timber.e(it, "生理导演思考强度保存失败") }
         }
     }
 
@@ -1328,7 +1365,11 @@ class AppContainer(context: Context) {
 
             // ★ 后台 AI 的调度（默认 null = 跟随对话模型）
             directorModelId = prefs[KEY_DIRECTOR_MODEL]
+            physioModelId = prefs[KEY_PHYSIO_MODEL]
             memoryModelId = prefs[KEY_MEMORY_MODEL]
+            physioEffort = prefs[KEY_PHYSIO_EFFORT]
+                ?.let { runCatching { com.pocketagent.modelrouter.ThinkingEffort.valueOf(it) }.getOrNull() }
+                ?: com.pocketagent.modelrouter.ThinkingEffort.OFF
             directorEffort = prefs[KEY_DIRECTOR_EFFORT]
                 ?.let { runCatching { com.pocketagent.modelrouter.ThinkingEffort.valueOf(it) }.getOrNull() }
                 ?: com.pocketagent.modelrouter.ThinkingEffort.LOW
@@ -3727,6 +3768,10 @@ class AppContainer(context: Context) {
         androidx.datastore.preferences.core.stringPreferencesKey("director_model_v1")
     private val KEY_DIRECTOR_EFFORT =
         androidx.datastore.preferences.core.stringPreferencesKey("director_effort_v1")
+    private val KEY_PHYSIO_MODEL =
+        androidx.datastore.preferences.core.stringPreferencesKey("physio_model_v1")
+    private val KEY_PHYSIO_EFFORT =
+        androidx.datastore.preferences.core.stringPreferencesKey("physio_effort_v1")
     private val KEY_MEMORY_MODEL =
         androidx.datastore.preferences.core.stringPreferencesKey("memory_model_v1")
     private val KEY_MEMORY_EFFORT =
