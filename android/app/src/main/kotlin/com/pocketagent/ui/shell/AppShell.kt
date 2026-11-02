@@ -803,7 +803,10 @@ fun AppShell(
                     SettingsScreen(
                         keyStatus = keyStatus,
                         onOpenKeys = { navController.navigate(Routes.KEYS) },
-                                            onOpenDsh = { navController.navigate(Routes.DSH) },
+                                            // ★ 2026-11-02：「允许它拒绝」开关
+        allowRefusal = container.allowRefusal(),
+        onToggleAllowRefusal = { container.setAllowRefusal(it) },
+        onOpenDsh = { navController.navigate(Routes.DSH) },
                         onOpenSources = { navController.navigate(Routes.SOURCES) },
                         onOpenImport = { navController.navigate(Routes.IMPORT) },
                         permissionSummary = permissionSummary,

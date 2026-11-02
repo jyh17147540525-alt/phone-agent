@@ -326,6 +326,7 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
             )
         }
 
+
         // ── ③ 判断意图 + 组装系统提示词 ──────────────────────────
     //
     // ★ 这是「助理是谁」的**唯一入口**：人格装配器的输出 + 能力边界声明。
@@ -339,6 +340,35 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
     // ⚠️ 组装失败时**如实报错**，不退化成"没有人格也能聊"：
     //    后者正是本项目最怕的那种失败 —— 用户以为人格生效了，其实没有。
     val userText = history.lastOrNull()?.plainText() ?: ""
+
+    // ══════════════════════════════════════════════════════════
+    //  ★★ 2026-11-02：**它会拒绝**
+    // ══════════════════════════════════════════════════════════
+    //
+    // ⚠️ 用户要求："会拒绝在设置里面给个开关就行了"。
+    //
+    // ⚠️ 拒绝时**不调用模型** —— 省一次请求，也省一份钱。
+    //    所以放在"选完模型之后、组装提示词之前"。
+    //
+    // ⚠️ 开关关掉时 `willingnessVerdict()` 永远返回 EAGER，
+    //    这一整段在开关关闭时是无害的。
+    if (container.willingnessVerdict() ==
+        com.pocketagent.personalogic.WillingnessVerdict.DECLINE
+    ) {
+        // ⚠️ 必须先 noteDeclined 再返回 —— 限频依赖它。
+        //    放在这里而不是容器里自动调：让"真的说了拒绝"
+        //    与"判定为拒绝"保持同一件事。
+        container.noteDeclined()
+        val cortisol = runCatching { container.personaCortisol() }
+            .getOrDefault(com.pocketagent.personalogic.Hormones.NEUTRAL)
+        val line = com.pocketagent.personalogic.DeclineLines.pick(
+            cortisol = cortisol,
+            // ⚠️ 用文本长度当变化种子：同样的输入永远给同样的结果，可测试
+            turnNumber = userText.length,
+        )
+        Timber.i("意愿不足，拒绝本轮（未调用模型）")
+        return ChatResult.Ok(text = line)
+    }
     // ★★ 2026-10-31：`forceAct` 覆盖分类器的结果。
     //
     // ⚠️ 只在用户点了「让我来做」时为 true —— 那时**用户已经明确

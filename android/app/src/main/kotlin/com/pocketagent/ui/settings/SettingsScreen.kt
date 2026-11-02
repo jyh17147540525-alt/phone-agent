@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Cable
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.PlayArrow
@@ -82,6 +83,16 @@ fun SettingsScreen(
     permissionSummary: PermissionSummary? = null,
     onOpenKeys: (() -> Unit)? = null,
     onOpenDsh: (() -> Unit)? = null,
+    /**
+     * **「允许它拒绝」开关**。
+     *
+     * ★★ 2026-11-02：用户要求"会拒绝在设置里面给个开关就行了"。
+     *
+     * ⚠️ 默认开。行为的保守性由 `Willingness` 的门槛保证 ——
+     *    正常聊二十轮都到不了拒绝线（见 `WillingnessTest`）。
+     */
+    allowRefusal: Boolean = true,
+    onToggleAllowRefusal: ((Boolean) -> Unit)? = null,
     onOpenSources: (() -> Unit)? = null,
     onOpenImport: (() -> Unit)? = null,
     onOpenPermissions: (() -> Unit)? = null,
@@ -377,6 +388,35 @@ fun SettingsScreen(
                         // ★ 2026-10-28：点开进入**记忆星图**（3D 可旋转记忆团）。
                         //   之前这里是 null（不画箭头）—— 用户要的就是从这里进去。
                         onClick = onOpenMemory,
+                    )
+
+                    // ══════════════════════════════════════════════
+                    //  ★★ 2026-11-02：**允许它拒绝**
+                    // ══════════════════════════════════════════════
+                    //
+                    // ⚠️ 这一行是**唯一**能让用户关掉"被冷落"的入口。
+                    //    没有它，意愿系统就是个强制功能 —— 而那正是
+                    //    用户明确反对的（"给个开关就行了"）。
+                    PaListDivider()
+                    PaListRow(
+                        icon = Icons.Default.Notifications,
+                        title = "允许它拒绝",
+                        subtitle = if (allowRefusal) {
+                            "聊得太久或在气头上时，它可能说「今天不太想聊」"
+                        } else {
+                            "它永远有求必应（意愿仍会影响语气，但不会拒绝）"
+                        },
+                        onClick = null,
+                        trailingContent = {
+                            androidx.compose.material3.Switch(
+                                checked = allowRefusal,
+                                onCheckedChange = { onToggleAllowRefusal?.invoke(it) },
+                                colors = androidx.compose.material3.SwitchDefaults.colors(
+                                    checkedThumbColor = PaColor.SurfaceHigh,
+                                    checkedTrackColor = PaColor.Accent,
+                                ),
+                            )
+                        },
                     )
                 }
             }

@@ -861,6 +861,9 @@ class AppContainer(context: Context) {
     /** 隔多久没说话算"久别重逢"。3 小时：睡一觉或上半天班回来。 */
     private val reunionGapMs: Long = 3L * 60L * 60L * 1000L
 
+    /** 单次会话多少轮之后算"长会话"（更耗意愿）。 */
+    private val LONG_SESSION_TURNS: Int = 30
+
     /**
      * 用户自定义角色的存储。
      *
@@ -951,6 +954,20 @@ class AppContainer(context: Context) {
                 )
             }
         }.onFailure { Timber.w(it, "激素事件发送失败（不影响对话）") }
+
+        // ★ 2026-11-02：每聊一轮都消耗一点意愿（见 `Willingness`）。
+        //   ⚠️ 开关关掉时**仍然消耗** —— 否则打开开关的瞬间会突然很累，
+        //      那比一直开着更奇怪。
+        runCatching {
+            val relaxed = willingnessEngine.advance(willingnessValue, nowMs)
+            willingnessValue = willingnessEngine.spend(
+                relaxed,
+                turnIndex = totalUserTurns,
+                cortisol = assistantPersona.runtime.stateSnapshot().hormones.cortisol,
+                // 单次会话超过 30 轮算"长会话" —— 连着聊和偶尔回一句不一样
+                isLongSession = legacyTurnCount > LONG_SESSION_TURNS,
+            )
+        }.onFailure { Timber.w(it, "意愿推进失败（不影响对话）") }
 
         if (legacyFirstSeenMs == 0L) legacyFirstSeenMs = nowMs
         legacyTurnCount++
@@ -1141,6 +1158,79 @@ class AppContainer(context: Context) {
         }
     }
 
+    // ══════════════════════════════════════════════════════════════
+    //  ★★ 2026-11-02：「允许它拒绝」开关
+    // ══════════════════════════════════════════════════════════════
+    //
+    // ⚠️ 用户要求："会拒绝在设置里面给个开关就行了"。
+    //
+    // ⚠️ **默认开**。理由是用户明确要这个能力；而行为的保守性由
+    //    `Willingness` 的门槛保证（正常聊二十轮都到不了拒绝线）。
+    //
+    // ⚠️ 关掉之后：意愿仍然照常演化（它还是"累"），
+    //    但**永远不会拒绝**，也永远不会写"意愿低落"那段提示词 ——
+    //    退化成现在的行为。这样开关是**可逆的**，不是一次性的。
+    @Volatile
+    private var allowRefusalValue: Boolean = true
+
+    /**
+     * 意愿。**会随对话消耗、随时间恢复**。
+     *
+     * ⚠️ 放在容器而不是 `PersonaState`：它需要"这是第几轮"来限频，
+     *    而轮次只有容器知道（`totalUserTurns`）。
+     */
+    private var willingnessValue = com.pocketagent.personalogic.Willingness()
+
+    private val willingnessEngine = com.pocketagent.personalogic.WillingnessEngine()
+
+    /** 设置页的开关状态。 */
+    fun allowRefusal(): Boolean = allowRefusalValue
+
+    fun setAllowRefusal(value: Boolean) {
+        allowRefusalValue = value
+        startupScope.launch {
+            runCatching { pluginSourceStore.edit { it[KEY_ALLOW_REFUSAL] = value } }
+                .onFailure { Timber.e(it, "拒绝开关保存失败") }
+        }
+    }
+
+    /**
+     * 这一轮该怎么对待用户。
+     *
+     * ⚠️ 开关关掉时**永远返回 EAGER** —— 见 [allowRefusalValue] 的注释。
+     */
+    fun willingnessVerdict(): com.pocketagent.personalogic.WillingnessVerdict {
+        if (!allowRefusalValue) {
+            return com.pocketagent.personalogic.WillingnessVerdict.EAGER
+        }
+        return willingnessEngine.verdictOf(willingnessValue, totalUserTurns)
+    }
+
+    /**
+     * 已经拒绝了一次 —— 记一笔，并让它缓过来一点。
+     *
+     * ⚠️ 必须由**真正说出拒绝的那一处**调用，而不是在这里自动调 ——
+     *    否则"判定为拒绝"就等于"已经拒绝"，限频会错位。
+     */
+    fun noteDeclined() {
+        willingnessValue = willingnessEngine.afterDecline(willingnessValue, totalUserTurns)
+    }
+
+    /**
+     * 当前人格状态的**只读快照**（不推进时间）。
+     *
+     * ⚠️ 用途是"别处只想看一眼"（例如拒绝文案要读皮质醇）。
+     *    要推进时间用 `assistantSystemPrompt()` —— 那一条会让状态往前走。
+     */
+    fun personaCortisol(): Int =
+        assistantPersona.runtime.stateSnapshot().hormones.cortisol
+
+    /** 意愿低时那段提示词（开关关掉时为 null）。 */
+    fun willingnessPrompt(): String? {
+        if (!allowRefusalValue) return null
+        return willingnessEngine.promptSection(willingnessVerdict())
+    }
+
     private suspend fun loadMaturePermission() {
         runCatching {
             val prefs = pluginSourceStore.data.first()
@@ -1148,6 +1238,8 @@ class AppContainer(context: Context) {
                 adultConfirmed = prefs[KEY_ADULT_CONFIRMED] == true,
                 matureEnabled = prefs[KEY_MATURE_ENABLED] == true,
             )
+            // ★ 拒绝开关（默认 true：见 allowRefusalValue 的注释）
+            allowRefusalValue = prefs[KEY_ALLOW_REFUSAL] ?: true
         }.onFailure { Timber.e(it, "成熟内容授权读取失败") }
     }
 
@@ -2896,7 +2988,17 @@ class AppContainer(context: Context) {
 
         // ★ 去味规则：只在**这一阵子真的回落了**才写。
         val human = humanizerSection(recentReplies)
-        val final = if (human.isBlank()) withRelation else withRelation + "\n\n" + human
+
+        // ★ 2026-11-02：**意愿低时的提示词**（开关关掉时为 null）
+        //
+        // ⚠️ 与 `HumanText`（`PersonaAssembler` 里那段）分工不同：
+        //    那一段在人格装配器里，管"怎么说"；
+        //    这一段在 app 侧，管"这一轮还想不想接"。
+        //    ⚠️ 但它只影响**这一轮**的提示词，真正的拒绝判定在 `ChatPort`。
+        val willing = willingnessPrompt()
+
+        val withHuman = if (human.isBlank()) withRelation else withRelation + "\n\n" + human
+        val final = if (willing.isNullOrBlank()) withHuman else withHuman + "\n\n" + willing
 
         // ══════════════════════════════════════════════════════════
         //  ★★ 2026-10-29：**如实记录每一层是否真的在场**
@@ -3521,6 +3623,9 @@ class AppContainer(context: Context) {
          */
         private val KEY_ADULT_CONFIRMED = booleanPreferencesKey("adult_confirmed_v1")
         private val KEY_MATURE_ENABLED = booleanPreferencesKey("mature_enabled_v1")
+
+    /** 「允许它拒绝」开关。见 [allowRefusalValue]。 */
+    private val KEY_ALLOW_REFUSAL = booleanPreferencesKey("allow_refusal_v1")
 
         /**
          * **模型选择**：用户钉死的那个模型 id。

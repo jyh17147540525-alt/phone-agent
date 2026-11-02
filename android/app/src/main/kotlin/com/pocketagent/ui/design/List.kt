@@ -74,6 +74,14 @@ fun PaListRow(
     badge: String? = null,
     badgeTone: PaBadgeTone = PaBadgeTone.Neutral,
     trailing: String? = null,
+    /**
+     * 行尾的**组件**（开关之类）。
+     *
+     * ⚠️ 与 [trailing]（字符串）互斥：组件优先。
+     *    分两个参数而不是把 String 换成 Any，是为了让既有 20 多处
+     *    调用点一行都不用改。
+     */
+    trailingContent: (@Composable () -> Unit)? = null,
     onClick: (() -> Unit)? = null,
 ) {
     val interaction = remember { MutableInteractionSource() }
@@ -131,7 +139,11 @@ fun PaListRow(
             PaBadge(text = badge, tone = badgeTone)
         }
 
-        if (trailing != null) {
+        // ★ 2026-11-02：组件优先（开关等）。字符串那条保持原样，向后兼容。
+        if (trailingContent != null) {
+            Spacer(Modifier.width(PaSpace.xs))
+            trailingContent()
+        } else if (trailing != null) {
             Spacer(Modifier.width(PaSpace.xs))
             Text(
                 text = trailing,
