@@ -104,6 +104,15 @@ MODEL_FACING = {
     #    （"现在的处境…不要提天气"），不是界面文案。
     #    整个文件太大不好整体排除，但它是容器装配层，本来就不该有界面文案。
     "data/AppContainer.kt",
+    # ── 人格/状态相关的**提示词生成器**（2026-11-02 加）──────────
+    # ⚠️ 这几个文件里的字符串是**写给模型看的**，不是界面文案。
+    #    markdown 在那里正确且刻意（模型读 markdown）。
+    "personalogic/Cycle.kt",
+    "personalogic/Willingness.kt",
+    "personalogic/Physiology.kt",
+    "personalogic/HumanText.kt",
+    "personalogic/PersonaAssembler.kt",
+    "personalogic/PersonaCard.kt",
 }
 
 

@@ -192,8 +192,13 @@ class PersonaAssembler(
         // ⚠️ 修正**不改** `state.energy`（那是事件留下的底子），
         //    只在这里叠加 —— 否则"睡一觉"会把事件的影响也抹掉。
         val hour = localHourOf(state.physiology.lastActiveAtMs)
-        val energy = (state.energy + PhysiologyEngine.energyModifier(state.physiology, hour))
-            .coerceIn(0, 100)
+        // ★ 2026-11-02：生理周期也修正精力（经期头两天最明显）
+        val cycleMoment = state.cycle.momentAt(state.physiology.lastActiveAtMs)
+        val energy = (
+            state.energy +
+                PhysiologyEngine.energyModifier(state.physiology, hour) +
+                CycleEngine.energyModifier(cycleMoment)
+            ).coerceIn(0, 100)
         if (state.isNeutral()) return ""
         val parts = buildString {
             if (state.mood >= 65) append("心情不错")
@@ -229,6 +234,8 @@ class PersonaAssembler(
             if (physiological != null) {
                 append("\n\n").append(physiological)
             }
+            // ★ 2026-11-02：生理周期（只在经期写，其余阶段不写）
+            CycleEngine.promptLine(cycleMoment)?.let { append("\n\n").append(it) }
         }
     }
 

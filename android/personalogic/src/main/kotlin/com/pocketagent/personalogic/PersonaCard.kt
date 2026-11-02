@@ -198,6 +198,14 @@ data class PersonaState(
       * 凌晨三点和上午十点一样精神 —— 那是最容易被察觉的假。
       */
       val physiology: Physiology = Physiology(),
+      
+      /**
+       * **生理周期**（见 [Cycle]）。
+       *
+       * 2026-11-02 加。用日历锚定：不存上次开始时间，每天自动前进一天，
+       * 跨重启不变。默认启用，但只对女性人格有意义。
+       */
+       val cycle: Cycle = Cycle(),
 ) {
 
     init {
