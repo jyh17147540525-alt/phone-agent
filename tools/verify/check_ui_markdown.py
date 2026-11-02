@@ -83,6 +83,7 @@ MODEL_FACING = {
     "legacy/ConflictScript.kt",          # 冲突话术（提示词片段）
     "legacy/MatureContentGate.kt",       # 内容门控的提示词注入
     "legacy/ArmorBreak.kt",              # 破防/引导式提示词
+    "legacy/BackgroundArmor.kt",   # 后台任务的破甲（写给模型，不是界面）
     "memorylogic/MemoryDiaryPrompt.kt",  # 日记生成的提示词
     "memorylogic/MemoryRecall.kt",       # 记忆召回段（拼进提示词）
     "memorylogic/ContextCompressor.kt",  # 压缩摘要段（拼进提示词）
