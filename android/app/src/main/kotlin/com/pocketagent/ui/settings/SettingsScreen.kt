@@ -93,6 +93,8 @@ fun SettingsScreen(
      */
     allowRefusal: Boolean = true,
     onToggleAllowRefusal: ((Boolean) -> Unit)? = null,
+    /** 后台 AI 的调度页。为 null 时不显示入口。 */
+    onOpenBackgroundAi: (() -> Unit)? = null,
     onOpenSources: (() -> Unit)? = null,
     onOpenImport: (() -> Unit)? = null,
     onOpenPermissions: (() -> Unit)? = null,
@@ -317,6 +319,14 @@ fun SettingsScreen(
                         subtitle = "不占屏幕就能做的事：读写文件、发通知",
                         onClick = onOpenCapabilities,
                     )
+                    // 后台 AI 的调度（2026-11-03）。只放调度，清单在抽屉里。
+                    PaListRow(
+                        icon = Icons.Default.Notifications,
+                        title = "后台 AI",
+                        subtitle = "场记与记忆抽取用哪个模型、思考多深",
+                        onClick = onOpenBackgroundAi,
+                    )
+
                     PaListDivider()
                     // ★ 运行模式是**权限的上游**：系统给不给我们权限是一回事，
                     //   我们准不准自己用 root 能力是另一回事。

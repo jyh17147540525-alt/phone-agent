@@ -1230,6 +1230,77 @@ class AppContainer(context: Context) {
         willingnessValue = willingnessEngine.afterDecline(willingnessValue, totalUserTurns)
     }
 
+    // ══════════════════════════════════════════════════════════════
+    //  ★★ 2026-11-03：**后台 AI 的调度**
+    // ══════════════════════════════════════════════════════════════
+    //
+    // 两个窗口：场记（世界书与事件）、记忆抽取。都是每轮之后的异步任务。
+    //
+    // ⚠️ 默认 **null = 跟随对话模型**。
+    //   理由：用户不一定会配。跟随是最不容易出错的默认 ——
+    //   而不配就完全不能用，是更差的选择。
+    @Volatile
+    private var directorModelId: String? = null
+
+    @Volatile
+    private var directorEffort: com.pocketagent.modelrouter.ThinkingEffort =
+        com.pocketagent.modelrouter.ThinkingEffort.LOW
+
+    @Volatile
+    private var memoryModelId: String? = null
+
+    @Volatile
+    private var memoryEffort: com.pocketagent.modelrouter.ThinkingEffort =
+        com.pocketagent.modelrouter.ThinkingEffort.OFF
+
+    /** 「场记」用的模型。null = 跟随对话模型。 */
+    fun directorModel(): String? = directorModelId
+
+    fun directorThinking(): com.pocketagent.modelrouter.ThinkingEffort = directorEffort
+
+    fun setDirectorModel(id: String?) {
+        directorModelId = id
+        startupScope.launch {
+            runCatching {
+                pluginSourceStore.edit {
+                    if (id == null) it.remove(KEY_DIRECTOR_MODEL) else it[KEY_DIRECTOR_MODEL] = id
+                }
+            }.onFailure { Timber.e(it, "场记模型保存失败") }
+        }
+    }
+
+    fun setDirectorEffort(effort: com.pocketagent.modelrouter.ThinkingEffort) {
+        directorEffort = effort
+        startupScope.launch {
+            runCatching { pluginSourceStore.edit { it[KEY_DIRECTOR_EFFORT] = effort.name } }
+                .onFailure { Timber.e(it, "场记思考强度保存失败") }
+        }
+    }
+
+    /** 「记忆抽取」用的模型。null = 跟随对话模型。 */
+    fun memoryModel(): String? = memoryModelId
+
+    fun memoryThinking(): com.pocketagent.modelrouter.ThinkingEffort = memoryEffort
+
+    fun setMemoryModel(id: String?) {
+        memoryModelId = id
+        startupScope.launch {
+            runCatching {
+                pluginSourceStore.edit {
+                    if (id == null) it.remove(KEY_MEMORY_MODEL) else it[KEY_MEMORY_MODEL] = id
+                }
+            }.onFailure { Timber.e(it, "记忆模型保存失败") }
+        }
+    }
+
+    fun setMemoryEffort(effort: com.pocketagent.modelrouter.ThinkingEffort) {
+        memoryEffort = effort
+        startupScope.launch {
+            runCatching { pluginSourceStore.edit { it[KEY_MEMORY_EFFORT] = effort.name } }
+                .onFailure { Timber.e(it, "记忆思考强度保存失败") }
+        }
+    }
+
     /**
      * 当前人格状态的**只读快照**（不推进时间）。
      *
@@ -1254,6 +1325,16 @@ class AppContainer(context: Context) {
             )
             // ★ 拒绝开关（默认 true：见 allowRefusalValue 的注释）
             allowRefusalValue = prefs[KEY_ALLOW_REFUSAL] ?: true
+
+            // ★ 后台 AI 的调度（默认 null = 跟随对话模型）
+            directorModelId = prefs[KEY_DIRECTOR_MODEL]
+            memoryModelId = prefs[KEY_MEMORY_MODEL]
+            directorEffort = prefs[KEY_DIRECTOR_EFFORT]
+                ?.let { runCatching { com.pocketagent.modelrouter.ThinkingEffort.valueOf(it) }.getOrNull() }
+                ?: com.pocketagent.modelrouter.ThinkingEffort.LOW
+            memoryEffort = prefs[KEY_MEMORY_EFFORT]
+                ?.let { runCatching { com.pocketagent.modelrouter.ThinkingEffort.valueOf(it) }.getOrNull() }
+                ?: com.pocketagent.modelrouter.ThinkingEffort.OFF
         }.onFailure { Timber.e(it, "成熟内容授权读取失败") }
     }
 
@@ -3640,6 +3721,16 @@ class AppContainer(context: Context) {
 
     /** 「允许它拒绝」开关。见 [allowRefusalValue]。 */
     private val KEY_ALLOW_REFUSAL = booleanPreferencesKey("allow_refusal_v1")
+
+    // 后台 AI 调度（2026-11-03）
+    private val KEY_DIRECTOR_MODEL =
+        androidx.datastore.preferences.core.stringPreferencesKey("director_model_v1")
+    private val KEY_DIRECTOR_EFFORT =
+        androidx.datastore.preferences.core.stringPreferencesKey("director_effort_v1")
+    private val KEY_MEMORY_MODEL =
+        androidx.datastore.preferences.core.stringPreferencesKey("memory_model_v1")
+    private val KEY_MEMORY_EFFORT =
+        androidx.datastore.preferences.core.stringPreferencesKey("memory_effort_v1")
 
         /**
          * **模型选择**：用户钉死的那个模型 id。

@@ -134,6 +134,15 @@ object Routes {
     // ── 二级页面（隐藏底部导航）──────────────────────────
     const val MARKET = "market"
     const val IMPORT = "import"
+
+    /**
+     * **后台 AI 的调度** —— 场记与记忆抽取用哪个模型、思考多深。
+     *
+     * ★ 2026-11-03：用户要求"页面上就两个窗口，模型清单放抽屉里"。
+     * ⚠️ 与原来的「模型配置」不同：那一页是**逐模型**配档位/用途/价格，
+     *    已删除。这一页只配**两个后台任务**用哪个模型。
+     */
+    const val BACKGROUND_AI = "background-ai"
     const val SOURCES = "sources"
     const val KEYS = "keys"
     const val DSH = "dsh"
@@ -806,6 +815,7 @@ fun AppShell(
                                             // ★ 2026-11-02：「允许它拒绝」开关
         allowRefusal = container.allowRefusal(),
         onToggleAllowRefusal = { container.setAllowRefusal(it) },
+        onOpenBackgroundAi = { navController.navigate(Routes.BACKGROUND_AI) },
         onOpenDsh = { navController.navigate(Routes.DSH) },
                         onOpenSources = { navController.navigate(Routes.SOURCES) },
                         onOpenImport = { navController.navigate(Routes.IMPORT) },
@@ -1152,6 +1162,22 @@ fun AppShell(
                 //   · **角色**：重型模型自动兼调度者（`rolesFor(tier)`）
                 //
                 // ⚠️ `ModelConfig` 这张表**仍在用** —— 删的是界面，不是数据。
+
+                // ── 后台 AI 调度 ────────────────────────────────
+                composable(Routes.BACKGROUND_AI) {
+                    com.pocketagent.ui.settings.BackgroundAiScreen(
+                        models = modelModelsState,
+                        directorModelId = container.directorModel(),
+                        directorEffort = container.directorThinking(),
+                        memoryModelId = container.memoryModel(),
+                        memoryEffort = container.memoryThinking(),
+                        onPickDirectorModel = { container.setDirectorModel(it) },
+                        onDirectorEffort = { container.setDirectorEffort(it) },
+                        onPickMemoryModel = { container.setMemoryModel(it) },
+                        onMemoryEffort = { container.setMemoryEffort(it) },
+                        onBack = { navController.popBackStack() },
+                    )
+                }
 
                 composable(Routes.DSH) {
                     val vm: DshIntegrationViewModel = viewModel(
