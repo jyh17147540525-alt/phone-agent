@@ -95,6 +95,8 @@ fun SettingsScreen(
     onToggleAllowRefusal: ((Boolean) -> Unit)? = null,
     /** 后台 AI 的调度页。为 null 时不显示入口。 */
     onOpenBackgroundAi: (() -> Unit)? = null,
+    /** 世界书面板。为 null 时不显示入口。 */
+    onOpenWorldBook: (() -> Unit)? = null,
     onOpenSources: (() -> Unit)? = null,
     onOpenImport: (() -> Unit)? = null,
     onOpenPermissions: (() -> Unit)? = null,
@@ -319,6 +321,14 @@ fun SettingsScreen(
                         subtitle = "不占屏幕就能做的事：读写文件、发通知",
                         onClick = onOpenCapabilities,
                     )
+                    PaListRow(
+                        icon = Icons.Default.Psychology,
+                        title = "世界书",
+                        subtitle = "设定由你定，它提议的事实要你点头",
+                        onClick = onOpenWorldBook,
+                    )
+                    PaListDivider()
+
                     // 后台 AI 的调度（2026-11-03）。只放调度，清单在抽屉里。
                     PaListRow(
                         icon = Icons.Default.Notifications,

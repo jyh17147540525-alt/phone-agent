@@ -1339,6 +1339,88 @@ class AppContainer(context: Context) {
     }
 
     // ══════════════════════════════════════════════════════════════
+    //  ★★ 2026-11-03：**世界书**
+    // ══════════════════════════════════════════════════════════════
+    //
+    // ⚠️ 用户要求"面板也做了" —— 在此之前场记提议的事实**只记日志**，
+    //    那是"建好了没接线"的最后一环。
+    @Volatile
+    private var worldEntriesValue: List<com.pocketagent.personalogic.WorldEntry> = emptyList()
+
+    /** 待用户确认的事实（场记提议的）。**不入库**，确认后才进。 */
+    @Volatile
+    private var pendingFactsValue: List<com.pocketagent.personalogic.ProposedFact> = emptyList()
+
+    fun worldEntries(): List<com.pocketagent.personalogic.WorldEntry> = worldEntriesValue
+
+    fun pendingFacts(): List<com.pocketagent.personalogic.ProposedFact> = pendingFactsValue
+
+    /**
+     * **确认一条事实** → 进世界书。
+     *
+     * ⚠️ 只能确认**事实**。设定必须由用户手填 ——
+     *    那是"世界书不崩"的根本（见 `WorldBook` 的类注释）。
+     */
+    fun confirmFact(id: String) {
+        val f = pendingFactsValue.firstOrNull { it.id == id } ?: return
+        val book = com.pocketagent.personalogic.WorldBook(worldEntriesValue)
+            .withFact(
+                com.pocketagent.personalogic.WorldEntry(
+                    id = f.id,
+                    title = f.title,
+                    keys = f.keys,
+                    content = f.content,
+                    kind = com.pocketagent.personalogic.WorldEntryKind.FACT,
+                ),
+                confirmed = true,
+            )
+        worldEntriesValue = book.all()
+        pendingFactsValue = pendingFactsValue.filterNot { it.id == id }
+        persistWorldBook()
+    }
+
+    fun rejectFact(id: String) {
+        pendingFactsValue = pendingFactsValue.filterNot { it.id == id }
+    }
+
+    /** 用户删掉一条（设定与事实都能删）。 */
+    fun removeWorldEntry(id: String) {
+        worldEntriesValue = com.pocketagent.personalogic.WorldBook(worldEntriesValue)
+            .without(id).all()
+        persistWorldBook()
+    }
+
+    /** 用户手填一条**设定**。 */
+    fun addSetting(title: String, keys: List<String>, content: String) {
+        if (title.isBlank() || content.isBlank() || keys.none { it.isNotBlank() }) return
+        val entry = com.pocketagent.personalogic.WorldEntry(
+            id = "s-" + title.hashCode().toString(16),
+            title = title.trim(),
+            keys = keys.map { it.trim() }.filter { it.isNotEmpty() },
+            content = content.trim(),
+            kind = com.pocketagent.personalogic.WorldEntryKind.SETTING,
+        )
+        worldEntriesValue = com.pocketagent.personalogic.WorldBook(worldEntriesValue)
+            .withSetting(entry).all()
+        persistWorldBook()
+    }
+
+    private fun persistWorldBook() {
+        val snapshot = worldEntriesValue
+        startupScope.launch {
+            runCatching {
+                val json = kotlinx.serialization.json.Json.encodeToString(
+                    kotlinx.serialization.builtins.ListSerializer(
+                        com.pocketagent.personalogic.WorldEntry.serializer(),
+                    ),
+                    snapshot,
+                )
+                pluginSourceStore.edit { it[KEY_WORLD_BOOK] = json }
+            }.onFailure { Timber.e(it, "世界书保存失败") }
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════
     //  ★★ 2026-11-03：**后台任务的调度**
     // ══════════════════════════════════════════════════════════════
     //
@@ -1485,9 +1567,15 @@ class AppContainer(context: Context) {
         // ⚠️ 提议的事实**不自动入库** —— 需要用户确认（见 WorldBook.withFact）。
         //    这里只记日志，等世界书面板做出来再走确认流程。
         if (accepted.proposedFacts.isNotEmpty()) {
+            // ★ 2026-11-03：进**待确认列表**，由世界书面板让用户点头。
+            //   ⚠️ 仍然不自动入库 —— 见 `WorldBook.withFact(confirmed=...)`。
+            val known = worldEntriesValue.map { it.id }.toSet()
+            pendingFactsValue = (pendingFactsValue + accepted.proposedFacts)
+                .distinctBy { it.id }
+                .filterNot { it.id in known }
             Timber.i(
-                "后台任务 %s 提议了 %d 条事实（待确认，未入库）",
-                task.label, accepted.proposedFacts.size,
+                "后台任务 %s 提议了 %d 条事实（待确认，共 %d 条待处理）",
+                task.label, accepted.proposedFacts.size, pendingFactsValue.size,
             )
         }
     }
@@ -1607,6 +1695,19 @@ class AppContainer(context: Context) {
             )
             // ★ 拒绝开关（默认 true：见 allowRefusalValue 的注释）
             allowRefusalValue = prefs[KEY_ALLOW_REFUSAL] ?: true
+
+            // ★ 世界书
+            runCatching {
+                val raw = prefs[KEY_WORLD_BOOK]
+                if (!raw.isNullOrBlank()) {
+                    worldEntriesValue = kotlinx.serialization.json.Json.decodeFromString(
+                        kotlinx.serialization.builtins.ListSerializer(
+                            com.pocketagent.personalogic.WorldEntry.serializer(),
+                        ),
+                        raw,
+                    )
+                }
+            }.onFailure { Timber.w(it, "世界书读取失败（按空处理）") }
 
             // ★ 后台 AI 的调度（默认 null = 跟随对话模型）
             directorModelId = prefs[KEY_DIRECTOR_MODEL]
@@ -4023,6 +4124,8 @@ class AppContainer(context: Context) {
         androidx.datastore.preferences.core.stringPreferencesKey("director_model_v1")
     private val KEY_DIRECTOR_EFFORT =
         androidx.datastore.preferences.core.stringPreferencesKey("director_effort_v1")
+    private val KEY_WORLD_BOOK =
+        androidx.datastore.preferences.core.stringPreferencesKey("world_book_v1")
     private val KEY_PHYSIO_MODEL =
         androidx.datastore.preferences.core.stringPreferencesKey("physio_model_v1")
     private val KEY_PHYSIO_EFFORT =

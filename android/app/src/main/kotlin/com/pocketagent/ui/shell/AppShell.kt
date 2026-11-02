@@ -143,6 +143,9 @@ object Routes {
      *    已删除。这一页只配**两个后台任务**用哪个模型。
      */
     const val BACKGROUND_AI = "background-ai"
+
+    /** 世界书：设定与事实。 */
+    const val WORLD_BOOK = "world-book"
     const val SOURCES = "sources"
     const val KEYS = "keys"
     const val DSH = "dsh"
@@ -816,6 +819,7 @@ fun AppShell(
         allowRefusal = container.allowRefusal(),
         onToggleAllowRefusal = { container.setAllowRefusal(it) },
         onOpenBackgroundAi = { navController.navigate(Routes.BACKGROUND_AI) },
+        onOpenWorldBook = { navController.navigate(Routes.WORLD_BOOK) },
         onOpenDsh = { navController.navigate(Routes.DSH) },
                         onOpenSources = { navController.navigate(Routes.SOURCES) },
                         onOpenImport = { navController.navigate(Routes.IMPORT) },
@@ -1196,6 +1200,35 @@ fun AppShell(
                         onPhysioEffort = { physioEffort = it; container.setPhysioEffort(it) },
                         onPickMemoryModel = { memoryModel = it; container.setMemoryModel(it) },
                         onMemoryEffort = { memoryEffort = it; container.setMemoryEffort(it) },
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+
+                composable(Routes.WORLD_BOOK) {
+                    // ⚠️ 与后台 AI 同一处理：这些是普通 var，不是 Compose 状态，
+                    //   必须有本地状态才刷得动。
+                    var entries by remember { mutableStateOf(container.worldEntries()) }
+                    var pending by remember { mutableStateOf(container.pendingFacts()) }
+                    com.pocketagent.ui.settings.WorldBookScreen(
+                        entries = entries,
+                        pending = pending,
+                        onConfirm = { id ->
+                            container.confirmFact(id)
+                            entries = container.worldEntries()
+                            pending = container.pendingFacts()
+                        },
+                        onReject = { id ->
+                            container.rejectFact(id)
+                            pending = container.pendingFacts()
+                        },
+                        onRemove = { id ->
+                            container.removeWorldEntry(id)
+                            entries = container.worldEntries()
+                        },
+                        onAddSetting = { t, k, c2 ->
+                            container.addSetting(t, k, c2)
+                            entries = container.worldEntries()
+                        },
                         onBack = { navController.popBackStack() },
                     )
                 }
