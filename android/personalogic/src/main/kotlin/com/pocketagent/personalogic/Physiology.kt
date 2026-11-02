@@ -152,11 +152,24 @@ object PhysiologyEngine {
      *
      * 范围大约 -32..+22。
      */
-    fun energyModifier(body: Physiology, hourOfDay: Double): Int {
+    fun energyModifier(
+        body: Physiology,
+        hourOfDay: Double,
+        /**
+         * 体检报告推导出的体质参数。
+         *
+         * ⚠️ 2026-11-02 加的第三个参数，**有默认值** —— 既有调用点与测试
+         *    一行都不用改，而新调用点能传真实体质进来。
+         */
+        profile: BodyProfile = BodyProfile.Default,
+    ): Int {
+        // ★ 昼夜型：夜猫子的整个节律后移（不是"晚睡"，是**峰值也后移**）
+        val shiftedHour = hourOfDay - profile.circadianShiftHours
         // 0.6 是"平常"的基准线：高清醒 +，低清醒 -
-        val circadian = ((alertness(hourOfDay) - 0.6) * 40.0)
-        // 睡眠债：每欠 1 小时扣 4 点，封顶 20
-        val debt = -(body.sleepDebtHours.coerceAtMost(5.0) * 4.0)
+        val circadian = ((alertness(shiftedHour) - 0.6) * 40.0)
+
+        // ★ 贫血/低铁的人，同样的睡眠债会觉得更累
+        val debt = -(body.sleepDebtHours.coerceAtMost(5.0) * 4.0 * profile.fatigueMultiplier)
         return (circadian + debt).roundToInt()
     }
 
@@ -210,7 +223,12 @@ object PhysiologyEngine {
      * ⚠️ 文案**不含索取**（不说"你怎么这么晚还不睡，是不是不在乎我"）。
      *    关心和勒索只差一句话。
      */
-    fun promptLine(body: Physiology, hourOfDay: Double, nowMs: Long): String? {
+    fun promptLine(
+        body: Physiology,
+        hourOfDay: Double,
+        nowMs: Long,
+        profile: BodyProfile = BodyProfile.Default,
+    ): String? {
         val sitting = body.sittingHours(nowMs)
 
         // ① 深夜 —— 最有信息量的一条

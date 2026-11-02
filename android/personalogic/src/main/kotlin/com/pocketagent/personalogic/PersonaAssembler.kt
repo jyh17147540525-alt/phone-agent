@@ -194,9 +194,12 @@ class PersonaAssembler(
         val hour = localHourOf(state.physiology.lastActiveAtMs)
         // ★ 2026-11-02：生理周期也修正精力（经期头两天最明显）
         val cycleMoment = state.cycle.momentAt(state.physiology.lastActiveAtMs)
+        // ★ 2026-11-02：**体检报告在这里变成行为**
+        //   贫血 ⇒ 更累、恢复慢；夜猫子 ⇒ 节律后移；心率快 ⇒ 更怕压力
+        val body = state.health.derive()
         val energy = (
             state.energy +
-                PhysiologyEngine.energyModifier(state.physiology, hour) +
+                PhysiologyEngine.energyModifier(state.physiology, hour, body) +
                 CycleEngine.energyModifier(cycleMoment)
             ).coerceIn(0, 100)
         if (state.isNeutral()) return ""
@@ -216,6 +219,7 @@ class PersonaAssembler(
             body = state.physiology,
             hourOfDay = hour,
             nowMs = state.physiology.lastActiveAtMs,
+            profile = body,
         )
 
         return buildString {
@@ -236,7 +240,60 @@ class PersonaAssembler(
             }
             // ★ 2026-11-02：生理周期（只在经期写，其余阶段不写）
             CycleEngine.promptLine(cycleMoment)?.let { append("\n\n").append(it) }
+            // ★ 体质那一段：标红的化验项 + 报告覆盖不到的身体细节
+            bodySection(state.health)?.let { append("\n\n").append(it) }
         }
+    }
+
+    /**
+     * **体质那一段** —— 把体检报告的结论与身体细节写进提示词。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★ 两条克制
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 1. **全绿就不写** —— 正常人没有特别要说的。
+     *    每次都复述"你身体健康"是噪音。
+     * 2. **只写会影响表现的** —— 不写"总胆固醇 4.4"这种与行为无关的数字。
+     */
+    private fun bodySection(health: HealthReport): String? {
+        val abnormal = health.abnormalNote()
+        val beyond = health.beyond
+
+        val details = buildList {
+            if (beyond.temperaturePreference != TemperaturePreference.NORMAL) {
+                add(
+                    if (beyond.temperaturePreference == TemperaturePreference.COLD_BLOODED) {
+                        "你比常人怕冷，冬天手脚常年是凉的。"
+                    } else {
+                        "你很怕热，稍微一动就出汗。"
+                    },
+                )
+            }
+            if (beyond.needleFaintness) add("你晕针晕血，看到针头会别开眼睛。")
+            if (beyond.allergies.isNotEmpty()) {
+                add("你对${beyond.allergies.joinToString("、")}过敏。")
+            }
+            if (beyond.oldInjuries.isNotEmpty()) {
+                add("旧伤：${beyond.oldInjuries.joinToString("；")}。阴天或久坐之后会不舒服。")
+            }
+            if (beyond.bodyHabits.isNotEmpty()) {
+                add("小动作：${beyond.bodyHabits.joinToString("、")}。")
+            }
+            if (beyond.scentNote.isNotBlank()) add("身上：${beyond.scentNote}")
+            if (beyond.voiceNote.isNotBlank()) add("声音：${beyond.voiceNote}")
+            if (beyond.hungerNote.isNotBlank()) add("空腹的时候：${beyond.hungerNote}")
+        }
+
+        if (abnormal.isBlank() && details.isEmpty()) return null
+
+        return buildString {
+            appendLine("## 你的身体")
+            if (abnormal.isNotBlank()) {
+                appendLine("- 体检提示：$abnormal。这会影响你的精力，不必主动汇报这些数字。")
+            }
+            details.forEach { appendLine("- $it") }
+        }.trimEnd()
     }
 
     /**

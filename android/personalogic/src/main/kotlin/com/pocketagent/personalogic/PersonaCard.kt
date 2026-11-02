@@ -206,6 +206,14 @@ data class PersonaState(
        * 跨重启不变。默认启用，但只对女性人格有意义。
        */
        val cycle: Cycle = Cycle(),
+       
+       /**
+        * **体检报告**（见 [HealthReport]）。
+        *
+        * 2026-11-02 加。它不是描述文字 —— 化验值会**参数化引擎**：
+        * 贫血 ⇒ 更容易累、恢复更慢、更怕冷（见 HealthReport.derive）。
+        */
+        val health: HealthReport = HealthReport(),
 ) {
 
     init {
