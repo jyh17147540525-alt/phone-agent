@@ -229,3 +229,67 @@ class OutputSanitizerTest {
         assertTrue(OutputSanitizer.foreignBits("行行行，听你的。").isEmpty())
     }
 }
+
+/**
+ * **示例对话** —— 比禁令管用。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  ★ 依据（SillyTavern 社区反复验证的一条）
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * > The more clinical your character card is with bracketed sections
+ * > dryly explaining the character, the more the LLM will just think
+ * > that that type of language is acceptable.
+ *
+ * 反过来说：**给它看台词，它就会写台词；给它看设定文，它就会写设定文。**
+ *
+ * ⚠️ 用户的人格设定正是临床腔，所以模型开始自述「我不端着」。
+ *    光禁不够 —— 得给它最后一屏"人话"。
+ */
+class VoiceSamplesTest {
+
+    private val s = VoiceSamples.promptSection("主人")
+
+    @Test
+    fun `有正面的台词样例`() {
+        assertTrue("必须给真正的台词", s.contains("他说："))
+        assertTrue("必须给出她的回应", s.contains("她："))
+    }
+
+    @Test
+    fun `有反面样例做对照`() {
+        // ⚠️ 关键是让模型**看到差别**，而不是只被告知"不要那样"
+        assertTrue("必须有反面", s.contains("反面"))
+        assertTrue("反面里要包含念性格", s.contains("我不端着"))
+        assertTrue("反面里要包含念系统", s.contains("记账上了"))
+        assertTrue("反面里要包含总结情绪", s.contains("心里有点失落"))
+    }
+
+    @Test
+    fun `样例体现不确定感`() {
+        // ★ 调研里的 imperfect certainty —— 真人不会把话说满
+        assertTrue("要有「大概吧」这类不确定", s.contains("大概吧"))
+    }
+
+    @Test
+    fun `禁止替对方说话`() {
+        assertTrue(s.contains("别替对方说话"))
+    }
+
+    @Test
+    fun `禁止把话说满`() {
+        assertTrue(s.contains("别把话说满"))
+    }
+
+    @Test
+    fun `带上称呼`() {
+        val withAddr = VoiceSamples.promptSection("鱼片")
+        assertTrue(withAddr.contains("鱼片"))
+    }
+
+    @Test
+    fun `没有称呼时不出现空称呼`() {
+        val noAddr = VoiceSamples.promptSection("")
+        assertFalse("不该出现「作为 的女仆」这种空位", noAddr.contains("作为 的女仆"))
+    }
+}

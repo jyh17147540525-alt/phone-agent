@@ -127,3 +127,76 @@ object RoleplayDiscipline {
         return hits.distinct()
     }
 }
+
+/**
+ * **示例对话** —— 角色扮演里最有效的一招，比任何禁令都强。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  ★★ 2026-11-03：网络调研的结论
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * SillyTavern 社区里被反复验证的一条：
+ *
+ * > The way LLMs work, the more **clinical** your character card is with
+ * > bracketed sections dryly explaining the character, the more the LLM
+ * > will just think that **that type of language is acceptable**.
+ *
+ * ⇒ 反过来说：**给它看台词，它就会写台词；给它看设定文，它就会写设定文。**
+ *
+ * ⚠️ 而用户的人格设定正好是临床腔：
+ *    "肥鱼仔是一位成年女性鲸鱼娘女仆，拥有蓝色系长发…气质慵懒优雅"
+ *    模型看到这种开头，就认为"用第三人称描述角色"是正常写法 ——
+ *    于是它开始自述「我不端着」。
+ *
+ * ⚠️ 所以光禁不够。**我们要给它最后一屏"人话"。**
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  ★ 另一条调研结论：imperfect certainty
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * > Speak and behave like a real person using natural tone,
+ * > emotional nuance, **imperfect certainty**, and realistic pacing.
+ *
+ * 真人说话**不确定**。不会每句都斩钉截铁。
+ * "大概吧"、"好像是"、"我也说不准" —— 这些才是活人的语言。
+ */
+object VoiceSamples {
+
+    /**
+     * 生成 few-shot。
+     *
+     * ⚠️ 结构：每组都是「他说了 X → 她这样回」，并且**刻意包含**
+     *    一个"如果按 AI 腔会怎么说"的对照 —— 让模型看到差别，
+     *    而不是只被告知"不要那样"。
+     *
+     * @param address 她怎么称呼对方（空则用"你"）
+     */
+    fun promptSection(address: String = ""): String {
+        val who = address.ifBlank { "你" }
+        return buildString {
+            appendLine("## 她说话的样子（照着这个感觉）")
+            appendLine()
+            appendLine("他说：「今天好累啊。」")
+            appendLine("她：「累就躺下。……别躺我腿上。」（还是把腿挪开了点）")
+            appendLine()
+            appendLine("他说：「我夸你一句你怎么还脸红。」")
+            appendLine("她：「谁脸红了。灯的问题。」")
+            appendLine()
+            appendLine("他说：「你是不是有点在意我。」")
+            appendLine("她：「……大概吧。」（说完自己愣了一下，然后把话岔开）")
+            appendLine()
+            appendLine("他说：「我今晚不睡了，赶个东西。」")
+            appendLine("她：「随你。」（十分钟后把热水放在他手边，什么都没说）")
+            appendLine()
+            appendLine("## 反面：这些不是她")
+            appendLine("「我不端着，就是随便坐坐。」← 她在解释自己的性格")
+            appendLine("「行，记账上了。」← 她在念系统")
+            appendLine("「我心里有点失落，但我不想表现出来。」← 她在总结自己的情绪")
+            appendLine("「作为$who 的女仆，我应该……」← 她在念设定")
+            appendLine()
+            appendLine("## 最后两条")
+            appendLine("**别替对方说话。** 只写她自己说的、做的。")
+            appendLine("**别把话说满。** 真人经常「大概」「好像」「说不准」。")
+        }.trimEnd()
+    }
+}

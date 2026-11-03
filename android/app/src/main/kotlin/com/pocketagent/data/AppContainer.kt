@@ -3984,9 +3984,16 @@ class AppContainer(context: Context) {
         // ⚠️ 用户报："角色会说自己不端着、记账上了，ai 味超级浓"
         //    这是**元语言泄漏** —— 模型把设定文本/系统机制当台词说了。
         //    设定越详细，越容易犯。
+        val userAddr = currentCustomPersona()?.addressUser?.take(6).orEmpty()
         val discipline = com.pocketagent.personalogic.RoleplayDiscipline.promptSection(
-            userAddress = currentCustomPersona()?.addressUser?.take(6).orEmpty(),
+            userAddress = userAddr,
         )
+        // ★★ 2026-11-03：**示例对话** —— 比禁令管用得多
+        //
+        // ⚠️ 调研结论：设定写得越"临床"，模型越认为那种腔调是正常输出。
+        //    用户的人格设定正是临床腔，所以模型开始自述「我不端着」。
+        //    ⇒ 给它最后一屏"人话"，让它知道"正常输出"长什么样。
+        val voiceSamples = com.pocketagent.personalogic.VoiceSamples.promptSection(userAddr)
 
         // ★ 2026-11-03：**生理线索**（生理导演给的）进提示词
         // ⚠️ 有效期 90 分钟 —— "她今天有点冷"隔一天还挂着会很怪
@@ -4004,7 +4011,7 @@ class AppContainer(context: Context) {
                 "\n说得自然一点，不要逐条汇报。"
         }
         val withClues0 = if (clueSection.isBlank()) withHuman else withHuman + "\n\n" + clueSection
-        val withClues = withClues0 + "\n\n" + discipline
+        val withClues = withClues0 + "\n\n" + discipline + "\n\n" + voiceSamples
         val final = if (willing.isNullOrBlank()) withClues else withClues + "\n\n" + willing
 
         // ══════════════════════════════════════════════════════════
