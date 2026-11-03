@@ -888,6 +888,14 @@ class AppContainer(context: Context) {
      */
     private val MAX_ATOM_REWRITES: Int = 30
 
+    /**
+     * **每一层**最多改多少条。
+     *
+     * ⚠️ 分层封顶而不是总量封顶：总量封顶会让"事实"那一层
+     *    把额度吃光，而"约束"根本轮不到 —— 那是最坏的分配。
+     */
+    private val MAX_PER_TIER: Int = 12
+
     /** 单次会话多少轮之后算"长会话"（更耗意愿）。 */
     private val LONG_SESSION_TURNS: Int = 30
 
@@ -1779,9 +1787,14 @@ class AppContainer(context: Context) {
         )
         val oldSummary = personaDigest(oldPersona)
         val newSummary = personaDigest(newPersona)
+        // ⚠️ 2026-11-03 真机抓到：提前返回的分支都在 `envoyRunning = true` **之前**，
+        //    于是它们不设标志 ⇒ 连点 6 次就会**同时进 6 个**。
+        //    ⇒ 标志提到最前面，整个函数体包进 try/finally。
         if (envoyRunning) {
             return com.pocketagent.personalogic.PersonaSyncReport(0, 0, "上一次还没跑完")
         }
+        envoyRunning = true
+        try {
         if (oldMarkers.isEmpty()) {
             Timber.w("记忆使者中止：旧标记为空（oldPersona=%s）", oldPersona?.name ?: "null")
             return com.pocketagent.personalogic.PersonaSyncReport(
@@ -1794,8 +1807,6 @@ class AppContainer(context: Context) {
                 0, 0, "新旧设定一样，没有需要改的地方",
             )
         }
-        envoyRunning = true
-        try {
             val store = conversationStore
                 ?: return com.pocketagent.personalogic.PersonaSyncReport(0, 0, "会话还没打开")
             val turns = store.recentForModel(sessionId, limit)
@@ -1812,12 +1823,46 @@ class AppContainer(context: Context) {
             //
             // ⇒ 把判断交给模型：全部交给它，**不冲突就原样返回**。
             //   闸门会拦住"改坏了"的，"原样返回"算 kept。
-            val targets = assistant
-            Timber.i(
-                "记忆使者扫描：本会话 %d 轮，角色说过 %d 条，含旧设定 %d 条",
-                turns.size, assistant.size, targets.size,
+            // ══════════════════════════════════════════════════════
+            //  ★★ 2026-11-03：**按记忆分层排序**
+            // ══════════════════════════════════════════════════════
+            //
+            // ⚠️ 对话轮次属于最低一层（只是替换设定）。
+            //    真正要优先的是**约束与偏好** —— 那两类在原子库里。
+            //    ⇒ 统一的待办清单：原子（按分层）+ 对话。
+            val oldMarkerList = oldMarkers
+            val atomTargetsAll = runCatching {
+                atomStore.loadAll().filter {
+                    com.pocketagent.personalogic.PersonaSync.needsRewrite(it.text, oldMarkerList)
+                }.map {
+                    com.pocketagent.personalogic.RewriteTarget(
+                        id = "atom:" + it.id,
+                        text = it.text,
+                        tier = com.pocketagent.personalogic.MemoryTier
+                            .ofAtomKindName(it.kind.name),
+                    )
+                }
+            }.getOrDefault(emptyList())
+
+            val dialogueTargets = assistant.map {
+                com.pocketagent.personalogic.RewriteTarget(
+                    id = "turn:" + it.id,
+                    text = it.text,
+                    tier = com.pocketagent.personalogic.MemoryTier.DIALOGUE,
+                )
+            }
+
+            // 层间按 priority 排；每层封顶（约束/偏好优先保证被改到）
+            val planned = com.pocketagent.personalogic.orderByTier(
+                targets = atomTargetsAll + dialogueTargets,
+                maxPerTier = MAX_PER_TIER,
             )
-            if (targets.isEmpty()) {
+
+            Timber.i(
+                "记忆使者扫描：本会话 %d 轮，角色说过 %d 条；原子命中 %d 条；合并后待改 %d 条（按分层排序）",
+                turns.size, assistant.size, atomTargetsAll.size, planned.size,
+            )
+            if (planned.isEmpty()) {
                 // ⚠️ 现在 targets = 全部角色发言（不预筛），所以走到这里
                 //    只意味着**这个会话里她还没说过话**。
                 return com.pocketagent.personalogic.PersonaSyncReport(
@@ -1831,7 +1876,7 @@ class AppContainer(context: Context) {
                 envoyBackupFile.parentFile?.mkdirs()
                 envoyBackupFile.writeText(
                     buildString {
-                        for (t in targets) {
+                        for (t in planned) {
                             appendLine(
                                 kotlinx.serialization.json.Json.encodeToString(
                                     kotlinx.serialization.json.JsonObject.serializer(),
@@ -1849,26 +1894,42 @@ class AppContainer(context: Context) {
             // ② 逐条改写
             var changed = 0
             var kept = 0
+            // 原子改写结果（统一 replaceAll 写回，避免每条都读写一次大文件）
+            val atomRewrite = HashMap<String, String>()
             // 对话占 60%，原子占 40% —— 让百分比反映真实工作量
-            val total = targets.size
-            for ((i, t) in targets.withIndex()) {
-                onProgress(i, total, "正在洗第 ${i + 1} / $total 句")
+            val total = planned.size
+            for ((i, t) in planned.withIndex()) {
+                onProgress(i, total, "正在洗${t.tier.label} ${i + 1} / $total")
                 val prompt = com.pocketagent.personalogic.PersonaSync.buildPrompt(
                     oldSummary, newSummary, t.text,
                 )
+                // ★ **按层取思考强度**：min(层建议, 你在设置里选的上限)
+                val tierRank = com.pocketagent.personalogic.effortRankFor(
+                    tier = t.tier,
+                    capRank = envoyEffort.ordinal,
+                )
+                val tierEffort = com.pocketagent.modelrouter.ThinkingEffort.entries
+                    .getOrElse(tierRank) { com.pocketagent.modelrouter.ThinkingEffort.LOW }
                 val raw = runCatching {
                     backgroundLlmComplete(
                         prompt = prompt,
                         purpose = com.pocketagent.personalogic.BackgroundLlmPort.BackgroundPurpose.DIRECTOR,
                         modelId = envoyModelId,
-                        effort = envoyEffort,
+                        effort = tierEffort,
                     )
                 }.getOrDefault("")
 
                 when (val v = com.pocketagent.personalogic.PersonaSync.accept(t.text, raw)) {
                     is com.pocketagent.personalogic.PersonaSync.Verdict.Accept -> {
                         if (v.text == t.text) { kept++ } else {
-                            store.rewriteTurn(t.id, v.text)
+                            when {
+                                t.id.startsWith("turn:") ->
+                                    store.rewriteTurn(t.id.removePrefix("turn:"), v.text)
+                                t.id.startsWith("atom:") -> {
+                                    // 原子写回交给下面统一 replaceAll（见 atomRewrite）
+                                    atomRewrite[t.id.removePrefix("atom:")] = v.text
+                                }
+                            }
                             changed++
                         }
                     }
@@ -1888,6 +1949,16 @@ class AppContainer(context: Context) {
             runCatching {
                 val atoms = atomStore.loadAll()
                 atomCount = atoms.size
+                // ★ 把上一步收集到的原子改写**一次性写回** ——
+                //   逐条写会造成 850 次文件读写。
+                if (atomRewrite.isNotEmpty()) {
+                    atomStore.replaceAll(
+                        atoms.map { a ->
+                            atomRewrite[a.id]?.let { a.copy(text = it) } ?: a
+                        },
+                    )
+                    atomsChanged += atomRewrite.size
+                }
                 // ══════════════════════════════════════════════════
                 //  ★★ 2026-11-03 真机实测后**回退**：原子必须预筛
                 // ══════════════════════════════════════════════════
@@ -1905,9 +1976,9 @@ class AppContainer(context: Context) {
                     // 封顶：一次最多改这么多条原子
                     .take(MAX_ATOM_REWRITES)
                 Timber.i("记忆原子：共 %d 条，含旧设定 %d 条", atoms.size, atomTargets.size)
-                if (atomTargets.isNotEmpty()) {
+                if (false) {
                     val rewritten = atoms.map { atom ->
-                        if (atom !in atomTargets) return@map atom
+                        if (atom !in emptyList<Any>()) return@map atom
                         onProgress(
                             total + atomTargets.indexOf(atom),
                             total + atomTargets.size,

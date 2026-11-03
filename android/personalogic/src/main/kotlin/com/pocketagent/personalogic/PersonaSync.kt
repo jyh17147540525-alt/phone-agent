@@ -174,3 +174,105 @@ data class PersonaSyncReport(
         else -> "改了 $changed 条（共扫 $scanned 条）"
     }
 }
+
+/**
+ * **记忆的分层** —— 哪些先改、改得多认真。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  ★★ 2026-11-03：用户要求
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * > "你得按照记忆分层系统里的那些重点记忆开始改起，
+ * >  不同等级的记忆用不同的思考强度去改"
+ *
+ * ⚠️ 这不是"优化"，是**必须的**：
+ *   850 条原子如果平铺着一个强度改，要么烧穿 token，
+ *   要么把最重要的（约束）和最不重要的（今天下雨）同等对待。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  ★ 三层，权重与 🔥 强度都不同
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * | 层 | 例子 | 为什么是这个强度 |
+ * |---|---|---|
+ * | **约束** | "他不能吃辣" | 改错会**直接造成伤害** ⇒ 最强 |
+ * | **偏好** | "他喜欢安静" | "你是谁"的证据 ⇒ 高 |
+ * | **阶段结论** | "最近他在准备考试" | 会过时，改错影响小 ⇒ 低 |
+ * | **事实** | "今天下雨" | 基本不该改 ⇒ 关闭 |
+ * | **对话** | 角色说过的话 | 只是替换设定 ⇒ 低 |
+ *
+ * ⚠️ 强度用**档位序号**表示（0..3），不直接引用 `ThinkingEffort` ——
+ *    `:personalogic` 不依赖 `:modelrouter`，那层映射放在 `:app`。
+ */
+enum class MemoryTier(
+    val label: String,
+    /** 排序用：越大越先改 */
+    val priority: Int,
+    /** 这一层**建议**的思考强度档位（0=off, 1=low, 2=high, 3=max） */
+    val suggestedEffortRank: Int,
+) {
+    /** 约束：改错会直接造成伤害，最该认真。 */
+    CONSTRAINT("约束", priority = 50, suggestedEffortRank = 3),
+
+    /** 偏好："你是谁"的证据。 */
+    PREFERENCE("偏好", priority = 40, suggestedEffortRank = 2),
+
+    /** 角色说过的话：只是替换设定，不需要推演。 */
+    DIALOGUE("说过的话", priority = 30, suggestedEffortRank = 1),
+
+    /** 阶段结论：会过时，影响小。 */
+    STAGE_CONCLUSION("阶段结论", priority = 20, suggestedEffortRank = 1),
+
+    /** 事实：基本不该改（"今天下雨"与设定无关）。 */
+    FACT("事实", priority = 10, suggestedEffortRank = 0),
+    ;
+
+    companion object {
+        /** 原子类别的名字 → 分层。**不认识就当事实**（最保守，强度最低）。 */
+        fun ofAtomKindName(kind: String): MemoryTier = when (kind.uppercase()) {
+            "CONSTRAINT" -> CONSTRAINT
+            "PREFERENCE" -> PREFERENCE
+            "STAGE_CONCLUSION" -> STAGE_CONCLUSION
+            else -> FACT
+        }
+    }
+}
+
+/** 一条待改写的条目，**带分层**。 */
+data class RewriteTarget(
+    val id: String,
+    val text: String,
+    val tier: MemoryTier,
+)
+
+/**
+ * 把待改条目**按分层排好序**。
+ *
+ * ⚠️ 排序的目的不只是"先改重要的"：
+ *    万一中途失败 / 用户中途退出，**已经改完的是最重要的那些**。
+ *    反过来排的话，最可能的结果是"改了一堆不重要的，最要紧的没动"。
+ */
+fun orderByTier(targets: List<RewriteTarget>, maxPerTier: Int = Int.MAX_VALUE): List<RewriteTarget> {
+    val byTier = targets.groupBy { it.tier }
+    val out = mutableListOf<RewriteTarget>()
+    // 层间：priority 高的先
+    for (tier in MemoryTier.entries.sortedByDescending { it.priority }) {
+        // 层内：保持原顺序，但封顶
+        out += byTier[tier].orEmpty().take(maxPerTier)
+    }
+    return out
+}
+
+/**
+ * 某一层该用多强的思考。
+ *
+ * @param capRank 用户在设置里选的**上限**（0..3）
+ *
+ * ★ 取 `min(层的建议, 用户上限)`：
+ *   · 用户配 low ⇒ 全部用 low（他不想花钱，尊重）
+ *   · 用户配 max ⇒ 按层分开（约束最强、事实关闭）
+ *
+ * ⚠️ 不做"层的建议优先于用户" —— 那等于用户的选择无效。
+ */
+fun effortRankFor(tier: MemoryTier, capRank: Int): Int =
+    minOf(tier.suggestedEffortRank, capRank.coerceIn(0, 3))
