@@ -4012,6 +4012,22 @@ class AppContainer(context: Context) {
         }
         val withClues0 = if (clueSection.isBlank()) withHuman else withHuman + "\n\n" + clueSection
         val withClues = withClues0 + "\n\n" + discipline + "\n\n" + voiceSamples
+
+        // ★ 2026-11-03：**装配自检日志**
+        //
+        // ⚠️ 这三段是"去 AI 味"的全部落地物，但它们是否真的进了提示词
+        //    一直没法从外部确认（我不该往用户正在聊的会话里发测试消息）。
+        //    ⇒ 每次组装都记一行，下次对话就能核对。
+        runCatching {
+            Timber.i(
+                "提示词装配：%d 字｜纪律段 %s｜示例对话 %s｜生理线索 %s｜世界书 %d 条",
+                withClues.length,
+                if (discipline.isNotBlank()) "有(${discipline.length}字)" else "无",
+                if (voiceSamples.isNotBlank()) "有(${voiceSamples.length}字)" else "无",
+                if (clueSection.isNotBlank()) "有" else "无",
+                worldEntriesValue.size,
+            )
+        }
         val final = if (willing.isNullOrBlank()) withClues else withClues + "\n\n" + willing
 
         // ══════════════════════════════════════════════════════════
