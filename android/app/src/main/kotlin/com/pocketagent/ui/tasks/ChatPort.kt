@@ -635,9 +635,44 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
         return ChatResult.Failed(explain(e))
     }
 
+    // ══════════════════════════════════════════════════════════════
+    //  ★★ 2026-11-03：**输出清洗 —— 剔掉中文里夹的外文**
+    // ══════════════════════════════════════════════════════════════
+    //
+    // ⚠️ 用户报："中文对话中间会蹦出一两个英文单词，或者其他国家的字，
+    //    而且牛头不对马嘴"
+    //
+    // ⚠️ 这是模型的**解码期退化**，提示词降得了概率、消不掉。
+    //    而对用户来说一句正常的话中间插个 "interpolate" 就整段废了。
+    //
+    // ⇒ 必须在返回前洗。洗完要是几乎没剩下东西，那是整段外文胡话 ——
+    //   不能返回空串（比错回复更让人困惑），直接报失败让用户重试。
+    val cleanText = text?.let { raw ->
+        val cleaned = com.pocketagent.personalogic.OutputSanitizer.clean(raw)
+        if (cleaned != raw) {
+            Timber.w(
+                "输出清洗：夹了 %s",
+                com.pocketagent.personalogic.OutputSanitizer.foreignBits(raw).joinToString("、"),
+            )
+        }
+        if (com.pocketagent.personalogic.OutputSanitizer.isNearlyEmpty(cleaned, raw)) {
+            Timber.w("输出清洗后几乎为空（原文 %d 字 → %d 字）", raw.length, cleaned.length)
+            null
+        } else {
+            cleaned
+        }
+    }
+    // ★ 顺手记一笔"念设定"的统计（不拦，只观测 —— 拦了会截断正常台词）
+    text?.let {
+        val hits = com.pocketagent.personalogic.RoleplayDiscipline.inspect(it)
+        if (hits.isNotEmpty()) Timber.w("疑似念设定：%s", hits.joinToString("、"))
+    }
+
     return when {
-        text == null -> ChatResult.NoCredential
-        text.isBlank() -> ChatResult.Failed("模型返回了空内容。可能是 Key 无效、额度用完，或该模型不支持对话。")
+        cleanText == null -> ChatResult.Failed(
+            "模型这次返回的内容里外文占了太多，清洗后几乎没剩下中文。请重试一次。",
+        )
+        cleanText.isBlank() -> ChatResult.Failed("模型返回了空内容。可能是 Key 无效、额度用完，或该模型不支持对话。")
         else -> {
             // ★ 回复已经拿到了，才轮到"记点什么"。
             //   ⚠️ 必须放在成功返回**之后**：放在前面的话，失败的那几轮
@@ -657,7 +692,7 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
             //    挡住的只是"硬拒答"（"作为一个AI…"这类），
             //    而它正是污染记忆的主要来源。
             runCatching {
-                container.recordGuardCheck(turnId = "chat-${System.currentTimeMillis()}", replyText = text)
+                container.recordGuardCheck(turnId = "chat-${System.currentTimeMillis()}", replyText = cleanText)
             }.onFailure { Timber.w(it, "输出守卫记账失败（不影响对话）") }
 
             //  完全异步（`scheduleMemoryAbsorb` 内部 launch），不拖慢这一轮。
@@ -702,7 +737,7 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
             runCatching { container.scheduleBackgroundAfterTurn(userText, text) }
                 .onFailure { Timber.w(it, "后台任务调度失败（不影响对话）") }
             ChatResult.Ok(
-                text = text,
+                text = cleanText,
                 isAgentRun = didAct,
                 // ★★ 2026-10-31：低置信度判成 Chat 时，让界面问一句
                 //    "要我帮你做吗？" —— 见 `ChatResult.Ok.offerHelp` 的注释。

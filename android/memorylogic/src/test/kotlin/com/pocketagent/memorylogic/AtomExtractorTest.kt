@@ -267,3 +267,80 @@ class AtomExtractorTest {
         assertTrue(snippet.endsWith("…"))
     }
 }
+/**
+ * **提示词不许教模型写公文**。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  ★ 2026-11-03：用户的原话
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * > "记忆抓取的模型也要进行去ai味，懂了吗，
+ * >  不然聊越久，角色的记忆就越ai"
+ *
+ * ⚠️ 这一组测试钉的是**根因**：
+ *   上一版提示词写着"偏好（用户喜欢/不喜欢什么）"
+ *   "约束（用户定下的规则）" —— 它在明确要求第三人称公文腔。
+ *   模型只是照做。所以抓出来的是：
+ *     ❌ "用户喜欢与角色亲密接触，并常主动发起。"
+ *
+ * ⚠️ 而记忆会被**原样塞回提示词**。这种句子待久了，
+ *   角色就开始用同样的腔调说话 —— **聊得越久越像 AI**。
+ *   清洗记忆治不了这个，得从抽取这一步就不生成它。
+ */
+class AtomPromptVoiceTest {
+
+    private fun prompt(): String {
+        val llm = MemoryLlmPort { _, _ -> "{}" }
+        val ex = AtomExtractor(llm)
+        return ex.buildPrompt(
+            listOf(Turn(id = "t1", sessionId = "s1", role = TurnRole.USER, text = "我好累", at = 0L)),
+        )
+    }
+
+    @Test
+    fun `要求第一人称`() {
+        val p = prompt()
+        assertTrue("必须要求用「我」", p.contains("第一人称"))
+        assertTrue("必须说明她自称「我」", p.contains("我"))
+        assertTrue("必须说明对方叫「他」", p.contains("他"))
+    }
+
+    @Test
+    fun `禁用词表包含公文称呼`() {
+        val p = prompt()
+        for (bad in listOf("用户", "角色", "助理", "助手")) {
+            assertTrue("禁用词里必须有「$bad」：$p", p.contains(bad))
+        }
+    }
+
+    @Test
+    fun `给了正例与反例`() {
+        val p = prompt()
+        assertTrue("必须给自然口吻的正例", p.contains("好："))
+        assertTrue("必须给公文腔的反例", p.contains("不许这样写"))
+    }
+
+    @Test
+    fun `不再要求写成用户视角`() {
+        val p = prompt()
+        // ⚠️ 这两句是旧提示词的原话，必须消失
+        assertFalse(
+            "「用户喜欢/不喜欢什么」是在教模型写第三人称",
+            p.contains("用户喜欢/不喜欢什么"),
+        )
+        assertFalse(
+            "「用户定下的规则」同上",
+            p.contains("用户定下的规则"),
+        )
+    }
+
+    @Test
+    fun `仍然要求 JSON 与溯源`() {
+        // 口吻改了，契约不能丢
+        val p = prompt()
+        assertTrue(p.contains("只输出 JSON"))
+        assertTrue(p.contains("sourceTurnIds"))
+        assertTrue("溯源不许编造", p.contains("不得编造"))
+        assertTrue("置信度不许写百分比", p.contains("不要写百分比"))
+    }
+}

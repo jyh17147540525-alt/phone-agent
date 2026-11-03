@@ -142,15 +142,51 @@ class AtomExtractor(private val llm: MemoryLlmPort) {
      * 或者让它省略出处，得到的是一堆无法回溯的字符串。
      */
     fun buildPrompt(turns: List<Turn>): String = buildString {
-        append("你在为一个手机助理维护长期记忆。请从下面的对话里提取「原子记忆」。\n")
+        // ══════════════════════════════════════════════════════════
+        //  ★★ 2026-11-03：**去 AI 味**
+        // ══════════════════════════════════════════════════════════
+        //
+        // ⚠️ 上一版提示词是这么写的：
+        //      "你在为一个手机助理维护长期记忆…"
+        //      "偏好（用户喜欢/不喜欢什么）"
+        //      "约束（用户定下的规则）"
+        //    ⇒ 它在**明确要求用第三人称公文腔**。
+        //      模型只是照做，所以抓出来的记忆必然是：
+        //         ❌ "用户喜欢与角色亲密接触，并常主动发起。"
+        //
+        // ⚠️ 而记忆是要被**原样塞回提示词**的。这种句子在上下文里待久了，
+        //    角色就会开始用同样的腔调说话 —— 聊得越久越像 AI。
+        //    **清洗记忆治不了这个，得从抽取这一步就不生成它。**
+        append("你要替「她」写下这段对话里值得记住的事——写成**她自己会怎么说**。\n")
         append("只输出 JSON，不要任何解释。格式：\n")
         append("""{"atoms":[{"kind":"fact|preference|constraint|stage_conclusion","text":"...","sourceTurnIds":["..."],"confidence":0.0}]}""")
-        append("\n\n规则：\n")
-        append("1. 四类依次是：事实（客观发生的事）、偏好（用户喜欢/不喜欢什么）、约束（用户定下的规则）、阶段结论（本轮任务的阶段性结论）。\n")
-        append("2. kind 只允许上面四个值之一。\n")
-        append("3. text 用一句完整的话，不要复制原文长段。\n")
-        append("4. sourceTurnIds 必须来自下面列出的 [turn-id]，「不得编造」；不确定就省略该条。\n")
-        append("5. confidence 是 0 到 1 之间的小数（不要写百分比）。\n\n")
+        append("\n\n四类：\n")
+        append("- fact：真发生过的事\n")
+        append("- preference：他喜欢什么、她喜欢什么\n")
+        append("- constraint：说好的规矩、界线\n")
+        append("- stage_conclusion：这一段的整体印象\n")
+        append("\n## text 怎么写（最重要）\n")
+        append("用**第一人称**：她自己叫「我」，对方叫「他」。\n")
+        append("写得像她在心里记着，不像在写档案。\n")
+        append("可以带语气——嫌、笑、别扭、嘴硬都行。\n")
+        append("\n✅ 好：\n")
+        append("  \"他手被烫伤过，油炸的那些我一口都不让他碰。\"\n")
+        append("  \"他爱点外卖。我嫌不健康，最后还是跟着吃。\"\n")
+        append("  \"说好十一点睡。他做不到，我知道，但我还是要说。\"\n")
+        append("\n❌ 不许这样写：\n")
+        append("  \"用户喜欢点外卖，助理表示不赞同。\"\n")
+        append("  \"角色要求用户保持健康作息。\"\n")
+        append("  \"双方约定十一点前入睡。\"\n")
+        append("\n## 禁用词\n")
+        append("用户、角色、助理、助手、对方、双方、该、上述、本条、")
+        append("进行、予以、予以、以及、并且、因此、方面、情况、相关、")
+        append("必须、要求、规定、约定为、予以执行\n")
+        append("（这些词一出现，那段记忆就废了——它会在下一步污染角色的说话方式。）\n")
+        append("\n## 其余规则\n")
+        append("1. kind 只允许上面四个值之一。\n")
+        append("2. text 一句话说清，不要复制原文长段。**用半个句号都嫌多。**\n")
+        append("3. sourceTurnIds 必须来自下面列出的 [turn-id]，「不得编造」；不确定就省略该条。\n")
+        append("4. confidence 是 0 到 1 之间的小数（不要写百分比）。\n\n")
         append("对话：\n")
         for (turn in turns) {
             append("[").append(turn.id).append("] ").append(turn.role.name.lowercase()).append(": ")
