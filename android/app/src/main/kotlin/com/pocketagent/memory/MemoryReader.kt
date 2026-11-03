@@ -62,7 +62,32 @@ class MemoryReader(
         val now = clock()
         val ranked = MemoryRecall.rank(query = query, atoms = atoms, nowMs = now, limit = limit)
 
-        val items = ranked.mapNotNull { atom ->
+        // ══════════════════════════════════════════════════════════
+        //  ★★ 2026-11-03：**进提示词之前滤掉机制词**
+        // ══════════════════════════════════════════════════════════
+        //
+        // ⚠️ 用户："系统又信誉分你也不能让模型说出来呀，背后偷偷记就行了"
+        //
+        // 泄漏路径是真的：旧记忆里写着"用一套信誉分/记账机制督促他吃饭"，
+        // 记忆被原样塞进提示词 → 模型看见「记账」→ 说出来「行，记账上了」。
+        //
+        // ⇒ 这里兜底：含机制词的那句不进提示词。整条都被滤掉就丢弃它 ——
+        //   一条讲内部实现的记忆，对角色扮演本来就没用处。
+        val hygienic = ranked.mapNotNull { atom ->
+            val scrubbed = com.pocketagent.personalogic.PromptHygiene.scrub(atom.text)
+            if (scrubbed.isBlank()) {
+                Timber.i(
+                    "记忆被滤掉（含机制词 %s）：%s",
+                    com.pocketagent.personalogic.PromptHygiene.hits(atom.text).joinToString("、"),
+                    atom.text.take(20),
+                )
+                null
+            } else {
+                atom.copy(text = scrubbed)
+            }
+        }
+
+        val items = hygienic.mapNotNull { atom ->
             when (val f = MemoryDecay.fidelityOf(atom, now)) {
                 // ⚠️ 已经忘了的**不出现**。留着它会让提示词越来越长，
                 //    而模型会把"其实想不起来的事"当成事实说出来。
