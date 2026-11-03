@@ -1049,6 +1049,8 @@ fun AppShell(
                     PaScreen(title = "角色设定", onBack = { navController.popBackStack() }) {
                         var envoyRunning by remember { mutableStateOf(false) }
                 var envoyResult by remember { mutableStateOf<String?>(null) }
+                var envoyProgress by remember { mutableStateOf<Float?>(null) }
+                var envoyLabel by remember { mutableStateOf("") }
                 PersonaScreen(
                             initial = container.currentCustomPersona(),
                     // ★ 2026-11-03：**记忆使者**
@@ -1062,6 +1064,8 @@ fun AppShell(
                     onRunMemoryEnvoy = { draftPersona ->
                         envoyRunning = true
                         envoyResult = null
+                        envoyProgress = 0f
+                        envoyLabel = "准备中"
                         scope.launch {
                             val oldP = container.currentCustomPersona()
                             // ⚠️ 用**表单草稿**作为新设定 —— 不依赖用户是否已保存。
@@ -1070,15 +1074,24 @@ fun AppShell(
                                     sessionId = container.currentSessionId(),
                                     oldPersona = oldP,
                                     newPersona = draftPersona,
+                                    // ★ 每改一条就更新百分比
+                                    onProgress = { done, total, label ->
+                                        envoyProgress = if (total <= 0) 0f else done.toFloat() / total
+                                        envoyLabel = label
+                                    },
                                 )
                             }.getOrElse {
                                 com.pocketagent.personalogic.PersonaSyncReport(0, 0, it.message ?: "失败")
                             }
                             envoyRunning = false
+                            envoyProgress = null
+                            envoyLabel = ""
                             envoyResult = report.summary()
                         }
                     },
                     envoyRunning = envoyRunning,
+                    envoyProgress = envoyProgress,
+                    envoyProgressLabel = envoyLabel,
                     envoyResult = envoyResult,
                             onSave = { persona ->
                                 scope.launch {

@@ -147,17 +147,30 @@ object PersonaSync {
 data class PersonaSyncReport(
     /** 真的改了几条 */
     val changed: Int,
-    /** 保留原文的条数（含"本来就不冲突"） */
+    /** 保留原文的条数 */
     val kept: Int,
-    /** 非空表示没跑成，这是一句给用户看的话 */
+    /** 非空表示**没跑成**，这是一句给用户看的话 */
     val problem: String = "",
+    /** 这次一共扫了几条（含没改的）—— 用来区分"没改"和"没扫到" */
+    val scanned: Int = 0,
 ) {
     val ok: Boolean get() = problem.isEmpty()
 
-    /** 给用户看的一句话。 */
-    fun summary(): String = if (!ok) {
-        problem
-    } else {
-        "改了 $changed 条，保留了 $kept 条。"
+    /**
+     * 给用户看的一句话。
+     *
+     * ⚠️ 2026-11-03：用户报"点开始不到一秒就显示清洗完成" ——
+     *    根因是**我在提前返回时也显示得像"跑完了"**。
+     *    现在三种结果在文字上**完全分开**：
+     *
+     *   没跑成     → "没改：<原因>"
+     *   跑了但没改 → "扫了 N 条，没有需要改的地方"
+     *   真的改了   → "改了 N 条（共扫 M 条）"
+     */
+    fun summary(): String = when {
+        !ok -> "没改：$problem"
+        scanned == 0 -> "没找到可检查的内容 —— 这个会话里还没有她说过的话"
+        changed == 0 -> "扫了 $scanned 条，没有需要改的地方"
+        else -> "改了 $changed 条（共扫 $scanned 条）"
     }
 }

@@ -1,4 +1,7 @@
 package com.pocketagent.ui.persona
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.interaction.MutableInteractionSource
 
 import androidx.compose.foundation.clickable
@@ -77,6 +80,10 @@ fun PersonaScreen(
     onRunMemoryEnvoy: ((com.pocketagent.personalogic.CustomPersona) -> Unit)? = null,
     /** 是否正在跑。 */
     envoyRunning: Boolean = false,
+    /** 进度 0..1。null = 没有进度（还没跑或已结束）。 */
+    envoyProgress: Float? = null,
+    /** 进度文字，如「正在洗第 3 / 12 句」。 */
+    envoyProgressLabel: String = "",
     /** 上一次的结果（给用户看的一句话）。null = 还没跑过。 */
     envoyResult: String? = null,
     /**
@@ -428,6 +435,34 @@ fun PersonaScreen(
                     color = PaColor.TextTertiary,
                 )
                 Spacer(Modifier.height(PaSpace.xs))
+                // ★ 2026-11-03：**进度条**。用户报"不到一秒就完成" ——
+                //   那说明它在提前返回，而不是跑得快。
+                //   有百分比才能区分"真的在跑"与"没跑"。
+                if (envoyRunning) {
+                    Spacer(Modifier.height(PaSpace.xxs))
+                    val pct = ((envoyProgress ?: 0f) * 100).toInt()
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(PaColor.SurfaceHigh),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth((envoyProgress ?: 0f).coerceIn(0f, 1f))
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(PaColor.Accent),
+                        )
+                    }
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = if (envoyProgressLabel.isBlank()) "准备中… $pct%" else "$envoyProgressLabel（$pct%）",
+                        style = PaType.caption,
+                        color = PaColor.TextTertiary,
+                    )
+                }
                 Text(
                     text = when {
                         envoyRunning -> "正在改…（可以继续用，改完会提示）"

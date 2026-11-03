@@ -880,6 +880,14 @@ class AppContainer(context: Context) {
     /** 隔多久没说话算"久别重逢"。3 小时：睡一觉或上半天班回来。 */
     private val reunionGapMs: Long = 3L * 60L * 60L * 1000L
 
+    /**
+     * 记忆使者一次最多改多少条**原子**。
+     *
+     * ⚠️ 真机上有 850 条原子 —— 全改是 850 次模型调用。
+     *    30 条大约覆盖"最近这段时间"的记忆，代价可控。
+     */
+    private val MAX_ATOM_REWRITES: Int = 30
+
     /** 单次会话多少轮之后算"长会话"（更耗意愿）。 */
     private val LONG_SESSION_TURNS: Int = 30
 
@@ -1742,12 +1750,23 @@ class AppContainer(context: Context) {
      *    这是这一版最重要的修正：上一版读的是"保存后的当前设定"，
      *    于是旧设定 == 新设定，**整个功能空转**。
      */
+    /**
+     * @param onProgress (已完成, 总数, 当前在干什么)。**每改一条就回调一次** ——
+     *   用户要看到百分比，而不是"一秒就完成"。
+     */
     suspend fun runMemoryEnvoy(
         sessionId: String,
         oldPersona: com.pocketagent.personalogic.CustomPersona?,
         newPersona: com.pocketagent.personalogic.CustomPersona?,
         limit: Int = 40,
+        onProgress: (done: Int, total: Int, label: String) -> Unit = { _, _, _ -> },
     ): com.pocketagent.personalogic.PersonaSyncReport {
+        Timber.i(
+            "记忆使者开始：session=%s old=%s new=%s",
+            sessionId.take(8),
+            oldPersona?.name ?: "无",
+            newPersona?.name ?: "无",
+        )
         val oldMarkers = com.pocketagent.personalogic.PersonaSync.markersOf(
             selfName = oldPersona?.name.orEmpty(),
             addressStyle = oldPersona?.addressSelf.orEmpty(),
@@ -1764,7 +1783,10 @@ class AppContainer(context: Context) {
             return com.pocketagent.personalogic.PersonaSyncReport(0, 0, "上一次还没跑完")
         }
         if (oldMarkers.isEmpty()) {
-            return com.pocketagent.personalogic.PersonaSyncReport(0, 0, "旧设定里没有可识别的名字或称谓")
+            Timber.w("记忆使者中止：旧标记为空（oldPersona=%s）", oldPersona?.name ?: "null")
+            return com.pocketagent.personalogic.PersonaSyncReport(
+                0, 0, "旧设定里没有可识别的名字或称谓 —— 先保存一次角色设定再来",
+            )
         }
         // ⚠️ 新旧一模一样 ⇒ 没有可洗的东西。静默不改，并如实告诉用户。
         if (oldMarkers == newMarkers && oldSummary == newSummary) {
@@ -1781,12 +1803,26 @@ class AppContainer(context: Context) {
             val assistant = turns.filter {
                 it.role == com.pocketagent.memorylogic.TurnRole.ASSISTANT
             }
-            val targets = assistant.filter {
-                com.pocketagent.personalogic.PersonaSync.needsRewrite(it.text, oldMarkers)
-            }
+            // ★★ 2026-11-03 真机修正：**不再按关键词预筛**
+            //
+            // ⚠️ 上一版只改"含旧名字"的句子。真机实测：
+            //    `含旧设定 0 条` ⇒ 什么都不做，而用户以为功能没生效。
+            //    但设定冲突**不一定带着旧名字** ——
+            //    "我是你的青梅竹马" 里没有名字，却可能与新关系冲突。
+            //
+            // ⇒ 把判断交给模型：全部交给它，**不冲突就原样返回**。
+            //   闸门会拦住"改坏了"的，"原样返回"算 kept。
+            val targets = assistant
+            Timber.i(
+                "记忆使者扫描：本会话 %d 轮，角色说过 %d 条，含旧设定 %d 条",
+                turns.size, assistant.size, targets.size,
+            )
             if (targets.isEmpty()) {
+                // ⚠️ 现在 targets = 全部角色发言（不预筛），所以走到这里
+                //    只意味着**这个会话里她还没说过话**。
                 return com.pocketagent.personalogic.PersonaSyncReport(
-                    0, assistant.size, "旧对话里没有含旧设定的句子",
+                    0, 0,
+                    "这个会话里她还没说过话 —— 先聊几句再回来",
                 )
             }
 
@@ -1813,7 +1849,10 @@ class AppContainer(context: Context) {
             // ② 逐条改写
             var changed = 0
             var kept = 0
-            for (t in targets) {
+            // 对话占 60%，原子占 40% —— 让百分比反映真实工作量
+            val total = targets.size
+            for ((i, t) in targets.withIndex()) {
+                onProgress(i, total, "正在洗第 ${i + 1} / $total 句")
                 val prompt = com.pocketagent.personalogic.PersonaSync.buildPrompt(
                     oldSummary, newSummary, t.text,
                 )
@@ -1845,14 +1884,35 @@ class AppContainer(context: Context) {
             //    原子是模型对用户的印象（"她叫小雨"），设定改了它也必须改，
             //    否则下一轮召回出来的还是旧的。
             var atomsChanged = 0
+            var atomCount = 0
             runCatching {
                 val atoms = atomStore.loadAll()
-                val targets = atoms.filter {
-                    com.pocketagent.personalogic.PersonaSync.needsRewrite(it.text, oldMarkers)
-                }
-                if (targets.isNotEmpty()) {
+                atomCount = atoms.size
+                // ══════════════════════════════════════════════════
+                //  ★★ 2026-11-03 真机实测后**回退**：原子必须预筛
+                // ══════════════════════════════════════════════════
+                //
+                // ⚠️ 我改成"不预筛"之后，真机日志是：
+                //      `记忆原子：共 850 条，含旧设定 850 条`
+                //    ⇒ 850 次模型调用。这会把用户的 token 烧穿。
+                //
+                // ⇒ 对话轮次（20 条）可以全交给模型，
+                //    但**原子库可能有几百上千条**，必须按关键词筛 + 封顶。
+                val atomTargets = atoms
+                    .filter {
+                        com.pocketagent.personalogic.PersonaSync.needsRewrite(it.text, oldMarkers)
+                    }
+                    // 封顶：一次最多改这么多条原子
+                    .take(MAX_ATOM_REWRITES)
+                Timber.i("记忆原子：共 %d 条，含旧设定 %d 条", atoms.size, atomTargets.size)
+                if (atomTargets.isNotEmpty()) {
                     val rewritten = atoms.map { atom ->
-                        if (atom !in targets) return@map atom
+                        if (atom !in atomTargets) return@map atom
+                        onProgress(
+                            total + atomTargets.indexOf(atom),
+                            total + atomTargets.size,
+                            "正在洗记忆 ${atomTargets.indexOf(atom) + 1} / ${atomTargets.size}",
+                        )
                         val raw = runCatching {
                             backgroundLlmComplete(
                                 prompt = com.pocketagent.personalogic.PersonaSync.buildPrompt(
@@ -1883,7 +1943,11 @@ class AppContainer(context: Context) {
                 "记忆使者完成：对话改 %d 条、保留 %d 条；原子改 %d 条",
                 changed, kept, atomsChanged,
             )
-            return com.pocketagent.personalogic.PersonaSyncReport(changed + atomsChanged, kept, "")
+            return com.pocketagent.personalogic.PersonaSyncReport(
+                changed + atomsChanged,
+                kept,
+                scanned = assistant.size + atomCount,
+            )
         } finally {
             envoyRunning = false
         }
