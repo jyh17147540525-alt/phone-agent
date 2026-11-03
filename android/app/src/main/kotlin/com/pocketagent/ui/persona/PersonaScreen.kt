@@ -74,7 +74,7 @@ fun PersonaScreen(
     onSave: (CustomPersona) -> Unit = {},
 
     /** 记忆使者：点一下开始。null = 不显示这个区块。 */
-    onRunMemoryEnvoy: (() -> Unit)? = null,
+    onRunMemoryEnvoy: ((com.pocketagent.personalogic.CustomPersona) -> Unit)? = null,
     /** 是否正在跑。 */
     envoyRunning: Boolean = false,
     /** 上一次的结果（给用户看的一句话）。null = 还没跑过。 */
@@ -447,7 +447,7 @@ fun PersonaScreen(
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null,
-                                onClick = onRunMemoryEnvoy,
+                                onClick = { onRunMemoryEnvoy(draft) },
                             )
                             .padding(vertical = PaSpace.xxs),
                     )

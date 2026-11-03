@@ -1055,29 +1055,21 @@ fun AppShell(
                     //
                     // ⚠️ 旧标记取自**当前**（即将被覆盖的）人格 ——
                     //    必须在 saveCustomPersona 之前读，否则读到的是新设定。
-                    onRunMemoryEnvoy = {
+                    // ★ 2026-11-03：**记忆使者**
+                    //
+                    // ⚠️ 两份设定都要：old = 已保存的那份，new = 你现在表单里的那份。
+                    //    上一版只读"当前设定"，于是 old == new，**整个功能空转**。
+                    onRunMemoryEnvoy = { draftPersona ->
                         envoyRunning = true
                         envoyResult = null
                         scope.launch {
-                            val old = container.currentCustomPersona()
-                            val markers = com.pocketagent.personalogic.PersonaSync.markersOf(
-                                selfName = old?.name.orEmpty(),
-                                addressStyle = old?.addressUser.orEmpty(),
-                                relationship = old?.relationTo.orEmpty(),
-                            )
-                            val cur = container.currentCustomPersona()
-                            val newSummary = listOfNotNull(
-                                cur?.name?.takeIf { it.isNotBlank() }?.let { "名字：$it" },
-                                cur?.addressUser?.takeIf { it.isNotBlank() }?.let { "怎么称呼对方：$it" },
-                                cur?.relationTo?.takeIf { it.isNotBlank() }?.let { "关系：$it" },
-                            ).joinToString("；")
-                            val oldSummary = markers.joinToString("、")
+                            val oldP = container.currentCustomPersona()
+                            // ⚠️ 用**表单草稿**作为新设定 —— 不依赖用户是否已保存。
                             val report = runCatching {
                                 container.runMemoryEnvoy(
                                     sessionId = container.currentSessionId(),
-                                    oldMarkers = markers,
-                                    oldSummary = oldSummary,
-                                    newSummary = newSummary,
+                                    oldPersona = oldP,
+                                    newPersona = draftPersona,
                                 )
                             }.getOrElse {
                                 com.pocketagent.personalogic.PersonaSyncReport(0, 0, it.message ?: "失败")

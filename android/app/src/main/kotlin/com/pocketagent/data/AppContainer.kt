@@ -1711,18 +1711,66 @@ class AppContainer(context: Context) {
     suspend fun currentSessionId(): String =
         runCatching { conversationStore?.currentSession()?.id.orEmpty() }.getOrDefault("")
 
+    /**
+     * 把一份人格设定压成**给模型看的摘要**。
+     *
+     * ⚠️ 必须给完整设定，只给名字是不够的 ——
+     *    模型要判断的是"这段话里的哪些说法与设定绑定了"，
+     *    而"设定"包括身份、称谓、关系、口癖、方言。
+     */
+    private fun personaDigest(p: com.pocketagent.personalogic.CustomPersona?): String {
+        if (p == null) return "（无）"
+        return listOfNotNull(
+            p.name.takeIf { it.isNotBlank() }?.let { "名字：$it" },
+            p.identity.takeIf { it.isNotBlank() }?.let { "身份：$it" },
+            p.addressUser.takeIf { it.isNotBlank() }?.let { "怎么称呼对方：$it" },
+            p.addressSelf.takeIf { it.isNotBlank() }?.let { "怎么自称：$it" },
+            p.relationTo.takeIf { it.isNotBlank() }?.let { "与对方的关系：$it" },
+            p.dialect.takeIf { it.isNotBlank() }?.let { "方言/口音：$it" },
+            p.catchphrases.takeIf { it.isNotEmpty() }?.let { "口头禅：${it.joinToString("、")}" },
+            p.flawsRaw.takeIf { it.isNotEmpty() }?.let { "小毛病：${it.joinToString("、")}" },
+        ).joinToString("\n").ifBlank { "（无）" }
+    }
+
+    /**
+     * **记忆使者**：把旧上下文洗成新设定。
+     *
+     * @param oldPersona **改之前**的设定（已保存的那份）
+     * @param newPersona **改之后**的设定（表单里的那份）
+     *
+     * ⚠️ 两份都要 —— 只给一份的话模型不知道该把什么洗成什么。
+     *    这是这一版最重要的修正：上一版读的是"保存后的当前设定"，
+     *    于是旧设定 == 新设定，**整个功能空转**。
+     */
     suspend fun runMemoryEnvoy(
         sessionId: String,
-        oldMarkers: List<String>,
-        oldSummary: String,
-        newSummary: String,
+        oldPersona: com.pocketagent.personalogic.CustomPersona?,
+        newPersona: com.pocketagent.personalogic.CustomPersona?,
         limit: Int = 40,
     ): com.pocketagent.personalogic.PersonaSyncReport {
+        val oldMarkers = com.pocketagent.personalogic.PersonaSync.markersOf(
+            selfName = oldPersona?.name.orEmpty(),
+            addressStyle = oldPersona?.addressSelf.orEmpty(),
+            relationship = oldPersona?.relationTo.orEmpty(),
+        )
+        val newMarkers = com.pocketagent.personalogic.PersonaSync.markersOf(
+            selfName = newPersona?.name.orEmpty(),
+            addressStyle = newPersona?.addressSelf.orEmpty(),
+            relationship = newPersona?.relationTo.orEmpty(),
+        )
+        val oldSummary = personaDigest(oldPersona)
+        val newSummary = personaDigest(newPersona)
         if (envoyRunning) {
             return com.pocketagent.personalogic.PersonaSyncReport(0, 0, "上一次还没跑完")
         }
         if (oldMarkers.isEmpty()) {
             return com.pocketagent.personalogic.PersonaSyncReport(0, 0, "旧设定里没有可识别的名字或称谓")
+        }
+        // ⚠️ 新旧一模一样 ⇒ 没有可洗的东西。静默不改，并如实告诉用户。
+        if (oldMarkers == newMarkers && oldSummary == newSummary) {
+            return com.pocketagent.personalogic.PersonaSyncReport(
+                0, 0, "新旧设定一样，没有需要改的地方",
+            )
         }
         envoyRunning = true
         try {
@@ -1791,8 +1839,51 @@ class AppContainer(context: Context) {
                     }
                 }
             }
-            Timber.i("记忆使者完成：改了 %d 条，保留 %d 条", changed, kept)
-            return com.pocketagent.personalogic.PersonaSyncReport(changed, kept, "")
+            // ── ③ 记忆原子也要洗 ──────────────────────────
+            //
+            // ⚠️ 用户说的"记忆里那些上下文"包括**原子记忆**，不只是对话。
+            //    原子是模型对用户的印象（"她叫小雨"），设定改了它也必须改，
+            //    否则下一轮召回出来的还是旧的。
+            var atomsChanged = 0
+            runCatching {
+                val atoms = atomStore.loadAll()
+                val targets = atoms.filter {
+                    com.pocketagent.personalogic.PersonaSync.needsRewrite(it.text, oldMarkers)
+                }
+                if (targets.isNotEmpty()) {
+                    val rewritten = atoms.map { atom ->
+                        if (atom !in targets) return@map atom
+                        val raw = runCatching {
+                            backgroundLlmComplete(
+                                prompt = com.pocketagent.personalogic.PersonaSync.buildPrompt(
+                                    oldSummary, newSummary, atom.text,
+                                ),
+                                purpose = com.pocketagent.personalogic.BackgroundLlmPort.BackgroundPurpose.DIRECTOR,
+                                modelId = envoyModelId,
+                                effort = envoyEffort,
+                            )
+                        }.getOrDefault("")
+                        when (val v = com.pocketagent.personalogic.PersonaSync.accept(atom.text, raw)) {
+                            is com.pocketagent.personalogic.PersonaSync.Verdict.Accept -> {
+                                if (v.text != atom.text) {
+                                    atomsChanged++
+                                    atom.copy(text = v.text)
+                                } else {
+                                    atom
+                                }
+                            }
+                            is com.pocketagent.personalogic.PersonaSync.Verdict.Keep -> atom
+                        }
+                    }
+                    atomStore.replaceAll(rewritten)
+                }
+            }.onFailure { Timber.w(it, "记忆原子洗写失败（对话已改）") }
+
+            Timber.i(
+                "记忆使者完成：对话改 %d 条、保留 %d 条；原子改 %d 条",
+                changed, kept, atomsChanged,
+            )
+            return com.pocketagent.personalogic.PersonaSyncReport(changed + atomsChanged, kept, "")
         } finally {
             envoyRunning = false
         }
