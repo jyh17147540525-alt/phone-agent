@@ -1047,8 +1047,47 @@ fun AppShell(
                     var savedHint by remember { mutableStateOf<String?>(null) }
 
                     PaScreen(title = "角色设定", onBack = { navController.popBackStack() }) {
-                        PersonaScreen(
+                        var envoyRunning by remember { mutableStateOf(false) }
+                var envoyResult by remember { mutableStateOf<String?>(null) }
+                PersonaScreen(
                             initial = container.currentCustomPersona(),
+                    // ★ 2026-11-03：**记忆使者**
+                    //
+                    // ⚠️ 旧标记取自**当前**（即将被覆盖的）人格 ——
+                    //    必须在 saveCustomPersona 之前读，否则读到的是新设定。
+                    onRunMemoryEnvoy = {
+                        envoyRunning = true
+                        envoyResult = null
+                        scope.launch {
+                            val old = container.currentCustomPersona()
+                            val markers = com.pocketagent.personalogic.PersonaSync.markersOf(
+                                selfName = old?.name.orEmpty(),
+                                addressStyle = old?.addressUser.orEmpty(),
+                                relationship = old?.relationTo.orEmpty(),
+                            )
+                            val cur = container.currentCustomPersona()
+                            val newSummary = listOfNotNull(
+                                cur?.name?.takeIf { it.isNotBlank() }?.let { "名字：$it" },
+                                cur?.addressUser?.takeIf { it.isNotBlank() }?.let { "怎么称呼对方：$it" },
+                                cur?.relationTo?.takeIf { it.isNotBlank() }?.let { "关系：$it" },
+                            ).joinToString("；")
+                            val oldSummary = markers.joinToString("、")
+                            val report = runCatching {
+                                container.runMemoryEnvoy(
+                                    sessionId = container.currentSessionId(),
+                                    oldMarkers = markers,
+                                    oldSummary = oldSummary,
+                                    newSummary = newSummary,
+                                )
+                            }.getOrElse {
+                                com.pocketagent.personalogic.PersonaSyncReport(0, 0, it.message ?: "失败")
+                            }
+                            envoyRunning = false
+                            envoyResult = report.summary()
+                        }
+                    },
+                    envoyRunning = envoyRunning,
+                    envoyResult = envoyResult,
                             onSave = { persona ->
                                 scope.launch {
                                     runCatching { container.saveCustomPersona(persona) }
@@ -1187,6 +1226,8 @@ fun AppShell(
                     var directorEffort by remember { mutableStateOf(container.directorThinking()) }
                     var physioModel by remember { mutableStateOf(container.physioModel()) }
                     var physioEffort by remember { mutableStateOf(container.physioThinking()) }
+                    var envoyModel by remember { mutableStateOf(container.envoyModel()) }
+                    var envoyEffort by remember { mutableStateOf(container.envoyThinking()) }
                     var memoryModel by remember { mutableStateOf(container.memoryModel()) }
                     var memoryEffort by remember { mutableStateOf(container.memoryThinking()) }
 
@@ -1196,12 +1237,16 @@ fun AppShell(
                         directorEffort = directorEffort,
                         physioModelId = physioModel,
                         physioEffort = physioEffort,
+                        envoyModelId = envoyModel,
+                        envoyEffort = envoyEffort,
                         memoryModelId = memoryModel,
                         memoryEffort = memoryEffort,
                         onPickDirectorModel = { directorModel = it; container.setDirectorModel(it) },
                         onDirectorEffort = { directorEffort = it; container.setDirectorEffort(it) },
                         onPickPhysioModel = { physioModel = it; container.setPhysioModel(it) },
                         onPhysioEffort = { physioEffort = it; container.setPhysioEffort(it) },
+                        onPickEnvoyModel = { envoyModel = it; container.setEnvoyModel(it) },
+                        onEnvoyEffort = { envoyEffort = it; container.setEnvoyEffort(it) },
                         onPickMemoryModel = { memoryModel = it; container.setMemoryModel(it) },
                         onMemoryEffort = { memoryEffort = it; container.setMemoryEffort(it) },
                         onBack = { navController.popBackStack() },

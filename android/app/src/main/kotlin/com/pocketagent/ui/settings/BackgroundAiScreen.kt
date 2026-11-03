@@ -79,12 +79,16 @@ fun BackgroundAiScreen(
     directorEffort: ThinkingEffort,
     physioModelId: String?,
     physioEffort: ThinkingEffort,
+    envoyModelId: String?,
+    envoyEffort: ThinkingEffort,
     memoryModelId: String?,
     memoryEffort: ThinkingEffort,
     onPickDirectorModel: (String?) -> Unit,
     onDirectorEffort: (ThinkingEffort) -> Unit,
     onPickPhysioModel: (String?) -> Unit,
     onPhysioEffort: (ThinkingEffort) -> Unit,
+    onPickEnvoyModel: (String?) -> Unit,
+    onEnvoyEffort: (ThinkingEffort) -> Unit,
     onPickMemoryModel: (String?) -> Unit,
     onMemoryEffort: (ThinkingEffort) -> Unit,
     onBack: () -> Unit,
@@ -103,7 +107,7 @@ fun BackgroundAiScreen(
 
             Column(modifier = Modifier.padding(horizontal = PaSpace.m)) {
                 Text(
-                    text = "这三件事在每轮之后异步跑，不占用你等回复的时间。" +
+                    text = "前两件在每轮之后异步跑，记忆使者由你手动触发，不占用你等回复的时间。" +
                         "它们只需要看懂和归类，用便宜快的模型就够。",
 
                     style = PaType.body,
@@ -139,6 +143,24 @@ fun BackgroundAiScreen(
                     recommendation = "推荐 off —— 只需识别他发烧了这类线索，推理帮不上忙",
                     onOpenDrawer = { drawer = Slot.PHYSIO },
                     onEffort = onPhysioEffort,
+                )
+
+                Spacer(Modifier.height(PaSpace.m))
+
+                // ── 窗口四：记忆使者 ────────────────────────────
+                //
+                // ⚠️ 它不是定时任务 —— 由你在改完设定后手动触发。
+                //    但负载与其它三件都不同：**它要改写句子**，
+                //    是最接近"写作"的一件，所以值得单独选模型。
+                SlotCard(
+                    icon = "📝",
+                    title = "记忆使者",
+                    subtitle = "改完设定后，把旧对话里的旧设定改成新的",
+                    modelLabel = modelLabel(envoyModelId),
+                    effort = envoyEffort,
+                    recommendation = "推荐 low —— 只需替换设定，不需要重新创作",
+                    onOpenDrawer = { drawer = Slot.ENVOY },
+                    onEffort = onEnvoyEffort,
                 )
 
                 Spacer(Modifier.height(PaSpace.m))
@@ -195,6 +217,7 @@ fun BackgroundAiScreen(
                         text = when (open) {
                             Slot.DIRECTOR -> "场记用哪个模型"
                             Slot.PHYSIO -> "生理导演用哪个模型"
+                            Slot.ENVOY -> "记忆使者用哪个模型"
                             Slot.MEMORY -> "记忆抽取用哪个模型"
                         },
                         style = PaType.headline,
@@ -220,12 +243,14 @@ fun BackgroundAiScreen(
                     selectedId = when (open) {
                         Slot.DIRECTOR -> directorModelId
                         Slot.PHYSIO -> physioModelId
+                        Slot.ENVOY -> envoyModelId
                         Slot.MEMORY -> memoryModelId
                     },
                     onPickAuto = {
                         when (open) {
                             Slot.DIRECTOR -> onPickDirectorModel(null)
                             Slot.PHYSIO -> onPickPhysioModel(null)
+                            Slot.ENVOY -> onPickEnvoyModel(null)
                             Slot.MEMORY -> onPickMemoryModel(null)
                         }
                         drawer = null
@@ -234,6 +259,7 @@ fun BackgroundAiScreen(
                         when (open) {
                             Slot.DIRECTOR -> onPickDirectorModel(id)
                             Slot.PHYSIO -> onPickPhysioModel(id)
+                            Slot.ENVOY -> onPickEnvoyModel(id)
                             Slot.MEMORY -> onPickMemoryModel(id)
                         }
                         drawer = null
@@ -244,7 +270,7 @@ fun BackgroundAiScreen(
     }
 }
 
-private enum class Slot { DIRECTOR, PHYSIO, MEMORY }
+private enum class Slot { DIRECTOR, PHYSIO, ENVOY, MEMORY }
 
 /** null = 跟随对话模型。 */
 private fun modelLabel(id: String?): String = id ?: "跟随对话模型"

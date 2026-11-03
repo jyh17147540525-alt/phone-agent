@@ -232,6 +232,16 @@ class ConversationStore(
      *    走 `SessionDao.deleteCascade`（带 `@Transaction`），
      *    **不依赖外键级联** —— SQLite 的 `PRAGMA foreign_keys` 默认是关的。
      */
+    /**
+     * **改写某一轮的文字**（记忆使者用）。
+     *
+     * ⚠️ 只改 text。id / at / role / 血缘都不动 ——
+     *    改写不该改变对话的结构，只换词。
+     */
+    suspend fun rewriteTurn(turnId: String, newText: String) {
+        turns.updateText(turnId, newText)
+    }
+
     suspend fun deleteSession(sessionId: String) = sessions.deleteCascade(sessionId)
 
     suspend fun renameSession(sessionId: String, title: String) {

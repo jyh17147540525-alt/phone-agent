@@ -47,6 +47,15 @@ interface TurnDao {
     @Query("SELECT COUNT(*) FROM turn WHERE sessionId = :sessionId")
     suspend fun countOf(sessionId: String): Int
 
+    /**
+     * **改写某一轮的文字**（记忆使者用）。
+     *
+     * ⚠️ 只改 text，不动 id / at / role / 血缘 ——
+     *    改写不该改变对话的结构，只换词。
+     */
+    @Query("UPDATE turn SET text = :text WHERE id = :id")
+    suspend fun updateText(id: String, text: String)
+
     @Query("DELETE FROM turn WHERE sessionId = :sessionId")
     suspend fun deleteBySession(sessionId: String)
 }

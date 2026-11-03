@@ -1,4 +1,7 @@
 package com.pocketagent.ui.persona
+import androidx.compose.foundation.interaction.MutableInteractionSource
+
+import androidx.compose.foundation.clickable
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -69,6 +72,13 @@ fun PersonaScreen(
     /** 已有角色（编辑时回填）。null = 新建。 */
     initial: CustomPersona? = null,
     onSave: (CustomPersona) -> Unit = {},
+
+    /** 记忆使者：点一下开始。null = 不显示这个区块。 */
+    onRunMemoryEnvoy: (() -> Unit)? = null,
+    /** 是否正在跑。 */
+    envoyRunning: Boolean = false,
+    /** 上一次的结果（给用户看的一句话）。null = 还没跑过。 */
+    envoyResult: String? = null,
     /**
      * 用户明确同意开启「未亡人」模式。
      *
@@ -407,6 +417,45 @@ fun PersonaScreen(
 
         // ── 性别（三档，含不指定）────────────────────────────────
         item { Spacer(Modifier.height(PaSpace.s)) }
+        // ★★ 2026-11-03：**记忆使者**（改完设定后重写旧对话）
+        if (onRunMemoryEnvoy != null) {
+            item {
+                Spacer(Modifier.height(PaSpace.m))
+                PaSectionTitle("记忆使者")
+                Text(
+                    text = "把这个会话里她以前说过的话，按你现在的设定重写一遍。用户自己说的话不会动。",
+                    style = PaType.caption,
+                    color = PaColor.TextTertiary,
+                )
+                Spacer(Modifier.height(PaSpace.xs))
+                Text(
+                    text = when {
+                        envoyRunning -> "正在改…（可以继续用，改完会提示）"
+                        envoyResult != null -> envoyResult!!
+                        else -> "点一下开始"
+                    },
+                    style = PaType.label,
+                    color = if (envoyRunning) PaColor.TextTertiary else PaColor.AccentText,
+                )
+                Spacer(Modifier.height(PaSpace.xxs))
+                if (!envoyRunning) {
+                    Text(
+                        text = "开始",
+                        style = PaType.label,
+                        color = PaColor.AccentText,
+                        modifier = Modifier
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = onRunMemoryEnvoy,
+                            )
+                            .padding(vertical = PaSpace.xxs),
+                    )
+                }
+                Spacer(Modifier.height(PaSpace.m))
+            }
+        }
+
         item { PaSectionTitle("性别") }
         item {
             PaListGroup {

@@ -1278,8 +1278,44 @@ class AppContainer(context: Context) {
     private var physioEffort: com.pocketagent.modelrouter.ThinkingEffort =
         com.pocketagent.modelrouter.ThinkingEffort.OFF
 
+    // ── 记忆使者（2026-11-03）──────────────────────────────
+    //
+    // ⚠️ 用户要求："这个功能一样是可以选模型的，也一样可以选择模型的思考强度"。
+    //   它**不是定时任务**（由用户在改完设定后手动触发），
+    //   但仍然要能选模型 —— 因为它的负载与其它三件都不同：
+    //   要**改写句子**，是最接近"写作"的一件。
+    @Volatile
+    private var envoyModelId: String? = null
+
+    @Volatile
+    private var envoyEffort: com.pocketagent.modelrouter.ThinkingEffort =
+        com.pocketagent.modelrouter.ThinkingEffort.LOW
+
     @Volatile
     private var memoryModelId: String? = null
+
+    fun envoyModel(): String? = envoyModelId
+
+    fun envoyThinking(): com.pocketagent.modelrouter.ThinkingEffort = envoyEffort
+
+    fun setEnvoyModel(id: String?) {
+        envoyModelId = id
+        startupScope.launch {
+            runCatching {
+                pluginSourceStore.edit {
+                    if (id == null) it.remove(KEY_ENVOY_MODEL) else it[KEY_ENVOY_MODEL] = id
+                }
+            }.onFailure { Timber.e(it, "记忆使者模型保存失败") }
+        }
+    }
+
+    fun setEnvoyEffort(effort: com.pocketagent.modelrouter.ThinkingEffort) {
+        envoyEffort = effort
+        startupScope.launch {
+            runCatching { pluginSourceStore.edit { it[KEY_ENVOY_EFFORT] = effort.name } }
+                .onFailure { Timber.e(it, "记忆使者思考强度保存失败") }
+        }
+    }
 
     @Volatile
     private var memoryEffort: com.pocketagent.modelrouter.ThinkingEffort =
@@ -1639,6 +1675,129 @@ class AppContainer(context: Context) {
         }
     }
 
+    // ══════════════════════════════════════════════════════════════
+    //  ★★ 2026-11-03：**记忆使者**
+    // ══════════════════════════════════════════════════════════════
+    //
+    // 用户："改完角色设定，可以用这个功能去修改角色的上下文记忆…
+    //      把上下文里的角色设定也一起改成最新设置的设定"
+    //
+    // ⚠️ 三条边界（见 `PersonaSync` 的类注释）：
+    //   1. **只改角色说过的话**，不改用户的原话
+    //   2. **改前备份**（写进文件，可回滚）
+    //   3. **只改含旧设定的那些轮**
+    private val envoyBackupFile: java.io.File
+        get() = java.io.File(filesDirForEnvoy(), "envoy_backup.jsonl")
+
+    private fun filesDirForEnvoy(): java.io.File =
+        kotlinx.coroutines.runBlocking {
+            appContext.filesDir
+        }
+
+    @Volatile
+    private var envoyRunning: Boolean = false
+
+    fun envoyIsRunning(): Boolean = envoyRunning
+
+    /**
+     * 跑一次记忆使者。
+     *
+     * @param oldMarkers 旧设定独有的词（判断哪几句要改）
+     * @param oldSummary 旧设定的概述（给模型看）
+     * @param newSummary 新设定的概述
+     * @return 改了几条 / 跳了几条
+     */
+    /** 当前会话 id（记忆使者用）。没有会话时返回空串。 */
+    suspend fun currentSessionId(): String =
+        runCatching { conversationStore?.currentSession()?.id.orEmpty() }.getOrDefault("")
+
+    suspend fun runMemoryEnvoy(
+        sessionId: String,
+        oldMarkers: List<String>,
+        oldSummary: String,
+        newSummary: String,
+        limit: Int = 40,
+    ): com.pocketagent.personalogic.PersonaSyncReport {
+        if (envoyRunning) {
+            return com.pocketagent.personalogic.PersonaSyncReport(0, 0, "上一次还没跑完")
+        }
+        if (oldMarkers.isEmpty()) {
+            return com.pocketagent.personalogic.PersonaSyncReport(0, 0, "旧设定里没有可识别的名字或称谓")
+        }
+        envoyRunning = true
+        try {
+            val store = conversationStore
+                ?: return com.pocketagent.personalogic.PersonaSyncReport(0, 0, "会话还没打开")
+            val turns = store.recentForModel(sessionId, limit)
+            // ⚠️ **只改角色说过的**。用户原话是记录，改它等于篡改他的输入。
+            val assistant = turns.filter {
+                it.role == com.pocketagent.memorylogic.TurnRole.ASSISTANT
+            }
+            val targets = assistant.filter {
+                com.pocketagent.personalogic.PersonaSync.needsRewrite(it.text, oldMarkers)
+            }
+            if (targets.isEmpty()) {
+                return com.pocketagent.personalogic.PersonaSyncReport(
+                    0, assistant.size, "旧对话里没有含旧设定的句子",
+                )
+            }
+
+            // ① 备份（先写盘，再改）
+            runCatching {
+                envoyBackupFile.parentFile?.mkdirs()
+                envoyBackupFile.writeText(
+                    buildString {
+                        for (t in targets) {
+                            appendLine(
+                                kotlinx.serialization.json.Json.encodeToString(
+                                    kotlinx.serialization.json.JsonObject.serializer(),
+                                    kotlinx.serialization.json.buildJsonObject {
+                                        put("id", kotlinx.serialization.json.JsonPrimitive(t.id))
+                                        put("text", kotlinx.serialization.json.JsonPrimitive(t.text))
+                                    },
+                                ),
+                            )
+                        }
+                    },
+                )
+            }.onFailure { Timber.e(it, "记忆使者备份失败，已中止") ; return com.pocketagent.personalogic.PersonaSyncReport(0, assistant.size, "备份失败，未改动任何内容") }
+
+            // ② 逐条改写
+            var changed = 0
+            var kept = 0
+            for (t in targets) {
+                val prompt = com.pocketagent.personalogic.PersonaSync.buildPrompt(
+                    oldSummary, newSummary, t.text,
+                )
+                val raw = runCatching {
+                    backgroundLlmComplete(
+                        prompt = prompt,
+                        purpose = com.pocketagent.personalogic.BackgroundLlmPort.BackgroundPurpose.DIRECTOR,
+                        modelId = envoyModelId,
+                        effort = envoyEffort,
+                    )
+                }.getOrDefault("")
+
+                when (val v = com.pocketagent.personalogic.PersonaSync.accept(t.text, raw)) {
+                    is com.pocketagent.personalogic.PersonaSync.Verdict.Accept -> {
+                        if (v.text == t.text) { kept++ } else {
+                            store.rewriteTurn(t.id, v.text)
+                            changed++
+                        }
+                    }
+                    is com.pocketagent.personalogic.PersonaSync.Verdict.Keep -> {
+                        kept++
+                        Timber.i("记忆使者跳过一条：%s", v.reason)
+                    }
+                }
+            }
+            Timber.i("记忆使者完成：改了 %d 条，保留 %d 条", changed, kept)
+            return com.pocketagent.personalogic.PersonaSyncReport(changed, kept, "")
+        } finally {
+            envoyRunning = false
+        }
+    }
+
     /**
      * **后台任务真的调了模型** —— 用用户配的那个。
      *
@@ -1781,6 +1940,10 @@ class AppContainer(context: Context) {
 
             // ★ 后台 AI 的调度（默认 null = 跟随对话模型）
             directorModelId = prefs[KEY_DIRECTOR_MODEL]
+            envoyModelId = prefs[KEY_ENVOY_MODEL]
+            envoyEffort = prefs[KEY_ENVOY_EFFORT]
+                ?.let { runCatching { com.pocketagent.modelrouter.ThinkingEffort.valueOf(it) }.getOrNull() }
+                ?: com.pocketagent.modelrouter.ThinkingEffort.LOW
             physioModelId = prefs[KEY_PHYSIO_MODEL]
             memoryModelId = prefs[KEY_MEMORY_MODEL]
             physioEffort = prefs[KEY_PHYSIO_EFFORT]
@@ -4215,6 +4378,10 @@ class AppContainer(context: Context) {
         androidx.datastore.preferences.core.stringPreferencesKey("health_report_v1")
     private val KEY_WORLD_BOOK =
         androidx.datastore.preferences.core.stringPreferencesKey("world_book_v1")
+    private val KEY_ENVOY_MODEL =
+        androidx.datastore.preferences.core.stringPreferencesKey("envoy_model_v1")
+    private val KEY_ENVOY_EFFORT =
+        androidx.datastore.preferences.core.stringPreferencesKey("envoy_effort_v1")
     private val KEY_PHYSIO_MODEL =
         androidx.datastore.preferences.core.stringPreferencesKey("physio_model_v1")
     private val KEY_PHYSIO_EFFORT =
