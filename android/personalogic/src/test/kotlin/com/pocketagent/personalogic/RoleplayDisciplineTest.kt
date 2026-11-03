@@ -229,22 +229,37 @@ class OutputSanitizerTest {
         assertTrue(OutputSanitizer.foreignBits("行行行，听你的。").isEmpty())
     }
 }
-
 /**
- * **示例对话** —— 比禁令管用。
+ * **示例对话** —— 比禁令管用，但**结构不能重复**。
  *
  * ═══════════════════════════════════════════════════════════════
- *  ★ 依据（SillyTavern 社区反复验证的一条）
+ *  ★★ 2026-11-03：用户抓到的第二个 AI 味
  * ═══════════════════════════════════════════════════════════════
  *
- * > The more clinical your character card is with bracketed sections
- * > dryly explaining the character, the more the LLM will just think
- * > that that type of language is acceptable.
+ * 用户："你没有发现第三声白送成了新的 ai 味了吗"
  *
- * 反过来说：**给它看台词，它就会写台词；给它看设定文，它就会写设定文。**
+ * ⚠️ 他说得对，而且根源在我写的示例上。第一版四条示例是：
+ * ```
+ *   「累就躺下。……别躺我腿上。」（还是把腿挪开了点）
+ *   「谁脸红了。灯的问题。」
+ *   「……大概吧。」（说完自己愣了一下）
+ *   「随你。」（十分钟后把热水放在他手边）
+ * ```
+ * **四条全是同一个公式**：嘴硬 + 小动作暴露真心。
  *
- * ⚠️ 用户的人格设定正是临床腔，所以模型开始自述「我不端着」。
- *    光禁不够 —— 得给它最后一屏"人话"。
+ * ⇒ 模型学会了这个公式，于是每句都在套：
+ *    「叫两声就够了，第三声是白送的」
+ *    铺垫 → 转折 → 抖个机灵。**这本身就是模板。**
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  ★ 病根：few-shot 的**结构同一性**
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * 示例给的从来不只是"语气"，还有**节奏与结构**。
+ * 四条同构的例子，等于教模型"每句话都要有反转"。
+ *
+ * ⇒ 现在的示例刻意参差：有长有短，有一条只有「哦。」，
+ *    有一条干脆在干活没抬头。**并显式把那个套路列为反面。**
  */
 class VoiceSamplesTest {
 
@@ -257,18 +272,48 @@ class VoiceSamplesTest {
     }
 
     @Test
-    fun `有反面样例做对照`() {
-        // ⚠️ 关键是让模型**看到差别**，而不是只被告知"不要那样"
-        assertTrue("必须有反面", s.contains("反面"))
-        assertTrue("反面里要包含念性格", s.contains("我不端着"))
-        assertTrue("反面里要包含念系统", s.contains("记账上了"))
-        assertTrue("反面里要包含总结情绪", s.contains("心里有点失落"))
+    fun `示例必须长短不齐`() {
+        // ⚠️ 这是本组测试的**核心**
+        // 四条同构的示例等于教模型"每句都要有反转"
+        val replies = Regex("她：「([^」]*)」").findAll(s).map { it.groupValues[1] }.toList()
+        assertTrue("示例至少 4 条：${replies.size}", replies.size >= 4)
+        val lens = replies.map { it.length }
+        assertTrue("最长的一句要明显长于最短的一句（否则结构太齐）：$lens",
+            lens.max() >= lens.min() + 4)
+        assertTrue("必须有一条极短（像「哦。」这种）：$lens", lens.any { it <= 6 })
     }
 
     @Test
-    fun `样例体现不确定感`() {
-        // ★ 调研里的 imperfect certainty —— 真人不会把话说满
-        assertTrue("要有「大概吧」这类不确定", s.contains("大概吧"))
+    fun `必须有一条不接话的`() {
+        // 真人不总是回应。她也可能在干活。
+        assertTrue("要有一条她在做别的事", s.contains("头都没抬") || s.contains("正在擦桌子"))
+    }
+
+    @Test
+    fun `把嘴硬加小动作那个套路列为反面`() {
+        // ⚠️ 用户报的具体问题
+        assertTrue("必须点明这个套路", s.contains("表面拒绝"))
+        assertTrue("必须说明用多了是模板", s.contains("模板"))
+    }
+
+    @Test
+    fun `有反面样例做对照`() {
+        assertTrue("必须有反面", s.contains("不是这样的"))
+        assertTrue("反面里要包含念性格", s.contains("我不端着"))
+        assertTrue("反面里要包含念系统", s.contains("记账上了"))
+    }
+
+    @Test
+    fun `禁止每句金句`() {
+        // 真人大部分话是废话
+        assertTrue(s.contains("别每句都有金句"))
+        assertTrue("允许她只说废话", s.contains("废话"))
+    }
+
+    @Test
+    fun `禁止每句带动作`() {
+        assertTrue(s.contains("别每句都带动作"))
+        assertTrue("括号动作不是标配", s.contains("不是标配"))
     }
 
     @Test
@@ -277,19 +322,12 @@ class VoiceSamplesTest {
     }
 
     @Test
-    fun `禁止把话说满`() {
-        assertTrue(s.contains("别把话说满"))
-    }
-
-    @Test
     fun `带上称呼`() {
-        val withAddr = VoiceSamples.promptSection("鱼片")
-        assertTrue(withAddr.contains("鱼片"))
+        assertTrue(VoiceSamples.promptSection("鱼片").contains("鱼片"))
     }
 
     @Test
-    fun `没有称呼时不出现空称呼`() {
-        val noAddr = VoiceSamples.promptSection("")
-        assertFalse("不该出现「作为 的女仆」这种空位", noAddr.contains("作为 的女仆"))
+    fun `没有称呼时不出现空位`() {
+        assertFalse(VoiceSamples.promptSection("").contains("作为 的女仆"))
     }
 }

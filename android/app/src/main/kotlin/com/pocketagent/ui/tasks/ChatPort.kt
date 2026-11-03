@@ -650,10 +650,18 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
     val cleanText = text?.let { raw ->
         val cleaned = com.pocketagent.personalogic.OutputSanitizer.clean(raw)
         if (cleaned != raw) {
-            Timber.w(
-                "输出清洗：夹了 %s",
-                com.pocketagent.personalogic.OutputSanitizer.foreignBits(raw).joinToString("、"),
-            )
+            // ⚠️ 2026-11-03 真机发现：日志只写"夹了 %s"，而 foreignBits 为空时
+            //    会打出一行「输出清洗：夹了」—— 什么信息都没有。
+            //    真相是**改动来自 tidy()（空格/连续标点），不是删外文**。
+            //    ⇒ 分开记，说清到底改了什么。
+            val bits = com.pocketagent.personalogic.OutputSanitizer.foreignBits(raw)
+            if (bits.isNotEmpty()) {
+                Timber.w("输出清洗：剔掉外文 %s（%d 字 → %d 字）",
+                    bits.joinToString("、"), raw.length, cleaned.length)
+            } else {
+                Timber.i("输出清洗：只整理了空格与标点（%d 字 → %d 字）",
+                    raw.length, cleaned.length)
+            }
         }
         if (com.pocketagent.personalogic.OutputSanitizer.isNearlyEmpty(cleaned, raw)) {
             Timber.w("输出清洗后几乎为空（原文 %d 字 → %d 字）", raw.length, cleaned.length)
