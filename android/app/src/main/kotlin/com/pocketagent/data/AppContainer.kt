@@ -1852,9 +1852,36 @@ class AppContainer(context: Context) {
                 )
             }
 
+            // ══════════════════════════════════════════════════════
+            //  ★★ 2026-11-03：**先判价值，再花模型的钱**
+            // ══════════════════════════════════════════════════════
+            //
+            // ⚠️ 用户要求："那些日常的对话，没有价值，未来不会被记住的
+            //    会话不需要清洗，其他的才需要清洗"
+            //
+            // ⚠️ 这不是省钱优化，是**正确性**：把「嗯」送去洗，
+            //    模型要么原样返回（白花钱），要么给它注水
+            //    （"嗯" → "嗯……我知道你在想什么"）。后者更糟。
+            val allTargets = atomTargetsAll + dialogueTargets
+            val worthy = allTargets.filter { t ->
+                val a = com.pocketagent.personalogic.MemoryCleaning.assess(
+                    text = t.text,
+                    tier = t.tier,
+                    settingMarkers = oldMarkers,
+                )
+                if (!a.worth) {
+                    Timber.d("不值得洗（%s）：%s ← %s", a.score, a.reasons.joinToString("；"), t.text.take(12))
+                }
+                a.worth
+            }
+            Timber.i(
+                "价值筛选：%d 条里 %d 条值得洗，跳过 %d 条",
+                allTargets.size, worthy.size, allTargets.size - worthy.size,
+            )
+
             // 层间按 priority 排；每层封顶（约束/偏好优先保证被改到）
             val planned = com.pocketagent.personalogic.orderByTier(
-                targets = atomTargetsAll + dialogueTargets,
+                targets = worthy,
                 maxPerTier = MAX_PER_TIER,
             )
 
