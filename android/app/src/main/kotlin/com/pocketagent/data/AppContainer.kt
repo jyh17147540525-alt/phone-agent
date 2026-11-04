@@ -4228,13 +4228,35 @@ class AppContainer(context: Context) {
      *    若聊天路径另建一套判定，两份策略迟早漂移 —— 
      *    而漂移的方向是"其中一份比另一份松"，没有人会发现。
      */
+    /**
+     * 启动时报一次「有没有常驻通道」。
+     *
+     * 只放在 [agentTools] 里是不够的 —— 那是 lazy，用户不发消息就不会构造，
+     * 于是「通道没起来」和「通道起来了但没被读到」在 logcat 里长得一模一样，
+     * 用户只会觉得动作变慢。这里只读一个 40 字节的文件，不建连接、不跑 su。
+     */
+    init {
+        val found = DaemonEndpoint.read()
+        Timber.i(
+            "root 通道：%s",
+            if (found != null) "已发现（127.0.0.1:${found.port}）" else "未发现（走 su 兜底）",
+        )
+    }
+
     private val agentTools: List<McpTool> by lazy {
         // ★ 一个 `RootActions` 实例同时给"点按"和"读屏"用：它们共享同一个
         //   `su` 端口，分开建两个实例只会让日志里出现两条互不相干的时间线。
         // 常驻通道装好了就走通道（一次往返 <5ms、参数是数组），
         // 没装好 / 连不上就退回 `su -c`（80–300ms，但有 root 就能用）。
         // 发现文件缺失是**正常状态**（绝大多数用户没有 root），不当错误报。
-        val rootActions = RootActions(SuShellPort(), daemon = DaemonEndpoint.open())
+        // 但**查到了什么必须留一行日志**：否则"通道没起来"和"通道起来了但没被读到"
+        // 在设备上长得一模一样，用户只能看到动作变慢。
+        val daemonPort = DaemonEndpoint.open()
+        Timber.i(
+            "root 通道：%s",
+            if (daemonPort != null) "已发现常驻通道（一次往返跑多条命令）" else "未发现，走 su 兜底",
+        )
+        val rootActions = RootActions(SuShellPort(), daemon = daemonPort)
         val reader = TieredScreenReader(
             plain = PerceptionScreenReader(AccessibilityPerceptionManager(AgentA11ySource)),
             root = RootScreenReader(rootActions),
