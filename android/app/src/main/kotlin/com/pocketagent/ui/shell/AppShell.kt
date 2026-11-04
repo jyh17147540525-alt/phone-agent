@@ -145,6 +145,19 @@ object Routes {
      */
     const val BACKGROUND_AI = "background-ai"
 
+    /**
+     * **工作台** —— 「（角色昵称）的工作台」。
+     *
+     * ★★ 2026-11-04 晚：用户否掉了"聊天页里切两段"的第一版，原话：
+     *   "工作模式你要切到另一个页面啊，就是工作页，在这个页面，开场，
+     *   背景上都会有这个角色的随机开场白，像 claude 那样 …… 而不是从
+     *   角色聊天切换到工作，这样太生硬了"。
+     *
+     * ⚠️ 它是**独立路由**而不是同一页里的状态：模式由"你站在哪一页"
+     *   决定，这样聊天页永远演、工作台永远办事，两边不会互相污染。
+     */
+    const val WORKBENCH = "workbench"
+
     /** 世界书：设定与事实。 */
     const val WORLD_BOOK = "world-book"
 
@@ -270,9 +283,27 @@ fun AppShell(
     //    原因见 TasksScreen 的 viewModel 参数注释：它不继承 ViewModel，
     //    生命周期等于承载它的那次组合，而 destination 会在切 tab 时被移出组合。
     //    放这里 = 生命周期等于整个应用。
-    val tasksViewModel = remember {
-        TasksViewModel(
+    /**
+     * 建一个 [TasksViewModel]。
+     *
+     * ★★ 2026-11-04 晚：抽成局部函数是为了**两个页面各有一份** ——
+     * 聊天页用 `ChatMode.ROLEPLAY`，工作台用 `ChatMode.WORK`。
+     *
+     * ⚠️ 两份**必须**各自 `remember`：它们承载的是两个独立的
+     *    任务列表 / 草稿 / 会话选择。共用一个会让工作台的消息
+     *    出现在聊天页里 —— 那正是用户说的"太生硬"的另一面。
+     */
+    fun buildTasksViewModel(
+        mode: com.pocketagent.personalogic.ChatMode,
+        /** 非空 = 这条线自己一个会话（见 `TasksViewModel.dedicatedTitle`）。 */
+        dedicatedTitle: String? = null,
+    ) = TasksViewModel(
             chat = chatPort,
+            // ★★ 2026-11-04 晚：模式由**页面**注入，不再从容器读全局开关。
+            mode = mode,
+            // ★ 工作台不共用聊天页那条会话 —— 否则点进去先看到的是
+            //   角色扮演的历史，而开场白永远没有机会出现。
+            dedicatedTitle = dedicatedTitle,
             // ★ 传**提供者**而不是实例：库是懒开的，构造时它大概率还是 null，
             //   而这里 `remember` 只跑一次 —— 存实例等于永远拿到 null。
             //   首次调用会顺带把库开起来（要碰 Keystore，所以是 suspend）。
@@ -308,6 +339,17 @@ fun AppShell(
             },
             // ★ 朗读：开关在容器里判断（默认关），这里只负责把文本交出去。
             speakReply = { text -> if (container.ttsEnabled()) container.speakAsync(text) },
+    )
+
+    val tasksViewModel = remember {
+        buildTasksViewModel(com.pocketagent.personalogic.ChatMode.ROLEPLAY)
+    }
+    val workbenchViewModel = remember {
+        buildTasksViewModel(
+            mode = com.pocketagent.personalogic.ChatMode.WORK,
+            // ⚠️ 这个字面量**同时**决定"认领哪条会话"和"侧边栏里它叫什么"。
+            //    改名字 = 换一条新会话（旧的那条留在历史里，不会消失）。
+            dedicatedTitle = "工作台",
         )
     }
 
@@ -674,12 +716,6 @@ fun AppShell(
                     var modelChoiceState by remember { mutableStateOf(container.modelChoice()) }
                     var effortState by remember { mutableStateOf(container.thinkingEffort()) }
 
-                    // ★★ 2026-11-04：对话模式 —— **同一族 bug 的第四次预防**。
-                    //   容器的 `chatMode()` 是普通 `@Volatile var`，不是
-                    //   Compose 状态 ⇒ 直接塞进参数里，切了不会重组，
-                    //   用户看到"点了一下，什么都没变"。
-                    var chatModeState by remember { mutableStateOf(container.chatMode()) }
-
 
                     TasksScreen(
                         viewModel = tasksViewModel,
@@ -720,19 +756,79 @@ fun AppShell(
                             effortState = container.thinkingEffort()
                             modelRefresh++
                         },
-                        // ★★ 2026-11-04：角色扮演 / 工作。
-                        //   ⚠️ 不改 `modelRefresh` —— 它只影响模型列表，
-                        //      与模式无关；模式由自己的 state 驱动重组。
-                        chatMode = chatModeState,
-                        onChatModeChange = { m ->
-                            container.setChatMode(m)
-                            chatModeState = container.chatMode()
-                        },
+                        // ★★ 2026-11-04 晚：工作台入口（顶栏第三个图标）。
+                        //   模式不再在这里切 —— 它是**另一个页面**。
+                        onOpenWorkbench = { navController.navigate(Routes.WORKBENCH) },
                         // ★ 2026-11-01：连续使用 2 小时提醒（合规四件之一）
                         //   算法在 :personalogic/UsageWatch，文案在 UsageReminder，都有离线测试。
                         onCheckUsage = {
                             // ★ 是否角色扮演由容器判断（有没有角色卡）——
                             //   有角色走旁白，没有走系统行。
+                            container.touchUsage(isRoleplay = container.isRoleplay())?.text
+                        },
+                    )
+                }
+
+                // ── 工作台 ──────────────────────────────────────
+                //
+                // ★★ 2026-11-04 晚：独立页面，不是聊天页里的一个状态。
+                //
+                // ⚠️ 与聊天页**共用一个可组合函数**，但各有一份 ViewModel
+                //   （模式由 `buildTasksViewModel` 注进去）与各自的列表。
+                composable(Routes.WORKBENCH) {
+                    var modelChoiceState by remember { mutableStateOf(container.modelChoice()) }
+                    var effortState by remember { mutableStateOf(container.thinkingEffort()) }
+
+                    // ⚠️ 每次进入都重读：用户可能刚在角色设定里改过称呼。
+                    val persona = remember { container.currentCustomPersona() }
+                    val greeting = remember {
+                        val now = java.util.Calendar.getInstance()
+                        val hour = now.get(java.util.Calendar.HOUR_OF_DAY) +
+                            now.get(java.util.Calendar.MINUTE) / 60.0
+                        // 种子取**这一分钟**：一分钟内连按两次拿到同一句，
+                        // 隔一会儿进来就换一句 —— 这正是"随机开场白"的节奏。
+                        val seed = (System.currentTimeMillis() / 60_000L).toInt()
+                        com.pocketagent.personalogic.WorkbenchGreeting.headline(
+                            hourOfDay = hour,
+                            // ★ 这个字段常常是一整段"她怎么称呼你"的说明，
+                            //   不是昵称。由 salutationOf 决定能不能喊出口。
+                            addressUser = persona?.addressUser.orEmpty(),
+                            seed = seed,
+                        ) to com.pocketagent.personalogic.WorkbenchGreeting.hint(seed)
+                    }
+                    // "用户对角色的昵称"：`addressSelf` 优先，没填就用名字。
+                    val who = persona?.addressSelf?.takeIf { it.isNotBlank() }
+                        ?: persona?.name?.takeIf { it.isNotBlank() }
+                        ?: "她"
+
+                    TasksScreen(
+                        viewModel = workbenchViewModel,
+                        pageTitle = "${who}的工作台",
+                        heroHeadline = greeting.first,
+                        heroHint = greeting.second,
+                        onBack = { navController.popBackStack() },
+                        onOpenSettings = { goToTab(Routes.SETTINGS) },
+                        onOpenPersona = { navController.navigate(Routes.PERSONA) },
+                        modelModels = modelModelsState,
+                        modelChoice = modelChoiceState,
+                        thinkingEffort = effortState,
+                        onPickModel = { id ->
+                            container.setModelChoice(
+                                if (id == null) {
+                                    com.pocketagent.modelrouter.ModelChoice.Auto
+                                } else {
+                                    com.pocketagent.modelrouter.ModelChoice.Pinned(id)
+                                },
+                            )
+                            modelChoiceState = container.modelChoice()
+                            modelRefresh++
+                        },
+                        onPickEffort = { e ->
+                            container.setThinkingEffort(e)
+                            effortState = container.thinkingEffort()
+                            modelRefresh++
+                        },
+                        onCheckUsage = {
                             container.touchUsage(isRoleplay = container.isRoleplay())?.text
                         },
                     )

@@ -144,6 +144,26 @@ interface ChatPort {
          * （"判 Act 的代价是可能动了用户的手机"）。
          */
         forceAct: Boolean = false,
+
+        /**
+         * **这一轮属于哪个功能**（角色扮演 / 工作台）。
+         *
+         * ★★ 2026-11-04 晚：从「全局持久开关」改成**由调用方传入**。
+         *
+         * 用户否掉了第一版设计，原话："工作模式你要切到另一个页面啊，
+         * 就是工作页 …… 而不是从角色聊天切换到工作，这样太生硬了"。
+         *
+         * ⚠️ 读容器会有一个**真 bug**：模式曾经是 `container.chatMode()`
+         *    一个全局值 —— 用户在聊天页把开关拨到「工作」，退出再进工作台，
+         *    两个页面读到同一个值，互相污染。传参之后，聊天页永远
+         *    `ROLEPLAY`、工作台永远 `WORK`，由**所在页面**决定，
+         *    不可能不一致。
+         *
+         * ⚠️ 默认 `ROLEPLAY`：所有既有调用方（预览、测试、旧代码）
+         *    一个字都不用改，行为也不变。
+         */
+        mode: com.pocketagent.personalogic.ChatMode =
+            com.pocketagent.personalogic.ChatMode.ROLEPLAY,
     ): ChatResult
 }
 
@@ -262,6 +282,7 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
          *    默认值只在接口那侧声明一次。
          */
         forceAct: Boolean,
+        mode: com.pocketagent.personalogic.ChatMode,
     ): ChatResult {
         // ── ⓪ 用户重新开口 ⇒ 解除上一轮的「按停」 ────────────────
         //
@@ -363,16 +384,20 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
     //
     // ⚠️ 开关关掉时 `willingnessVerdict()` 永远返回 EAGER，
     //    这一整段在开关关闭时是无害的。
-    // ★★ 2026-11-04：**对话模式**（角色扮演 / 工作）。
+    // ★★ 2026-11-04：**对话模式**（角色扮演 / 工作台）。
     //
-    // ⚠️ 在这里读**一次**、存进局部变量，后面五处都用它：拒绝块、
-    //    意图判定、系统提示词、`isAgentRun`、`offerHelp`。
-    //    中途容器再变也不影响这一轮 —— 一轮只该有一种模式，
-    //    否则会出现"提示词按工作模式拼的、界面却按角色扮演画的"。
-    val chatMode = container.chatMode()
+    // ⚠️ 存进局部变量，后面五处都用它：拒绝块、意图判定、系统提示词、
+    //    `isAgentRun`、`offerHelp`。一轮只该有一种模式，否则会出现
+    //    "提示词按工作模式拼的、界面却按角色扮演画的"。
+    //
+    // ★★ 2026-11-04 晚：**改由调用方传进来**，不再读容器。
+    //    原来是 `container.chatMode()`（一个全局持久开关，聊天页顶上
+    //    摆两段切换）。用户否掉了那个设计 —— 模式不再是"用户偏好"，
+    //    而是**"用户此刻站在哪个页面"**，由路由决定。
+    val chatMode = mode
     val isWorkMode = chatMode.isWork
     if (isWorkMode) {
-        Timber.i("工作模式：工具常驻、不拒绝、按人格说话")
+        Timber.i("工作台：工具常驻、不拒绝、按人格说话")
     }
 
     // ⚠️ 工作模式下**跳过**意愿判定：用户让它办事，它答"我现在不想动"

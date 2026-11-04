@@ -1264,8 +1264,6 @@ class AppContainer(context: Context) {
 
     private val willingnessEngine = com.pocketagent.personalogic.WillingnessEngine()
 
-
-
     /** 设置页的开关状态。 */
     fun allowRefusal(): Boolean = allowRefusalValue
 
@@ -1274,43 +1272,6 @@ class AppContainer(context: Context) {
         startupScope.launch {
             runCatching { pluginSourceStore.edit { it[KEY_ALLOW_REFUSAL] = value } }
                 .onFailure { Timber.e(it, "拒绝开关保存失败") }
-        }
-    }
-
-    // ══════════════════════════════════════════════════════════════════
-    //  ★★ 2026-11-04：**对话模式**（角色扮演 / 工作）
-    // ══════════════════════════════════════════════════════════════════
-    //
-    // 用户的原话："我计划给这个软件的对话功能分家，角色扮演是一个功能，
-    // 工作模式是一个功能 …… 但工作模式，是有人格的工作，语气，习惯，
-    // 等等都要按照人格设定的来。"
-    //
-    // ⚠️ 做成**全局开关**而不是会话级：会话级要在 `SessionEntity` 上加一列、
-    //    `PocketAgentDatabase` 涨到 v5，再补一条手写迁移 + 迁移测试
-    //    （本项目禁止 `fallbackToDestructiveMigration`，偷不了懒）。
-    //    它换来的唯一好处是"两个会话分别记住自己的模式" —— 用户没提这个，
-    //    他要的是"切换对话模式和工作模式"，那就是一个开关。
-    //
-    // ⚠️ 默认 `ROLEPLAY`：老用户升级后不会突然发现"她怎么不演了"。
-    @Volatile
-    private var chatModeValue: com.pocketagent.personalogic.ChatMode =
-        com.pocketagent.personalogic.ChatMode.ROLEPLAY
-
-    /**
-     * 当前对话模式。
-     *
-     * ⚠️⚠️ **界面读它时必须自己用 `remember { mutableStateOf }` 承接**，
-     *      不能像 `allowRefusal = container.allowRefusal()` 那样直接塞进
-     *      可组合函数参数 —— 这个字段变了**不会触发重组**。这个坑本项目
-     *      已经踩过三次（后台 AI 页拉条、"允许它拒绝"开关、模型顶栏）。
-     */
-    fun chatMode(): com.pocketagent.personalogic.ChatMode = chatModeValue
-
-    fun setChatMode(mode: com.pocketagent.personalogic.ChatMode) {
-        chatModeValue = mode
-        startupScope.launch {
-            runCatching { pluginSourceStore.edit { it[KEY_CHAT_MODE] = mode.name } }
-                .onFailure { Timber.e(it, "对话模式保存失败") }
         }
     }
 
@@ -2237,12 +2198,6 @@ class AppContainer(context: Context) {
             )
             // ★ 拒绝开关（默认 true：见 allowRefusalValue 的注释）
             allowRefusalValue = prefs[KEY_ALLOW_REFUSAL] ?: true
-
-            // ★ 对话模式（默认角色扮演：见 chatModeValue 的注释）
-            //
-            // ⚠️ 用 `ChatMode.of` 而不是 `valueOf` —— 存档里可能是旧版本的值、
-            //    或者被手改坏。`valueOf` 会抛，抛在启动路径上就是黑屏。
-            chatModeValue = com.pocketagent.personalogic.ChatMode.of(prefs[KEY_CHAT_MODE])
 
             // ★ 体检报告
             runCatching {
@@ -5278,9 +5233,6 @@ class AppContainer(context: Context) {
 
     /** 「允许它拒绝」开关。见 [allowRefusalValue]。 */
     private val KEY_ALLOW_REFUSAL = booleanPreferencesKey("allow_refusal_v1")
-
-    /** 对话模式（角色扮演 / 工作）。见 [chatModeValue]。 */
-    private val KEY_CHAT_MODE = stringPreferencesKey("chat_mode_v1")
 
     // 后台 AI 调度（2026-11-03）
     private val KEY_DIRECTOR_MODEL =

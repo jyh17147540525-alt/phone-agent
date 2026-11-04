@@ -72,6 +72,7 @@ import com.pocketagent.ui.design.PaBadgeTone
 import com.pocketagent.ui.design.PaButton
 import com.pocketagent.ui.design.PaButtonStyle
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Work
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import com.pocketagent.ui.design.PaColor
 import com.pocketagent.ui.design.PaEmptyState
@@ -141,21 +142,42 @@ fun TasksScreen(
     onPickEffort: (com.pocketagent.modelrouter.ThinkingEffort) -> Unit = {},
 
     /**
-     * ★★ 2026-11-04：**对话模式**（角色扮演 / 工作）。
+     * ★★ 2026-11-04 晚：**这一页是什么页**。
      *
-     * 用户的原话："我计划给这个软件的对话功能分家，角色扮演是一个功能，
-     * 工作模式是一个功能，可以像电脑端豆包那样，切换对话模式和工作模式，
-     * 但工作模式，是有人格的工作，语气，习惯，等等都要按照人格设定的来。"
+     * 第一版把「角色扮演 / 工作」做成聊天页输入框上方的两段切换，
+     * 用户否掉了 —— 原话："工作模式你要切到另一个页面啊，就是工作页，
+     * 在这个页面，开场，背景上都会有这个角色的随机开场白，像 claude 那样，
+     * 这个页面就叫「（用户对角色的昵称）的工作台」而不是从角色聊天切换到
+     * 工作，这样太生硬了"。
      *
-     * ⚠️ 与 `modelChoice` 同一条纪律：**纯数据 + 回调**，不传容器。
+     * ⇒ 同一个可组合函数现在服务两个页面：
      *
-     * ⚠️⚠️ 容器的 `chatMode()` 不是 Compose 状态 ⇒ 调用方**必须**
-     *    用 `remember { mutableStateOf }` 承接，否则点了没反应。
-     *    这个坑本项目已经踩过三次（见 `AppContainer.chatMode()` 的注释）。
+     *   · 聊天页：`pageTitle == null` —— 标题「任务」、左上角抽屉、
+     *     顶栏多一个「工作台」入口；
+     *   · 工作台：`pageTitle == "（昵称）的工作台"` —— 左上角返回、
+     *     空态是一句开场白而不是「还没有任务」。
+     *
+     * ⚠️ 用**参数**区分而不是另写一个屏幕：两个页面 95% 的代码是同一份
+     *    （列表、输入框、模型条、发送流程）。复制一份出来，两周后必然
+     *    只有一边被修 —— 那是本项目最典型的「手抄一份实现」。
+     *
+     * ⚠️ 模式**不在这里传**：它由路由决定，`AppShell` 建两个
+     *    `TasksViewModel`，各自带着自己的 `ChatMode`。
+     *    界面不需要知道模式，它只需要知道自己画的是哪一页。
      */
-    chatMode: com.pocketagent.personalogic.ChatMode =
-        com.pocketagent.personalogic.ChatMode.ROLEPLAY,
-    onChatModeChange: (com.pocketagent.personalogic.ChatMode) -> Unit = {},
+    pageTitle: String? = null,
+
+    /** 工作台页首的开场白大标题。null = 不显示（聊天页）。 */
+    heroHeadline: String? = null,
+
+    /** 开场白下面那行小字。空 = 不显示。 */
+    heroHint: String = "",
+
+    /** 返回上一页。null = 不显示返回箭头（聊天页是顶层）。 */
+    onBack: (() -> Unit)? = null,
+
+    /** 进入工作台。null = 不显示入口（工作台自己传 null，否则能自己进自己）。 */
+    onOpenWorkbench: (() -> Unit)? = null,
     /**
      * ★ 2026-11-01：连续使用提醒。
      *
@@ -248,13 +270,16 @@ fun TasksScreen(
     //   · 遮罩的深浅、圆角、入场动画全部可控
     Box(modifier = modifier.fillMaxSize()) {
     PaScreen(
-        title = "任务",
+        title = pageTitle ?: "任务",
         subtitle = if (vm.tasks.isEmpty()) null else "${vm.tasks.size} 个任务",
-        // ★ 抽屉入口。用 leadingIcon 而不是 onBack ——
-        //   摆一个返回箭头（←）当菜单用，用户会以为点它返回上一页。
-        leadingIcon = Icons.Default.Menu,
-        leadingContentDescription = "历史对话",
-        onLeadingClick = vm::openDrawer,
+        // ★ 两个页面的左上角不一样：
+        //   聊天页 = 抽屉（用 leadingIcon 而不是 onBack ——
+        //   摆一个返回箭头当菜单用，用户会以为点它返回上一页）；
+        //   工作台 = 返回箭头（它是钻取进来的，必须能退回聊天页）。
+        onBack = onBack,
+        leadingIcon = if (onBack == null) Icons.Default.Menu else null,
+        leadingContentDescription = if (onBack == null) "历史对话" else null,
+        onLeadingClick = if (onBack == null) vm::openDrawer else null,
         actions = {
             // ★★ 2026-11-01：模型快捷切换入口。
             //   显示"现在用哪个"，点一下换 —— 这是用户要的"快捷切换"。
@@ -264,6 +289,16 @@ fun TasksScreen(
             //    犹豫"这两个是不是不一样"。
             // ★ 角色设定入口 —— 就在顶栏，聊着聊着觉得不对可以立刻改。
             //   见 `onOpenPersona` 参数的注释。
+            // ★★ 2026-11-04 晚：工作台入口。
+            //   ⚠️ 放在角色设定**左边**：右边两个（角色设定 / 设置）是
+            //      "改这个应用"，工作台是"换个地方干活"，语义层级更高。
+            onOpenWorkbench?.let { open ->
+                PaIconButton(
+                    icon = Icons.Default.Work,
+                    onClick = open,
+                    contentDescription = "工作台",
+                )
+            }
             PaIconButton(
                 icon = Icons.Default.Person,
                 onClick = onOpenPersona,
@@ -283,11 +318,22 @@ fun TasksScreen(
 
             Box(modifier = Modifier.weight(1f)) {
                 if (vm.tasks.isEmpty()) {
-                    PaEmptyState(
-                        title = "还没有任务",
-                        description = "说一句话，我来替你操作手机。\n所有操作都在本机完成，数据不出设备。",
-                        modifier = Modifier.align(Alignment.Center),
-                    )
+                    // ★★ 2026-11-04 晚：工作台的空态是**一句开场白**，
+                    //   不是「还没有任务」—— 后者像一张没填的表单，
+                    //   而用户要的是"有人在这里等你"。
+                    if (heroHeadline != null) {
+                        WorkbenchHero(
+                            headline = heroHeadline,
+                            hint = heroHint,
+                            modifier = Modifier.align(Alignment.Center),
+                        )
+                    } else {
+                        PaEmptyState(
+                            title = "还没有任务",
+                            description = "说一句话，我来替你操作手机。\n所有操作都在本机完成，数据不出设备。",
+                            modifier = Modifier.align(Alignment.Center),
+                        )
+                    }
                 } else {
                     // ══════════════════════════════════════════════════
                     //  ★★ 2026-10-28：一条一个 item + 自动滚到最新
@@ -604,11 +650,9 @@ fun TasksScreen(
                         .padding(bottom = PaSpace.xxs),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // ── 模式切换（角色 / 工作）─────────────────
-                    //
-                    // ★★ 2026-11-04：放在**最前面** —— 它是"这一轮在干什么"
-                    //   的最高层决定，模型和思考档位都是它的下游。
-                    ChatModeSwitch(mode = chatMode, onChange = onChatModeChange)
+                    // ★★ 2026-11-04 晚：这里原本有两段切换（角色 / 工作）。
+                    //   已删除 —— 模式改由**所在页面**决定（聊天页 / 工作台），
+                    //   见 `Routes.WORKBENCH` 与 `ChatPort.send(mode = ...)`。
 
                     // ── 模型 chip ──────────────────────────────
                     Row(
@@ -1081,7 +1125,7 @@ private fun TaskStateBadge(state: TaskState) {
  * 要改成玻璃风格等于把所有东西都覆盖一遍，不如直接用基础组件。
  */
 @Composable
-private fun TaskComposer(
+internal fun TaskComposer(
     value: String,
     onValueChange: (String) -> Unit,
     onSend: () -> Unit,
@@ -1535,6 +1579,37 @@ class TasksViewModel(
     private val chat: ChatPort? = null,
 
     /**
+     * ★★ 2026-11-04 晚：**这个 ViewModel 服务哪个页面**。
+     *
+     * 聊天页 = `ROLEPLAY`，工作台 = `WORK`。由 `AppShell` 注入，
+     * 界面层完全不碰它（见 `ChatPort.send` 的 `mode` 参数）。
+     *
+     * ⚠️ 两个页面各有一个 ViewModel 实例：任务列表、草稿、会话选择
+     *    必须各自独立。共用一个会让工作台的消息出现在聊天页里。
+     */
+    private val mode: com.pocketagent.personalogic.ChatMode =
+        com.pocketagent.personalogic.ChatMode.ROLEPLAY,
+
+    /**
+     * ★★ 2026-11-04 晚：这条线**自己一个会话**，标题就是它。
+     *
+     * 现场：工作台点进去，摊着的正是角色扮演那 207 条私密对话 ——
+     * 页面叫「工作台」，内容却是被窝里那一段。观感上就是说不过去。
+     *
+     * 根因：两个 ViewModel 都走 `sessionId ?: store.currentSession()`，
+     * 而 `currentSession()` 返回的是**全局最近那个会话** ⇒ 两个页面
+     * 指向同一条线，工作台自然继承了聊天页的全部历史。
+     *
+     * ⇒ 带标题的 ViewModel 认领一条专属会话（找得到就复用，找不到
+     *   就新建并命名）。null = 跟随全局（聊天页就是这个行为）。
+     *
+     * ⚠️ 刻意**不改** `currentSessionId`：那是"下次冷启动打开哪个"的
+     *    全局指针。工作台去改它，用户下次开应用就会落在工作台上 ——
+     *    他要看的是「上次聊到哪」，不是「上次办了什么事」。
+     */
+    private val dedicatedTitle: String? = null,
+
+    /**
      * 会话仓储的**提供者**（不是实例）。
      *
      * ⚠️ 为什么必须是 `() ->`：库是**懒开**的（开库要碰 Keystore，冷启动路径上不该付这个代价），
@@ -1726,7 +1801,19 @@ class TasksViewModel(
                     } else {
                         store.searchSessions(keyword, AgentTaskUi.SESSION_LIST_LIMIT)
                     }
-                    val cur = sessionId ?: store.currentSession().also { sessionId = it.id }.id
+                    val cur = sessionId ?: run {
+                        // ★ 工作台 = 自己一条线（见 `dedicatedTitle` 的 KDoc）。
+                        val resolved = if (dedicatedTitle == null) {
+                            store.currentSession()
+                        } else {
+                            store.recentSessions(AgentTaskUi.SESSION_LIST_LIMIT)
+                                .firstOrNull { it.title == dedicatedTitle }
+                                ?: store.newSession().also {
+                                    store.renameSession(it.id, dedicatedTitle)
+                                }
+                        }
+                        resolved.also { sessionId = it.id }.id
+                    }
                     Timber.i("历史会话：读到 %d 个会话，当前=%s", list.size, cur)
                     // ★ 过滤掉**一条消息都没有**的会话（除非它就是当前那个）。
                     //
@@ -2465,6 +2552,9 @@ class TasksViewModel(
                         //   ⚠️ 只在用户**明确点了那个按钮**时为 true ——
                         //      分类器的保守判定保持不变（它不会自己动手）。
                         forceAct = forceAct,
+                        // ★★ 2026-11-04 晚：模式随调用走 —— 同一个端口，
+                        //   聊天页传 ROLEPLAY、工作台传 WORK。
+                        mode = mode,
                         onStep = { step, desc, tier ->
                             update(taskId) {
                                 it.copy(
@@ -2602,51 +2692,3 @@ class TasksViewModel(
     }
 }
 
-
-/**
- * ★★ 2026-11-04：**角色 / 工作** 两段切换。
- *
- * ⚠️ 为什么是两段而不是一个开关：开关只能表达"是不是"，而这里是**两种
- *    同等正当的用法**。豆包那种分家也是分段控件。
- *
- * ⚠️ 未选中的那一段**不给背景**（透明），不给描边 —— 它只是"现在不是这个"，
- *    不是"不可用"。用灰度差表达选中，比加一个勾更安静。
- *
- * ⚠️ 两段都用 `shortLabel`（"角色" / "工作"）：输入框上方这一行本来就挤，
- *    而 `label`（"角色扮演"）在这个位置是废话 —— 用户知道自己在这两个之间切。
- *
- * ★ 2026-11-04：选中段曾经用 `PaColor.Accent` 当底色、`AccentText` 当字色，
- *    装到机器上一看**字整个消失** —— `Accent`(#C96442) 与 `AccentText`(#A34A28)
- *    都是深褐，深褐压深褐。`AccentText` 的定位是"**画在普通背景上的**强调色文字"
- *    （对 Canvas 5.27 合格），不是"画在强调色**上面**的字"。
- *    调色板里没有 OnAccent 这一格，所以选中态改用 `AccentSoft` + `AccentText`
- *    这一对现成的搭配（同 `design/Navigation.kt` 的选中指示条）。
- */
-@Composable
-private fun ChatModeSwitch(
-    mode: com.pocketagent.personalogic.ChatMode,
-    onChange: (com.pocketagent.personalogic.ChatMode) -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(PaRadius.pill))
-            .background(PaColor.GlassTint)
-            .padding(2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        for (each in com.pocketagent.personalogic.ChatMode.entries) {
-            val chosen = each == mode
-            Text(
-                text = each.shortLabel,
-                style = PaType.label,
-                color = if (chosen) PaColor.AccentText else PaColor.TextTertiary,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(PaRadius.pill))
-                    .background(if (chosen) PaColor.AccentSoft else Color.Transparent)
-                    .clickable { if (!chosen) onChange(each) }
-                    .padding(horizontal = PaSpace.xs, vertical = 4.dp),
-            )
-        }
-    }
-    Spacer(Modifier.width(PaSpace.xxs))
-}
