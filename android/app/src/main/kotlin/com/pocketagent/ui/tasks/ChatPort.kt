@@ -8,6 +8,9 @@ import com.pocketagent.agentlogic.PauseReason
 import com.pocketagent.agentlogic.PhoneAgentLoop
 import com.pocketagent.agentlogic.PhoneRunResult
 import com.pocketagent.agentlogic.PhoneTask
+import com.pocketagent.agentlogic.orchestration.Intake
+import com.pocketagent.agentlogic.orchestration.SuperAgent
+import com.pocketagent.agentlogic.orchestration.TaskIntake
 import com.pocketagent.assistant.AgentAdapters
 import com.pocketagent.data.AppContainer
 import com.pocketagent.data.CredentialStoreResult
@@ -360,7 +363,21 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
     //
     // ⚠️ 开关关掉时 `willingnessVerdict()` 永远返回 EAGER，
     //    这一整段在开关关闭时是无害的。
-    if (container.willingnessVerdict() ==
+    // ★★ 2026-11-04：**对话模式**（角色扮演 / 工作）。
+    //
+    // ⚠️ 在这里读**一次**、存进局部变量，后面五处都用它：拒绝块、
+    //    意图判定、系统提示词、`isAgentRun`、`offerHelp`。
+    //    中途容器再变也不影响这一轮 —— 一轮只该有一种模式，
+    //    否则会出现"提示词按工作模式拼的、界面却按角色扮演画的"。
+    val chatMode = container.chatMode()
+    val isWorkMode = chatMode.isWork
+    if (isWorkMode) {
+        Timber.i("工作模式：工具常驻、不拒绝、按人格说话")
+    }
+
+    // ⚠️ 工作模式下**跳过**意愿判定：用户让它办事，它答"我现在不想动"
+    //    是故障不是人格。见 `ChatMode` 的差异表。
+    if (!isWorkMode && container.willingnessVerdict() ==
         com.pocketagent.personalogic.WillingnessVerdict.DECLINE
     ) {
         // ⚠️ 必须先 noteDeclined 再返回 —— 限频依赖它。
@@ -388,6 +405,20 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
             reason = "用户点了「让我来做」，明确要求动手（覆盖分类器的保守判定）",
             confidence = com.pocketagent.rootlogic.IntentDecision.Confidence.HIGH,
         )
+    } else if (isWorkMode) {
+        // ★★ 2026-11-04：工作模式下**不猜** —— 工具一律挂着。
+        //
+        // ⚠️ 为什么不是"照旧分类、只是把工具挂到纯对话路径上"：
+        //    `ChatPort.kt` 的纯对话分支走的是 `chatOnly(...)`，
+        //    那是一次性请求、**根本不吃工具**（见它的 KDoc）。
+        //    要让它也能动手，等于把整个 agent 循环再实现一遍。
+        //    ⇒ 工作模式直接走循环。模型若只是答一句话，循环里
+        //      一轮就收尾，代价就是这一次请求本身。
+        com.pocketagent.rootlogic.IntentDecision(
+            intent = TurnIntent.Act,
+            reason = "工作模式：工具常驻，这一轮允许它直接动手",
+            confidence = com.pocketagent.rootlogic.IntentDecision.Confidence.HIGH,
+        )
     } else {
         IntentClassifier.classify(userText)
     }
@@ -406,17 +437,33 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
     //   ⚠️ 所以它只能在意图判定**之后**组装。原来在前面，于是纯对话那一轮
     //      的系统提示词里写着"你可以直接操作手机" —— 模型照着说，
     //      用户真去让它操作时发现做不到。
+    // ★ 2026-11-04：她的历史回复 = 去味诊断 + 锚点选材的共同原料。
+    //   ⚠️ 从 `history` 里取，不另外存一份 —— 那份副本会和
+    //      真实对话历史漂移，而漂移之后诊断的就是"它没说过的话"。
+    //
+    // ⚠️ 长度：**60 条**（原来是 8）。为什么同一个池子要这么长 ——
+    //    去味诊断只用末尾 8 条（`humanizerSection` 内部自己切），
+    //    但锚点选材要从"她最好的样子"里挑：只在最近 8 条里挑，等于
+    //    从**已经被带偏的样本**里挑最好的，那救不回来。
+    //    60 条 ≈ 半小时的闲聊，够跨越一次"聊久了开始变味"的窗口。
+    val stylePool = history
+        .filter { it.role == ChatMessage.Role.ASSISTANT }
+        .takeLast(60)
+        .map { it.plainText() }
+
     val system = try {
         container.assistantSystemPrompt(
             canAct = decision.intent == TurnIntent.Act,
             currentUserText = userText,
-            // ★ 去味诊断的输入：最近的助理回复。
-            //   ⚠️ 从 `history` 里取，不另外存一份 —— 那份副本会和
-            //      真实对话历史漂移，而漂移之后诊断的就是"它没说过的话"。
-            recentReplies = history
-                .filter { it.role == ChatMessage.Role.ASSISTANT }
-                .takeLast(8)
-                .map { it.plainText() },
+            recentReplies = stylePool,
+            // ★ 2026-11-04：模型 id 也传下去。
+            //   ⚠️ 只用于认族（推理型/指令型/创作型给一句不同的软提示）
+            //      与发现"换模型"（换过就插一次再锚定）。用户抱怨的原话是
+            //      「特别是切换模型的时候」—— 这一行就是那句话的落点。
+            modelId = model,
+            // ★★ 2026-11-04：模式决定**关掉哪些段**（见 `ChatMode` 的差异表）。
+            //   工作模式仍带人格、记忆、世界书、处境 —— 只是不再演戏。
+            mode = chatMode,
         )
     } catch (e: Exception) {
         return ChatResult.Failed(
@@ -461,6 +508,18 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
     var perceptionReasonOut = ""
 
     var runTrace: List<String> = emptyList()
+
+    /**
+     * 这一轮**真的调过工具**没有。
+     *
+     * ⚠️ 不能用 `decision.intent == TurnIntent.Act` 代替 ——
+     *    工作模式下每一轮都是 Act（工具常驻），拿它判断会让
+     *    **每条工作消息都画成横穿任务卡片**（见 `ConversationList.kt`
+     *    的 `if (task.isAgentRun)`）。只有 `onStep` 被调过才算动手。
+     */
+    var actedInLoop = false
+    // SuperAgent 的结局（如果这一轮它接管了）—— 见下面的早返回。
+    var superResult: ChatResult? = null
     val text = try {
         store.useKey(config.credentialId) { provider, credential ->
             // ── 纯对话：一次性请求，零工具 ────────────────────
@@ -543,6 +602,45 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                 tools.joinToString("、") { it.name },
             )
 
+            // ══════════════════════════════════════════════════════════
+            //  一句话 → 全流程：SuperAgent 接管「一串事」与「要先问的事」
+            // ══════════════════════════════════════════════════════════
+            //
+            //  ★ 为什么不把**所有**任务都交给它：现有 [PhoneAgentLoop] 会把每一步
+            //    流式透给界面（onStep / onProgress），用户随时看得见它在做哪一步。
+            //    SuperAgent 是「先想好整盘、再逐步验收」，没有逐步回调 ——
+            //    把单步任务也切过去，长任务会变成长时间无反馈：
+            //    拿可见性换架构整齐，不划算。
+            //
+            //  ★ 那为什么还需要它：这两件事现有循环**做不到** ——
+            //    ① 一句话里排着好几件事（"先打开设置，再关掉通知"）——
+            //       循环一次只认一个任务，后面的会被丢掉；
+            //    ② 不可逆的动作要**先问再动手**（现有循环是边做边看，
+            //       等用户反应过来，东西已经删了）。
+            val intake = TaskIntake.route(userText)
+            val wantsSuperAgent = intake is Intake.Chain ||
+                (intake is Intake.Task && intake.needsConfirmation)
+            if (wantsSuperAgent) {
+                Timber.i("SuperAgent 接管（%s）：%s", intake.reason, intake.javaClass.simpleName)
+                val reply = container.superAgent(
+                    AgentAdapters.llmPort(
+                        provider = provider,
+                        credential = credential,
+                        model = model,
+                        pendingImage = { container.virtualScreenHost.takePendingImage() },
+                        reasoningEffort = container.thinkingEffort().wireValue,
+                    ),
+                ).handle(userText)
+                // ⚠️ [2026-11-04] 不能写 `reply.spoken` —— `spoken` 只在
+                //    `SuperReply.Finished` 上，接口本身没有。写成它会让
+                //    Kotlin 把这个表达式判成错误类型，`useKey` 的泛型随之
+                //    塌成 `Any`，下游 cleanText 一整段都报类型错。
+                //    ⇒ 用已经翻好的 `ChatResult` 取文本，映射只此一份。
+                val superChat = superAgentResult(reply)
+                superResult = superChat
+                return@useKey (superChat as? ChatResult.Ok)?.text.orEmpty()
+            }
+
             // ★ 这两个数的关系由 `budgetStepMisconfiguration` 把关
             //   （相等会让 StepLimitReached 变成死代码）。
             budgetStepMisconfiguration(
@@ -585,7 +683,11 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                 // ⚠️ 循环的 `onStep` 只给 (步数, 动作)。档位由 `onProgress` 捕获，
                 //    这里用**最近一次**的档位桥过去 —— 会慢一步，
                 //    但换来的是不改循环接口。改接口的代价远大于慢一步。
-                onStep = { step, desc -> onStep(step, desc, lastPerceptionTier) },
+                onStep = { step, desc ->
+                    // ★ 2026-11-04：只有走到这里才叫"动手了"。
+                    actedInLoop = true
+                    onStep(step, desc, lastPerceptionTier)
+                },
                 // ══════════════════════════════════════════════════
                 //  ★★ 落检查点 —— 让"中断后能接着来"真的成立
                 // ══════════════════════════════════════════════════
@@ -642,6 +744,10 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
     } catch (e: Exception) {
         return ChatResult.Failed(explain(e))
     }
+
+    // ★ SuperAgent 已经给出成品（带 trace 与 isAgentRun），直接返回：
+    //   不要再走下面的输出清洗 —— 那句话是我们自己写的，没有外文可洗。
+    superResult?.let { return it }
 
     // ══════════════════════════════════════════════════════════════
     //  ★★ 2026-11-03：**输出清洗 —— 剔掉中文里夹的外文**
@@ -754,7 +860,11 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                 .onFailure { Timber.w(it, "后台任务调度失败（不影响对话）") }
             ChatResult.Ok(
                 text = cleanText,
-                isAgentRun = didAct,
+                // ★★ 2026-11-04：改成 `actedInLoop`（原来是 `didAct`）。
+                //   工作模式下 `didAct` 恒为 true，用它会把每条回复都画成
+                //   任务卡片；而角色扮演下"判成 Act 但模型没调工具"
+                //   本来就是一段普通回复，画成卡片也是错的。
+                isAgentRun = actedInLoop,
                 // ★★ 2026-10-31：低置信度判成 Chat 时，让界面问一句
                 //    "要我帮你做吗？" —— 见 `ChatResult.Ok.offerHelp` 的注释。
                 //
@@ -1225,7 +1335,27 @@ private fun ChatMessage.toAgentMessage(): AgentMessage = when (role) {
      * ⚠️ 刻意只在命中「模型不存在」时追加提示，其它报错原样透传 ——
      *    猜错了方向再给一条错误提示，比不给更糟。
      */
-    private fun explain(e: Exception): String {
+    /**
+ * [SuperAgent.SuperReply] → 界面用的 [ChatResult]。
+ *
+ * ★ 四分支的差别只在「要不要显示成动手了」：
+ *   Chat / Ask / Stopped 都是**没动手**（`isAgentRun = false`）——
+ *   其中 Ask 是"我在等你点头"，把它显示成动手会让用户以为已经做了。
+ */
+private fun superAgentResult(reply: SuperAgent.SuperReply): ChatResult = when (reply) {
+    is SuperAgent.SuperReply.Chat -> ChatResult.Ok(text = reply.text)
+    is SuperAgent.SuperReply.Ask -> ChatResult.Ok(text = reply.question)
+    is SuperAgent.SuperReply.Stopped -> ChatResult.Ok(text = reply.note)
+    is SuperAgent.SuperReply.Finished -> ChatResult.Ok(
+        text = reply.spoken,
+        isAgentRun = true,
+        // ⚠️ 用 attempts 而不是 steps：`RunReport.steps` 是**步数**（Int），
+        //    不是步骤列表 —— 写成 steps.map 会得到"unresolved reference: map"。
+        trace = reply.report.attempts.map { it.describe() },
+    )
+}
+
+private fun explain(e: Exception): String {
         val raw = e.message ?: e::class.simpleName ?: "未知错误"
         val lower = raw.lowercase()
 

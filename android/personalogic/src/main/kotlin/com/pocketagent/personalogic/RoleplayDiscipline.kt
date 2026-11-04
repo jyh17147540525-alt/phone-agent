@@ -120,6 +120,23 @@ object RoleplayDiscipline {
         appendLine("心里不好受的时候，句子变短、动作变多；不先描述感受、再补一句自己在忍。")
         appendLine("✅ 「……哦。」然后把脸转开。")
         appendLine()
+        append(languageSection(userAddress))
+    }.trimEnd()
+
+    /**
+     * 「## 语言」+「## 称呼」两节。
+     *
+     * ★ 2026-11-04：从 [promptSection] 里抽出来，因为**工作模式也要它**
+     *   （见 [WorkDiscipline.promptSection]）。
+     *
+     * ⚠️ 抽出来而不是让工作模式自己写一份：手抄一份实现必然漂移，
+     *    漂移之后就是「闲聊不许夹外文、办事可以夹」——
+     *    而用户抱怨的正是夹外文本身，不分场合。
+     *
+     * ⚠️ 输出与抽取前**逐字节一致**（`RoleplayDisciplineTest` 里对
+     *    "## 语言"、"## 称呼"、"撒娇时用" 的断言仍然过）。
+     */
+    fun languageSection(userAddress: String = ""): String = buildString {
         appendLine("## 语言")
         appendLine("只说中文。**任何位置都不许夹英文单词、日文、韩文或别的文字。**")
         appendLine("想不起中文词就换个说法，不要用外文顶上。")

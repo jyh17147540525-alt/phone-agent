@@ -139,6 +139,23 @@ fun TasksScreen(
     /** `null` = 切回自动。 */
     onPickModel: (String?) -> Unit = {},
     onPickEffort: (com.pocketagent.modelrouter.ThinkingEffort) -> Unit = {},
+
+    /**
+     * ★★ 2026-11-04：**对话模式**（角色扮演 / 工作）。
+     *
+     * 用户的原话："我计划给这个软件的对话功能分家，角色扮演是一个功能，
+     * 工作模式是一个功能，可以像电脑端豆包那样，切换对话模式和工作模式，
+     * 但工作模式，是有人格的工作，语气，习惯，等等都要按照人格设定的来。"
+     *
+     * ⚠️ 与 `modelChoice` 同一条纪律：**纯数据 + 回调**，不传容器。
+     *
+     * ⚠️⚠️ 容器的 `chatMode()` 不是 Compose 状态 ⇒ 调用方**必须**
+     *    用 `remember { mutableStateOf }` 承接，否则点了没反应。
+     *    这个坑本项目已经踩过三次（见 `AppContainer.chatMode()` 的注释）。
+     */
+    chatMode: com.pocketagent.personalogic.ChatMode =
+        com.pocketagent.personalogic.ChatMode.ROLEPLAY,
+    onChatModeChange: (com.pocketagent.personalogic.ChatMode) -> Unit = {},
     /**
      * ★ 2026-11-01：连续使用提醒。
      *
@@ -587,6 +604,12 @@ fun TasksScreen(
                         .padding(bottom = PaSpace.xxs),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    // ── 模式切换（角色 / 工作）─────────────────
+                    //
+                    // ★★ 2026-11-04：放在**最前面** —— 它是"这一轮在干什么"
+                    //   的最高层决定，模型和思考档位都是它的下游。
+                    ChatModeSwitch(mode = chatMode, onChange = onChatModeChange)
+
                     // ── 模型 chip ──────────────────────────────
                     Row(
                         modifier = Modifier
@@ -2577,4 +2600,46 @@ class TasksViewModel(
         const val NO_KEY_HINT: String =
             "还没有可用的 API Key。请到「模型」页面添加一个，再回来试。"
     }
+}
+
+
+/**
+ * ★★ 2026-11-04：**角色 / 工作** 两段切换。
+ *
+ * ⚠️ 为什么是两段而不是一个开关：开关只能表达"是不是"，而这里是**两种
+ *    同等正当的用法**。豆包那种分家也是分段控件。
+ *
+ * ⚠️ 未选中的那一段**不给背景**（透明），不给描边 —— 它只是"现在不是这个"，
+ *    不是"不可用"。用灰度差表达选中，比加一个勾更安静。
+ *
+ * ⚠️ 两段都用 `shortLabel`（"角色" / "工作"）：输入框上方这一行本来就挤，
+ *    而 `label`（"角色扮演"）在这个位置是废话 —— 用户知道自己在这两个之间切。
+ */
+@Composable
+private fun ChatModeSwitch(
+    mode: com.pocketagent.personalogic.ChatMode,
+    onChange: (com.pocketagent.personalogic.ChatMode) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(PaRadius.pill))
+            .background(PaColor.GlassTint)
+            .padding(2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        for (each in com.pocketagent.personalogic.ChatMode.entries) {
+            val chosen = each == mode
+            Text(
+                text = each.shortLabel,
+                style = PaType.label,
+                color = if (chosen) PaColor.AccentText else PaColor.TextTertiary,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(PaRadius.pill))
+                    .background(if (chosen) PaColor.Accent else Color.Transparent)
+                    .clickable { if (!chosen) onChange(each) }
+                    .padding(horizontal = PaSpace.xs, vertical = 4.dp),
+            )
+        }
+    }
+    Spacer(Modifier.width(PaSpace.xxs))
 }

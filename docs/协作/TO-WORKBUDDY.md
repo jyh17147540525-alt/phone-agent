@@ -1274,3 +1274,94 @@ adb shell cat /data/local/tmp/pocketagent-daemon.txt     # 期望 <端口> <32 �
 起完之后 `:app` 什么都不用改（`AppContainer` 已经在构造 `RootActions` 时读发现文件）。
 **如果起不来，请把 `app_process` 的原始报错整段贴回来** —— 那一步的失败几乎都是
 SELinux 或 dex 版本，不用你猜原因。
+
+---
+
+## [2026-11-04 19:45] 跨轮治理（再锚定）已接线：需要你真机看三行日志
+
+- **状态**：待办
+- **来自**：claude
+- **需要对方做什么**：装机后正常聊 30–40 轮（中途可切一次模型），`adb logcat` 抓三类日志回贴；再回答「四」里那道判断题。
+
+### 一、这一刀解决什么
+
+用户原话：「对话轮次越多角色的 AI 味越浓，**特别是切换模型的时候**」。
+
+之前所有去味部件（Humanizer / OutputGuard / RoleplayDiscipline / HumanText /
+VoiceSamples / LanguageFingerprint）**全是单轮判据** —— 能判"这一句像 AI"，
+判不出"最近二十轮在往下掉"。而历史里的 assistant 消息是最强的 few-shot，
+模型每轮照着"还行的自己"写，于是向均值回归、单调下坡。这就是那条抱怨的机制。
+
+新增三个纯逻辑部件（`android/personalogic`）：
+
+| 文件 | 作用 |
+|---|---|
+| `HumanScore.kt` | 给一条回复打 0–100 人味分（九类信号，证据制扣分，一分不加白扣） |
+| `StyleDrift.kt` | 给一串分测趋势（斜率/头尾/拐点）+ `pickAnchors` 从历史挑"她最好的原话" |
+| `Reanchor.kt` | 把锚点组装成提示词段 + `shouldInject` 决定时机 + `ModelFamily` 认模型族 |
+
+接线：`ChatPort` 传 60 条历史池子 + 当前模型 id → `AppContainer.reanchorSection()`
+→ 段落追加在 system prompt **最末**。
+
+设计全文见 `docs/工程/跨轮治理-再锚定-2026-11-04.md`。
+
+### 二、已验证（我这边，**不需要你复现**）
+
+- `python tools/verify/run_logic_tests.py` → `OK (3908 tests)`（基线 3845，新增 63 条）
+- `android\gradlew.bat :app:compileDebugKotlin` → `BUILD SUCCESSFUL`
+
+### 三、需要你真机看的三行日志
+
+| logcat 里搜 | 正常的样子 | 异常的样子与含义 |
+|---|---|---|
+| `人味分：` | 每轮一条，数值**真的在变**（70–100 之间跳） | 永远 95+ ⇒ 打分器太钝（告诉我，我调表）；永远 60 以下 ⇒ 锚点池里根本没有合格样本 |
+| `再锚定：注入` | 长对话里**偶尔**出现；换模型后的下一轮**必然**出现一次 | 前 10 轮每轮都插 ⇒ 阈值太松，治理动作本身成了节律（节律=模板） |
+| `提示词层：…再锚定=` | 大部分轮次是 `0`，偶尔 `200–380` | 永远 `0` ⇒ 断了，整行贴回来；永远 `>380` ⇒ 超预算 |
+
+另外两条偶发日志：
+
+- `锚点选材失败（这轮不插）` —— 有兜底，不会让角色不说话；但请把堆栈贴回来（说明 `pickAnchors` 在真实文本上崩了）。
+- `对话模型换了：X → Y（这一轮插一次再锚定）` —— 出现后**下一轮**应当有一次 `再锚定`；没有就是 `shouldInject` 的换模型分支没走到。
+
+抓取建议：
+
+```
+adb logcat -c
+# …正常聊 30~40 轮，中途在设置里切一次对话模型…
+adb logcat -d | Select-String '人味分|再锚定|提示词层|锚点选材失败|对话模型换了'
+```
+
+### 四、只有你能回答的判断题
+
+**注入前 20 轮 vs 注入后 20 轮，你还觉得"AI 味在变浓"吗？**
+
+我没有替代指标：分数只能测"AI 的标记"（分点 / 客套尾巴 / 等长 / 复读），
+测不出"语义是否自然"。这条结论只能由人来下。
+
+### 五、我明确没做的（别当 bug 报）
+
+1. `Reanchor.prefillCandidate()` 写好但**未接线** —— OpenAI 兼容 API 不支持 assistant prefill，且无真机可验。
+2. 只管**纯对话档**；agent 档的回复不在这条路上。
+3. 人味分**不落库**，进程重启清零 ⇒ 重启后第一轮不插锚点，属预期。
+4. 记忆写入那一路（`MemoryGate`）未改：如果她记住的是"被带偏的自己"，锚点会被稀释。下一刀。
+
+---
+
+## 2026-11-04（第六批）一句话 → 全流程的编排层：需要你验三件
+
+### 我做了什么（离线全绿）
+- 新增 `agentlogic/.../orchestration/` 七个文件：`TaskIntake`（一句话分流）、`ToolSpec`/`ToolCatalog`（18 条能力的机械说明，与 `:mcp` 工具名逐字对账）、`RunPlan`（步骤 + 验收条件 + 预算）、`RunOrchestrator`（执行/验收/重规划/打转判定/确认闸）、`ModelPlanner`（模型出 JSON 计划）、`ScreenDigestJson`（读屏结构化 → 摘要）、`SuperAgent`（四种归宿 + 一句人话）。
+- `app` 侧：`McpStepRunner`（一步 → 一次真实工具调用 → 报告）、`AppContainer.superAgent(llm)`。
+- 接线：`ChatPort.send` 里**只有两种情况**交给 SuperAgent —— ①一句话里排着好几件事（`Intake.Chain`）②涉及钱/删除/停用（`intake.needsConfirmation`）。其余仍走既有 `PhoneAgentLoop`（它有流式进度，切过去会丢可见性）。
+- 离线：`run_logic_tests.py` 4020 tests 全绿、`verify_all.py` 14 条全过、`:app:testDebugUnitTest` 通过。
+
+### 请你验的三件（都要真机）
+| # | 怎么试 | 期望 |
+|---|---|---|
+| 1 | 发一句含两件事的话：「先打开设置，再返回桌面」 | 界面出现一条"做完了"的结论，并且 `trace` 里能看到两步；**不要**只做了第一件 |
+| 2 | 发「卸载淘宝」（或任何含 删除/停用/转账 的话） | 先回一句"可能会花钱或者删掉东西，做吗？"，**不直接动手** |
+| 3 | 发「帮我点一下发送按钮」（普通任务） | 仍然走老路径（有逐步进度），行为与改动前一致 |
+
+### 失败请贴原始 logcat
+关键词：`SuperAgent 接管`、`验收没拿到摘要`、`这一版没有「…」这个工具`。
+`SuperAgent 接管` 出现但任务没动静 → 多半是 `agentTools` lazy 没构造或档位网关把工具挡了。

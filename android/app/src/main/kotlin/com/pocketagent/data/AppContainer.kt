@@ -11,6 +11,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
@@ -101,6 +102,11 @@ import com.pocketagent.mcp.TapTool
 import com.pocketagent.mcp.ScreenShotTool
 import com.pocketagent.mcp.ToolGate
 import com.pocketagent.mcp.ToolRegistry
+import com.pocketagent.agentlogic.AgentLlmPort
+import com.pocketagent.agentlogic.orchestration.ModelPlanner
+import com.pocketagent.agentlogic.orchestration.RunBudget
+import com.pocketagent.agentlogic.orchestration.SuperAgent
+import com.pocketagent.assistant.McpStepRunner
 import com.pocketagent.memorylogic.ContextOffloader
 import com.pocketagent.safety.DefaultSafetyGuard
 import com.pocketagent.modelrouter.ModelRouteCoordinator
@@ -1271,6 +1277,43 @@ class AppContainer(context: Context) {
         }
     }
 
+    // ══════════════════════════════════════════════════════════════════
+    //  ★★ 2026-11-04：**对话模式**（角色扮演 / 工作）
+    // ══════════════════════════════════════════════════════════════════
+    //
+    // 用户的原话："我计划给这个软件的对话功能分家，角色扮演是一个功能，
+    // 工作模式是一个功能 …… 但工作模式，是有人格的工作，语气，习惯，
+    // 等等都要按照人格设定的来。"
+    //
+    // ⚠️ 做成**全局开关**而不是会话级：会话级要在 `SessionEntity` 上加一列、
+    //    `PocketAgentDatabase` 涨到 v5，再补一条手写迁移 + 迁移测试
+    //    （本项目禁止 `fallbackToDestructiveMigration`，偷不了懒）。
+    //    它换来的唯一好处是"两个会话分别记住自己的模式" —— 用户没提这个，
+    //    他要的是"切换对话模式和工作模式"，那就是一个开关。
+    //
+    // ⚠️ 默认 `ROLEPLAY`：老用户升级后不会突然发现"她怎么不演了"。
+    @Volatile
+    private var chatModeValue: com.pocketagent.personalogic.ChatMode =
+        com.pocketagent.personalogic.ChatMode.ROLEPLAY
+
+    /**
+     * 当前对话模式。
+     *
+     * ⚠️⚠️ **界面读它时必须自己用 `remember { mutableStateOf }` 承接**，
+     *      不能像 `allowRefusal = container.allowRefusal()` 那样直接塞进
+     *      可组合函数参数 —— 这个字段变了**不会触发重组**。这个坑本项目
+     *      已经踩过三次（后台 AI 页拉条、"允许它拒绝"开关、模型顶栏）。
+     */
+    fun chatMode(): com.pocketagent.personalogic.ChatMode = chatModeValue
+
+    fun setChatMode(mode: com.pocketagent.personalogic.ChatMode) {
+        chatModeValue = mode
+        startupScope.launch {
+            runCatching { pluginSourceStore.edit { it[KEY_CHAT_MODE] = mode.name } }
+                .onFailure { Timber.e(it, "对话模式保存失败") }
+        }
+    }
+
     /**
      * 这一轮该怎么对待用户。
      *
@@ -2194,6 +2237,12 @@ class AppContainer(context: Context) {
             )
             // ★ 拒绝开关（默认 true：见 allowRefusalValue 的注释）
             allowRefusalValue = prefs[KEY_ALLOW_REFUSAL] ?: true
+
+            // ★ 对话模式（默认角色扮演：见 chatModeValue 的注释）
+            //
+            // ⚠️ 用 `ChatMode.of` 而不是 `valueOf` —— 存档里可能是旧版本的值、
+            //    或者被手改坏。`valueOf` 会抛，抛在启动路径上就是黑屏。
+            chatModeValue = com.pocketagent.personalogic.ChatMode.of(prefs[KEY_CHAT_MODE])
 
             // ★ 体检报告
             runCatching {
@@ -3507,12 +3556,13 @@ class AppContainer(context: Context) {
     /**
      * **去味诊断** —— 看最近几轮回复有没有回落到 AI 腔。
      *
-     * @param recentReplies 最近的助理回复（升序）
+     * @param recentReplies 最近的助理回复（升序）。**只看末尾 8 条** ——
+     *   窗口再长会把"早就改好的旧毛病"反复报出来。
      */
     fun humanizerSection(recentReplies: List<String>): String {
         val stage = relationshipStage()
         val findings = com.pocketagent.personalogic.Humanizer.diagnose(
-            replies = recentReplies,
+            replies = recentReplies.takeLast(8),
             stage = stage,
             turnsSinceStageChange = totalUserTurns,
         )
@@ -3525,6 +3575,145 @@ class AppContainer(context: Context) {
             ?: com.pocketagent.personalogic.PersonaVerbosity.NORMAL
         Timber.i("去味诊断：%s", findings.joinToString { it.code.label })
         return com.pocketagent.personalogic.Humanizer.promptSection(findings, stage, verbosity)
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  ★★ 2026-11-04：**跨轮治理**（"越聊越 AI 味"与"换模型就变味"）
+    // ══════════════════════════════════════════════════════════════
+    //
+    // ⚠️ 用户原话：「对话轮次越多角色的 AI 味越浓，特别是切换模型的时候」。
+    //
+    //    上面所有部件（Humanizer / OutputGuard / RoleplayDiscipline / VoiceSamples）
+    //    都是**单轮**判据：它们能说"这一句像 AI"，说不出"最近二十轮在往下掉"。
+    //    而用户抱怨的正是后者 —— 每一轮单看都合格，下滑只发生在**跨轮**：
+    //    历史里的 assistant 消息是最强的 few-shot，模型一轮轮照着"还行的自己"写，
+    //    每轮都向历史均值回归一点点。
+    //
+    //    ⇒ 治法不是再加一条禁令（禁令会被读成肯定，规则越堆越像模板），
+    //      而是**换参照物**：从历史里挑出分数最高的那几条摆到它眼前。
+    //      [com.pocketagent.personalogic.StyleDrift] 负责"掉了吗/挑哪几条"，
+    //      [com.pocketagent.personalogic.Reanchor] 负责"怎么摆"。
+    //
+    // ⚠️ 这三个字段**不进数据库**：进程重启就从"没有历史"重新开始。
+    //    代价只是第一轮不插锚点 —— 而"没有合格样本就不插"本来就是纪律。
+
+    /** 最近若干轮的人味分（升序，末尾最新）。窗口 = [styleScoreWindow]。 */
+    private val styleScores = java.util.ArrayDeque<Int>()
+
+    /**
+     * 已经记过分的那一条回复。
+     *
+     * ⚠️ `assistantSystemPrompt` 每轮都会调，而"最近的回复"里最新那条
+     *    在下一轮之前不会变 —— 不去重就会把同一句话记十几次分，
+     *    于是趋势线变成一条水平线，什么都测不出来。
+     */
+    private var lastScoredReply: String? = null
+
+    /**
+     * 上一次看到的对话模型 id。
+     *
+     * ★ 用户抱怨里"**特别是切换模型的时候**"那一半靠它。
+     *   新模型对"她"的全部认知只有提示词和历史，它的 RLHF 默认口吻
+     *   不是她的 —— 所以换模型后的第一轮就要把声音样本摆过去，不等它先漂。
+     */
+    private var lastSeenModelId: String? = null
+
+    /** 人味分保留多少轮。40 轮足够看出趋势，又不至于被一个月前的口吻拖住。 */
+    private val styleScoreWindow = 40
+
+    /**
+     * **再锚定段** —— 把"她本来怎么说话"重新放到模型眼前。
+     *
+     * @param pool 本次会话里她的回复（升序，**越长越好**：锚点从这个池子里挑，
+     *   只在最近 8 条里挑等于"从已经被带偏的样本里挑最好的"，那救不回来）
+     * @param query 用户这一句 —— 用来排除"和她刚说的话高度重合"的锚点
+     *   （否则她会开始复读用户的话，那是另一种露馅）
+     * @param modelId 这一轮实际用的对话模型 id
+     * @return 空串 = 这一轮不插（没有合格锚点 / 还没到该插的时候）
+     */
+    fun reanchorSection(pool: List<String>, query: String, modelId: String?): String {
+        // ① 先记分：这一轮的分数要参与下面"该不该插"的判定。
+        recordStyleScore(pool)
+
+        // ② 挑锚点。选材失败只影响这一段，不该把整轮对话带崩。
+        val anchors = runCatching {
+            com.pocketagent.personalogic.StyleDrift.pickAnchors(pool, query)
+        }.onFailure { Timber.w(it, "锚点选材失败（这轮不插）") }
+            .getOrDefault(emptyList())
+        if (anchors.isEmpty()) return ""
+
+        // ③ 该不该插。
+        //    ⚠️ `noteModelChange` 放在这里（而不是更早）是有意的：锚点为空时
+        //       不消费"换模型"这个事实，等有合格样本的那一轮再插。
+        val changed = noteModelChange(modelId)
+        if (!com.pocketagent.personalogic.Reanchor.shouldInject(
+                recentScores = styleScores.toList(),
+                modelChanged = changed,
+                anchors = anchors,
+            )
+        ) {
+            return ""
+        }
+
+        // ④ 尺寸约定：从"含糊的风格要求"变成"能照着执行的数"。
+        val verbosity = activeCustomPersona?.verbosity
+            ?: com.pocketagent.personalogic.PersonaVerbosity.NORMAL
+        val family = com.pocketagent.personalogic.ModelFamily.of(modelId)
+        val contract = com.pocketagent.personalogic.StyleContract.of(verbosity, family)
+        val section = com.pocketagent.personalogic.Reanchor.section(anchors, contract)
+        if (section.isBlank()) return ""
+
+        // ⚠️ 只记**分数与字数**，不记锚点原文 —— 提示词内容不进 logcat
+        //    （同下方「提示词层」那行分层日志的纪律：只记字数不记内容）。
+        Timber.i(
+            "再锚定：注入 %d 字｜锚点 %d 条（%s）｜%s｜族=%s｜原因=%s",
+            section.length,
+            anchors.size,
+            anchors.joinToString("、") { "${it.score}分/${it.text.length}字" },
+            com.pocketagent.personalogic.StyleDrift.measure(styleScores.toList()).logLine(),
+            family.label,
+            if (changed) "刚换模型" else "连续偏低",
+        )
+        return section
+    }
+
+    /**
+     * 给最新那条回复打分并记入趋势。
+     *
+     * ⚠️ **只给"最新一条"打分**，不是全量重算：
+     *    全量重算会让历史分随着对照样本变化而变（同一句话今天 92、明天 88），
+     *    趋势线于是变成测量误差的曲线。
+     */
+    private fun recordStyleScore(pool: List<String>) {
+        val newest = pool.lastOrNull()?.trim().orEmpty()
+        if (newest.isEmpty() || newest == lastScoredReply) return
+        lastScoredReply = newest
+
+        // 对照样本取它之前的最近三条 —— 复读/长度扁平要靠它们判。
+        val prev = pool.dropLast(1).takeLast(3)
+        val score = com.pocketagent.personalogic.HumanScore.of(newest, prev)
+        if (!score.evaluated) return
+        styleScores.addLast(score.total)
+        while (styleScores.size > styleScoreWindow) styleScores.removeFirst()
+        Timber.i("人味分：%s", score.logLine())
+    }
+
+    /**
+     * 发现并消费"换模型"。
+     *
+     * @return 这一轮是不是刚换过（**只返回一次 true**，见下方"消费"语义）
+     */
+    private fun noteModelChange(modelId: String?): Boolean {
+        val id = modelId?.trim().orEmpty()
+        val previous = lastSeenModelId
+        lastSeenModelId = id
+        // ⚠️ 三种情况都**不算**换过：
+        //    · previous == null —— 进程里第一次组装，没有"前一个模型"可比；
+        //    · id 为空 —— 调用方没传（预览界面 / 测试）；
+        //    · 同一个模型 —— 正常情况。
+        if (previous == null || id.isEmpty() || previous == id) return false
+        Timber.i("对话模型换了：%s → %s（这一轮插一次再锚定）", previous, id)
+        return true
     }
 
     /**
@@ -3899,8 +4088,29 @@ class AppContainer(context: Context) {
          *   只能看**已经说出去的话**，猜不出来。
          *
          * ⚠️ 空表 = 不诊断。第一轮没有历史，不该给它塞去味规则。
+         *
+         * ★ 2026-11-04：现在这里传的是**整段会话**（最多 60 条），不再只是 8 条 ——
+         *   去味诊断自己只取末尾 8 条（见 [humanizerSection]），
+         *   而[reanchorSection]要的是长池子：锚点从"她最好的样子"里挑，
+         *   只在最近 8 条里挑等于从已经被带偏的样本里挑最好的，救不回来。
          */
         recentReplies: List<String> = emptyList(),
+        /**
+         * 这一轮实际用的对话模型 id（如 `deepseek-chat`）。
+         *
+         * ★ 只用于两件事：认[com.pocketagent.personalogic.ModelFamily]（给一句族提示），
+         *   和发现"换过模型"（换过就插一次再锚定）。
+         * ⚠️ null = 不知道（预览界面、测试）；那时**不认族也不报换模型**，
+         *   而不是猜一个。
+         */
+        modelId: String? = null,
+        // ★★ 2026-11-04：**对话模式**。
+        //
+        //   ⚠️ 默认 `ROLEPLAY` 而不是让调用方必须传 —— 老路径（后台任务、
+        //      诊断、测试）一个都不改，升级后行为与升级前完全一致。
+        //      新参数的默认值就是"今天的样子"，这是给旧调用方的兼容承诺。
+        mode: com.pocketagent.personalogic.ChatMode =
+            com.pocketagent.personalogic.ChatMode.ROLEPLAY,
     ): String {
         // ★★ 2026-10-25：自定义角色在这里**真的生效**。
         //
@@ -3917,13 +4127,34 @@ class AppContainer(context: Context) {
         val custom = activeCustomPersona
         val capability = assistantCapabilitySection(canAct)
 
+        // ══════════════════════════════════════════════════════════════
+        //  ★★ 2026-11-04：**对话模式门控** —— 角色扮演 / 工作
+        // ══════════════════════════════════════════════════════════════
+        //
+        // 用户的原话："工作模式，是有人格的工作，语气，习惯，等等都要
+        // 按照人格设定的来。"
+        //
+        // ⇒ 工作模式**不关人格**：`custom` / `PERSONA_INTEGRITY` / 能力声明
+        //   / 记忆 / 世界书 / 处境 一层都不动，关掉的是**戏**。
+        //
+        // 关掉的（理由见 `ChatMode` 的 KDoc 表）：
+        //   破甲 · 成熟内容 · 关系阶段 · 去味 · 意愿 · 生理线索
+        //   · 扮演纪律 · 示例对话 · 再锚定
+        // 留下的：人格、完整性、记忆、世界书、处境、语言锁。
+        //
+        // ⚠️ 刻意**不另写一份工作模式提示词**。那就是"手抄一份实现"，
+        //    两份必然漂移，而漂移之后的表现是"工作模式下她突然换了个人"
+        //    —— 正是用户这次要防的事。这里只做**减法 + 一段工作纪律**。
+        val work = mode == com.pocketagent.personalogic.ChatMode.WORK
+
         // ══════════════════════════════════════════════════════════
         //  ★ 未亡人模式的冲突注入 —— 让"那个人"会犯他生前就会犯的毛病
         // ══════════════════════════════════════════════════════════
         //
         // ⚠️ 只有用户写了**毛病**才会注入。没写 = 不希望他吵架。
         //    这是保守选择：宁可这个人太完美，也不要凭空给他编脾气。
-        val conflict = legacyConflictSection(currentUserText)
+        // ⚠️ "那个人会吵架"是戏，办事时不需要 → 工作模式关。
+        val conflict = if (work) "" else legacyConflictSection(currentUserText)
 
         val base = if (custom != null) {
             custom.describeForPrompt() + "\n\n" + capability
@@ -3950,10 +4181,14 @@ class AppContainer(context: Context) {
         //    不带的话那一段只会说"关系阶段决定你能说到哪一步"，
         //    而模型不知道现在到哪一步 ⇒ 它选最保守的解 ⇒ 永远在绕。
         //    这正是用户问"真的能深度聊吗"时查出来的死结。
-        val mature = com.pocketagent.legacy.MatureContentGate.promptSection(
-            permission = maturePermissionValue,
-            stage = relationshipStage().name,
-        )
+        val mature = if (work) {
+            ""
+        } else {
+            com.pocketagent.legacy.MatureContentGate.promptSection(
+                permission = maturePermissionValue,
+                stage = relationshipStage().name,
+            )
+        }
         val withMature = if (mature.isBlank()) withIntegrity else withIntegrity + "\n\n" + mature
 
         // ══════════════════════════════════════════════════════════
@@ -3973,7 +4208,13 @@ class AppContainer(context: Context) {
         //
         // ⚠️ 它自会判断该不该注入（档位关闭 / 成熟内容未开时返回空串），
         //   所以这里不额外判 —— 判断只有一处，见 `ArmorBreak.promptSection`。
-        val armor = com.pocketagent.legacy.ArmorBreak.promptSection(armorTierValue, maturePermissionValue)
+        // ⚠️ 破甲是"让她敢写"的装置。工作模式没有要写的东西，
+        //    它在场只会白白吃掉注意力预算（Instruction Stacking Collapse）。
+        val armor = if (work) {
+            ""
+        } else {
+            com.pocketagent.legacy.ArmorBreak.promptSection(armorTierValue, maturePermissionValue)
+        }
         val withArmor = if (armor.isBlank()) withMature else withMature + "\n\n" + armor
 
         // ★ 记忆：**只放这一轮该想起的那几条**。
@@ -3989,11 +4230,15 @@ class AppContainer(context: Context) {
         // ★ 关系阶段（你说"聊久了还有 AI 味"的根因之一）：
         //   在此之前 `RelationshipStage` 有定义、有测试，**零生产引用** ——
         //   于是不管聊多久，提示词里都没有"你们已经很熟了"。
-        val relation = relationshipSection()
+        // ⚠️ 关系阶段写的是"你们到哪一步了"（牵手/订婚…），是戏的进度条。
+        //    办事时它没有害处也没有用处，但它占额度 —— 关。
+        val relation = if (work) "" else relationshipSection()
         val withRelation = if (relation.isBlank()) withWhere else withWhere + "\n\n" + relation
 
         // ★ 去味规则：只在**这一阵子真的回落了**才写。
-        val human = humanizerSection(recentReplies)
+        // ⚠️ 去味（Humanizer）教的是"别每句都斩钉截铁"。
+        //    办事时"大概四十分钟吧"不如"四十分钟" —— 关。
+        val human = if (work) "" else humanizerSection(recentReplies)
 
         // ★ 2026-11-02：**意愿低时的提示词**（开关关掉时为 null）
         //
@@ -4001,7 +4246,9 @@ class AppContainer(context: Context) {
         //    那一段在人格装配器里，管"怎么说"；
         //    这一段在 app 侧，管"这一轮还想不想接"。
         //    ⚠️ 但它只影响**这一轮**的提示词，真正的拒绝判定在 `ChatPort`。
-        val willing = willingnessPrompt()
+        // ⚠️ 意愿是"心情不好可以不配合"。放在工作模式里就是故障：
+        //    用户让它查个天气，她说"我不想"。
+        val willing = if (work) null else willingnessPrompt()
 
         val withHuman = if (human.isBlank()) withRelation else withRelation + "\n\n" + human
 
@@ -4013,19 +4260,29 @@ class AppContainer(context: Context) {
         //    这是**元语言泄漏** —— 模型把设定文本/系统机制当台词说了。
         //    设定越详细，越容易犯。
         val userAddr = currentCustomPersona()?.addressUser?.take(6).orEmpty()
-        val discipline = com.pocketagent.personalogic.RoleplayDiscipline.promptSection(
-            userAddress = userAddr,
-        )
+        // ⚠️ 扮演纪律有四条，其中"不许夹外文/不许念后台那套名字"两种模式都要，
+        //    另外四条是戏 —— 所以整段只在角色扮演出现，语言锁由
+        //    `WorkDiscipline` 自己去调 `RoleplayDiscipline.languageSection()`。
+        val discipline = if (work) {
+            ""
+        } else {
+            com.pocketagent.personalogic.RoleplayDiscipline.promptSection(
+                userAddress = userAddr,
+            )
+        }
         // ★★ 2026-11-03：**示例对话** —— 比禁令管用得多
         //
         // ⚠️ 调研结论：设定写得越"临床"，模型越认为那种腔调是正常输出。
         //    用户的人格设定正是临床腔，所以模型开始自述「我不端着」。
         //    ⇒ 给它最后一屏"人话"，让它知道"正常输出"长什么样。
-        val voiceSamples = com.pocketagent.personalogic.VoiceSamples.promptSection(userAddr)
+        // ⚠️ 示例对话（few-shot）教的不只是语气，还有**结构**。
+        //    办事时照抄那套"嘴硬 + 小动作"会变成敷衍用户的需求 —— 关。
+        val voiceSamples = if (work) "" else com.pocketagent.personalogic.VoiceSamples.promptSection(userAddr)
 
         // ★ 2026-11-03：**生理线索**（生理导演给的）进提示词
         // ⚠️ 有效期 90 分钟 —— "她今天有点冷"隔一天还挂着会很怪
-        val clues = runCatching {
+        // ⚠️ "她今天有点冷"是身体叙事，只对戏有用；办事时是噪声。
+        val clues = if (work) emptyList() else runCatching {
             if (System.currentTimeMillis() - physioCluesAtMs <= 90L * 60_000L) {
                 physioCluesValue
             } else {
@@ -4039,7 +4296,25 @@ class AppContainer(context: Context) {
                 "\n说得自然一点，不要逐条汇报。"
         }
         val withClues0 = if (clueSection.isBlank()) withHuman else withHuman + "\n\n" + clueSection
-        val withClues = withClues0 + "\n\n" + discipline + "\n\n" + voiceSamples
+        // ★★ 2026-11-04：**工作纪律** —— 只在工作模式出现。
+        //
+        // ⚠️ 与 `discipline` 互斥：那是"别演"，这是"怎么办事"。
+        //    两条同时在场会互相稀释（见 `docs/工程/提示词负例改造-依据.md`
+        //    引的 Instruction Stacking Collapse：指令越多，每条越弱）。
+        val workRules = if (work) {
+            com.pocketagent.personalogic.WorkDiscipline.promptSection(userAddr)
+        } else {
+            ""
+        }
+        // ⚠️ 空段不拼。原来是一串 `a + "\n\n" + b + "\n\n" + c`，
+        //    段一空就留下多余的分隔符和空行 —— 提示词里的空行不是免费的，
+        //    它会被读成"这里本来有一段，只是被删了"。
+        val withClues = buildString {
+            append(withClues0)
+            for (section in listOf(discipline, voiceSamples, workRules)) {
+                if (section.isNotBlank()) append("\n\n").append(section)
+            }
+        }
 
         // ★ 2026-11-03：**装配自检日志**
         //
@@ -4048,14 +4323,26 @@ class AppContainer(context: Context) {
         //    ⇒ 每次组装都记一行，下次对话就能核对。
         runCatching {
             Timber.i(
-                "提示词装配：%d 字｜纪律段 %s｜示例对话 %s｜生理线索 %s｜世界书 %d 条",
+                "提示词装配：%d 字｜模式 %s｜纪律段 %s｜工作纪律 %s｜示例对话 %s｜生理线索 %s｜世界书 %d 条",
                 withClues.length,
+                mode.label,
                 if (discipline.isNotBlank()) "有(${discipline.length}字)" else "无",
+                if (workRules.isNotBlank()) "有(${workRules.length}字)" else "无",
                 if (voiceSamples.isNotBlank()) "有(${voiceSamples.length}字)" else "无",
                 if (clueSection.isNotBlank()) "有" else "无",
                 worldEntriesValue.size,
             )
         }
+        // ★ 2026-11-04：**跨轮治理的入口**（"越聊越 AI 味"/"换模型就变味"）。
+        //
+        // ⚠️ 为什么套 runCatching：这一段依赖"历史回复的质量分布"，
+        //    输入是用户真实聊出来的文本，长度、编码、空串什么都有。
+        //    它有 bug 时**最坏的结果必须是"这轮不插锚点"**，
+        //    绝不能是"角色不说话了" —— 这跟 appendTierSection 是同一条纪律。
+        val reanchor = runCatching { reanchorSection(recentReplies, currentUserText, modelId) }
+            .onFailure { Timber.w(it, "再锚定组装失败（这轮不插）") }
+            .getOrDefault("")
+
         val final = buildString {
             append(withClues)
             if (!willing.isNullOrBlank()) append("\n\n").append(willing)
@@ -4063,6 +4350,13 @@ class AppContainer(context: Context) {
             //   在此之前模型对"自己现在能动什么"零信息 —— 工具清单两档一样，
             //   于是它在普通档里连点三次屏幕，用户那边手机一直被抢。
             appendTierSection(this)
+            // ★ 2026-11-04：**再锚定放在最末尾**。
+            //   ⚠️ 底下的所有段（人格/记忆/关系/纪律/示例/档位）都在讲"你该怎样"，
+            //      这一段是唯一一处**指着她自己说过的话**说"你就是这样的"。
+            //      放最后是因为离生成点最近的是最硬的那条（这也正是"post-history
+            //      instructions"的原理）；没放到历史之后见 [Reanchor] 类注释：
+            //      OpenAI 兼容 API 不支持 assistant prefill，且无真机可验。
+            if (reanchor.isNotBlank()) append("\n\n").append(reanchor)
         }
 
         // ══════════════════════════════════════════════════════════
@@ -4080,9 +4374,10 @@ class AppContainer(context: Context) {
         // ⚠️ 只记**字数**，不记内容：提示词里有用户写的人格和记忆，
         //    进 logcat 就等于把它们泄漏给任何能读日志的进程。
         Timber.i(
-            "提示词层：人格=%d 完整性=%d 边界=%d 破甲=%d 记忆=%d 处境=%d 关系=%d 去味=%d（共 %d 字）",
+            "提示词层：人格=%d 完整性=%d 边界=%d 破甲=%d 记忆=%d 处境=%d 关系=%d 去味=%d 再锚定=%d（共 %d 字）",
             base.length, integrity.length, mature.length, armor.length,
-            memory.length, where.length, relation.length, human.length, final.length,
+            memory.length, where.length, relation.length, human.length,
+            reanchor.length, final.length,
         )
         // ⚠️ 破甲档位非"关闭"但注入为 0 ⇒ 说明被开关吞掉了。
         //    这不是错误（开关关着时本就该如此），但值得一句提示 ——
@@ -4641,6 +4936,29 @@ class AppContainer(context: Context) {
     fun reProbeRoot(): Pair<PrivilegeMode, RootProbeResult> = setPrivilegeMode(selectedPrivilegeMode)
 
     /**
+     * 一句话 → 全流程：分流、规划、动手、验收、汇报。
+     *
+     * ═══════════════════════════════════════════════════════════
+     *  ★ 为什么 llm 由调用方传进来，而不是在这里自己解析凭据
+     * ═══════════════════════════════════════════════════════════
+     *
+     * 取凭据是有**生命周期**的：`CredentialStore.useKey(id) { provider, credential -> … }`
+     * 只在那个 lambda 里有效（用完全局状态就清掉）。在容器里再解析一次，等于把
+     * "用哪把 Key、什么时候清"复制成第二份实现 —— 而两份实现里先过期的那份
+     * 会表现成"偶尔说话失败"，排查时看不出是谁的问题。
+     *
+     * 所以调用方（`ChatPort` 那条路径）手里已经有 provider / credential / model 时，
+     * 直接 `superAgent(AgentAdapters.llmPort(provider, credential, model))` 就够。
+     *
+     * ★ 工具注册表用 lambda 取，理由同 [tierGate]：档位会变，快照会过期。
+     */
+    fun superAgent(llm: AgentLlmPort): SuperAgent = SuperAgent(
+        planner = ModelPlanner(llm),
+        runner = McpStepRunner(registry = { ToolRegistry(agentTools, tierGate) }),
+        budget = RunBudget(),
+    )
+
+    /**
      * 给 `:mcp` 的档位网关。
      *
      * ★ 为什么是 lambda 而不是快照：权限是**会变的**。用户在任务途中关掉无障碍，
@@ -4960,6 +5278,9 @@ class AppContainer(context: Context) {
 
     /** 「允许它拒绝」开关。见 [allowRefusalValue]。 */
     private val KEY_ALLOW_REFUSAL = booleanPreferencesKey("allow_refusal_v1")
+
+    /** 对话模式（角色扮演 / 工作）。见 [chatModeValue]。 */
+    private val KEY_CHAT_MODE = stringPreferencesKey("chat_mode_v1")
 
     // 后台 AI 调度（2026-11-03）
     private val KEY_DIRECTOR_MODEL =

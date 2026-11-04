@@ -117,6 +117,7 @@ MODEL_FACING = {
     "personalogic/DirectorPort.kt",   # 场记的提示词与解析（写给模型）
     "personalogic/PersonaSync.kt",     # 记忆使者的提示词（写给模型）
     "personalogic/RoleplayDiscipline.kt", # 扮演纪律（写给模型，不是界面）
+    "personalogic/ChatMode.kt",        # 工作模式的纪律段（写给模型，不是界面）
     "memorylogic/AtomExtractor.kt",      # 记忆抽取提示词（写给模型）
 }
 

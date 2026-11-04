@@ -674,6 +674,12 @@ fun AppShell(
                     var modelChoiceState by remember { mutableStateOf(container.modelChoice()) }
                     var effortState by remember { mutableStateOf(container.thinkingEffort()) }
 
+                    // ★★ 2026-11-04：对话模式 —— **同一族 bug 的第四次预防**。
+                    //   容器的 `chatMode()` 是普通 `@Volatile var`，不是
+                    //   Compose 状态 ⇒ 直接塞进参数里，切了不会重组，
+                    //   用户看到"点了一下，什么都没变"。
+                    var chatModeState by remember { mutableStateOf(container.chatMode()) }
+
 
                     TasksScreen(
                         viewModel = tasksViewModel,
@@ -713,6 +719,14 @@ fun AppShell(
                             container.setThinkingEffort(e)
                             effortState = container.thinkingEffort()
                             modelRefresh++
+                        },
+                        // ★★ 2026-11-04：角色扮演 / 工作。
+                        //   ⚠️ 不改 `modelRefresh` —— 它只影响模型列表，
+                        //      与模式无关；模式由自己的 state 驱动重组。
+                        chatMode = chatModeState,
+                        onChatModeChange = { m ->
+                            container.setChatMode(m)
+                            chatModeState = container.chatMode()
                         },
                         // ★ 2026-11-01：连续使用 2 小时提醒（合规四件之一）
                         //   算法在 :personalogic/UsageWatch，文案在 UsageReminder，都有离线测试。
