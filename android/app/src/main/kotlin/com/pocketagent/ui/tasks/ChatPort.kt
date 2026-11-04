@@ -489,6 +489,11 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
             // ★★ 2026-11-04：模式决定**关掉哪些段**（见 `ChatMode` 的差异表）。
             //   工作模式仍带人格、记忆、世界书、处境 —— 只是不再演戏。
             mode = chatMode,
+            // ★★ 2026-11-04 晚：工作台的「权限 / 工作区」。
+            //   ⚠️ 聊天页传 null —— 角色扮演里没有"权限"这回事，
+            //      写进去会让她开始汇报工作。
+            permission = if (chatMode.isWork) container.permissionMode() else null,
+            workspaceName = if (chatMode.isWork) container.activeWorkspaceName() else null,
         )
     } catch (e: Exception) {
         return ChatResult.Failed(
@@ -619,7 +624,15 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
             // ★ 按**实际生效的模式**取工具集，不是全量：
             //   root 不可用时 `root_exec` 根本不出现在清单里 ——
             //   模型看不到它，也就不会去调它。
-            val tools = container.toolsForCurrentMode()
+            //
+            //   ★★ 2026-11-04 晚：工作台**还要再过一道权限**。
+            //      被裁掉的工具不进清单 ⇒ 模型看不到 ⇒ 不会去调 ——
+            //      比"调了再拒绝"省一整轮，而且不浪费用户的钱。
+            val tools = if (chatMode.isWork) {
+                container.toolsForPermission()
+            } else {
+                container.toolsForCurrentMode()
+            }
             Timber.i(
                 "本次工具集 %d 个（模式=%s）：%s",
                 tools.size,

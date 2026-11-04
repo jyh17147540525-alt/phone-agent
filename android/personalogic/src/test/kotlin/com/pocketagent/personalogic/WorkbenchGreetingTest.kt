@@ -229,6 +229,42 @@ class WorkbenchGreetingTest {
         assertEquals("主人", WorkbenchGreeting.salutationOf("  主人  "))
     }
 
+    /**
+     * 小字必须是**她说的话**，不是系统的安装日志。
+     *
+     * ★ 真事：上一版有一句是「工具已经挂好了。你说，我做。」
+     *   —— 用户看到的第一反应就是"换掉"，因为那句话的说话人是产品，不是她。
+     *
+     * ⚠️ 这里断言的是**某些词永不出现**，而不是措辞风格：
+     *   风格会让每次改文案都要改测试，而这些词是任何时候都不该出现的。
+     */
+    @Test
+    fun `小字里不许出现机器腔的词`() {
+        val banned = listOf("工具", "挂好", "权限", "模型", "系统", "已启用", "加载")
+        // 把整池都扫一遍：只扫抽到的那一句会漏掉其余几句。
+        val hints = (0 until 40).map { WorkbenchGreeting.hint(it) }.toSet()
+        assertTrue("小字池少于三句，抽来抽去都是同一句", hints.size >= 3)
+        for (line in hints) {
+            for (word in banned) {
+                assertFalse("小字里出现了「" + word + "」：" + line, line.contains(word))
+            }
+        }
+    }
+
+    /**
+     * 小字要有"我在"的人味：第一人称。
+     *
+     * ⚠️ 这条**不**断言具体写法 —— 它只要求每句都含「我」。
+     *   上一版「工具已经挂好了。」没有，正好被它抓住。
+     */
+    @Test
+    fun `小字每一句都有第一人称`() {
+        val hints = (0 until 40).map { WorkbenchGreeting.hint(it) }.toSet()
+        for (line in hints) {
+            assertTrue("这句小字里没有第一人称，听起来像系统在说话：" + line, line.contains("我"))
+        }
+    }
+
     private fun countOf(text: String, word: String): Int {
         var n = 0
         var i = text.indexOf(word)

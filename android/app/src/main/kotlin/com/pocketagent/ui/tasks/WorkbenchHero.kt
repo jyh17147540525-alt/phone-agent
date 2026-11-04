@@ -17,8 +17,6 @@ import androidx.compose.ui.unit.dp
 import com.pocketagent.ui.design.PaColor
 import com.pocketagent.ui.design.PaSpace
 import com.pocketagent.ui.design.PaType
-import kotlin.math.cos
-import kotlin.math.sin
 
 /**
  * 工作台页首的**开场白**。
@@ -29,11 +27,13 @@ import kotlin.math.sin
  *
  * 用户的原话："在这个页面，开场，背景上都会有这个角色的随机开场白，
  * 像 claude 那样" —— 并附了一张 Claude 首页的截图：
- * 一个**八向星芒** + 「What's up next, 米克尔？」。
+ * 一个八向星芒 + 「What's up next, 米克尔？」。
  *
- * 抄的是那个**结构**，不是那句英文：
+ * 抄的是那个**结构**，不是那个图标 —— 用户看完真机截图说：
+ * 「claude的图标你不要照搬呀」。照搬一个别的产品的标记，
+ * 是把"像 claude 那样"误解成了"变成 claude"。
  *
- *   ① 一个不说话的符号（星芒）—— 它表达"这是新的开始"，
+ *   ① 一个不说话的符号 —— 它表达"这是新的开始"，
  *      而且不占用任何语义；
  *   ② 一句**有人味**的主文案，称呼用的是角色对用户的称呼
  *      （`CustomPersona.addressUser`），不是"你"；
@@ -58,7 +58,7 @@ internal fun WorkbenchHero(
         modifier = modifier.padding(horizontal = PaSpace.screenH),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Starmark()
+        WorkbenchMark()
         Spacer(PaSpace.m)
         Text(
             text = headline,
@@ -81,41 +81,65 @@ internal fun WorkbenchHero(
 }
 
 /**
- * 八向星芒。
+ * 工作台的标记：**一张台子**。
  *
- * ⚠️ 用 `Canvas` 画而不是找一张矢量图：星芒只有 8 根线，
+ * ═══════════════════════════════════════════════════════
+ *  为什么是"工"字而不是一个更漂亮的几何图形
+ * ═══════════════════════════════════════════════════════
+ *
+ * 三条线 —— 一块台面、中间一条腿、一条底座 —— 正好就是「工」。
+ * 它同时是**这个页面叫什么**（工作台）和**这个页面干什么**（干活），
+ * 而且歪打正着地像一件家具：桌面、桌腿、落地。
+ *
+ * 其他候选都不如它：
+ *  · 齿轮 → 系统设置的味道；
+ *  · 对勾 / 闪电 → 是"完成"和"加速"，不是"开始干活"；
+ *  · 八向星芒 → 那是别人的图标。
+ *
+ * ⚠️ 用 `Canvas` 画而不是找一张矢量图：三条线而已，
  *    位图/矢量资源在深色/浅色主题下要各带一份，而且**没法跟着强调色走**。
  *    这里直接用 `PaColor.Accent`，主题一改它自己就变。
  *
- * ⚠️ 不做旋转动画：动效偏好里"减少动态效果"打开时它应该静止，
- *    而一个 24dp 的图标转起来更像加载中。工作台不需要"正在加载"的暗示。
+ * ⚠️ 不做动画：动效偏好里"减少动态效果"打开时它应该静止，
+ *    而一个 30dp 的图标转起来更像"正在加载"。工作台不需要这个暗示。
  */
 @Composable
-private fun Starmark(modifier: Modifier = Modifier) {
+private fun WorkbenchMark(modifier: Modifier = Modifier) {
     // ⚠️ 必须在 Canvas **外面**读颜色：`PaColor.Accent` 是 @Composable 的
     //    取值器（跟随主题 / 动态取色），而 `Canvas` 的 lambda 是 DrawScope，
     //    不是 @Composable 上下文 —— 在里面读会报
     //    "@Composable invocations can only happen from the context of a @Composable function"。
     val accent = PaColor.Accent
-    Canvas(modifier = modifier.size(28.dp)) {
-        val cx = size.width / 2f
-        val cy = size.height / 2f
-        val outer = size.minDimension / 2f
-        // 内径 0.30：太短会像"米"字，太长像"雪花"。0.30 出来是星芒。
-        val inner = outer * 0.30f
-        val stroke = outer * 0.20f
-        for (i in 0 until 8) {
-            val angle = (Math.PI * 2.0 * i / 8.0).toFloat()
-            val dx = cos(angle)
-            val dy = sin(angle)
-            drawLine(
-                color = accent,
-                start = Offset(cx + dx * inner, cy + dy * inner),
-                end = Offset(cx + dx * outer, cy + dy * outer),
-                strokeWidth = stroke,
-                cap = StrokeCap.Round,
-            )
-        }
+    Canvas(modifier = modifier.size(30.dp)) {
+        val w = size.width
+        val h = size.height
+        // 笔画粗细按**宽度**算（不是 minDimension）：
+        // 三条线都是横平竖直的，粗细一致才像一张图纸上的家具。
+        val stroke = w * 0.115f
+        // 台面：比底座宽一点 —— 这才是"桌子"，一样宽就只是"工"字。
+        drawLine(
+            color = accent,
+            start = Offset(w * 0.06f, h * 0.24f),
+            end = Offset(w * 0.94f, h * 0.24f),
+            strokeWidth = stroke,
+            cap = StrokeCap.Round,
+        )
+        // 腿。
+        drawLine(
+            color = accent,
+            start = Offset(w * 0.5f, h * 0.24f),
+            end = Offset(w * 0.5f, h * 0.76f),
+            strokeWidth = stroke,
+            cap = StrokeCap.Round,
+        )
+        // 底座。
+        drawLine(
+            color = accent,
+            start = Offset(w * 0.22f, h * 0.76f),
+            end = Offset(w * 0.78f, h * 0.76f),
+            strokeWidth = stroke,
+            cap = StrokeCap.Round,
+        )
     }
 }
 

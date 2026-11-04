@@ -119,6 +119,11 @@ MODEL_FACING = {
     "personalogic/RoleplayDiscipline.kt", # 扮演纪律（写给模型，不是界面）
     "personalogic/ChatMode.kt",        # 工作模式的纪律段（写给模型，不是界面）
     "memorylogic/AtomExtractor.kt",      # 记忆抽取提示词（写给模型）
+    # ── 工作台的权限档位（2026-11-04 加）──────────────────────
+    # ⚠️ `AgentPermission.promptSection` 拼的是**系统提示词的一段**
+    #    （「## 这一次的权限」），模型读 markdown；界面上的那两处用的
+    #    是枚举里的 `label`/`blurb`，跟这里无关。
+    "agentlogic/orchestration/AgentPermission.kt",
 }
 
 

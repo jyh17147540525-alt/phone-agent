@@ -10,6 +10,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -178,6 +180,25 @@ fun TasksScreen(
 
     /** 进入工作台。null = 不显示入口（工作台自己传 null，否则能自己进自己）。 */
     onOpenWorkbench: (() -> Unit)? = null,
+
+    /**
+     * ★★ 2026-11-04 晚：**工作区**条（输入框旁边那颗 chip）。
+     *
+     * 用户的原话："在工作区，模型选择的旁边加上工作区选择，还有权限选择，
+     * 这两个照搬电脑上的 harness 命名就好了"。
+     *
+     * `null` = 不显示（聊天页）。工作台之外没有"工作区"这回事 ——
+     * 角色扮演里给她一句"你的工作区是文档"只会让她开始汇报进度。
+     */
+    workspaceChip: WorkbenchChip? = null,
+
+    /**
+     * ★★ 2026-11-04 晚：**权限**条。
+     *
+     * ⚠️ 它**真的会裁工具**（见 `AppContainer.toolsForPermission`）——
+     *    不是只显示一行字。用户选「只读」之后，模型根本看不到写文件的工具。
+     */
+    permissionChip: WorkbenchChip? = null,
     /**
      * ★ 2026-11-01：连续使用提醒。
      *
@@ -255,6 +276,10 @@ fun TasksScreen(
     )
     var askModel by remember { mutableStateOf(false) }
 
+    // ★★ 2026-11-04 晚：工作区 / 权限的抽屉。
+    //   一次只开一个（同一层 Box 里的两块浮层会互相盖住）。
+    var openChip by remember { mutableStateOf<WorkbenchChip?>(null) }
+
     // ══════════════════════════════════════════════════════════════
     //  ★★ 2026-11-01：用 `Box` 包一层，让模型弹层能**覆盖**在页面之上
     // ══════════════════════════════════════════════════════════════
@@ -316,7 +341,15 @@ fun TasksScreen(
         // ══════════════════════════════════════════════════════
         Column(modifier = Modifier.fillMaxSize()) {
 
-            Box(modifier = Modifier.weight(1f)) {
+            // ★★ 2026-11-04 晚：**必须 fillMaxWidth**。
+            //
+            // 只写 weight(1f) 时这个 Box 的宽度 = 最宽那个子项的宽度。
+            // 列表有内容时 LazyColumn 撑满，看不出问题；
+            // 空态时子项是开场白那几行字（不到 400px），于是 Box 跟着变窄、
+            // 被 Column 靠左摆 —— `Modifier.align(Alignment.Center)` 只是
+            // 在**这个变窄的 Box 里面**居中，等于没居中。
+            // 真机量出来的：星芒中心 x=417，屏幕中心 720。
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 if (vm.tasks.isEmpty()) {
                     // ★★ 2026-11-04 晚：工作台的空态是**一句开场白**，
                     //   不是「还没有任务」—— 后者像一张没填的表单，
@@ -684,6 +717,17 @@ fun TasksScreen(
                         )
                     }
 
+                    // ── 工作区 / 权限 chip ─────────────────────
+                    //
+                    // ⚠️ 顺序：模型 → 工作区 → 权限 → 思考强度。
+                    //   前两个是"在哪里、能动多少"（这一页的边界），
+                    //   后两个是"这一句怎么发"。边界在左、发送在右，
+                    //   读起来是一句话。
+                    for (chip in listOfNotNull(workspaceChip, permissionChip)) {
+                        Spacer(Modifier.width(PaSpace.xxs))
+                        WorkbenchChipButton(chip = chip, onClick = { openChip = chip })
+                    }
+
                     Spacer(Modifier.width(PaSpace.xxs))
 
                     // ── 思考强度 chip ──────────────────────────
@@ -803,6 +847,165 @@ fun TasksScreen(
                 )
             }
         }
+
+        // ══════════════════════════════════════════════════════
+        //  ★★ 2026-11-04 晚：工作区 / 权限抽屉
+        // ══════════════════════════════════════════════════════
+        //
+        // ⚠️ 与模型弹层同一套自绘理由（`ModalBottomSheet` 是实验 API，
+        //    会一路传染到 `MainActivity`），也同一套手势：
+        //    点遮罩关、点一行选、底部有「收起」。
+        openChip?.let { chip ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.35f))
+                    .clickable(
+                        interactionSource = remember {
+                            androidx.compose.foundation.interaction.MutableInteractionSource()
+                        },
+                        indication = null,
+                    ) { openChip = null },
+            )
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(topStart = PaRadius.l, topEnd = PaRadius.l))
+                    .background(PaColor.CanvasElevated)
+                    .padding(top = PaSpace.m, bottom = PaSpace.l),
+            ) {
+                Text(
+                    text = chip.sheetTitle,
+                    style = PaType.title,
+                    color = PaColor.TextPrimary,
+                    modifier = Modifier.padding(horizontal = PaSpace.screenH),
+                )
+                Spacer(Modifier.height(PaSpace.xs))
+                if (chip.options.isEmpty()) {
+                    Text(
+                        text = chip.emptyHint,
+                        style = PaType.body,
+                        color = PaColor.TextSecondary,
+                        modifier = Modifier.padding(horizontal = PaSpace.screenH),
+                    )
+                } else {
+                    for (option in chip.options) {
+                        val picked = option.id == chip.selectedId
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    chip.onPick(option.id)
+                                    openChip = null
+                                }
+                                .padding(horizontal = PaSpace.screenH, vertical = PaSpace.xs),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = option.title,
+                                    style = PaType.body,
+                                    color = if (picked) PaColor.AccentText else PaColor.TextPrimary,
+                                )
+                                if (option.subtitle.isNotBlank()) {
+                                    Text(
+                                        text = option.subtitle,
+                                        style = PaType.caption,
+                                        color = PaColor.TextTertiary,
+                                    )
+                                }
+                            }
+                            if (picked) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = PaColor.AccentText,
+                                    modifier = Modifier.size(IconGeometry.Size.INLINE.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(PaSpace.xs))
+                Text(
+                    text = "收起",
+                    style = PaType.label,
+                    color = PaColor.TextSecondary,
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .clip(RoundedCornerShape(PaRadius.pill))
+                        .clickable { openChip = null }
+                        .padding(horizontal = PaSpace.m, vertical = PaSpace.xs),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 工作区 / 权限条的数据。
+ *
+ * ⚠️ 故意是**纯数据 + 一个回调**，不带 `AppContainer` ——
+ *    `TasksScreen` 在预览与离线测试里没有容器，与 `modelModels` 同一条纪律。
+ *
+ * @property value chip 上显示的值（已算好，界面不再加工）
+ * @property options 抽屉里的全部选项
+ * @property selectedId 当前选中的 id（`null` = 没有任何一个被选中）
+ * @property onPick 选中后回调；`null` 表示"清空选择"
+ */
+data class WorkbenchChip(
+    val title: String,
+    val value: String,
+    val sheetTitle: String,
+    val options: List<WorkbenchChipOption>,
+    val selectedId: String?,
+    val onPick: (String?) -> Unit,
+    /** 一个选项都没有时抽屉里那句话（工作区没授权就说清楚去哪授权）。 */
+    val emptyHint: String = "",
+)
+
+/** 抽屉里的一行。 */
+data class WorkbenchChipOption(
+    val id: String,
+    val title: String,
+    val subtitle: String = "",
+)
+
+/**
+ * 一颗 chip。
+ *
+ * ⚠️ 长名字**在这里截断**而不是靠 `Row` 挤：四个 chip 并排时
+ *    任何一颗变宽都会把模型名挤没，而模型名才是用户最先要看的那颗。
+ */
+@Composable
+private fun WorkbenchChipButton(
+    chip: WorkbenchChip,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(PaRadius.pill))
+            .background(PaColor.GlassTintStrong)
+            .clickable(onClick = onClick)
+            .heightIn(min = 32.dp)
+            .padding(horizontal = PaSpace.xs, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = chip.value,
+            style = PaType.label,
+            color = PaColor.TextSecondary,
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            modifier = Modifier.widthIn(max = 72.dp),
+        )
+        Icon(
+            imageVector = Icons.Default.KeyboardArrowDown,
+            contentDescription = null,
+            tint = PaColor.TextTertiary,
+            modifier = Modifier.size(IconGeometry.Size.INLINE.dp),
+        )
     }
 }
 

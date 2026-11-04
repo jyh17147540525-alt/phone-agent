@@ -1298,6 +1298,119 @@ class AppContainer(context: Context) {
     }
 
     // ══════════════════════════════════════════════════════════════
+    //  ★★ 2026-11-04 晚：工作台的两个约束 —— 工作区 / 权限
+    // ══════════════════════════════════════════════════════════════
+    //
+    // 用户的原话："在工作区，模型选择的旁边加上工作区选择，还有权限选择，
+    // 这两个照搬电脑上的 harness 命名就好了"。
+    //
+    // ⚠️ 两个都是**真接线**，不是只显示一行字：
+    //   · 「工作区」→ `SafOfficeWorkspaceResolver` 优先解析它，
+    //     文件就真的落在选的那棵树里（见 `OfficePorts`）；
+    //   · 「权限」→ [toolsForPermission] 按 `ToolSpec.effects` **裁掉**工具，
+    //     模型看不到被裁掉的工具，也就不会去调它们。
+    //
+    // ⚠️ 两个都**只对工作台生效**。聊天页是角色扮演，那里没有"权限"这回事 ——
+    //    给角色一句"你现在是只读"会让她们开始汇报工作。
+
+    @Volatile
+    private var permissionModeValue =
+        com.pocketagent.agentlogic.orchestration.AgentPermission.DEFAULT
+
+    /** 当前权限档。默认 = 「完全访问」，与升级前的行为逐字一致。 */
+    fun permissionMode(): com.pocketagent.agentlogic.orchestration.AgentPermission =
+        permissionModeValue
+
+    fun setPermissionMode(value: com.pocketagent.agentlogic.orchestration.AgentPermission) {
+        permissionModeValue = value
+        startupScope.launch {
+            runCatching { pluginSourceStore.edit { it[KEY_PERMISSION_MODE] = value.name } }
+                .onFailure { Timber.e(it, "权限档保存失败") }
+        }
+    }
+
+    /** 当前工作区 id。null = 没选 —— 此时用第一条授权目录。 */
+    @Volatile
+    private var activeWorkspaceIdValue: String? = null
+
+    fun activeWorkspaceId(): String? = activeWorkspaceIdValue
+
+    fun setActiveWorkspace(id: String?) {
+        activeWorkspaceIdValue = id
+        startupScope.launch {
+            runCatching { pluginSourceStore.edit { it[KEY_ACTIVE_WORKSPACE] = id.orEmpty() } }
+                .onFailure { Timber.e(it, "工作区选择保存失败") }
+        }
+    }
+
+    /**
+     * 已授权的目录 —— 工作区抽屉里的**全部**选项。
+     *
+     * ⚠️ 返回 `Pair(id, 名字)` 而不是 `Workspace`：界面不该为了画一行字
+     *    去认识 SAF 的 `ScopeRoot`。`id` 是稳定标识，名字是给人看的。
+     */
+    fun workspaceChoices(): List<Pair<String, String>> = runCatching {
+        com.pocketagent.capability.SafDirectoryGrants(appContext)
+            .grantedRoots()
+            .map { it.id to it.displayName.ifBlank { "已授权目录" } }
+    }.onFailure { Timber.w(it, "读取已授权目录失败") }.getOrDefault(emptyList())
+
+    /**
+     * 当前工作区的名字 —— 给 chip 与提示词用。
+     *
+     * ⚠️ 一个都没授权时返回 null（而不是"默认"）：那时提示词该说
+     *    "还没有工作区，要落文件先问他把东西放哪"。
+     */
+    fun activeWorkspaceName(): String? = runCatching {
+        val roots = com.pocketagent.capability.SafDirectoryGrants(appContext).grantedRoots()
+        (roots.firstOrNull { it.id == activeWorkspaceIdValue } ?: roots.firstOrNull())
+            ?.displayName?.ifBlank { "已授权目录" }
+    }.getOrNull()
+
+    /**
+     * 按权限档裁工具。
+     *
+     * ═══════════════════════════════════════════════════════════
+     *  ★ 判据是**工具自己声明的效果**，不是这里的手工白名单
+     * ═══════════════════════════════════════════════════════════
+     *
+     * 手工白名单的失效方式很难看：新加一个工具、忘了同步这里，
+     * 它就被**静默**归到某一档 —— 用户以为自己只开了只读，
+     * 而那个工具照常能发消息。判据跟着 `ToolSpec.effects` 走，
+     * 新工具自动获得正确档位。
+     *
+     * ⚠️ **没登记的**工具一律不给（`?: return@filter false`）：
+     *    "不知道它能干什么"时放行，等于把权限条变成装饰。
+     */
+    fun toolsForPermission(
+        permission: com.pocketagent.agentlogic.orchestration.AgentPermission =
+            permissionModeValue,
+    ): List<McpTool> {
+        val base = toolsForCurrentMode()
+        // 完全访问 = 与升级前完全一致，连一次映射都不做。
+        if (permission == com.pocketagent.agentlogic.orchestration.AgentPermission.FULL_ACCESS) {
+            return base
+        }
+        // ⚠️ 登记表用 `ToolCatalog`（`:agentlogic` 的 `ToolSpec`，
+        //    带着 `effects`），**不是** `AgentAdapters.toolSpecs` ——
+        //    后者转成的是给模型看的 `AgentToolSpec`（只有名字/描述/参数），
+        //    里面没有 effects，拿它判权限等于把权限条变成装饰。
+        val catalog = com.pocketagent.agentlogic.orchestration.ToolCatalog()
+        val kept = base.filter { tool ->
+            val spec = catalog.byId(tool.name) ?: return@filter false
+            permission.allows(spec.effects)
+        }
+        Timber.i(
+            "权限 %s：工具 %d → %d（留下：%s）",
+            permission.label,
+            base.size,
+            kept.size,
+            kept.joinToString("、") { it.name },
+        )
+        return kept
+    }
+
+    // ══════════════════════════════════════════════════════════════
     //  ★★ 2026-11-03：**后台 AI 的调度**
     // ══════════════════════════════════════════════════════════════
     //
@@ -2198,6 +2311,11 @@ class AppContainer(context: Context) {
             )
             // ★ 拒绝开关（默认 true：见 allowRefusalValue 的注释）
             allowRefusalValue = prefs[KEY_ALLOW_REFUSAL] ?: true
+
+            // ★ 工作台的权限档 / 工作区（坏值不抛，见 `AgentPermission.of`）
+            permissionModeValue =
+                com.pocketagent.agentlogic.orchestration.AgentPermission.of(prefs[KEY_PERMISSION_MODE])
+            activeWorkspaceIdValue = prefs[KEY_ACTIVE_WORKSPACE]?.takeIf { it.isNotBlank() }
 
             // ★ 体检报告
             runCatching {
@@ -4066,6 +4184,15 @@ class AppContainer(context: Context) {
         //      新参数的默认值就是"今天的样子"，这是给旧调用方的兼容承诺。
         mode: com.pocketagent.personalogic.ChatMode =
             com.pocketagent.personalogic.ChatMode.ROLEPLAY,
+        /**
+         * 工作台的「权限」档。**null = 不写这一段**（聊天页）。
+         *
+         * ★ 见 `AgentPermission.promptSection` —— 它同时写清"能做什么"、
+         *   "不能做什么"，以及"工作区在哪"。
+         */
+        permission: com.pocketagent.agentlogic.orchestration.AgentPermission? = null,
+        /** 当前工作区名字。只在 [permission] 非空时有意义。 */
+        workspaceName: String? = null,
     ): String {
         // ★★ 2026-10-25：自定义角色在这里**真的生效**。
         //
@@ -4264,9 +4391,14 @@ class AppContainer(context: Context) {
         // ⚠️ 空段不拼。原来是一串 `a + "\n\n" + b + "\n\n" + c`，
         //    段一空就留下多余的分隔符和空行 —— 提示词里的空行不是免费的，
         //    它会被读成"这里本来有一段，只是被删了"。
+        // ★★ 2026-11-04 晚：**权限**（只有工作台传非 null）。
+        //   排在 workRules **之后** —— 先立"怎么办事"，再说"能动多少"。
+        //   反过来的话模型会把权限当成任务描述的一部分。
+        val permissionRules = com.pocketagent.agentlogic.orchestration.AgentPermission
+            .promptSection(permission, workspaceName)
         val withClues = buildString {
             append(withClues0)
-            for (section in listOf(discipline, voiceSamples, workRules)) {
+            for (section in listOf(discipline, voiceSamples, workRules, permissionRules)) {
                 if (section.isNotBlank()) append("\n\n").append(section)
             }
         }
@@ -4577,7 +4709,8 @@ class AppContainer(context: Context) {
         //
         // ⚠️ 工作区解析器**只建一个**，端口与执行器共用 —— 两处各自解析
         //    会出现「端口说能写、执行器说没工作区」这类不一致。
-        val officeWorkspaces = SafOfficeWorkspaceResolver.of(appContext)
+        // ★ 工作台选的「工作区」在这里生效：优先解析它，解析不到才用第一条授权。
+        val officeWorkspaces = SafOfficeWorkspaceResolver.of(appContext) { activeWorkspaceIdValue }
         val officeChannel = SafFileChannel(appContext)
         val officeExecutor = SafOfficeToolExecutor(officeWorkspaces, officeChannel)
         val officeWorkspacePort = SafOfficeWorkspacePort(officeWorkspaces)
@@ -5233,6 +5366,16 @@ class AppContainer(context: Context) {
 
     /** 「允许它拒绝」开关。见 [allowRefusalValue]。 */
     private val KEY_ALLOW_REFUSAL = booleanPreferencesKey("allow_refusal_v1")
+
+    /** 工作台「权限」档。见 [permissionModeValue]。 */
+    private val KEY_PERMISSION_MODE = androidx.datastore.preferences.core.stringPreferencesKey(
+        "agent_permission_v1",
+    )
+
+    /** 工作台「工作区」选择（存 id，不存路径 —— 路径会随授权变动）。 */
+    private val KEY_ACTIVE_WORKSPACE = androidx.datastore.preferences.core.stringPreferencesKey(
+        "active_workspace_v1",
+    )
 
     // 后台 AI 调度（2026-11-03）
     private val KEY_DIRECTOR_MODEL =

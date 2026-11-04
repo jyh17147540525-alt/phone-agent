@@ -72,10 +72,24 @@ class SafOfficeWorkspaceResolver(
     private val grants: SafDirectoryGrants,
     /** 策略。当前是默认值 —— 见 [DEFAULT_POLICY] 的注释。 */
     private val policy: WorkspacePolicy = DEFAULT_POLICY,
+    /**
+     * ★★ 2026-11-04 晚：**用户在工作台选的那个工作区**。
+     *
+     * 在此之前这里永远是 `grantedRoots().firstOrNull()` —— 于是一个用户
+     * 授权了三个目录、在工作台里选了第二个，文件还是写进第一个，
+     * 而**没有任何一处会报错**（它确实写成功了，只是写错了地方）。
+     *
+     * ⚠️ 传的是**取值函数**而不是 id 值：这个解析器在容器启动时构造一次，
+     *    而用户在界面上随时会改。传值等于把"选择"冻结在启动那一刻。
+     */
+    private val preferredId: () -> String? = { null },
 ) {
 
     fun resolve(): ResolvedOfficeWorkspace? {
-        val root = grants.grantedRoots().firstOrNull() ?: return null
+        val roots = grants.grantedRoots()
+        // 选中的优先；选中的那条授权被回收了就退回第一条，
+        // 而不是"没有工作区" —— 后者会让办公能力突然整体失效。
+        val root = roots.firstOrNull { it.id == preferredId() } ?: roots.firstOrNull() ?: return null
         return ResolvedOfficeWorkspace(
             name = root.displayName.ifBlank { "已授权目录" },
             root = root,
@@ -94,8 +108,11 @@ class SafOfficeWorkspaceResolver(
         val DEFAULT_POLICY = WorkspacePolicy()
 
         /** 生产入口：用应用的 SAF 授权。 */
-        fun of(context: Context): SafOfficeWorkspaceResolver =
-            SafOfficeWorkspaceResolver(SafDirectoryGrants(context))
+        fun of(
+            context: Context,
+            preferredId: () -> String? = { null },
+        ): SafOfficeWorkspaceResolver =
+            SafOfficeWorkspaceResolver(SafDirectoryGrants(context), preferredId = preferredId)
     }
 }
 

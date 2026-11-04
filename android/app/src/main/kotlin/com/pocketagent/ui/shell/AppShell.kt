@@ -779,6 +779,22 @@ fun AppShell(
                     var modelChoiceState by remember { mutableStateOf(container.modelChoice()) }
                     var effortState by remember { mutableStateOf(container.thinkingEffort()) }
 
+                    // ══════════════════════════════════════════════
+                    //  ★★ 2026-11-04 晚：工作区 / 权限
+                    // ══════════════════════════════════════════════
+                    //
+                    // ⚠️ 必须用 `remember { mutableStateOf(...) }` 承接，不能直接读
+                    //    `container.permissionMode()`：容器里那两个字段是
+                    //    `@Volatile var`，改它们**不会触发重组**（同一族 bug 已经
+                    //    踩过四次 —— 「允许它拒绝」开关、模型顶栏第二次切换…）。
+                    //    表现是"选了没反应，退出去再进来才对"。
+                    var workspaceIdState by remember { mutableStateOf(container.activeWorkspaceId()) }
+                    var permissionState by remember { mutableStateOf(container.permissionMode()) }
+
+                    // 换工作区之后名字也要跟着换 ⇒ 用 id 当 key 重算。
+                    val workspaceChoices = remember(workspaceIdState) { container.workspaceChoices() }
+                    val workspaceName = remember(workspaceIdState) { container.activeWorkspaceName() }
+
                     // ⚠️ 每次进入都重读：用户可能刚在角色设定里改过称呼。
                     val persona = remember { container.currentCustomPersona() }
                     val greeting = remember {
@@ -831,6 +847,60 @@ fun AppShell(
                         onCheckUsage = {
                             container.touchUsage(isRoleplay = container.isRoleplay())?.text
                         },
+
+                        // ══════════════════════════════════════════════
+                        //  ★★ 2026-11-04 晚：工作区 / 权限
+                        // ══════════════════════════════════════════════
+                        //
+                        // 用户的原话："在工作区，模型选择的旁边加上工作区选择，
+                        // 还有权限选择，这两个照搬电脑上的 harness 命名就好了"。
+                        //
+                        // ⚠️ 只在工作台传：聊天页传 null。角色扮演里没有"权限"
+                        //    这回事，给她一句"你现在是只读"会让她开始汇报工作。
+                        workspaceChip = com.pocketagent.ui.tasks.WorkbenchChip(
+                            title = "工作区",
+                            // 一个目录都没授权时 chip 上写「没工作区」而不是留空 ——
+                            // 空白的 chip 看起来像还没加载出来。
+                            value = workspaceName ?: "没工作区",
+                            sheetTitle = "写东西写到哪",
+                            options = workspaceChoices.map { (id, name) ->
+                                com.pocketagent.ui.tasks.WorkbenchChipOption(
+                                    id = id,
+                                    title = name,
+                                )
+                            },
+                            selectedId = workspaceIdState,
+                            onPick = { id ->
+                                container.setActiveWorkspace(id)
+                                workspaceIdState = container.activeWorkspaceId()
+                            },
+                            emptyHint = "还没有授权过目录。去设置里加一个，我才知道该把文件放哪 —— 不然我只能问你要放哪儿。",
+                        ),
+                        permissionChip = com.pocketagent.ui.tasks.WorkbenchChip(
+                            title = "权限",
+                            value = permissionState.label,
+                            sheetTitle = "这次让我动到哪一步",
+                            // ⚠️ 选项**从枚举来**，不手抄：手抄一份的失效方式是
+                            //    枚举加了新档、抽屉里没有 ⇒ 用户永远选不到。
+                            options = com.pocketagent.agentlogic.orchestration
+                                .AgentPermission.entries.map { perm ->
+                                    com.pocketagent.ui.tasks.WorkbenchChipOption(
+                                        id = perm.name,
+                                        title = perm.label,
+                                        subtitle = perm.blurb,
+                                    )
+                                },
+                            selectedId = permissionState.name,
+                            onPick = { id ->
+                                container.setPermissionMode(
+                                    com.pocketagent.agentlogic.orchestration.AgentPermission.of(id),
+                                )
+                                permissionState = container.permissionMode()
+                                // ★ 顶栏的名字不用刷，但**下一轮的工具集**已经变了
+                                //   —— 那件事发生在 ChatPort 里，读的是容器，
+                                //   所以这里不需要额外通知。
+                            },
+                        ),
                     )
                 }
 
