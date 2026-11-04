@@ -93,6 +93,16 @@ fun SessionDrawer(
     //   开机就是对话页、零点击 —— 这是"进来就能聊"的唯一形态。
     onOpenPlugins: (() -> Unit)? = null,
     onOpenSettings: (() -> Unit)? = null,
+    /**
+     * 「新对话」按钮上的字。
+     *
+     * ★★ 2026-11-05：工作台复用这个抽屉显示**工作历史**，那里
+     * 说"新对话"是错的 —— 它建的是**工作**。同一个组件、两处文案，
+     * 比复制一份抽屉（然后两边各自漂移）便宜得多。
+     */
+    newSessionLabel: String = "新对话",
+    /** 搜索框占位。理由同上。 */
+    searchHint: String = "搜索对话…",
 ) {
     var keyword by remember { mutableStateOf("") }
     var renaming by remember { mutableStateOf<SessionSummary?>(null) }
@@ -106,7 +116,7 @@ fun SessionDrawer(
             .padding(horizontal = PaSpace.s, vertical = PaSpace.m),
     ) {
         PaButton(
-            text = "新对话",
+            text = newSessionLabel,
             onClick = {
                 keyword = ""
                 onSearch("")
@@ -126,7 +136,7 @@ fun SessionDrawer(
                 onSearch(it)
             },
             modifier = Modifier.fillMaxWidth(),
-            placeholder = "搜索对话…",
+            placeholder = searchHint,
             leadingIcon = Icons.Default.Search,
         )
 

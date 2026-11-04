@@ -76,6 +76,7 @@ import com.pocketagent.ui.design.PaButtonStyle
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Work
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.History
 import com.pocketagent.ui.design.PaColor
 import com.pocketagent.ui.design.PaEmptyState
 import com.pocketagent.ui.design.PaIconButton
@@ -180,6 +181,19 @@ fun TasksScreen(
 
     /** 进入工作台。null = 不显示入口（工作台自己传 null，否则能自己进自己）。 */
     onOpenWorkbench: (() -> Unit)? = null,
+
+    /**
+     * ★★ 2026-11-05：**工作历史**（左侧抽屉）。
+     *
+     * 用户的原话："这个页面也要有工作历史可以选择，就像对话历史那样"。
+     *
+     * ⚠️ 它和聊天页那个抽屉**是同一个组件**，但列表内容不同 ——
+     *    工作台只看工作台自己建的会话。共用一份列表的后果是：
+     *    用户点开"工作历史"，摊在第一位的正是昨晚那段角色扮演。
+     *
+     * `null` = 不显示（聊天页），那里左上角已经是抽屉本身。
+     */
+    onOpenHistory: (() -> Unit)? = null,
 
     /**
      * ★★ 2026-11-04 晚：**工作区**条（输入框旁边那颗 chip）。
@@ -317,6 +331,15 @@ fun TasksScreen(
             // ★★ 2026-11-04 晚：工作台入口。
             //   ⚠️ 放在角色设定**左边**：右边两个（角色设定 / 设置）是
             //      "改这个应用"，工作台是"换个地方干活"，语义层级更高。
+            // ★★ 2026-11-05：工作历史。放在最左边 —— 它是"往回看"，
+            //   右侧那三个都是"改这个应用/换地方干活"。
+            onOpenHistory?.let { open ->
+                PaIconButton(
+                    icon = Icons.Default.History,
+                    onClick = open,
+                    contentDescription = "工作历史",
+                )
+            }
             onOpenWorkbench?.let { open ->
                 PaIconButton(
                     icon = Icons.Default.Work,
@@ -927,6 +950,27 @@ fun TasksScreen(
                         }
                     }
                 }
+                // ★★ 2026-11-05：抽屉底部的「＋」。
+                //
+                // ⚠️ 只给**带 onAdd 的** chip 画（工作区有、权限没有）：
+                //    权限那三档是固定的，那里放一个「＋」会让人以为
+                //    能自定义权限档。
+                val addLabel = chip.addLabel
+                val addClick = chip.onAdd
+                if (addLabel != null && addClick != null) {
+                    Text(
+                        text = addLabel,
+                        style = PaType.body,
+                        color = PaColor.AccentText,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                openChip = null
+                                addClick()
+                            }
+                            .padding(horizontal = PaSpace.screenH, vertical = PaSpace.xs),
+                    )
+                }
                 Spacer(Modifier.height(PaSpace.xs))
                 Text(
                     text = "收起",
@@ -963,6 +1007,19 @@ data class WorkbenchChip(
     val onPick: (String?) -> Unit,
     /** 一个选项都没有时抽屉里那句话（工作区没授权就说清楚去哪授权）。 */
     val emptyHint: String = "",
+
+    /**
+     * 抽屉底部的「＋」那行字。`null` = 不显示。
+     *
+     * ★★ 2026-11-05：工作区的「＋」调**系统的**文件夹选择器
+     * （`ACTION_OPEN_DOCUMENT_TREE`），用户可以在那里新建文件夹、
+     * 也可以选一个现成的 —— 自己画一个文件浏览器只能选到
+     * 已经授权过的位置，等于让"添加"只能添加已经添加过的东西。
+     */
+    val addLabel: String? = null,
+
+    /** 点了「＋」。 */
+    val onAdd: (() -> Unit)? = null,
 )
 
 /** 抽屉里的一行。 */
@@ -1813,6 +1870,19 @@ class TasksViewModel(
     private val dedicatedTitle: String? = null,
 
     /**
+     * ★★ 2026-11-05：**工作台建过的会话 id**（「工作历史」）。
+     *
+     * 用户的原话："这个页面也要有工作历史可以选择，就像对话历史那样"。
+     *
+     * ⚠️ 用 lambda 而不是快照：用户下一秒就在抽屉里新建了一条，
+     *    这里必须读到新的集合（与 `maturePermission` 同一条纪律）。
+     */
+    private val workSessions: () -> Set<String> = { emptySet() },
+
+    /** 记一条"这条会话是工作台建的"。聊天页传进来的是空实现。 */
+    private val rememberWorkSession: (String) -> Unit = {},
+
+    /**
      * 会话仓储的**提供者**（不是实例）。
      *
      * ⚠️ 为什么必须是 `() ->`：库是**懒开**的（开库要碰 Keystore，冷启动路径上不该付这个代价），
@@ -2005,14 +2075,20 @@ class TasksViewModel(
                         store.searchSessions(keyword, AgentTaskUi.SESSION_LIST_LIMIT)
                     }
                     val cur = sessionId ?: run {
-                        // ★ 工作台 = 自己一条线（见 `dedicatedTitle` 的 KDoc）。
+                        // ★ 工作台 = 自己的一条线（见 `dedicatedTitle` 的 KDoc）。
+                        //
+                        // ⚠️ 认领的是**最近一条工作台建的会话**，不是
+                        //    "标题等于工作台的那条"：标题用户能改，
+                        //    改完就再也认不回来了（见容器里 KEY_WORK_SESSIONS）。
                         val resolved = if (dedicatedTitle == null) {
                             store.currentSession()
                         } else {
+                            val mine = workSessions()
                             store.recentSessions(AgentTaskUi.SESSION_LIST_LIMIT)
-                                .firstOrNull { it.title == dedicatedTitle }
-                                ?: store.newSession().also {
-                                    store.renameSession(it.id, dedicatedTitle)
+                                .firstOrNull { it.id in mine }
+                                ?: store.newSession().also { s ->
+                                    store.renameSession(s.id, workSessionTitle(dedicatedTitle, mine.size))
+                                    rememberWorkSession(s.id)
                                 }
                         }
                         resolved.also { sessionId = it.id }.id
@@ -2026,7 +2102,11 @@ class TasksViewModel(
                     //
                     //   ⚠️ 保留当前会话：用户正要在这个会话里说话，
                     //      列表里没有它会让"当前"这个高亮无对象可标。
+                    // ★ 工作台只看**自己建的**会话。不加这一层过滤的话，
+                    //   点开"工作历史"，摊在第一位的是昨晚那段角色扮演。
+                    val mine = workSessions()
                     list
+                        .filter { dedicatedTitle == null || it.id in mine || it.id == cur }
                         .filter { it.turnCount > 0 || it.id == cur }
                         .map { it.toSummary(isCurrent = it.id == cur) }
                 }
@@ -2075,6 +2155,21 @@ class TasksViewModel(
                 .getOrNull() ?: return@Thread
             val s = runCatching { kotlinx.coroutines.runBlocking { store.newSession() } }
                 .getOrNull() ?: return@Thread
+            // ★ 工作台里点「新工作」= 又开一条工作线：给它起个能区分的名字
+            //   并记进工作历史。不起名的话抽屉里会躺着一排「新对话」，
+            //   用户只能靠时间来分辨。
+            if (dedicatedTitle != null) {
+                // ⚠️ 先取成局部 val：属性在 lambda 里不会被智能转型
+                //    （Kotlin 只对稳定表达式做，捕获进闭包的那个不算）。
+                val base = dedicatedTitle
+                val n = workSessions().size
+                runCatching {
+                    kotlinx.coroutines.runBlocking {
+                        store.renameSession(s.id, workSessionTitle(base, n))
+                    }
+                }
+                rememberWorkSession(s.id)
+            }
             sessionId = s.id
             currentSessionId = s.id
             historyLoaded = true
@@ -2118,6 +2213,15 @@ class TasksViewModel(
     }
 
     private var historyLoaded = false
+
+    /**
+     * 工作会话的标题。
+     *
+     * ⚠️ 第一条就叫「工作台」（页面名），之后带序号 —— 抽屉里
+     *    一排同名的「工作台」等于没有标题。
+     */
+    private fun workSessionTitle(base: String, existing: Int): String =
+        if (existing <= 0) base else "$base ${existing + 1}"
 
     /** 把某个会话的当前路径读成界面卡片。 */
     private fun loadPairs(store: ConversationStore, sid: String?) {

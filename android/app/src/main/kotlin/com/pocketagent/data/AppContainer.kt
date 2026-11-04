@@ -1368,6 +1368,58 @@ class AppContainer(context: Context) {
     }.getOrNull()
 
     /**
+     * ★★ 2026-11-05：用户在**系统的**文件夹选择器里选了一个目录。
+     *
+     * 返回新加进来的那个 id（`null` = 没加成，比如用户按了返回、
+     * 或者系统拒绝记住这个位置）。
+     *
+     * ⚠️ 调用方拿到 id 之后要顺手 `setActiveWorkspace` —— 用户的动作
+     *    是"添加一个工作区"，期待的就是**用它**，而不是"添加完再回抽屉里
+     *    自己选一遍"。多一步就是多一次困惑。
+     *
+     * ⚠️ 必须 `take`（持久化授权），否则这次授权只活到进程结束 ——
+     *    表现是"今天能用，明天打开说还没授权"。
+     */
+    fun grantWorkspaceDirectory(uri: android.net.Uri): String? = runCatching {
+        val grants = com.pocketagent.capability.SafDirectoryGrants(appContext)
+        val before = grants.grantedRoots().map { it.id }.toSet()
+        if (!grants.take(uri)) return@runCatching null
+        grants.grantedRoots().firstOrNull { it.id !in before }?.id
+    }.onFailure { Timber.w(it, "添加工作区目录失败") }.getOrNull()
+
+    // ── 工作历史：工作台自己建的会话 ──────────────────────────────
+
+    @Volatile
+    private var workSessionIdsValue: Set<String> = emptySet()
+
+    /** 工作台建过的会话 id。界面用它把列表过滤成"工作历史"。 */
+    fun workSessionIds(): Set<String> = workSessionIdsValue
+
+    /** 记一条"这个会话是工作台建的"。 */
+    fun rememberWorkSession(id: String) {
+        if (id.isBlank() || id in workSessionIdsValue) return
+        val next = workSessionIdsValue + id
+        workSessionIdsValue = next
+        startupScope.launch {
+            runCatching {
+                pluginSourceStore.edit { it[KEY_WORK_SESSIONS] = next.joinToString("\n") }
+            }.onFailure { Timber.e(it, "工作历史记录保存失败") }
+        }
+    }
+
+    /** 用户在工作历史里删掉了一条会话 —— 索引也一起去。 */
+    fun forgetWorkSession(id: String) {
+        if (id !in workSessionIdsValue) return
+        val next = workSessionIdsValue - id
+        workSessionIdsValue = next
+        startupScope.launch {
+            runCatching {
+                pluginSourceStore.edit { it[KEY_WORK_SESSIONS] = next.joinToString("\n") }
+            }.onFailure { Timber.e(it, "工作历史记录保存失败") }
+        }
+    }
+
+    /**
      * 按权限档裁工具。
      *
      * ═══════════════════════════════════════════════════════════
@@ -2316,6 +2368,12 @@ class AppContainer(context: Context) {
             permissionModeValue =
                 com.pocketagent.agentlogic.orchestration.AgentPermission.of(prefs[KEY_PERMISSION_MODE])
             activeWorkspaceIdValue = prefs[KEY_ACTIVE_WORKSPACE]?.takeIf { it.isNotBlank() }
+
+            // ★ 工作历史：一行一个 id
+            workSessionIdsValue = (prefs[KEY_WORK_SESSIONS] ?: "")
+                .split('\n')
+                .filter { it.isNotBlank() }
+                .toSet()
 
             // ★ 体检报告
             runCatching {
@@ -5375,6 +5433,22 @@ class AppContainer(context: Context) {
     /** 工作台「工作区」选择（存 id，不存路径 —— 路径会随授权变动）。 */
     private val KEY_ACTIVE_WORKSPACE = androidx.datastore.preferences.core.stringPreferencesKey(
         "active_workspace_v1",
+    )
+
+    /**
+     * ★★ 2026-11-05：**工作台自己的会话 id 集合**（「工作历史」）。
+     *
+     * ⚠️ 为什么不用「标题 == 工作台」来认：标题是**用户能改**的
+     *    （抽屉里就能重命名）。拿一个随时会被人改的显示字段当索引，
+     *    改一次名，十年工作记录就从工作台的列表里消失了 —— 而它还在库里，
+     *    只是再也搜不到。索引必须建在 id 上。
+     *
+     * ⚠️ 也不给会话表加一列（"从哪个页面建的"）：那要 DB 迁移到 v5，
+     *    只为了记住一件纯派生的事。id 集合是**纯加法**，坏了最多让
+     *    工作历史空一次，绝不碰坏已有数据。
+     */
+    private val KEY_WORK_SESSIONS = androidx.datastore.preferences.core.stringPreferencesKey(
+        "workbench_sessions_v1",
     )
 
     // 后台 AI 调度（2026-11-03）

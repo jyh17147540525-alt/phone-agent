@@ -304,6 +304,14 @@ fun AppShell(
             // ★ 工作台不共用聊天页那条会话 —— 否则点进去先看到的是
             //   角色扮演的历史，而开场白永远没有机会出现。
             dedicatedTitle = dedicatedTitle,
+            // ★★ 2026-11-05：工作历史。**只有工作台**读/写这个集合 ——
+            //   聊天页如果也记，工作历史里就会混进角色扮演那些会话。
+            workSessions = {
+                if (dedicatedTitle == null) emptySet() else container.workSessionIds()
+            },
+            rememberWorkSession = { id ->
+                if (dedicatedTitle != null) container.rememberWorkSession(id)
+            },
             // ★ 传**提供者**而不是实例：库是懒开的，构造时它大概率还是 null，
             //   而这里 `remember` 只跑一次 —— 存实例等于永远拿到 null。
             //   首次调用会顺带把库开起来（要碰 Keystore，所以是 suspend）。
@@ -524,13 +532,21 @@ fun AppShell(
     // ⚠️ 状态源在 `TasksViewModel`（而不是这里）—— 因为"新对话""切会话"
     //    这些操作执行完要顺手把抽屉关上，而它们都在 ViewModel 里。
     //    放两处会让"谁负责关"变成一个需要读两个文件才能回答的问题。
+    // ★★ 2026-11-05：抽屉的内容跟着**当前页面**走。
+    //
+    //  ⚠️ 用户："这个页面也要有工作历史可以选择，就像对话历史那样"。
+    //     同一个 `SessionDrawer`，两份列表：聊天页看全部会话，
+    //     工作台只看工作台建的那些。共用一份的后果是 ——
+    //     点开"工作历史"，摊在第一位的是昨晚那段角色扮演。
+    val drawerVm = if (currentRoute == Routes.WORKBENCH) workbenchViewModel else tasksViewModel
+
     val drawerState = rememberDrawerState(DrawerValue.Closed)
-    LaunchedEffect(tasksViewModel.drawerOpen) {
-        if (tasksViewModel.drawerOpen) drawerState.open() else drawerState.close()
+    LaunchedEffect(drawerVm.drawerOpen) {
+        if (drawerVm.drawerOpen) drawerState.open() else drawerState.close()
     }
     // ⚠️ 手势只在任务页开启：设置页、插件页往右滑也会拉出抽屉，
     //    而那里的用户预期是"返回上一页"（边缘返回手势）。
-    val drawerGestures = currentRoute == Routes.TASKS
+    val drawerGestures = currentRoute == Routes.TASKS || currentRoute == Routes.WORKBENCH
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -541,12 +557,22 @@ fun AppShell(
                 drawerShape = RoundedCornerShape(topEnd = PaRadius.l, bottomEnd = PaRadius.l),
             ) {
                 SessionDrawer(
-                    sessions = tasksViewModel.sessions,
-                    onNewSession = tasksViewModel::startNewSession,
-                    onSwitch = tasksViewModel::switchTo,
-                    onRename = tasksViewModel::renameSession,
-                    onDelete = tasksViewModel::deleteSession,
-                    onSearch = { tasksViewModel.refreshSessions(it) },
+                    sessions = drawerVm.sessions,
+                    onNewSession = drawerVm::startNewSession,
+                    onSwitch = drawerVm::switchTo,
+                    onRename = { id, title ->
+                        drawerVm.renameSession(id, title)
+                    },
+                    onDelete = { id ->
+                        drawerVm.deleteSession(id)
+                        // ⚠️ 顺手把工作历史索引里的那条也去掉 ——
+                        //    留着的话它会一直躺在集合里，而会话已经不在了。
+                        if (currentRoute == Routes.WORKBENCH) container.forgetWorkSession(id)
+                    },
+                    onSearch = { drawerVm.refreshSessions(it) },
+                    // 工作台里建的是「工作」，不是「对话」。
+                    newSessionLabel = if (currentRoute == Routes.WORKBENCH) "新工作" else "新对话",
+                    searchHint = if (currentRoute == Routes.WORKBENCH) "搜索工作…" else "搜索对话…",
                     // ══════════════════════════════════════════════════
                     //  ★★ 2026-10-31：插件 / 设置搬进抽屉右下角
                     // ══════════════════════════════════════════════════
@@ -576,8 +602,8 @@ fun AppShell(
     ) {
         // 抽屉关掉时把状态同步回去 —— 用户是**滑**关的，没走 ViewModel
         LaunchedEffect(drawerState.currentValue) {
-            if (drawerState.currentValue == DrawerValue.Closed && tasksViewModel.drawerOpen) {
-                tasksViewModel.closeDrawer()
+            if (drawerState.currentValue == DrawerValue.Closed && drawerVm.drawerOpen) {
+                drawerVm.closeDrawer()
             }
         }
 
@@ -791,9 +817,49 @@ fun AppShell(
                     var workspaceIdState by remember { mutableStateOf(container.activeWorkspaceId()) }
                     var permissionState by remember { mutableStateOf(container.permissionMode()) }
 
+                    // ══════════════════════════════════════════════
+                    //  ★★ 2026-11-05：工作区抽屉里的「＋」
+                    // ══════════════════════════════════════════════
+                    //
+                    // 用户："工作区选择下面可以有个加号，用户点击后，会跳转到
+                    //      手机系统的文件夹管理软件，用户可以在这里新建文件夹，
+                    //      或者选择文件夹"。
+                    //
+                    // ⚠️ 必须是**系统的**那个选择器（`ACTION_OPEN_DOCUMENT_TREE`）：
+                    //    自己画一个文件浏览器，只能列到已经授权过的位置 ——
+                    //    于是"添加"只能添加已经添加过的东西。
+                    //
+                    // ⚠️ `takePersistableUriPermission` 在 `grantWorkspaceDirectory`
+                    //    里做。不做的话这次授权只活到进程结束：今天能用、
+                    //    明天打开说还没授权，而用户完全不知道自己哪里做错了。
+                    var workspaceEpoch by remember { mutableStateOf(0) }
+                    val workspacePicker = androidx.activity.compose
+                        .rememberLauncherForActivityResult(
+                            androidx.activity.result.contract.ActivityResultContracts
+                                .OpenDocumentTree(),
+                        ) { uri ->
+                            // null = 用户按了返回。取消是正常操作，**不提示** ——
+                            // 弹一句"添加失败"会让人以为自己做错了。
+                            if (uri != null) {
+                                container.grantWorkspaceDirectory(uri)?.let { id ->
+                                    // 用户点「＋」的意思是"用它"，不是"加进来让我再选一次"。
+                                    container.setActiveWorkspace(id)
+                                }
+                                workspaceIdState = container.activeWorkspaceId()
+                                workspaceEpoch++
+                            }
+                        }
+
                     // 换工作区之后名字也要跟着换 ⇒ 用 id 当 key 重算。
-                    val workspaceChoices = remember(workspaceIdState) { container.workspaceChoices() }
-                    val workspaceName = remember(workspaceIdState) { container.activeWorkspaceName() }
+                    // ⚠️ epoch 也要当 key：添加一个目录时 id 有可能不变
+                    //    （比如加的是同一个根下的另一个子目录），
+                    //    只按 id 重算会让新目录迟一步才出现在抽屉里。
+                    val workspaceChoices = remember(workspaceIdState, workspaceEpoch) {
+                        container.workspaceChoices()
+                    }
+                    val workspaceName = remember(workspaceIdState, workspaceEpoch) {
+                        container.activeWorkspaceName()
+                    }
 
                     // ⚠️ 每次进入都重读：用户可能刚在角色设定里改过称呼。
                     val persona = remember { container.currentCustomPersona() }
@@ -823,6 +889,8 @@ fun AppShell(
                         heroHeadline = greeting.first,
                         heroHint = greeting.second,
                         onBack = { navController.popBackStack() },
+                        // ★ 工作历史：和聊天页同一个抽屉，内容换成工作台自己的会话。
+                        onOpenHistory = { workbenchViewModel.openDrawer() },
                         onOpenSettings = { goToTab(Routes.SETTINGS) },
                         onOpenPersona = { navController.navigate(Routes.PERSONA) },
                         modelModels = modelModelsState,
@@ -874,7 +942,10 @@ fun AppShell(
                                 container.setActiveWorkspace(id)
                                 workspaceIdState = container.activeWorkspaceId()
                             },
-                            emptyHint = "还没有授权过目录。去设置里加一个，我才知道该把文件放哪 —— 不然我只能问你要放哪儿。",
+                            emptyHint = "还没有工作区。点下面的「＋ 添加文件夹」，在系统那个选择器里新建或选一个就行 —— 不然我只能问你要把东西放哪儿。",
+                            // ★ 加号调系统选择器：可以在里面新建文件夹，也可以选现成的。
+                            addLabel = "＋ 添加文件夹",
+                            onAdd = { workspacePicker.launch(null) },
                         ),
                         permissionChip = com.pocketagent.ui.tasks.WorkbenchChip(
                             title = "权限",
