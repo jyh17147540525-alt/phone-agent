@@ -2093,7 +2093,16 @@ class TasksViewModel(
                         }
                         resolved.also { sessionId = it.id }.id
                     }
-                    Timber.i("历史会话：读到 %d 个会话，当前=%s", list.size, cur)
+                    // ⚠️ 刚建的那条**不在上面这份快照里** —— 快照是建之前读的。
+                    //    不重读一次，"第一次打开工作台"的历史抽屉就是空的，
+                    //    用户会以为工作历史整个坏了（真机上就是这样）。
+                    //    只在缺当前会话时重读，平时不多这一次 IO。
+                    val fresh = if (list.any { it.id == cur }) {
+                        list
+                    } else {
+                        store.recentSessions(AgentTaskUi.SESSION_LIST_LIMIT)
+                    }
+                    Timber.i("历史会话：读到 %d 个会话，当前=%s", fresh.size, cur)
                     // ★ 过滤掉**一条消息都没有**的会话（除非它就是当前那个）。
                     //
                     //   2026-10-25：侧边栏曾经堆着"今天 · 0 条"这类空壳 ——
@@ -2105,7 +2114,7 @@ class TasksViewModel(
                     // ★ 工作台只看**自己建的**会话。不加这一层过滤的话，
                     //   点开"工作历史"，摊在第一位的是昨晚那段角色扮演。
                     val mine = workSessions()
-                    list
+                    fresh
                         .filter { dedicatedTitle == null || it.id in mine || it.id == cur }
                         .filter { it.turnCount > 0 || it.id == cur }
                         .map { it.toSummary(isCurrent = it.id == cur) }

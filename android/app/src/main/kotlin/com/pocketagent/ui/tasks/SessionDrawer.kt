@@ -103,6 +103,15 @@ fun SessionDrawer(
     newSessionLabel: String = "新对话",
     /** 搜索框占位。理由同上。 */
     searchHint: String = "搜索对话…",
+    /**
+     * 一条都没有时那句提示。
+     *
+     * ⚠️ 工作台里写"还没有对话"是错的 —— 那里面的东西叫**工作**。
+     *    真机上第一次打开工作历史时看到的就是这句，而那时候抽屉本来就是空的。
+     */
+    emptyTitle: String = "还没有对话。\n说一句话开始。",
+    /** 「没有匹配」那句里的名词（对话 / 工作）。 */
+    noun: String = "对话",
 ) {
     var keyword by remember { mutableStateOf("") }
     var renaming by remember { mutableStateOf<SessionSummary?>(null) }
@@ -147,7 +156,7 @@ fun SessionDrawer(
             //    "搜索无结果" 与 "还没有对话" 是完全不同的两件事，
             //    合成一句会让用户以为自己的历史没了。
             sessions.isEmpty() && keyword.isNotBlank() -> DrawerHint(
-                title = "没有匹配「$keyword」的对话",
+                title = "没有匹配「$keyword」的$noun",
                 action = "清除搜索" to {
                     keyword = ""
                     onSearch("")
@@ -155,7 +164,7 @@ fun SessionDrawer(
             )
 
             sessions.isEmpty() -> DrawerHint(
-                title = "还没有对话。\n说一句话开始。",
+                title = emptyTitle,
                 action = null,
             )
 

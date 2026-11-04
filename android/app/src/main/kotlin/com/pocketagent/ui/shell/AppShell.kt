@@ -573,6 +573,12 @@ fun AppShell(
                     // 工作台里建的是「工作」，不是「对话」。
                     newSessionLabel = if (currentRoute == Routes.WORKBENCH) "新工作" else "新对话",
                     searchHint = if (currentRoute == Routes.WORKBENCH) "搜索工作…" else "搜索对话…",
+                    emptyTitle = if (currentRoute == Routes.WORKBENCH) {
+                        "这里还空着。\n说一句，我这就开始。"
+                    } else {
+                        "还没有对话。\n说一句话开始。"
+                    },
+                    noun = if (currentRoute == Routes.WORKBENCH) "工作" else "对话",
                     // ══════════════════════════════════════════════════
                     //  ★★ 2026-10-31：插件 / 设置搬进抽屉右下角
                     // ══════════════════════════════════════════════════
