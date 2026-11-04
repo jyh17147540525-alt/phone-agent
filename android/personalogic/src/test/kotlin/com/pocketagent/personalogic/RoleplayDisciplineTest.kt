@@ -192,6 +192,22 @@ class OutputSanitizerTest {
     }
 
     @Test
+    fun `惊疑组合不该被折叠`() {
+        // ⚠️ 2026-11-03 真机 bug：`！？` 被当成重复标点吃掉问号
+        assertEquals("嗯！？你说什么", OutputSanitizer.clean("嗯！？你说什么"))
+    }
+
+    @Test
+    fun `省略号不该被折叠`() {
+        assertEquals("我……不知道", OutputSanitizer.clean("我……不知道"))
+    }
+
+    @Test
+    fun `同一种标点重复才折叠`() {
+        assertEquals("好的。", OutputSanitizer.clean("好的。。。"))
+    }
+
+    @Test
     fun `中文场景常见标点正常保留`() {
         val src = "行行行，听你的。不过话说回来——这鱼真难吃，对吧？"
         assertEquals(src, OutputSanitizer.clean(src))

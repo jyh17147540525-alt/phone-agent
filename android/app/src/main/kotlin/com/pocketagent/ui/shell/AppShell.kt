@@ -659,6 +659,21 @@ fun AppShell(
 
                 // ── 任务 ────────────────────────────────────────
                 composable(Routes.TASKS) {
+                    // ── ★ 2026-11-03：模型选择 / 思考强度也补上状态承接 ─────
+                    //
+                    // ⚠️ 原来直接写 `container.modelChoice()`，靠 `modelRefresh++`
+                    //    间接刷新。那只能「碰巧」生效：
+                    //    `modelRefresh++` 会让 `modelModelsState` 重新赋值，而
+                    //    `mutableStateOf` 默认按**结构相等**判断 —— 模型列表内容
+                    //    没变时**不算变化、不重组**。
+                    //
+                    //    ⇒ 第一次选模型顶栏会更新（空列表 → 有列表）；
+                    //      第二次选就**不动了**（列表 → 内容相同的新列表）。
+                    //      与「允许它拒绝」开关是同一族 bug，只是路径长了一层。
+                    var modelChoiceState by remember { mutableStateOf(container.modelChoice()) }
+                    var effortState by remember { mutableStateOf(container.thinkingEffort()) }
+
+
                     TasksScreen(
                         viewModel = tasksViewModel,
                         onOpenSettings = { goToTab(Routes.SETTINGS) },
@@ -680,8 +695,8 @@ fun AppShell(
                         //   不刷新的话用户点了模型、弹层关了，而顶栏还是旧名，
                         //   他会以为没生效。
                         modelModels = modelModelsState,
-                        modelChoice = container.modelChoice(),
-                        thinkingEffort = container.thinkingEffort(),
+                        modelChoice = modelChoiceState,
+                        thinkingEffort = effortState,
                         onPickModel = { id ->
                             container.setModelChoice(
                                 if (id == null) {
@@ -690,10 +705,12 @@ fun AppShell(
                                     com.pocketagent.modelrouter.ModelChoice.Pinned(id)
                                 },
                             )
+                            modelChoiceState = container.modelChoice()
                             modelRefresh++
                         },
                         onPickEffort = { e ->
                             container.setThinkingEffort(e)
+                            effortState = container.thinkingEffort()
                             modelRefresh++
                         },
                         // ★ 2026-11-01：连续使用 2 小时提醒（合规四件之一）
@@ -815,12 +832,28 @@ fun AppShell(
                         androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
                     ) { micTick++ }
 
+                    // ══════════════════════════════════════════════════
+                    //  ★★ 2026-11-03：「允许它拒绝」开关点了没反应 —— 修
+                    // ══════════════════════════════════════════════════
+                    //
+                    // ⚠️ 根因与后台 AI 页那次完全一样：
+                    //    容器里 `allowRefusalValue` 是普通 `@Volatile var`，
+                    //    **不是 Compose 状态**。点开关时值改了、也存了盘，
+                    //    但**不触发重组** ⇒ 开关停在原地不动。
+                    //
+                    //    ⇒ 表现是「点了没反应」，实际上设置已经生效了。
+                    //      这是最坏的一类 bug：功能是对的，用户以为坏了。
+                    //
+                    // ⚠️ 它比「明暗主题」那边更隐蔽：那边有 `themeMode` 状态，
+                    //    这边我当初只写了 getter，漏了状态承接。
+                    var allowRefusalOn by remember { mutableStateOf(container.allowRefusal()) }
+
                     SettingsScreen(
                         keyStatus = keyStatus,
                         onOpenKeys = { navController.navigate(Routes.KEYS) },
                                             // ★ 2026-11-02：「允许它拒绝」开关
-        allowRefusal = container.allowRefusal(),
-        onToggleAllowRefusal = { container.setAllowRefusal(it) },
+        allowRefusal = allowRefusalOn,
+        onToggleAllowRefusal = { allowRefusalOn = it; container.setAllowRefusal(it) },
         onOpenBackgroundAi = { navController.navigate(Routes.BACKGROUND_AI) },
         onOpenWorldBook = { navController.navigate(Routes.WORLD_BOOK) },
         onOpenHealth = { navController.navigate(Routes.HEALTH) },
