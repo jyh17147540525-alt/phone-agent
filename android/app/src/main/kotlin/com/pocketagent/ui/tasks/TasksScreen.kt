@@ -2614,6 +2614,13 @@ class TasksViewModel(
  *
  * ⚠️ 两段都用 `shortLabel`（"角色" / "工作"）：输入框上方这一行本来就挤，
  *    而 `label`（"角色扮演"）在这个位置是废话 —— 用户知道自己在这两个之间切。
+ *
+ * ★ 2026-11-04：选中段曾经用 `PaColor.Accent` 当底色、`AccentText` 当字色，
+ *    装到机器上一看**字整个消失** —— `Accent`(#C96442) 与 `AccentText`(#A34A28)
+ *    都是深褐，深褐压深褐。`AccentText` 的定位是"**画在普通背景上的**强调色文字"
+ *    （对 Canvas 5.27 合格），不是"画在强调色**上面**的字"。
+ *    调色板里没有 OnAccent 这一格，所以选中态改用 `AccentSoft` + `AccentText`
+ *    这一对现成的搭配（同 `design/Navigation.kt` 的选中指示条）。
  */
 @Composable
 private fun ChatModeSwitch(
@@ -2635,7 +2642,7 @@ private fun ChatModeSwitch(
                 color = if (chosen) PaColor.AccentText else PaColor.TextTertiary,
                 modifier = Modifier
                     .clip(RoundedCornerShape(PaRadius.pill))
-                    .background(if (chosen) PaColor.Accent else Color.Transparent)
+                    .background(if (chosen) PaColor.AccentSoft else Color.Transparent)
                     .clickable { if (!chosen) onChange(each) }
                     .padding(horizontal = PaSpace.xs, vertical = 4.dp),
             )
