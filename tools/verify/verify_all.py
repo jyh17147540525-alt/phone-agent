@@ -77,6 +77,8 @@ CHECKS: list[tuple[str, list[str], str, bool]] = [
     ("check_release_readiness.py", ["android"], "发行就绪的 9 组规则", False),
     ("audit_test_naming.py", [], "测试类名可被跑起来（不会被静默跳过）", False),
     ("audit_shared_mutable.py", [], "类级可变集合没有新增的并发风险", False),
+    # ★ 2026-11-04 整合：技能文件被静默丢弃时没有任何别的东西会红。
+    ("check_skills.py", [], "skill 的 front matter 合法（BOM/命名会让技能被静默丢弃）", False),
 ]
 
 
