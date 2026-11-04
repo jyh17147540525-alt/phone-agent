@@ -118,6 +118,17 @@ class McpDispatcher(
         // arguments 缺席按"空参数"处理（模型经常对无参工具发 {} 或干脆不发）。
         val arguments = (params["arguments"] as? JsonObject) ?: JsonObject(emptyMap())
 
+        // ══════════════════════════════════════════════════════════
+        //  ★ 档位网关：在**调用前**拦，而不是让工具自己失败
+        // ══════════════════════════════════════════════════════════
+        // 让工具自己失败，每条工具都得重复一遍"缺权限怎么说"；
+        // 而 `tap` 真跑起来时可能已经点下去了半个手势 —— 拦在入口
+        // 才能保证"不可用的能力一个字节都没执行"。
+        registry.blockReason(rawName)?.let { why ->
+            log("工具被档位网关拦下：$rawName")
+            return toolErrorResult(message.id, why)
+        }
+
         val outcome: ToolOutcome = try {
             withTimeoutOrNull(toolTimeoutMs) { tool.call(arguments) }
                 ?: return toolErrorResult(

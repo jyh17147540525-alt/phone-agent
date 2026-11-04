@@ -1,6 +1,12 @@
 package com.pocketagent.data
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.SystemClock
+import android.provider.Settings
+import androidx.core.content.ContextCompat
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -24,6 +30,10 @@ import com.pocketagent.assistant.PerceptionScreenReader
 import com.pocketagent.assistant.SafetyDetectorGate
 import com.pocketagent.assistant.SafetyGuardAdapter
 import com.pocketagent.assistant.SingleChannelDispatcher
+import com.pocketagent.assistant.SuShellPort
+import com.pocketagent.assistant.TieredDispatchPort
+import com.pocketagent.assistant.TieredScreenReader
+import com.pocketagent.assistant.RootScreenReader
 import com.pocketagent.assistant.AssistantPromptBuilder
 import com.pocketagent.assistant.defaultAssistantPersona
 import com.pocketagent.assistant.FileOffloadBlobStore
@@ -60,18 +70,36 @@ import com.pocketagent.mcp.PersonaBriefTool
 import com.pocketagent.mcp.ScreenReadTool
 import com.pocketagent.mcp.McpTool
 import com.pocketagent.personalogic.CustomPersona
+import com.pocketagent.rootlogic.DeviceState
 import com.pocketagent.rootlogic.PrivilegeMode
+import com.pocketagent.rootlogic.RootActions
 import com.pocketagent.rootlogic.RootProbeResult
+import com.pocketagent.overlay.OverlayService
+import com.pocketagent.overlay.StopSignalReceiver
+import com.pocketagent.rootlogic.ScreenLease
+import com.pocketagent.rootlogic.TierPlan
+import com.pocketagent.rootlogic.TierPlanner
+import com.pocketagent.rootlogic.TierReport
+import com.pocketagent.rootlogic.TierPrompt
+import com.pocketagent.rootlogic.DaemonEndpoint
+import com.pocketagent.rootlogic.TierReports
 import com.pocketagent.assistant.effectiveMode
 import com.pocketagent.assistant.AppHostingRunner
 import com.pocketagent.assistant.HostingAdapter
 import com.pocketagent.mcp.AppHostTool
+import com.pocketagent.mcp.BatchTool
 import com.pocketagent.mcp.RootExecTool
+import com.pocketagent.assistant.RootSystemOps
+import com.pocketagent.mcp.AppDisableTool
+import com.pocketagent.mcp.FileReadTool
+import com.pocketagent.mcp.PropWriteTool
+import com.pocketagent.mcp.SettingWriteTool
 import com.pocketagent.assistant.RootProbe
 import com.pocketagent.assistant.RootShellRunner
 import com.pocketagent.mcp.SwipeTool
 import com.pocketagent.mcp.TapTool
 import com.pocketagent.mcp.ScreenShotTool
+import com.pocketagent.mcp.ToolGate
 import com.pocketagent.mcp.ToolRegistry
 import com.pocketagent.memorylogic.ContextOffloader
 import com.pocketagent.safety.DefaultSafetyGuard
@@ -4028,7 +4056,14 @@ class AppContainer(context: Context) {
                 worldEntriesValue.size,
             )
         }
-        val final = if (willing.isNullOrBlank()) withClues else withClues + "\n\n" + willing
+        val final = buildString {
+            append(withClues)
+            if (!willing.isNullOrBlank()) append("\n\n").append(willing)
+            // ★ 2026-11-04：这一趟能动手到什么程度。
+            //   在此之前模型对"自己现在能动什么"零信息 —— 工具清单两档一样，
+            //   于是它在普通档里连点三次屏幕，用户那边手机一直被抢。
+            appendTierSection(this)
+        }
 
         // ══════════════════════════════════════════════════════════
         //  ★★ 2026-10-29：**如实记录每一层是否真的在场**
@@ -4056,6 +4091,25 @@ class AppContainer(context: Context) {
             Timber.i("破甲档位=%s 但未注入（成熟内容未开启，属预期）", armorTierValue)
         }
         return final
+    }
+
+    /**
+     * 把「这一趟的手脚」追加进提示词。
+     *
+     * ⚠️ 每个**能失败的地方**都必须退化成"不追加"，不能让提示词装配因为一次
+     *    权限探测抛异常而整个失败 —— 那样用户会看到"角色突然不说话"，
+     *    而根因是一个跟角色毫无关系的东西（root 探测）。
+     */
+    private fun appendTierSection(sink: StringBuilder) {
+        val section = runCatching {
+            TierPrompt.section(effectivePrivilegeMode(), tierPlan())
+        }.getOrElse {
+            Timber.i("档位提示词段生成失败（本轮跳过）：%s", it.message)
+            return
+        }
+        if (section.isNotBlank()) {
+            sink.append("\n\n").append(section)
+        }
     }
 
     /**
@@ -4175,7 +4229,20 @@ class AppContainer(context: Context) {
      *    而漂移的方向是"其中一份比另一份松"，没有人会发现。
      */
     private val agentTools: List<McpTool> by lazy {
-        val reader = PerceptionScreenReader(AccessibilityPerceptionManager(AgentA11ySource))
+        // ★ 一个 `RootActions` 实例同时给"点按"和"读屏"用：它们共享同一个
+        //   `su` 端口，分开建两个实例只会让日志里出现两条互不相干的时间线。
+        // 常驻通道装好了就走通道（一次往返 <5ms、参数是数组），
+        // 没装好 / 连不上就退回 `su -c`（80–300ms，但有 root 就能用）。
+        // 发现文件缺失是**正常状态**（绝大多数用户没有 root），不当错误报。
+        val rootActions = RootActions(SuShellPort(), daemon = DaemonEndpoint.open())
+        val reader = TieredScreenReader(
+            plain = PerceptionScreenReader(AccessibilityPerceptionManager(AgentA11ySource)),
+            root = RootScreenReader(rootActions),
+            mode = ::effectivePrivilegeMode,
+            // ★ 读屏可以退让（不碰用户界面）：su 被撤了就回无障碍，
+            //   而不是让读屏整个不可用。判据用最近一次探测结果，不额外跑 su。
+            rootReady = { lastRootProbe is RootProbeResult.Available },
+        )
         val gate = SafetyDetectorGate()
 
         // ── P3：执行工具（android_tap / android_swipe）────────────────
@@ -4183,9 +4250,30 @@ class AppContainer(context: Context) {
         // 频率闸四个工具**共用同一个实例**（否则合计可跑到 40 次/分钟）。
         val rateLimiter = ActionRateLimiter()
         val safetyPort = SafetyGuardAdapter(DefaultSafetyGuard())
-        val dispatchPort = ActionDispatchAdapter(
+        val plainDispatch = ActionDispatchAdapter(
             SingleChannelDispatcher(AccessibilityActionExecutor()),
         )
+        // ★ 2026-11-04：两档在这里汇合 —— 工具本身一行没改。
+        //   普通档 = 无障碍手势（要占屏）；root 档 = `su -c input tap`（不占屏，后台也能点）。
+        //   ⚠️ root 那条路失败时**不会**悄悄退回无障碍：退回意味着占住用户的屏幕，
+        //      而用户选 root 档就是为了不占屏（细节见 TieredDispatchPort 的注释）。
+        val dispatchPort = TieredDispatchPort(
+            plain = plainDispatch,
+            root = rootActions,
+            mode = ::effectivePrivilegeMode,
+            // ★ 普通档每一下点按都要先问租约「现在能不能动屏幕」。
+            //   之前这里没传：租约只有实例、没有调用方，`canAct()` 恒 true。
+            lease = screenLease,
+        )
+
+        // ── 2026-11-04：系统级四件事（file_read / setting_write / prop_write / app_disable）
+        // ★ 它们**留在清单里**、不是"没 root 就不给看"：
+        //   删掉会让模型以为这个软件没有读文件能力，于是绕路（让用户手动复制粘贴），
+        //   而真实情况只是"这一档没有 root"。`tierGate` 会在**执行前**拦下并说明原因。
+        //   ⚠️ 工具内部还有第二道 `rootAvailable()` —— 网关是按名字判档位的，
+        //      漏配名字就会静默放行，这两道闸不能只留一道。
+        val systemOps = RootSystemOps(rootActions)
+        val rootUsable: () -> Boolean = { effectivePrivilegeMode() == PrivilegeMode.ROOT }
 
         // ── DL：上下文卸载（context_offload / context_recall）──────────
         // ★ 它是 `:memorylogic` 的**第一个消费方**：在此之前它的 2000+ 行
@@ -4257,6 +4345,12 @@ class AppContainer(context: Context) {
             ),
             TapTool(reader, safetyPort, dispatchPort, rateLimiter),
             SwipeTool(reader, safetyPort, dispatchPort, rateLimiter),
+            // ── 批量动作：一次调用连做几步 ────────────────────────
+            // ★ 它省的**不是手机侧时间**，是"每做一步就回一次模型"的往返
+            //   （一次往返 800–3000ms，而一次 input tap 只有 80–300ms）。
+            // ⚠️ 与上面两个工具共用同一个 rateLimiter：批量一次性占 N 份额度，
+            //    否则"12 步的批"能把每分钟总动作数顶到上限的三倍。
+            BatchTool(reader, safetyPort, dispatchPort, rateLimiter),
             // ── DL：人格摘要（只读）──────────────────────────────
             // ★ 它是 `:personalogic` 的**第一个消费方**：在此之前
             //   DL-1…DL-4 的 5000+ 行、1852 条测试没有任何模块引用，
@@ -4282,12 +4376,24 @@ class AppContainer(context: Context) {
             //    `tap+swipe+type+key` 各自上限之和，那是 4 倍的节奏。
             TypeTextTool(reader, safetyPort, dispatchPort, rateLimiter),
             GlobalKeyTool(dispatchPort, rateLimiter),
+            // ── 2026-11-04：系统级能力（root 档解锁，普通档由网关拦下并说明）──
+            FileReadTool(systemOps, rootUsable),
+            SettingWriteTool(systemOps, safetyPort, rootUsable),
+            PropWriteTool(systemOps, safetyPort, rootUsable),
+            AppDisableTool(systemOps, safetyPort, rootUsable),
         )
     }
 
     private fun buildMcpBridgeHost(): McpBridgeHost {
         val server = McpHttpServer(
-            dispatcher = McpDispatcher(ToolRegistry(agentTools)),
+            // ★ 2026-11-04：挂上**档位网关**。
+            //
+            //   在此之前 dsh 那边无论用户选什么档、无论无障碍开没开，
+            //   看到的都是同一份工具清单 —— 于是它会去点一个根本点不动的按钮，
+            //   然后拿到一个 Failed 再猜。现在不可用的工具仍在清单里
+            //   （删掉会让模型瞎猜参数），但描述尾部挂着原因，
+            //   真调用时**在执行前**就被拦下（零字节执行）。
+            dispatcher = McpDispatcher(ToolRegistry(agentTools, tierGate)),
             log = { Timber.i(it) },
         )
         return McpBridgeHost(
@@ -4437,6 +4543,182 @@ class AppContainer(context: Context) {
             ),
         )
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  两档能力的运行时状态（2026-11-04）
+    // ═══════════════════════════════════════════════════════════════
+    //
+    //  ★ 三层分工，别混：
+    //    · `CapabilityMatrix`（`:rootlogic`）—— 这件事**能不能**做，做不到是谁的锅
+    //    · `RouteTable` / `TierRouter`     —— 这一趟**走哪条路**、要不要占屏、缺哪个授权
+    //    · 这里                            —— 把**设备此刻的真实状态**喂给它们
+    //
+    //  ⚠️ 状态每问现算，不缓存。无障碍开关、悬浮窗授权、su 授权都可能
+    //     在任务跑到一半时改变（用户去设置里关掉了），缓存一次就等于
+    //     让网关按开工时的结论一路放行到结束。
+
+    /** 录屏授权。由 UI 在拿到 MediaProjection 结果后置位（现在读屏走无障碍，尚未使用）。 */
+    @Volatile
+    private var mediaProjectionGranted: Boolean = false
+
+    /**
+     * 常驻 root 通道是否活着。
+     *
+     * ⚠️ 现在恒为 false —— 通道（`:rootlogic` 的 `PrivilegeClient`）只做了协议层，
+     *    **没有守护进程可连**。如实返回 false 的意义：`screen.tap` / `screen.read`
+     *    的 root 路径会显示成"去启动常驻通道"，而不是假装 ready、等调用时再炸。
+     */
+    @Volatile
+    private var rootDaemonAlive: Boolean = false
+
+    /**
+     * 设备此刻的授权状态。
+     *
+     * ★ 这是 `TierRouter` 的唯一输入，也是"界面说能、实际不能"这类 bug 的
+     *   唯一防线：它必须问**系统**，不能问我们自己的缓存。
+     */
+    fun deviceState(): DeviceState = DeviceState(
+        accessibilityOn = AgentAccessibilityService.instance != null,
+        overlayAllowed = Settings.canDrawOverlays(appContext),
+        mediaProjectionGranted = mediaProjectionGranted,
+        // WRITE_SECURE_SETTINGS 是 signature|privileged 权限，只能用
+        // `adb shell pm grant` 给，没有公开 API 能问"授没授" —— 直接问包管理器自己。
+        secureSettingsGranted = appContext.checkSelfPermission(
+            android.Manifest.permission.WRITE_SECURE_SETTINGS,
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED,
+        suAvailable = lastRootProbe is RootProbeResult.Available,
+        rootDaemonAlive = rootDaemonAlive,
+        probe = lastRootProbe,
+    )
+
+    /**
+     * 当前这一趟的工具装配结论（界面用：哪些挂上、哪些缺什么、要不要占屏）。
+     *
+     * ★ 与 [deviceState] 分开：这个要现算一次全集，界面每次进入都算一遍即可，
+     *   而 [tierGate] 只关心**被问到的那一条**。
+     */
+    fun tierPlan(): TierPlan = TierPlanner.plan(effectivePrivilegeMode(), deviceState())
+
+    /**
+     * 「运行模式」页要画的那份内容。
+     *
+     * ★ 与 [tierPlan] 的区别只在措辞层：同一次装配结论，这里换成给人看的
+     *   标题、路径、占屏与否、以及「缺什么、怎么开」。判定仍然来自
+     *   [TierPlanner]，这一层不重新判断任何一条能力。
+     *
+     * ⚠️ 每次进页面现算：权限是会被用户中途改掉的（关无障碍、撤 su），
+     *    缓存在这里等于让界面继续显示上一分钟的结论。
+     */
+    fun tierReport(): TierReport = TierReports.build(
+        mode = privilegeMode(),
+        plan = tierPlan(),
+        probe = lastRootProbe,
+    )
+
+    /** 界面上的「重新检测」—— 重新探一次 root，并回写实际生效的模式。 */
+    fun reProbeRoot(): Pair<PrivilegeMode, RootProbeResult> = setPrivilegeMode(selectedPrivilegeMode)
+
+    /**
+     * 给 `:mcp` 的档位网关。
+     *
+     * ★ 为什么是 lambda 而不是快照：权限是**会变的**。用户在任务途中关掉无障碍，
+     *   下一次 `tools/call` 就该被拦下；传快照会让这一趟按开工时的结论跑到结束。
+     */
+    private val tierGate = ToolGate { tool ->
+        TierPlanner.blockReason(tool, effectivePrivilegeMode(), deviceState())
+    }
+
+    /**
+     * 屏幕租约 —— 普通模式占屏期间"用户和 agent 怎么共处"的规矩。
+     *
+     * ★ 2026-11-04：事件源接上了 —— 见 [installStopSignals]。
+     *   用户按悬浮球的停 → 应用内广播 → [stopReceiver] → `onUserStop()`；
+     *   之后每一次点按都会被 [com.pocketagent.assistant.TieredDispatchPort]
+     *   挡回来，并原样说出「你让任务停一下」。
+     *
+     * 仍然缺的两路：悬浮球上的**触摸**（用户自己的手在动）与**前台切换**。
+     * 它们需要悬浮层把 MotionEvent 往外递，属于 `:overlay` 的下一批改动；
+     * 在那之前 `onUserTouch()` / `onAppLeft()` 只能靠租约的 90 秒总闸兜底。
+     */
+    val screenLease: ScreenLease = ScreenLease(clock = { SystemClock.elapsedRealtime() })
+
+    /**
+     * 急停广播 → 占屏租约。
+     *
+     * ⚠️ 注册在 `Application.onCreate` 里（见 `PocketAgentApp`）：急停信号
+     *    必须在**任何界面起来之前**就能收到 —— 用户按停的那一刻，
+     *    应用可能在后头跑任务、界面根本没有。
+     *
+     * 用 `RECEIVER_NOT_EXPORTED`：这是应用内部信号，别的应用没有资格伪造。
+     */
+    private val stopReceiver: BroadcastReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                StopSignalReceiver.ACTION_STOP_REQUESTED -> {
+                    val taskId = intent.getStringExtra(OverlayService.EXTRA_TASK_ID)
+                    val leaseState = screenLease.onUserStop()
+                    Timber.i("收到急停（taskId=%s）：占屏租约 → %s", taskId, leaseState.javaClass.simpleName)
+                }
+
+                // ★ 用户摸到了悬浮球 —— 让开，但一会儿自己回来。
+                //   与"停止"是两件事：那个要等用户重新开口（见 beginAgentRun）。
+                StopSignalReceiver.ACTION_USER_TOUCH -> {
+                    val leaseState = screenLease.onUserTouch()
+                    Timber.d("用户正在操作：占屏租约 → %s", leaseState.javaClass.simpleName)
+                }
+
+                else -> Unit
+            }
+        }
+    }
+
+    /**
+     * 装上急停信号接收器。重复调用无副作用（`runCatching` 吞掉已注册）。
+     *
+     * 返回是否真的装上了 —— 装不上时界面应当降级（不显示"按停"入口），
+     * 而不是让用户按一个没人听的按钮。
+     */
+    /**
+     * 用户重新发起一轮任务 —— 这是**唯一**能解除「按停」的地方。
+     *
+     * ★ 为什么不能自动解除：用户按了停，就是「别再动了」。如果下一轮 agent
+     *   自己又能动屏幕，那「停」就退化成「暂停一秒」。只有用户自己开口
+     *   （发新消息 / 重新点开始）才该恢复。
+     *
+     * 顺手把 Expired 的旧租约清掉：不然上一轮留下的 deadline 会影响这一轮计时。
+     */
+    /**
+     * 用户把前台切走了（我们的界面全都不在前台）。
+     *
+     * ★ 为什么要让开：agent 还在点屏时，用户去看别的应用 —— 那些点击会落在他
+     *   正在看的东西上。让开之后，等我们重新回到前台 / 用户再摸一下球，它接着做。
+     *
+     * 只在「从有到无」那一下调用（见 `PocketAgentApp` 的 Activity 计数器），
+     * 否则每次 Activity 切换都会重置一次宽限期。
+     */
+    fun onForegroundLost() {
+        val leaseState = screenLease.onAppLeft()
+        Timber.i("前台被切走：占屏租约 → %s", leaseState.javaClass.simpleName)
+    }
+
+    fun beginAgentRun() {
+        if (screenLease.canAct()) return
+        val blocked = screenLease.blockedReason()
+        screenLease.release()
+        Timber.i("新一轮任务开始，重置占屏租约（上一轮：%s）", blocked)
+    }
+
+    fun installStopSignals(): Boolean = runCatching {
+        ContextCompat.registerReceiver(
+            appContext,
+            stopReceiver,
+            IntentFilter().apply {
+                addAction(StopSignalReceiver.ACTION_STOP_REQUESTED)
+                addAction(StopSignalReceiver.ACTION_USER_TOUCH)
+            },
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+    }.onFailure { Timber.w(it, "注册急停信号失败") }.isSuccess
 
     /**
      * 聊天链路本次该拿到的工具集。

@@ -37,5 +37,17 @@ class StopSignalReceiver : BroadcastReceiver() {
 
     companion object {
         const val ACTION_STOP_REQUESTED = "com.pocketagent.overlay.STOP_REQUESTED"
+
+        /**
+         * 用户的手指落在悬浮球上。
+         *
+         * ★ 与 [ACTION_STOP_REQUESTED] 的区别是**语义**，不是渠道：
+         *   这个是「让开一下」（手松开约 1.5 秒后 agent 自己接着做），
+         *   那个是「就停在这」（不自动恢复，要用户重新开口）。
+         *
+         * 两条信号都从 `:overlay` 发出、都由宿主（`:app`）接收，
+         * 但落到 `ScreenLease` 上调用的是不同方法 —— 别把它们合并成一个。
+         */
+        const val ACTION_USER_TOUCH = "com.pocketagent.overlay.USER_TOUCH"
     }
 }

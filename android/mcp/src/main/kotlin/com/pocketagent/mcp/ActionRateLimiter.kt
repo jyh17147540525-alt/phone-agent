@@ -89,6 +89,52 @@ class ActionRateLimiter(
         return Decision.Allowed
     }
 
+    /**
+     * 一次占用 [count] 份额度 —— 给"批量动作"用。
+     *
+     * ═══════════════════════════════════════════════════════════
+     *  ★ 为什么不能循环调 [tryAcquire]
+     * ═══════════════════════════════════════════════════════════
+     *
+     * [tryAcquire] 里的防连点下限（[MIN_GAP_MS] = 250ms）是给**人手节奏**定的：
+     * 它防的是"同一个按钮被连点两下"。而批量动作是模型**一次性**声明的一串意图，
+     * 中间没有人在点 —— 逐次申请会让第 2 步必然撞上"间隔过短"，
+     * 于是"一次调用做 12 步"这个能力在真实设备上根本跑不起来。
+     *
+     * ⇒ 语义改成：**整批**当作一次突发来记账。
+     *   · 与上一批之间仍受 [MIN_GAP_MS] 约束（防"批 × 批"把频率顶上去）；
+     *   · 每分钟**总**动作数仍受 [maxActionsPerMinute] 约束（12 步的批最多 1 个/分钟）；
+     *   · 额度**先扣后做**：中途失败不退 —— 宁可少放行，不可多放行。
+     *
+     * @return 与 [tryAcquire] 同构的判定
+     */
+    @Synchronized
+    fun tryAcquireBurst(count: Int): Decision {
+        if (count <= 0) {
+            return Decision.Denied(retryAfterMs = 0, reason = "批量动作数量为 0。")
+        }
+        val now = clock()
+        prune(now)
+
+        val last = recent.lastOrNull()
+        if (last != null && now - last < minGapMs) {
+            return Decision.Denied(
+                retryAfterMs = minGapMs - (now - last),
+                reason = "与上一批操作的间隔过短（防连点保护）。",
+            )
+        }
+        if (recent.size + count > maxActionsPerMinute) {
+            val room = maxActionsPerMinute - recent.size
+            return Decision.Denied(
+                retryAfterMs = WINDOW_MS - (now - recent.firstOrNull().let { if (it == null) 0L else now - it }),
+                reason = "这一批有 $count 步，但最近一分钟内只剩 $room 次额度" +
+                    "（每分钟 $maxActionsPerMinute 次）。请减少步数或等一分钟。",
+            )
+        }
+        repeat(count) { recent.addLast(now) }
+        return Decision.Allowed
+    }
+
     private fun prune(now: Long) {
         while (recent.isNotEmpty() && now - recent.first() >= WINDOW_MS) {
             recent.removeFirst()

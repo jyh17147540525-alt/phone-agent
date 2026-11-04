@@ -6,14 +6,28 @@
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Android%2012%2B-green.svg)](#系统要求)
-[![Status](https://img.shields.io/badge/Status-M0%20进行中-orange.svg)](#项目状态)
+[![Status](https://img.shields.io/badge/Status-M2%20两档能力-blue.svg)](#项目状态)
 
 ---
 
-## ⚠️ 项目状态：M0 基本完成，**agent 循环已接通（聊天能动手了）**
+## ⚠️ 项目状态：M2 —— **两档能力已离线打通（root / 无 root）**
 
-**可以构建出可安装的 APK；网关（模型接入层）已实现并全绿；
-agent 循环——AI 真正「替你办事」的那一环——已接通。**
+**可以构建出可安装的 APK；网关、agent 循环、工具层都已接通；能力体系按「有没有 root」
+分成两档，由同一份声明式矩阵驱动 —— 缺权限时给的是设置路径，不是报错。**
+
+> **★ 2026-11-04（`0.1.0-m2`）**：能力体系做成两档，并把「看着有、实际没有」的补齐。
+> - **普通档（无 root）**：无障碍读屏 + 手势点按，靠「占屏租约」干活 —— 用户一摸屏幕就让开、
+>   松手 1.5 秒自己回来；悬浮球按「停」是真的停（此前 `sendStopBroadcast` 只有一行日志，
+>   按下去没有任何代码收到信号）。
+> - **root 档（满血）**：`su -c input tap`（底层是 `injectInputEvent`，任意窗口生效）、
+>   `screencap`、`uiautomator dump` 直读 UI 树、`settings put` / `setprop`、`pm disable-user`、
+>   白名单 `EXEC`、`PROBE`；另有**常驻通道**（loopback TCP + 一次性 token，一次往返跑多条命令，
+>   比每次 `su` 少一个进程启动）。
+> - **缺权限不是失败**：缺什么、去哪儿开，变成一句可执行的引导（设置页按钮直达），
+>   并作为三行提示词交给模型，由它原样转述给你。
+>
+> ⚠️ 未验证：真机上的两档切换、租约让开与恢复、常驻通道的 `app_process` 启动 ——
+> 这些都在 [`docs/协作/TO-WORKBUDDY.md`](docs/协作/TO-WORKBUDDY.md) 里，等真机结论回填。
 
 > **★ 2026-10-19（`0.1.0-m2`）**：应用内聊天第一次**真的能操作手机**。
 > 之前 `ChatPort` 走的是"发一次请求、收完整段文本"——不带工具、
@@ -38,7 +52,8 @@ agent 循环——AI 真正「替你办事」的那一环——已接通。**
 
 已完成：
 - ✅ 完整项目方案（v1.0 / v2.0 / v3.0）与 M0 技术验证手册（18 个实验）
-- ✅ 工程骨架（44 个 Gradle 模块，231 个 Kotlin 源文件，约 5.8 万行）
+- ✅ 工程骨架（49 个 Gradle 模块，596 个 Kotlin 源文件，约 14.1 万行 —— 主源码 381 个 9.2 万行、
+  测试 215 个 4.9 万行）
 - ✅ Provider 层（OpenAI 兼容协议，覆盖 11 家厂商）+ 语音合成（TTS）
 - ✅ 安全护栏（敏感页面 / 敏感控件 / 危险动作 / 频率限制 + 审计）
 - ✅ **插件体系** —— 契约、三级分级、能力白名单、禁止前缀拦截
@@ -65,15 +80,30 @@ agent 循环——AI 真正「替你办事」的那一环——已接通。**
   且确认不能绕过前置检查**）、防伪造审计日志、文本 / Markdown / CSV / JSON 组装
   （含 CSV 公式注入中和）。**判定层纯 Kotlin，可离线完整测试**；
   Android 侧通道实现待下一轮。详见 [`docs/文件能力沙箱设计-v1.0.md`](docs/文件能力沙箱设计-v1.0.md)
-- ✅ **1694 个离线单元测试全绿**（含真 socket 集成测试）+ **6 处变异验证**
+- ✅ **两档能力体系**（`:rootlogic`，纯 Kotlin）—— 声明式能力矩阵（读屏 / 点按 / SAF /
+  任意文件 / 改设置 / 改属性 / 停用包 / shell）、按档位自动选路、缺权限给可执行引导
+  （`TierReport` / `TierPrompt`）、占屏租约（`ScreenLease`：让开不延长租约）
+- ✅ **系统级工具**（`file_read` / `setting_write` / `prop_write` / `app_disable`）——
+  参数白名单（越界输入一个字节都不发）+ 系统关键包保护名单 + 写操作的二次判定
+- ✅ **批量动作** `android_batch` —— 一批最多 12 步只采一次屏；额度**先扣后做**，
+  否则逐次申请会被 250ms 防连点整批拦死
+- ✅ **常驻通道**（`PrivilegeWire` / `PrivilegeSocket` / `DaemonLoop` / `DaemonHandlers` /
+  `DaemonMain`）—— 二进制帧 + 批量事务 + 服务端**不信任客户端**（每个参数重新校验）
+- ✅ **root 直读 UI 树**（`UiautomatorDump`）—— 自写的 dump 解析器；`enabled` 缺失按 true、
+  屏幕尺寸取所有节点并集（不是第一个节点，否则被导航条带偏）
+- ✅ **3845 个离线单元测试全绿**（含真 socket、真 loopback 服务端集成测试）
+  + **Gradle 侧 293 个用例**（`:mcp` 204 + `:app` 89）+ **6 处变异验证**
   （证明关键判定确实被测试守住，而不只是"全绿"）
 - ✅ **发行就绪检查器**（`check_release_readiness.py`，10 组规则 R1–R10 + 20 项自测）
 - ✅ **P0 五项真机验证全部拿到结论**（见下文「M0 真机验证结果」）
 - ✅ **可构建的 debug APK**
 
 未完成（诚实清单）：
-- ❌ **感知层 / 执行层 / agent 循环** —— AI 真正"替你办事"的部分。
-  `:perception` / `:action` / `:agent` 目前只有接口契约，没有实现
+- ❌ **`SurfaceControl` 逐层抓帧** —— root 档读屏走的是 `screencap`（整屏、不占屏），
+  要「只抓某一层」得在守护进程里调隐藏 API，只能真机验
+- ❌ **unix domain socket 版常驻通道** —— 先用 loopback TCP（Android 12+ SELinux 常拦
+  `untrusted_app → root` 的 unix socket，且 TCP 版离线能真起服务端跑完整往返）
+- ❌ **占屏提示未上界面** —— `TierPlan.screenNotice()` 的文案写好了，还没接到任务页
 - ❌ **`PowerGovernor`** —— 五横切组件里最后一个（前四个已实现）。
   它需要全局视角（App + Node + 网络），单层实现不了
 - ❌ **网关接入 agent 循环**（1.4.8）—— 网关与 dsh 的配置接线（1.4.6c）已完成并真机验证
@@ -185,7 +215,7 @@ agent 循环——AI 真正「替你办事」的那一环——已接通。**
 └──────────────────────────────────────────────────────────┘
 ```
 
-共 45 个模块，详见 [`android/README.md`](android/README.md) 与 [方案文档](docs/)。
+共 49 个模块，详见 [`android/README.md`](android/README.md) 与 [方案文档](docs/)。
 
 ### 三级插件体系
 
@@ -230,6 +260,33 @@ python build_source.py --check  # 确认产物与源一致（适合放 CI）
 
 ---
 
+## 两档能力：没有 root 只能占屏，有 root 才满血
+
+同一份能力矩阵（[`TierRoute.kt`](android/rootlogic/src/main/kotlin/com/pocketagent/rootlogic/TierRoute.kt)），
+两条实现路径。差别**不是「能不能」，是「要不要占住你的屏幕」**。
+
+| 能力 | 普通档（无 root） | root 档 |
+|---|---|---|
+| 读屏 | 无障碍树（**占屏**） | `uiautomator dump` 直读（不占屏） |
+| 点按 / 滑动 / 输入 | `dispatchGesture`（占屏，只对当前活动窗口生效） | `input tap`（不占屏，任意窗口含游戏） |
+| 改设置 | 系统设置页 Intent + `WRITE_SECURE_SETTINGS` | `settings put` |
+| 任意文件 / 改属性 / 停用包 | ✗ 需要 root | ✓ 参数走白名单 |
+
+三条设计决定（都有测试钉住）：
+
+1. **降级必须显式** —— 选了 root 却没拿到 root，返回的是「退到普通模式（占屏）」并说明原因；
+   点按**永不**静默退回无障碍 —— 那等于偷偷占住用户的屏幕。
+2. **被挡的工具不删** —— 仍然出现在工具的清单里，描述尾部挂一行
+   「⚠️ 当前不可用：缺「无障碍服务」（设置 → 无障碍 → 已下载的服务 → PocketAgent）」。
+   删掉的话模型只会说「我没有这个能力」，用户不知道该去开什么。
+3. **用户的手永远优先** —— 租约期间用户一碰屏幕，agent 让开 1.5 秒、松手自己回来；
+   按「停」之后本次任务不再恢复，只有下一次新任务才重新开始。
+
+> 两档不是「解锁更危险的能力」。root 档多出来的是「不占屏、更快、能改系统设置」，
+> 不是「能打别人」。对外发包类能力另走 `ScopeGuard`：**默认空清单＝全部拒绝**。
+
+---
+
 ## 系统要求
 
 | 项 | 要求 |
@@ -248,7 +305,7 @@ python build_source.py --check  # 确认产物与源一致（适合放 CI）
 
 ```bash
 cd android && ./gradlew assembleDebug
-# 产物：android/app/build/outputs/apk/debug/app-debug.apk（约 61 MB）
+# 产物：android/app/build/outputs/apk/debug/app-debug.apk（约 143 MB，debug 未混淆、双 ABI）
 ```
 
 把 APK 传到手机，在文件管理器里点开安装。首次安装需要在系统里允许「安装未知应用」。
@@ -428,7 +485,9 @@ classpath 里的目录找不到，测试类自然加载不了。而 JUnit 的 ja
 ### 验证脚本
 
 ```bash
-python tools/verify/run_logic_tests.py                     # 离线单测，不需要 Android SDK
+python tools/verify/verify_all.py                          # 13 项一次跑完（约 90 秒）
+python tools/verify/run_logic_tests.py                     # 离线单测，不需要 Android SDK（3845 个用例）
+python tools/verify/run_gradle_tests.py                    # Gradle 侧 :mcp:test + :app:testDebugUnitTest
 python tools/verify/check_version_catalog.py android       # libs.* 访问器对账
 python tools/verify/check_module_deps.py android           # 模块间 project 依赖是否漏声明
 python tools/verify/check_kt_quotes.py android             # 中文文案里的 ASCII 引号误用

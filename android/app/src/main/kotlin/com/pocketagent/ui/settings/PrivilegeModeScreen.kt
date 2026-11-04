@@ -27,12 +27,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.pocketagent.rootlogic.CapabilityMatrix
-import com.pocketagent.rootlogic.CapabilityTier
-import com.pocketagent.rootlogic.ModeGatedCapability
 import com.pocketagent.rootlogic.PrivilegeMode
 import com.pocketagent.rootlogic.RootProbeResult
+import com.pocketagent.rootlogic.TierActionTarget
+import com.pocketagent.rootlogic.TierReport
+import com.pocketagent.rootlogic.TierRow
+import com.pocketagent.rootlogic.TierRowState
 import com.pocketagent.rootlogic.explain
+import com.pocketagent.ui.design.PaBadge
+import com.pocketagent.ui.design.PaBadgeTone
+import com.pocketagent.ui.design.PaButton
+import com.pocketagent.ui.design.PaButtonStyle
 import com.pocketagent.ui.design.PaColor
 import com.pocketagent.ui.design.PaType
 import com.pocketagent.ui.design.PaBanner
@@ -68,7 +73,9 @@ import com.pocketagent.ui.design.PaSpace
 fun PrivilegeModeScreen(
     current: PrivilegeMode,
     probe: RootProbeResult?,
+    report: TierReport,
     onToggle: (PrivilegeMode) -> Unit,
+    onAction: (TierActionTarget) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val isRoot = current == PrivilegeMode.ROOT
@@ -148,18 +155,52 @@ fun PrivilegeModeScreen(
         }
 
         // ── 能力梯度 ─────────────────────────────────────────────
+        //
+        // ★ 2026-11-04：这一段原来读的是 `CapabilityMatrix` 的**静态**结论
+        //   （`cap.tierIn(mode)`，只看用户选了哪一档）。那正是本项目最忌讳的
+        //   "界面说能、实际不能"：无障碍服务没开也显示"可用"，
+        //   用户点下去才发现什么都没发生。
+        //
+        //   现在读 `TierReport` —— 它来自 `TierRouter` 对着**系统的真实授权状态**
+        //   算出来的装配结论（走哪条路、要不要占屏、缺哪个授权）。
         item {
             PaSectionTitle("能力边界")
             Spacer(Modifier.height(4.dp))
             Text(
-                text = "下面是本应用全部受模式影响的能力，以及在你当前模式下「做到哪一步」。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                text = "下面是本应用全部受模式影响的能力，以及在你当前这一档里「走到哪一步」。",
+                style = PaType.caption,
+                color = PaColor.TextSecondary,
             )
         }
 
-        items(CapabilityMatrix.all) { cap ->
-            CapabilityRow(cap = cap, mode = current)
+        item {
+            PaBanner(
+                tone = if (report.blockedCount == 0) PaBannerTone.Success else PaBannerTone.Info,
+                title = report.headline,
+                description = report.subline,
+            )
+        }
+
+        items(report.rows, key = { it.capabilityId }) { row ->
+            TierRowView(row)
+        }
+
+        // ── 下一步：只列用户此刻真能做的动作 ──────────────────────
+        if (report.actions.isNotEmpty()) {
+            item {
+                Spacer(Modifier.height(PaSpace.l))
+                PaSectionTitle("下一步")
+                Spacer(Modifier.height(4.dp))
+            }
+            items(report.actions, key = { it.target.name }) { action ->
+                PaButton(
+                    text = action.label,
+                    onClick = { onAction(action.target) },
+                    style = PaButtonStyle.Glass,
+                    fillWidth = true,
+                    modifier = Modifier.padding(horizontal = PaSpace.s, vertical = PaSpace.xxs),
+                )
+            }
         }
 
         // ── 应用托管：把边界说在最前面 ────────────────────────────
@@ -203,15 +244,20 @@ fun PrivilegeModeScreen(
         }
 
         // ── root 能多得到什么 ────────────────────────────────────
+        //
+        // ★ 从 `report` 里数，不再问 `CapabilityMatrix` 的静态结论：
+        //   静态表说的是"root 档理论上多给什么"，而这里要给的是
+        //   "**你现在**差哪几条"。两者在 su 已经通了的时候完全不同
+        //   （那时一条都不差，却还弹一句"开启 root 可以多得到 4 项"）。
         if (!isRoot) {
             item {
-                val unlocked = CapabilityMatrix.unlockedByRoot()
-                if (unlocked.isNotEmpty()) {
+                val locked = report.rows.filter { it.state == TierRowState.NEED_ROOT }
+                if (locked.isNotEmpty()) {
                     PaBanner(
                         tone = PaBannerTone.Info,
-                        title = "开启 Root 模式可以多得到 ${unlocked.size} 项能力",
-                        description = unlocked.joinToString("、") { it.title } +
-                            "。⚠️ 这些能力一旦执行「不可撤销」，每一步都会先问你。",
+                        title = "开启 Root 模式可以多得到 ${locked.size} 项能力",
+                        description = locked.joinToString("、") { it.title } +
+                            "。这些能力一旦执行「不可撤销」，每一步都会先问你。",
                     )
                 }
             }
@@ -222,59 +268,52 @@ fun PrivilegeModeScreen(
 /**
  * 单条能力的展示。
  *
- * ★ `Unavailable` 的条目**也要显示**（灰显 + 原因），
- *   而不是过滤掉 —— 见本文件顶部"做不到必须显示"那条铁律。
+ * ★ 四种状态都要显示（包括"还没有工具入口"），而不是只显示能用的那些 ——
+ *   "做不到必须显示"是本页的铁律。
+ *
+ * ⚠️ 这里**不做任何判定**：状态、路径、缺什么、怎么开，全部来自
+ *   `TierReport`（纯模块、有测试）。本函数只负责画。
  */
 @Composable
-private fun CapabilityRow(cap: ModeGatedCapability, mode: PrivilegeMode) {
-    val tier = cap.tierIn(mode)
+private fun TierRowView(row: TierRow) {
+    val icon = when (row.state) {
+        TierRowState.READY -> Icons.Default.CheckCircle
+        TierRowState.NEED_PERMISSION -> Icons.Default.Warning
+        TierRowState.NEED_ROOT -> Icons.Default.Lock
+        TierRowState.NOT_IMPLEMENTED -> Icons.Default.Warning
+    }
+    val tint = when (row.state) {
+        TierRowState.READY -> PaColor.Success
+        TierRowState.NEED_PERMISSION -> PaColor.Warning
+        TierRowState.NEED_ROOT -> PaColor.TextSecondary
+        TierRowState.NOT_IMPLEMENTED -> PaColor.TextTertiary
+    }
 
-    Pair(
-        when (tier) {
-            is CapabilityTier.Full -> Icons.Default.CheckCircle
-            is CapabilityTier.Degraded -> Icons.Default.Warning
-            is CapabilityTier.Unavailable -> Icons.Default.Lock
-        },
-        when (tier) {
-            is CapabilityTier.Full -> MaterialTheme.colorScheme.primary
-            is CapabilityTier.Degraded -> MaterialTheme.colorScheme.tertiary
-            is CapabilityTier.Unavailable -> MaterialTheme.colorScheme.onSurfaceVariant
-        },
-    ).let { (icon, tint) ->
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.Top,
-        ) {
-            Icon(imageVector = icon, contentDescription = null, tint = tint)
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(text = cap.title, style = MaterialTheme.typography.bodyMedium)
-
-                // ★ 每种状态都必须给出**一句人话**，不能只靠图标颜色。
-                when (tier) {
-                    is CapabilityTier.Full -> {
-                        // 完全可用时不必多说 —— 说多了是噪音
-                    }
-                    is CapabilityTier.Degraded -> {
-                        Text(
-                            text = "现在：${tier.how}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            text = "还差：${tier.missing}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    is CapabilityTier.Unavailable -> {
-                        Text(
-                            text = tier.why,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = PaSpace.s, vertical = PaSpace.xs),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Icon(imageVector = icon, contentDescription = null, tint = tint)
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(text = row.title, style = PaType.body, color = PaColor.TextPrimary)
+                Spacer(Modifier.width(PaSpace.xxs))
+                // ★ 路径与"要不要占屏"必须写在行内：用户选档位时真正关心的就是这两个。
+                if (row.state == TierRowState.READY) {
+                    PaBadge(
+                        text = if (row.occupiesScreen) "占屏 · ${row.pathLabel}" else row.pathLabel,
+                        tone = if (row.occupiesScreen) PaBadgeTone.Warning else PaBadgeTone.Success,
+                    )
                 }
+            }
+
+            // ★ 每种状态都必须给出**一句人话**，不能只靠图标颜色。
+            row.hint?.let {
+                Text(text = it, style = PaType.caption, color = PaColor.TextSecondary)
+            }
+            row.guide?.let {
+                Text(text = "怎么开：$it", style = PaType.caption, color = PaColor.TextSecondary)
             }
         }
     }

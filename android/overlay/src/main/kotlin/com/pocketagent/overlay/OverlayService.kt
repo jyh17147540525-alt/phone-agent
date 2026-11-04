@@ -236,6 +236,11 @@ class OverlayService : Service() {
                     touchStartY = event.rawY
                     isDragging = false
                     longPressHandled = false
+                    // ★ 手指落在球上 = 用户此刻在亲自操作。
+                    //   agent 应当让开（普通档会占屏，两个人在同一块屏上抢手势
+                    //   只会互相打断）。发出去的是"让开"，不是"停止"：
+                    //   手松开一会儿它自己会回来。
+                    notifyUserTouch()
                     return true
                 }
 
@@ -381,9 +386,30 @@ class OverlayService : Service() {
     }
 
     private fun sendStopBroadcast(request: StopRequest) {
-        // TODO(M1)：换成显式 Intent 指向 :agent 的接收器（当前 agent 进程未实现）。
-        // 这里先留一个应用内广播，接口形状已定型。
-        Timber.d("广播停止信号：taskId=%s", request.taskId)
+        // ⚠️ 2026-11-04：这里以前是 `Timber.d(...)` 一行占位 —— 也就是说
+        //    用户按了停，**没有人收到信号**。球缩回去、任务继续点屏幕。
+        //    这是"看着有急停、实际没有"的最坏形态，现在真的发出去。
+        //
+        // 用 setPackage 限定在本应用内：急停是应用内部信号，
+        // 不需要（也不应该）让任何外部应用有机会伪造它。
+        val intent = Intent(StopSignalReceiver.ACTION_STOP_REQUESTED)
+            .setPackage(packageName)
+            .putExtra(EXTRA_TASK_ID, request.taskId)
+        runCatching { sendBroadcast(intent) }
+            .onFailure { Timber.w(it, "广播停止信号失败：taskId=%s", request.taskId) }
+        Timber.i("广播停止信号：taskId=%s", request.taskId)
+    }
+
+    /**
+     * 告诉宿主"用户的手指在屏幕上"。
+     *
+     * 与急停的区别：这是**让开**（1.5 秒后自己回来），不是**停止**（永不自动回）。
+     * 两者共用一个接收器，但 action 不同 —— 宿主据此调 `onUserTouch()` / `onUserStop()`。
+     */
+    private fun notifyUserTouch() {
+        val intent = Intent(StopSignalReceiver.ACTION_USER_TOUCH).setPackage(packageName)
+        runCatching { sendBroadcast(intent) }
+            .onFailure { Timber.w(it, "广播用户触摸失败") }
     }
 
     private fun handleEmergencyStop() {

@@ -242,7 +242,10 @@ dependencies {
     implementation(project(":action"))                // ActionExecutor / ActionDispatcher / UiAction / ElementRef
     // implementation(project(":agent"))
     // implementation(project(":memory"))
-    // implementation(project(":overlay"))
+    // ★ 2026-11-04 启用：悬浮球是普通档唯一的"急停"入口，也是 ScreenLease 的
+    //   事件源（用户按停 / 摸屏 / 切走前台）。之前注释掉的代价是：
+    //   用户按了停没有人收到信号。库的 manifest 会自动合并，app 侧不用再声明 service。
+    implementation(project(":overlay"))
 
     // ── AndroidX ────────────────────────────────────────
     implementation(libs.androidx.core.ktx)

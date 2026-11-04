@@ -73,6 +73,7 @@ import com.pocketagent.ui.permissions.PermissionsViewModel
 import com.pocketagent.ui.plugins.InstalledPluginsViewModel
 import com.pocketagent.ui.plugins.PluginsScreen
 import com.pocketagent.rootlogic.PrivilegeMode
+import com.pocketagent.rootlogic.TierActionTarget
 import com.pocketagent.rootlogic.RootProbeResult
 import com.pocketagent.ui.design.PaScreen
 import com.pocketagent.ui.design.PaBanner
@@ -1005,11 +1006,25 @@ fun AppShell(
                     //   而用户期望的是"切一次，一直有效"。
                     var mode by remember { mutableStateOf(container.privilegeMode()) }
                     var probe by remember { mutableStateOf(container.rootProbe()) }
+                    // ★ 能力的**实际**装配结论（走哪条路、要不要占屏、缺哪个授权）。
+                    //   每次改模式、每次从系统设置回来都重算，绝不复用上一分钟的结论。
+                    var report by remember { mutableStateOf(container.tierReport()) }
+                    val context = LocalContext.current
+
+                    /** 打开系统设置页。找不到就静默失败 —— 没有哪条 ROM 都有的入口。 */
+                    fun openSystem(intent: android.content.Intent) {
+                        runCatching {
+                            context.startActivity(
+                                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                            )
+                        }
+                    }
 
                     PaScreen(title = "运行模式", onBack = { navController.popBackStack() }) {
                         PrivilegeModeScreen(
                             current = mode,
                             probe = probe,
+                            report = report,
                             onToggle = { want ->
                                 // ★ 立刻探一次，并把**实际生效**的模式回写到界面。
                                 //   用户可能选了 root 但 Magisk 没放行 ——
@@ -1018,6 +1033,43 @@ fun AppShell(
                                 val (effective, result) = container.setPrivilegeMode(want)
                                 mode = effective
                                 probe = result
+                                report = container.tierReport()
+                            },
+                            onAction = { target ->
+                                when (target) {
+                                    TierActionTarget.OPEN_ACCESSIBILITY -> openSystem(
+                                        android.content.Intent(
+                                            android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS,
+                                        ),
+                                    )
+
+                                    TierActionTarget.OPEN_OVERLAY -> openSystem(
+                                        android.content.Intent(
+                                            android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                            android.net.Uri.parse("package:" + context.packageName),
+                                        ),
+                                    )
+
+                                    // root 管理器没有标准入口：先试 Magisk，没装就落到本应用详情页，
+                                    // 让用户自己从那里意识到"该去哪个应用里放行"。
+                                    TierActionTarget.OPEN_ROOT_MANAGER -> {
+                                        val magisk = context.packageManager
+                                            .getLaunchIntentForPackage("com.topjohnwu.magisk")
+                                        openSystem(
+                                            magisk ?: android.content.Intent(
+                                                android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                                android.net.Uri.parse("package:" + context.packageName),
+                                            ),
+                                        )
+                                    }
+
+                                    TierActionTarget.RE_PROBE -> {
+                                        val (effective, result) = container.reProbeRoot()
+                                        mode = effective
+                                        probe = result
+                                        report = container.tierReport()
+                                    }
+                                }
                             },
                         )
                     }

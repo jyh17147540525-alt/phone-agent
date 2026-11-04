@@ -6,19 +6,36 @@
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Android%2012%2B-green.svg)](#requirements)
-[![Status](https://img.shields.io/badge/Status-M0%20in%20progress-orange.svg)](#project-status)
+[![Status](https://img.shields.io/badge/Status-M2%20two%20tiers-blue.svg)](#project-status)
 
 ---
 
-## ⚠️ Project status: M0 essentially complete; the P1 gateway core has landed
+## ⚠️ Project status: M2 — **two capability tiers (root / no-root) are wired up offline**
 
-**It builds into an installable APK. The gateway (model access layer) is implemented and fully green,
-but the agent loop — the part where the AI actually "does things for you" — is not wired up yet.**
+**It builds into an installable APK. The gateway, the agent loop and the tool layer are wired;
+capabilities are split into two tiers by "do you have root", driven by a single declarative matrix —
+a missing permission produces a settings path, not an error.**
+
+> **★ 2026-11-04 (`0.1.0-m2`)**: two capability tiers, plus a round of fixing things that
+> *looked* present but did nothing.
+> - **No-root tier**: accessibility tree + gesture taps, gated by a *screen lease* — the agent
+>   yields the moment you touch the screen and resumes 1.5s after you let go. The floating-ball
+>   "Stop" button now actually stops (it used to log one line and notify nobody).
+> - **Root tier**: `su -c input tap` (backed by `injectInputEvent`, works on any window),
+>   `screencap`, `uiautomator dump` for a direct UI tree, `settings put` / `setprop`,
+>   `pm disable-user`, allow-listed `EXEC`, `PROBE`; plus a **persistent channel**
+>   (loopback TCP + one-shot token, several commands per round trip).
+> - **A missing permission is not a failure**: what is missing and where to enable it becomes an
+>   actionable hint (a button that opens the right settings page) and three lines of prompt text
+>   the model can pass on verbatim.
+>
+> ⚠️ Not yet verified: tier switching on a real device, lease yield/resume, and starting the
+> persistent channel via `app_process` — tracked in `docs/协作/TO-WORKBUDDY.md`.
 
 Done:
 
 - ✅ Full project designs (v1.0 / v2.0 / v3.0) and an M0 technical validation handbook (18 experiments)
-- ✅ Project skeleton (44 Gradle modules, 201 Kotlin source files, ~61k lines)
+- ✅ Project skeleton (49 Gradle modules, 596 Kotlin source files, ~141k lines — 381 source files / 92k lines, 215 test files / 49k lines)
 - ✅ Provider layer (OpenAI-compatible protocol, 11 vendors covered) + text-to-speech (TTS)
 - ✅ Safety guardrails (sensitive screens / sensitive widgets / dangerous actions / rate limiting + audit)
 - ✅ **Plugin system** — contract, three-tier classification, capability allowlist, forbidden-prefix blocking
@@ -43,7 +60,8 @@ Done:
   upload path**: hard veto on sensitive pages, unconditional rejection of plugin screenshots,
   conservative drop when system-UI regions are unknown, redaction plans for input fields and
   message lists, and forged-marker detection
-- ✅ **1694 offline unit tests passing** (including real-socket integration tests)
+- ✅ **3845 offline unit tests passing** (including real-socket / real loopback-server tests)
+  + **293 Gradle test cases** (`:mcp` 204 + `:app` 89)
 - ✅ **Release-readiness checker** (`check_release_readiness.py`, 10 rule groups R1–R10 + 20 self-tests)
 - ✅ **All five P0 on-device experiments reached conclusions** (see "M0 on-device results" below)
 - ✅ **A debug APK that builds**
@@ -170,7 +188,7 @@ These are written up in the [design docs](docs/) and they constrain every line o
 └──────────────────────────────────────────────────────────┘
 ```
 
-44 modules in total — see [`android/README.en.md`](android/README.en.md) and the [design docs](docs/) (currently Chinese only).
+49 modules in total — see [`android/README.en.md`](android/README.en.md) and the [design docs](docs/) (currently Chinese only).
 
 ### Three-tier plugin system
 
@@ -219,6 +237,35 @@ directory and its [README](community-source/README.en.md) are infrastructure, no
 
 ---
 
+## Two tiers: without root the agent borrows your screen, with root it does not
+
+One capability matrix, two implementations. The difference is **not "can it"**, it is
+**"does it have to occupy your screen"**.
+
+| Capability | No-root tier | Root tier |
+|---|---|---|
+| Read the screen | accessibility tree (**occupies the screen**) | `uiautomator dump` (no occupancy) |
+| Tap / swipe / type | `dispatchGesture` (occupancy; active window only) | `input tap` (no occupancy; any window, games included) |
+| Change settings | settings Intent + `WRITE_SECURE_SETTINGS` | `settings put` |
+| Arbitrary files / props / disable packages | ✗ needs root | ✓ allow-listed arguments |
+
+Three decisions, each pinned by tests:
+
+1. **Degrading is explicit** — choosing root without root reports "falling back to the no-root
+   tier (occupies your screen)" with a reason. Taps never silently fall back to accessibility,
+   because that would occupy the screen behind the user's back.
+2. **Blocked tools stay listed** — they remain in the tool catalog with
+   "⚠️ currently unavailable: missing <permission> (<settings path>)" appended to the description.
+   Removing them leaves the model saying "I can't do that" and the user with no idea what to enable.
+3. **The user's hand always wins** — touching the screen makes the agent yield for 1.5s;
+   pressing Stop ends the current task for good, and only a new task starts a new lease.
+
+> Two tiers are not "unlocking something more dangerous". Root adds no-occupancy, speed and
+> system settings — not the ability to attack others. Outbound network capability goes through
+> `ScopeGuard`, which is **fail-closed: an empty allow-list denies everything**.
+
+---
+
 ## Requirements
 
 | Item | Requirement |
@@ -237,7 +284,7 @@ There is no official release channel yet, so you have to build it yourself:
 
 ```bash
 cd android && ./gradlew assembleDebug
-# output: android/app/build/outputs/apk/debug/app-debug.apk (~61 MB)
+# output: android/app/build/outputs/apk/debug/app-debug.apk (~143 MB: debug, unminified, two ABIs)
 ```
 
 Transfer the APK to your phone and open it from a file manager. On first install you will need to
@@ -430,10 +477,12 @@ is in that file.
 | `activity-compose` | 1.11.0 | Requires `minCompileSdk=36` / `minAGP=8.9.1` — **right on the line** |
 | `core-ktx` | 1.17.0 | Same as above |
 
-### Seven verification scripts
+### Verification scripts
 
 ```bash
-python tools/verify/run_logic_tests.py                     # offline unit tests, no Android SDK needed
+python tools/verify/verify_all.py                          # all 13 checks in one go (~90s)
+python tools/verify/run_logic_tests.py                     # offline unit tests, no Android SDK needed (3845 cases)
+python tools/verify/run_gradle_tests.py                    # Gradle side: :mcp:test + :app:testDebugUnitTest
 python tools/verify/check_version_catalog.py android       # reconcile libs.* accessors
 python tools/verify/check_module_deps.py android           # find missing project dependencies
 python tools/verify/check_kt_quotes.py android             # ASCII quotes misused in Chinese copy

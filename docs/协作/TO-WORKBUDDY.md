@@ -933,3 +933,344 @@ x86 那 32 MB 是模拟器架构，真机用不上。
 
 ⚠️ 仍**未签名**（`app-release-unsigned.apk`）—— 签名密钥属维护者，
 要发版需要你决定：生成发布密钥库 → 口令放 `local.properties` → 接 `signingConfigs.release`。
+
+---
+
+## 2026-11-04 审计后的三处改动（需要你在真机上确认）
+
+来源：用户要求"检查一下当前工作区，看看这个软件有什么需要优化的地方"，
+我出了 P0/P1/P2 清单。下面三条是我已经改完、但**只有你能验**的部分。
+
+### ① 虚拟屏验证服务已移出 release（已改，需真机确认）
+
+**改了什么**：`VirtualScreenProbeService` 原来声明在 `src/main/AndroidManifest.xml`，
+`exported="true"` 且**没有任何权限**，内部用 `su` 抓任意 App 的帧。
+工程没有 `src/debug` 源集，所以那条声明会**直接进 release 包** ——
+任何装了这个 APK 的应用都能起它。
+
+现在源码与声明都搬到 debug 源集：
+```
+android/app/src/debug/kotlin/com/pocketagent/assistant/VirtualScreenProbeService.kt
+android/app/src/debug/AndroidManifest.xml
+```
+
+**我这边已验证（离线）**：
+- `gradlew :app:assembleDebug` ✓（debug 包正常）
+- `gradlew :app:processReleaseMainManifest` ✓
+- 合并后的 release 清单里 **grep 不到** `VirtualScreenProbeService`（0 命中）
+- debug 的三个合并清单里都有它（第 199 行）
+
+**要你验（真机）**：
+1. 装 **release** APK，`adb shell am startservice -n com.pocketagent/.assistant.VirtualScreenProbeService`
+   → 期望 `Error: Not found; no service started`（组件不存在才算干净）
+2. 装 **debug** APK，同一条命令换成 `com.pocketagent.debug/...`
+   → 期望仍然能起（验证能力没被这次搬迁弄丢）
+
+### ② 提示词里的"反面样例"已删（已改，效果要 A/B）
+
+**改了什么**：`RoleplayDiscipline.promptSection` 与 `VoiceSamples.promptSection`
+原来会把要禁的句子**原样列出来**（`❌「我不端着」「记账上了」…`）。
+现在改成只描述**形状** + 给**替代动作**，一个字都不引用那些句子。
+`AtomExtractor` 的同款写法（`❌ 不许这样写` + 三句公文腔原句）一起改了。
+
+依据在 `docs/工程/提示词负例改造-依据.md`（不是凭感觉）：
+- arXiv:2601.21433 —— 1–4B 模型在**否定框定**下把被禁动作的支持率从 24% 抬到最高 100%
+  （摆幅 76pp）；跨模型一致率 73%→59%。
+- prompt-architects（引 Anthropic 原文）—— 禁令失效主因是欠指定；
+  治法：精确命名 → 说明什么来占位 → **删掉禁令**。
+- 另一条更直接的：few-shot 里的每一条都会被当范例，混进去的反面台词也是范例。
+
+**要你验（真机 A/B）**：同一模型、同一人格、同一组 20 轮，
+旧提示词 vs 新提示词，统计 `RoleplayDiscipline.inspect(reply)` 的命中率。
+⚠️ 这是唯一能证明"改得对"的方法 —— 我的证据只证明"旧写法有已知失效机制"。
+
+顺带一个**刚发现的缺口**（已写进测试钉住）：四条纪律里前三条都有检测器兜底，
+**④「别替自己的情绪下结论」只有提示词，没有任何离线检测**。
+
+### ③ 全量检查从 12 条变 13 条
+
+`verify_all` 12 条全绿的时候 `gradlew :mcp:test` 其实是红的（204 用例 / 7 失败，
+`NoSuchMethodError: PersonaState.<init>(...)`）。根因是**增量构建判 UP-TO-DATE 不可信**：
+`PersonaState` 加默认参数后桥接构造器签名变了，`personalogic` 重编了、
+`:mcp` 的 class 没重编。
+
+新增 `tools/verify/run_gradle_tests.py`（固定 `--rerun-tasks`，读 JUnit XML 判据，
+拿不到结果就判失败）。现在 `verify_all` = **13/13 ✓，约 56 秒**。
+
+⚠️ 你那边如果记着"12 条"，以现在为准。
+
+---
+
+## 2026-11-04 两档能力（普通 / root）—— 四层实现，需要你真机验证 4 项
+
+用户要求：「普通用户没有 root，只能占用手机屏幕干活；root 用户才解锁满血状态」。
+我做的不是"两个开关"，是把这件事拆成四层，每层都能离线钉住：
+
+| 层 | 位置 | 回答什么 |
+|---|---|---|
+| 能力矩阵 | `rootlogic/PrivilegeMode.kt` | 能不能做（已有 8 条） |
+| 执行路由 | `rootlogic/TierRoute.kt` | 这一趟走哪条路、占不占屏、缺哪个授权 |
+| 工具装配 | `rootlogic/TierPlan.kt` | 挂哪些工具、被挡的怎么解释 |
+| 屏幕租约 | `rootlogic/ScreenLease.kt` | 占屏期间用户和 agent 怎么共处 |
+| MCP 网关 | `mcp/ToolRegistry.kt` 的 `ToolGate` | 不可用的工具不删、挂原因、调用即拒 |
+
+### 已验证（Claude 离线）
+`run_logic_tests.py` → **3652 tests 全绿**（新增 39 条）；`verify_all.py` → 13/13。
+钉住的：普通档永不走 root 路径；root 通了但选了普通档也不偷偷用；两档都缺时报 root 那条；
+root 通道掉了能降级且必须显式标注"这一趟要占住屏幕"；`root.occupancy <= plain.occupancy`；
+被挡工具仍在 `tools/list` 里、原因挂在描述尾部、真调用时 `isError` 且**零字节执行**；
+租约不因"让开"而续期、用户按停后永不自动回来。
+
+### 需要你真机验证的 4 项
+1. **`injectInputEvent` 的权限边界**：root shell 里注入点击/滑动，看是否需要 `INJECT_EVENTS` 签名权限、
+   是否需要 `--user 0`、SELinux 是否拒（`avc: denied` 看 logcat）。
+   → 若被拒，root 档的点按要退回"用 root 起 uiautomator 的 shell uid"，这会影响 `TierRoute` 里
+   `ROOT_INJECT` 那条的实现，请把实际报错原文给我。
+2. **`dispatchGesture` 在占屏期间会被"用户正在交互"打断吗**：一边播视频一边注入手势，看 `onCancelled` 回调。
+   → 这决定普通档能不能在"用户正在用手机"时继续干活，还是必须先让开。
+3. **透明悬浮层能否读到触摸但不吞事件**：`TYPE_ACCESSIBILITY_OVERLAY` 上 `onTouchEvent` 拿坐标，
+   同时验证下层 App 仍正常收到事件。
+   → 这是 `ScreenLease.onUserTouch()` 的唯一输入源；读不到坐标，租约就永远不会让开。
+4. **无障碍 `takeScreenshot` 的 API 差异**：API 30 / 31 / 33 / 34 各跑一次。
+   → 决定普通档读屏是否要保留 `MediaProjection` 兜底（`DeviceState.mediaProjectionGranted` 字段已就位）。
+
+### app 层还差的三处接线（我下一轮做，先告诉你以免重复）
+1. `DeviceState` 采集（无障碍开关 / 悬浮窗 / 录屏标记 / `su` 探测 / 常驻通道 PING）。
+2. 构造 `McpServer` 时传 `ToolGate { TierPlanner.blockReason(it, mode, deviceState) }`。
+   ⚠️ 注意：权限开关变化后必须让客户端重新 `tools/list`，否则模型手里还是旧描述。
+3. `ScreenLease` 接 `onUserTouch` / `onUserStop` / `onAppLeft`，并在每次设备操作前
+   `if (!lease.canAct()) return Failed(lease.blockedReason())`。
+
+细节看 `docs/工程/两档能力-实现说明.md`（含两档差别表与三条设计决定的理由）。
+
+### 追加（同日）：gate 已接进 app，两点请你验证
+
+- `AppContainer.deviceState()` 现在**每问现算**：无障碍看 `AgentAccessibilityService.instance != null`、
+  悬浮窗看 `Settings.canDrawOverlays`、`WRITE_SECURE_SETTINGS` 看 `checkSelfPermission`、
+  `su` 看最近一次 `RootProbeResult.Available`。
+  ⚠️ **请注意这里没有用 `AccessibilityManager.isEnabled`** —— 那个返回 true 不代表我们的服务被勾选。
+  真机上如果"服务明明开了却判成没开"，请把 `AccessibilityManager` 的服务列表打给我。
+- `McpDispatcher(ToolRegistry(agentTools, tierGate))` 已接。表现：无障碍关掉时，
+  `tools/list` 里仍能看到 `android_tap` 等，描述尾部多一行 `⚠️ 当前不可用：缺「无障碍」。设置 → …`，
+  真调用返回 `isError` 且**不会执行**。
+  请验证：①关无障碍 → 调 android_tap，确认返回的是这句而不是"点了没反应"；
+  ②把无障碍打开后，**客户端要重新 tools/list 才看得到干净描述**（网关是每次现算的，
+  但客户端手里的清单是缓存的）——这一条请你确认 dsh 那边会不会自动重列，不会的话我加通知。
+- `ScreenLease` 只放了实例（`container.screenLease`），**还没人喂事件**，所以现在不改行为。
+  等悬浮层/停止按钮的 UI 落地再接，别提前当成已生效。
+
+---
+
+## 2026-11-04（晚）两档能力：root 档已能动手 + 运行模式页重写
+
+### 我做了什么（离线已验证）
+
+- `RootActions`：root 档的点按/滑动/按键/输入/截图/读树/改设置/停用应用，全部走
+  `su -c ...`，参数白名单 + 本地拒绝（越界输入一个字节都不发）。17 条测试。
+- `TieredDispatchPort`（点按）与 `TieredScreenReader`（读屏）：两档汇合点。
+  **规则故意不同** —— 点按失败不退回无障碍（退回＝占屏）；读屏可以退（不碰界面）。
+- `UiautomatorDump`：解析 `uiautomator dump` 的 XML（nodeId/depth/bounds/enabled 等），15 条测试。
+- `运行模式` 页：能力列表从「静态矩阵」改成 `TierReport`（真实授权状态），
+  每行显示路径、是否占屏、缺什么、怎么开，并给出「下一步」按钮。
+- 验证：`run_logic_tests.py` **3705 tests** 全绿、`verify_all.py` **13/13**（57s）、
+  `:app:assembleDebug` 通过。
+
+### 需要你做的真机验证（4 条，按重要性）
+
+| # | 验证什么 | 怎么做 | 期望 |
+|---|---|---|---|
+| 1 | 普通档关掉无障碍后的文案 | 设置 → 无障碍 → 关掉 PocketAgent → 回 App → 运行模式页 | 读屏/点按两行显示「缺『无障碍服务』」+「怎么开：…」，**不是**点了没反应 |
+| 2 | root 档点按是否真的不占屏 | root 机 → 运行模式 → 开 root → 关掉无障碍 → 让角色点一下屏幕 | 手指不动、屏幕不被占，日志有 `root-su-input`；若失败看是不是 SELinux 拒了 `input` |
+| 3 | `uiautomator dump` 在 root shell 下能否用 | `adb shell su -c 'uiautomator dump /data/local/tmp/x.xml'` 再 `cat` | 拿到完整 XML；若报 `ERROR: could not get idle state` 或权限错，请把原文贴回来 |
+| 4 | `screencap -p` 写 `/data/local/tmp` 与中文 `input text` | `adb shell su -c 'screencap -p /data/local/tmp/a.png'`；`adb shell su -c "input text '你好'"` | 文件生成；中文能输入（部分 ROM 需要切输入法或转 adb 键盘） |
+
+第 3、4 条如果失败，我会把 `RootScreenReader` 的降级路径再改一版（改临时目录 / 换 `--compressed`）；
+**请不要自己在代码里绕**，把原始报错贴给我就行。
+
+### 仍是已知缺口（不用验）
+
+- `ScreenLease` 还没有事件源（悬浮层触摸 / 停止按钮 / 前台切换），现在恒为 Idle，不改变行为。
+- `file.any` / `settings.write` / `prop.set` / `pm.disable` / `file.saf` **还没有 MCP 工具入口**，
+  运行模式页会如实写「能力层已就绪，但还没有工具入口」。
+
+---
+
+## 2026-11-04（更晚）系统级四个工具挂上了
+
+### 新增（离线已验证）
+
+`file_read` / `setting_write` / `prop_write` / `app_disable` —— 对应能力矩阵里的
+`file.any` / `settings.write` / `prop.set` / `pm.disable`。
+
+- 普通档**仍出现在工具清单里**，但被档位网关在执行前拦下，原因写在描述尾部。
+- 每个工具内部还有第二道 `rootAvailable()`：网关按名字判定，漏配一个名字就会静默放行，
+  所以两道闸都留。
+- `app_disable` 有保护名单：`android` / `com.android.systemui` / `com.android.settings` /
+  `com.android.phone` 永远 Refused（先查名单**再**校验包名格式 —— 否则 `android` 会落到
+  "package 不合法"的 Failed，模型会以为改写法就能停用系统框架）。
+- 验证：`run_logic_tests.py` 3729 tests 全绿、`verify_all.py` 13/13、`:app:assembleDebug` 通过。
+
+### 需要你验证的（5 条）
+
+| # | 验证什么 | 怎么做 | 期望 |
+|---|---|---|---|
+| 1 | 新工具在 dsh 的清单里 | root 机开 root 档 → dsh 里列工具 | 能看到 `file_read` / `setting_write` / `prop_write` / `app_disable`；普通档应看到描述尾部有「⚠️ 当前不可用：…」 |
+| 2 | `file_read` 真能读 | 让角色读 `/data/local/tmp/x.xml`（先按上一段第 3 条生成） | 返回文件内容；普通档应回「需要 root…」而不是"执行失败" |
+| 3 | `setting_write` 普通档那条路 | 未授予 `WRITE_SECURE_SETTINGS` 时让它改一个设置 | 应提示走 adb：`pm grant`（不是含糊失败）；`adb shell pm grant com.pocketagent android.permission.WRITE_SECURE_SETTINGS` 后重试应成功 |
+| 4 | `prop_write` 无害键 | `setprop debug.pocketagent.test 1` | 成功；`getprop debug.pocketagent.test` 能读回 1 |
+| 5 | `app_disable` 保护名单 + 恢复 | ①让它停用 `android` ②拿一个自己装的无用应用停用再启用 | ①必须 Refused（文案含"系统关键组件"）②能停用，回执里写着 `pm enable` 的恢复方式 |
+
+第 3 条特别容易看见真相：如果它给的是"执行失败"而不是 adb 指引，
+说明 `settings.write` 的普通路径判定有问题，请把原始返回贴回来。
+
+### 注意
+
+`file_read` 是**只读不弹确认**的（故意的：给读文件加审批会让用户养成不看就点同意的习惯，
+真正该审批的写操作就藏在这个习惯后面）。如果你觉得真机上这样不合适，告诉我，我改成
+"首次读某个目录问一次"。
+
+
+---
+
+## 2026-11-04（第三批）批量动作 `android_batch` 挂上了
+
+### 我做了什么（离线全绿）
+
+1. 新增 MCP 工具 **`android_batch`**（`android/mcp/.../BatchTool.kt`）：
+   一次调用按顺序做最多 12 步（tap / swipe / type / key），整批**只读一次屏**。
+   目的不是"点得快"，是**少一次模型往返**（一次往返 800–3000ms，
+   而一次 `input tap` 只有 80–300ms）。
+2. 新增 `ActionRateLimiter.tryAcquireBurst(count)`：批量一次性占 N 份额度。
+   ⚠️ 原 `tryAcquire` 的 250ms 防连点下限是给**人手节奏**定的，
+   逐次申请会让批的第 2 步必然被"间隔过短"拦下 ——
+   那样这个能力在真机上根本跑不起来（这条是写测试时才发现的）。
+3. 每步**单独**过安全判定（不是整批一次），任一步被拒/失败立即停，
+   已做过的不回滚，文案如实说明停在第几步。
+4. `android_batch` 绑到 `screen.tap`（`ToolBindings`），
+   这样普通档缺无障碍时它是"缺权限 + 怎么开"，而不是先读屏失败报一句看不懂的话。
+5. 验证：`run_logic_tests.py` → **OK (3750 tests)**；`verify_all.py` → **13/13，64s**；
+   `:app:assembleDebug` → SUCCESSFUL。
+
+### 请你真机验证（4 条）
+
+| # | 怎么做 | 应该看到 |
+|---|---|---|
+| 1 | root 档，让 agent 在一个列表页做 5 次滑动（一次 `android_batch`） | 一次工具调用完成，返回"已按顺序派发 5 步"，总耗时明显小于 5 次单独的 `android_swipe` |
+| 2 | root 档，批 12 步点按 | 全跑完；紧接着再发一个批，应被拒并提示"最近一分钟内只剩 N 次额度" |
+| 3 | 普通档（无 root、无障碍开着），同样发一个 5 步的批 | 能跑（走无障碍手势），期间屏幕被占用 |
+| 4 | 批中间故意让第 2 步失败（比如点一个不存在的文字目标） | 返回里含"第 2 步""不会回滚""请先用 screen_read 看现在停在哪"，且第 3 步没有执行 |
+
+### 已知限制（写清了，不是 bug）
+
+- 批中间**不重新读屏**：界面一变，后面的步骤可能点空或点到别处 ——
+  这是"一次声明一串意图"的代价，文档里写的是"适合确定性流程"。
+- 额度先扣后做：中途失败不退还（宁可少放行）。
+
+### 仍然缺的三条（没变）
+
+1. `ScreenLease` 仍无事件源（恒 Idle，`canAct()` 永远 true，不改行为）；
+2. `:overlay` 悬浮窗档仍未启用；
+3. root 侧仍走 `su -c`（`injectInputEvent` / `SurfaceControl` 的常驻守护进程未实现，
+   协议层 `PrivilegeWire` / `PrivilegeClient` 已就绪）。
+
+---
+
+## 2026-11-04（第四批）急停终于有人听了：`:overlay` 启用 + 占屏租约接上
+
+> 上一批「仍然缺的三条」里，前两条（`ScreenLease` 无事件源、`:overlay` 未启用）
+> 已经在这次一起收口。第三条（守护进程薄壳）仍未动。
+
+### 我做了什么
+
+1. `android/overlay/.../OverlayService.kt` 的 `sendStopBroadcast` 原来只有一行
+   `Timber.d(...)`（TODO 占位）—— **用户按停，没有人收到信号**。现在真的发应用内广播
+   （`setPackage(packageName)`，只在本应用内）。
+2. `:app` 启用 `:overlay` 依赖（库 manifest 自动合并，app 侧不用再声明 service）。
+3. `AppContainer` 新增 `stopReceiver` + `installStopSignals()`，在 `PocketAgentApp.onCreate`
+   里注册（急停要在**任何界面起来之前**就能收到，否则那一下就是白按）。
+4. `TieredDispatchPort` 普通档分支接上 `ScreenLease` 闸门：先 `acquire` 再 `canAct`，
+   拒绝文案直接来自 `lease.blockedReason()`。
+5. 三路事件源全部接上：按停 → `onUserStop()`；手指落到球上 → `onUserTouch()`（1.5 秒宽限）；
+   前台切走（`ActivityLifecycleCallbacks` 计数器归零）→ `onAppLeft()`。
+6. 新增 `:app` 测试 `ScreenLeaseGateTest` 5 条，另加 `beginAgentRun()` 让「按停」可被
+   用户重新开口解除（否则会永久卡死到重启）。
+
+### 请你真机验证（5 条）
+
+| # | 步骤 | 期望 |
+|---|---|---|
+| 1 | 拉起悬浮球 → 起一个会连点的任务 → 按球上的「停」→ 紧接着让它 `android_tap` | 返回 `Refused`，文案含「你让任务停一下 —— 需要继续时再叫我」；**屏幕不应再被点** |
+| 2 | 同上，但按停之后**发一条新消息**再让它点 | 应该能继续（`beginAgentRun` 已重置租约）；若仍拒绝 = 解封点没生效 |
+| 3 | 任务进行中，手指按住悬浮球拖动几下 | agent 应"让开"约 1.5 秒后自己恢复（不是永久停）；Logcat 有「用户正在操作：占屏租约 → Yielded」 |
+| 4 | 任务进行中，按 Home 切到桌面 | agent 应让开（`onAppLeft`）；`dumpsys` 或 Logcat 能看到「前台被切走」 |
+| 5 | 装 debug 包，`dumpsys activity services | grep -i overlay` | OverlayService 在前台，通知类型 `specialUse`；Logcat 有「广播停止信号：taskId=…」 |
+
+### 一个我判断做对了、但想请你复核的地方
+
+按停之后 **root 档不受影响**（租约只拦占屏那条路）。理由：root 档不占用户屏幕，
+「停」的语义属于占屏这一档；如果也拦 root，等于把「停」变成全局刹车，
+而 root 用户选这一档正是为了不被打断。
+
+如果你认为「停」应该对所有通道一律生效，说一声，我把闸门提到两档之前 ——
+这是代码位置问题，但语义差别很大，我不替你定。
+
+### 仍缺
+
+- 守护进程薄壳（`app_process` 入口 / `injectInputEvent` / `SurfaceControl`）未写：
+  协议层与**服务循环**已就绪且有 17 条测试，缺的是 Android 绑定那一层。
+- `docs/工程/两档能力-实现说明.md` 第 13 节记了这次的全部判断依据，质疑前可以先看它。
+
+---
+
+## 2026-11-04（第四批）常驻通道的传输层 + 映射（离线全绿，等你真机接薄壳）
+
+### 我做了什么
+
+1. `PrivilegeSocket.kt`：loopback TCP 传输（客户端 + 服务端 + 握手 + token + 只绑 127.0.0.1）。
+2. `DaemonCalls.kt`：`RootAction` → 通道请求（参数数组，不经 shell）。
+3. `DaemonHandlers.kt`：服务端处理器表，**重新校验**每个参数，`EXEC` 只认 `pm disable-user`。
+4. `DaemonEndpoint.kt`：发现文件 `端口 token` 的解析（写坏了一律返回 null，不凑合）。
+5. `RootActions` 变两路：**优先通道、通道层失败退 `su`**，明确拒绝不退。
+6. 修掉 `PrivilegeWire.encodeArgv` 拒绝空参数 ⇒ `PING`/`PROBE` 以前根本发不出去。
+
+### 需要你验的（都要真机 + root）
+
+| # | 动作 | 期望 |
+|---|---|---|
+| 1 | 起薄壳（见下），然后让 agent 点一次屏 | 成功；`logcat` 里**不该**出现 `su` 那条时间线（说明走了通道） |
+| 2 | 杀掉薄壳进程，再点一次 | 仍然成功 —— 这是退回 `su` 的兜底，**不该**报错 |
+| 3 | 把发现文件里的 token 改错一个字符，再点 | 仍然成功（握手被拒 → 退 su）；`logcat` 里应能看到一次握手失败 |
+| 4 | `getprop` 那条（`prop.set` 读属性） | 走通道返回属性值；留意 `DaemonHandlers` 的 `QUERY_HEADS` 是否够用 |
+| 5 | 停用一个自己装的无用应用 | 成功；系统关键包（`com.android.systemui` 等）应被拒并说明原因 |
+
+薄壳启动形状（还没写成文件，参数按你们环境的实际路径改）：
+
+```
+adb shell su -c "CLASSPATH=/data/local/tmp/pocketagent-daemon.jar app_process /system/bin com.pocketagent.daemon.Main"
+```
+
+它要做三件事：绑定 `127.0.0.1:0`、把 `端口 token` 写进 `/data/local/tmp/pocketagent-daemon.txt`
+（权限 644）、把 `DaemonHandlers.standard(LocalRunner{ … ProcessBuilder … })` 交给 `DaemonSocketServer`。
+
+### 已知限制（不用报我，都记在文档里了）
+
+- 通道**没有**做 unix domain socket 版本（SELinux 允许的机型上更快，但要真机验）。
+- `TierPlan.screenNotice()` 还没接到界面上 —— 用户看不到"这一趟会占住屏幕"。
+- 发现文件不加密：能读 `/data/local/tmp` 的只有 adb shell 与 root，而这两者本来就能直接执行命令。
+
+### 补充（同日晚些）：薄壳已经写成源码了，你只需要 dex 一次
+
+`android/rootlogic/src/main/kotlin/com/pocketagent/rootlogic/DaemonMain.kt` 就是入口。
+离线已经证过完整链路（`DaemonMainTest`：起服务 → 写发现文件 → 客户端读文件连上来 →
+一条 `input tap` 落到假 runner）。你在真机上要做的只有三步：
+
+```bash
+d8 --output /tmp/dex android/rootlogic/build/libs/rootlogic.jar
+adb push /tmp/dex/classes.dex /data/local/tmp/pocketagent-daemon.jar
+adb shell su -c "CLASSPATH=/data/local/tmp/pocketagent-daemon.jar app_process /system/bin com.pocketagent.rootlogic.DaemonMain"
+adb shell cat /data/local/tmp/pocketagent-daemon.txt     # 期望 <端口> <32 位 token>
+```
+
+起完之后 `:app` 什么都不用改（`AppContainer` 已经在构造 `RootActions` 时读发现文件）。
+**如果起不来，请把 `app_process` 的原始报错整段贴回来** —— 那一步的失败几乎都是
+SELinux 或 dex 版本，不用你猜原因。

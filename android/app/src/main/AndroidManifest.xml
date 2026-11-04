@@ -141,22 +141,17 @@
         </activity>
 
         <!--
-            ── 虚拟屏验证服务（临时器材，结论落地后删）──────────────
+            ── 虚拟屏验证服务：**已移出 main** ────────────────────────
 
-            ⚠️ 用 **Service** 而不是 Activity：用户明确要求"验证也不能打扰主屏"。
-            用 Activity 做验证等于先把界面摆到用户眼前，本身就违反要求。
+            ⚠️ 2026-11-04 审计：它原来是 `exported="true"` 且**没有任何权限**，
+            内部用 `su` 抓任意 App 的帧。工程没有 `src/debug` 源集，所以那条
+            声明会**直接进 release** —— 任何装了这个 APK 的应用都能起它。
 
-            用 adb 起（不产生任何可见界面）：
-              am startservice -n com.pocketagent.debug/.assistant.VirtualScreenProbeService
+            ⇒ 源码与声明一起搬到 `src/debug/`（见 `src/debug/AndroidManifest.xml`）：
+              debug 包还能用，release 包里这个组件**不存在**。
+            验证：`gradlew :app:processReleaseMainManifest` 后查
+              `app/build/intermediates/merged_manifest/release/AndroidManifest.xml`
         -->
-        <service
-            android:name=".assistant.VirtualScreenProbeService"
-            android:exported="true"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="虚拟屏托管验证（不产生可见界面）" />
-        </service>
 
         <!-- ── 无障碍服务：M0 实验器材（P0-2 / EX-13）─────────────
              ⚠️ 它现在**不读屏、不操作、不缓存任何东西**，见类注释。

@@ -218,6 +218,8 @@ object ScreenSerializer {
         CaptureSource.VISION -> "截图"
         CaptureSource.HYBRID -> "树+截图"
         CaptureSource.OCR_ONLY -> "OCR"
+        // 标签要说清"靠谁读到的"：这条路径不依赖无障碍，排查时必须一眼可辨
+        CaptureSource.ROOT_DUMP -> "root 直读"
     }
 
     /**

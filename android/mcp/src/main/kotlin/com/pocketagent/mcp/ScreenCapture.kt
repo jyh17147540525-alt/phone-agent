@@ -39,6 +39,15 @@ enum class CaptureSource {
     VISION,
     HYBRID,
     OCR_ONLY,
+
+    /**
+     * root 直读（`uiautomator dump`）。
+     *
+     * ★ 单独一个值而不是复用 [ACCESSIBILITY]：两者的**依赖面完全不同** ——
+     *   前者要无障碍服务在跑，后者只要 `su` 通。归成一个值之后，
+     *   "这次读屏到底靠谁"在日志与诊断里就查不出来（而这恰是最需要查的）。
+     */
+    ROOT_DUMP,
 }
 
 /**

@@ -260,6 +260,14 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
          */
         forceAct: Boolean,
     ): ChatResult {
+        // ── ⓪ 用户重新开口 ⇒ 解除上一轮的「按停」 ────────────────
+        //
+        // ⚠️ 位置必须在这里（send 的最开头），不能塞到"决定要动手"之后：
+        //    用户按停之后，下一轮很可能先聊两句、再让它动手；
+        //    如果只在动手那一刻才重置，中间那轮就会看到「你让任务停一下」，
+        //    而用户明明已经重新开口了。
+        container.beginAgentRun()
+
         // ── ① 拿到凭据仓库 ──────────────────────────────────────
         val store = when (val opened = container.openCredentialStore()) {
             is CredentialStoreResult.Ready -> opened.repository

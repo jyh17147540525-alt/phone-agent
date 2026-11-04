@@ -67,6 +67,7 @@ def _resolve_apk() -> str | None:
 # 每一条：(脚本, 参数, 一句话说明, 是否慢)
 CHECKS: list[tuple[str, list[str], str, bool]] = [
     ("run_logic_tests.py", [], "离线编译 + 跑全部逻辑测试", True),
+    ("run_gradle_tests.py", [], "Gradle 侧测试（含 :mcp，管构建产物）", True),
     ("check_kt_quotes.py", [], "Kotlin 中文文案里的 ASCII 引号误用", False),
     ("check_xml_comments.py", [], "XML 注释合法性（-- 等）", False),
     ("check_version_catalog.py", [], "libs.* 引用都有定义", False),

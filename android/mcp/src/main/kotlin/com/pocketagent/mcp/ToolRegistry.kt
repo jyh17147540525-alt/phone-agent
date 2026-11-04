@@ -139,13 +139,53 @@ interface McpTool {
 }
 
 /**
+ * 一条工具**此刻**能不能用。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  ★ 为什么是"网关"而不是"过滤器"
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * 过滤器把不可用的工具从 `tools/list` 里**删掉**。听上去干净，实际很糟：
+ * 工具凭空消失时，模型不会认为"这条路被封了"，它会改去瞎猜参数、
+ * 或者拿另一条工具硬凑 —— 因为清单里没有任何线索告诉它"这里原来有什么"。
+ *
+ * ⇒ 这里的约定是：**工具留在清单里，但描述尾部挂一句"当前不可用 + 为什么"**，
+ *   真被调用时直接回 [ToolOutcome.Failed]（带同一个原因，附下一步怎么做）。
+ *
+ * ★ 网关是**纯 Kotlin**的：`blockReason` 返回一个字符串就够，
+ *   档位判定（`TierRouter`）留在 `:rootlogic`，两边不互相依赖 ——
+ *   `:mcp` 的纪律是零 android.* 依赖（见模块清单 PURE_KOTLIN）。
+ */
+fun interface ToolGate {
+
+    /** `null` = 允许；非 null = 不可用的原因（**要能直接给用户看**）。 */
+    fun blockReason(tool: String): String?
+
+    companion object {
+        /** 什么都不拦（默认；纯离线测试与无档位场景用它）。 */
+        val AllowAll: ToolGate = ToolGate { null }
+    }
+}
+
+/**
  * 工具注册表。
  *
  * 本期只有一个 `screen_read`，但表本身按"会有第二个"设计 ——
  * P3 的执行端工具（tap / swipe / launch_app）会直接往里加，
  * 不需要动服务器与分派器。
  */
-class ToolRegistry(tools: List<McpTool>) {
+class ToolRegistry(
+    tools: List<McpTool>,
+
+    /**
+     * 档位网关。
+     *
+     * ⚠️ 每次 `list` / `call` 都**现问**一次，不缓存：用户可能在任务跑到
+     *    一半时关掉无障碍、或者把 Magisk 的授权撤销 —— 缓存会把
+     *    "刚刚还有效的权限"继续当真，而那正是最容易误操作的时刻。
+     */
+    private val gate: ToolGate = ToolGate.AllowAll,
+) {
 
     init {
         // ⚠️ 重名在"注册表"这种结构里必须是**加载期错误**，不能是"后者覆盖前者"或
@@ -164,12 +204,28 @@ class ToolRegistry(tools: List<McpTool>) {
             for (tool in byName.values) {
                 addJsonObject {
                     put("name", tool.name)
-                    put("description", tool.description)
+                    put("description", descriptionWithAvailability(tool))
                     put("inputSchema", tool.inputSchema())
                 }
             }
         }
     }
+
+    /**
+     * 描述 + 可用性。
+     *
+     * ★ 不可用时**不删**，只在尾部追加一句 —— 理由见 [ToolGate] 的注释。
+     *   位置在最后：客户端/模型对描述前缀很敏感，动态内容必须放在
+     *   稳定前缀之后，否则每次开关权限都会让提示词前缀整体变化。
+     */
+    private fun descriptionWithAvailability(tool: McpTool): String {
+        val why = gate.blockReason(tool.name) ?: return tool.description
+        return tool.description + "\n\n⚠️ 当前不可用：" + why
+    }
+
+    /** 这条工具此刻被挡的原因；null = 可用。 */
+    fun blockReason(name: String): String? =
+        if (byName.containsKey(name)) gate.blockReason(name) else null
 
     /** 按名取工具；null = 未知工具（分派器回 `-32602`）。 */
     fun find(name: String): McpTool? = byName[name]

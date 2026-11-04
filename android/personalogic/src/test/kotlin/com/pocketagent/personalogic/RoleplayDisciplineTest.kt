@@ -22,32 +22,66 @@ class RoleplayDisciplineTest {
     private val section = RoleplayDiscipline.promptSection("主人")
 
     // ═══════════════════════════════════════════════════════════
-    //  ★ 禁止项必须写全
+    //  ★★ 这些句子**一个字都不许出现在提示词里**
     // ═══════════════════════════════════════════════════════════
+    //
+    // ⚠️ 2026-11-04 改动：原来是断言 contains（"必须把要禁的句子写出来"）。
+    //    那个写法是错的，而且错得很隐蔽 —— 它把"禁令"当成"提示词内容"钉住了。
+    //
+    //    证据：
+    //    · arXiv:2601.21433 —— 1–4B 模型在否定框定下把被禁动作的支持率
+    //      从 24% 抬到最高 100%（摆幅 76pp）；跨模型一致率 73%→59%。
+    //    · prompt-architects（引 Anthropic 原文）—— 禁令失效主因是欠指定；
+    //      治法：精确命名 + 说明什么来占位，然后**删掉禁令**。
+    //    · few-shot 另有叠加效应：混在范例里的反面样本也是范例。
+    //
+    // ⇒ 现在钉的是反面：**这些原句不许再进提示词**。
+    //   检测能力不受影响 —— [RoleplayDiscipline.inspect] 仍逐条命中。
+
+    private val nonPromptSentences = listOf(
+        "我不端着", "我这人就是嘴硬", "按我的性格",
+        "记账上了", "记你一笔", "信誉分", "额度用完了",
+        "我是 AI", "作为角色", "按设定我应该", "符合人设",
+        "心里有点失落",
+    )
 
     @Test
-    fun `禁掉念设定`() {
-        assertTrue("必须禁「我不端着」这类自述", section.contains("我不端着"))
-        assertTrue("必须禁「嘴硬」这类自评", section.contains("我这人就是嘴硬"))
+    fun `被禁的原句不进提示词`() {
+        for (line in nonPromptSentences) {
+            assertFalse(
+                "提示词里不许出现被禁的原句：「$line」—— 否定框定会把它读成肯定",
+                section.contains(line),
+            )
+        }
     }
 
     @Test
-    fun `禁掉念机制`() {
-        // ⚠️ "记账上了" 是用户亲口报的
-        assertTrue("必须禁「记账上了」", section.contains("记账上了"))
-        assertTrue("必须禁「信誉分」", section.contains("信誉分"))
+    fun `但检测器仍然认得出这些句子`() {
+        // 提示词里不写 ≠ 不检查。离线体检照旧逐条命中。
+        assertEquals(listOf("我不端着"), RoleplayDiscipline.inspect("我不端着，就是随便坐坐"))
+        assertEquals(listOf("记账"), RoleplayDiscipline.inspect("行，记账上了"))
+        assertTrue(RoleplayDiscipline.inspect("作为角色，我应该……").isNotEmpty())
     }
 
     @Test
-    fun `禁掉解释自己`() {
-        assertTrue(section.contains("我是 AI"))
-        assertTrue(section.contains("作为角色"))
-        assertTrue(section.contains("符合人设"))
+    fun `第四条情绪总结目前没有检测器`() {
+        // ⚠️ 已知缺口（2026-11-04 审计发现）：四条纪律里前三条都有
+        //    BANNED_IN_SPEECH / SELF_NARRATION_PATTERNS 兜底，
+        //    ④「别替自己的情绪下结论」只有提示词，没有任何离线检测。
+        //    钉住现状，免得以后误以为它是被检的。
+        assertTrue(
+            "如果哪天给 ④ 加了检测器，这条测试就该改成非空",
+            RoleplayDiscipline.inspect("我心里有点失落，但我不想表现出来").isEmpty(),
+        )
     }
 
     @Test
-    fun `禁掉总结自己的情绪`() {
-        assertTrue(section.contains("心里有点失落"))
+    fun `四类毛病都用形状描述`() {
+        // 不引用原句也得说清"禁的是哪一种写法"
+        assertTrue("① 自述脾气", section.contains("交代自己的脾气"))
+        assertTrue("② 后台名字", section.contains("后台那套名字"))
+        assertTrue("③ 解释自己", section.contains("不向对方解释自己是什么"))
+        assertTrue("④ 情绪总结", section.contains("不替自己的情绪下结论"))
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -313,10 +347,18 @@ class VoiceSamplesTest {
     }
 
     @Test
-    fun `有反面样例做对照`() {
-        assertTrue("必须有反面", s.contains("不是这样的"))
-        assertTrue("反面里要包含念性格", s.contains("我不端着"))
-        assertTrue("反面里要包含念系统", s.contains("记账上了"))
+    fun `写坏的样子只描述形状不引用原句`() {
+        // ⚠️ 2026-11-04：原来这里是 `has 反面样例` —— 要求把四句 AI 腔原样列出来。
+        //    few-shot 里的反面样本同时也是样本；否定框定还会把它读成肯定
+        //    （证据见 RoleplayDiscipline 类注释）。现在只查形状。
+        assertTrue("要点明「最容易写坏」这件事", s.contains("最容易写坏"))
+        assertTrue("① 自述脾气", s.contains("交代自己的脾气"))
+        assertTrue("② 后台名字", s.contains("后台的名字"))
+        assertTrue("③ 情绪结论", s.contains("给自己的情绪下结论"))
+        assertTrue("④ 身份声明", s.contains("拿身份当理由"))
+        for (banned in listOf("我不端着", "记账上了", "心里有点失落", "作为 的女仆")) {
+            assertFalse("反面样本里不许引用原句：「$banned」", s.contains(banned))
+        }
     }
 
     @Test

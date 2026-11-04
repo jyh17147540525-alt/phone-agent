@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    ── debug 专用清单 ──────────────────────────────────────────────
+
+    ⚠️ 这里只放**调试器材**。它们绝不能进 release 包。
+
+    历史（2026-11-04 审计）：`VirtualScreenProbeService` 原来声明在
+    `src/main/AndroidManifest.xml`，`exported="true"` 且没有权限，
+    内部用 `su` 抓任意 App 的帧。而工程根本没有 `src/debug` 源集，
+    所以那条声明会原样进 release —— 任何装了包的应用都能起它。
+    现在源码 + 声明都搬到 debug 源集，release 里这个组件不存在。
+
+    ⚠️ 仍然 `exported="true"`：它靠 adb 起（`am startservice`），
+    adb shell 的调用方不是本包，exported=false 会直接起不来。
+    debug 包里这个暴露面是**已知且可接受的**（开发机专用）。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+
+        <!--
+            ── 虚拟屏验证服务（临时器材，结论落地后删）──────────────
+
+            ⚠️ 用 **Service** 而不是 Activity：用户明确要求"验证也不能打扰主屏"。
+            用 Activity 做验证等于先把界面摆到用户眼前，本身就违反要求。
+
+            用 adb 起（不产生任何可见界面）：
+              am startservice -n com.pocketagent.debug/.assistant.VirtualScreenProbeService
+        -->
+        <service
+            android:name=".assistant.VirtualScreenProbeService"
+            android:exported="true"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="虚拟屏托管验证（不产生可见界面）" />
+        </service>
+
+    </application>
+
+</manifest>

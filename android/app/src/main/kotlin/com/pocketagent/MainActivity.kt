@@ -1,6 +1,8 @@
 package com.pocketagent
 
+import android.app.Activity
 import android.app.Application
+import android.app.Application.ActivityLifecycleCallbacks
 import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -49,6 +51,43 @@ class PocketAgentApp : Application() {
         //    然后手动点一次，而那一次恰好也会成功 —— 于是这个 bug
         //    **永远表现得像"没问题"**。
         container.restoreEnabledIntegrations()
+
+        // ★ 急停信号必须在**任何界面起来之前**就能收到。
+        //
+        //   用户按悬浮球的停时，应用可能正跑着任务、界面根本没起来；
+        //   注册晚一步，那一下按停就白按了 —— 而"急停没反应"是
+        //   最不能容忍的失效形态（用户以为停住了，它还在点屏）。
+        val stopSignals = container.installStopSignals()
+        if (!stopSignals) {
+            Timber.w("急停信号没装上 —— 本次运行不该显示「按停」入口")
+        }
+
+        // ★ 前台切换 → 占屏租约"让开"。
+        //
+        //   用**计数器**而不是每个 Activity 自己上报：只有"从有到无"那一下
+        //   才算用户离开了我们这个应用。按 Activity 上报的话，应用内跳页
+        //   也会触发一次让开，任务会被自己的页面切换打断。
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            private var started = 0
+
+            override fun onActivityStarted(activity: Activity) {
+                started += 1
+            }
+
+            override fun onActivityStopped(activity: Activity) {
+                started -= 1
+                if (started <= 0) {
+                    started = 0
+                    container.onForegroundLost()
+                }
+            }
+
+            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
+            override fun onActivityResumed(activity: Activity) = Unit
+            override fun onActivityPaused(activity: Activity) = Unit
+            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+            override fun onActivityDestroyed(activity: Activity) = Unit
+        })
     }
 }
 

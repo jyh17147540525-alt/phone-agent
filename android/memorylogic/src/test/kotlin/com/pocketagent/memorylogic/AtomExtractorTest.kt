@@ -314,10 +314,18 @@ class AtomPromptVoiceTest {
     }
 
     @Test
-    fun `给了正例与反例`() {
+    fun `只给正例，坏样子只描述形状`() {
         val p = prompt()
         assertTrue("必须给自然口吻的正例", p.contains("好："))
-        assertTrue("必须给公文腔的反例", p.contains("不许这样写"))
+        // ⚠️ 2026-11-04：原来钉的是 `contains("不许这样写")` —— 即要求把三句
+        //    公文腔原句写进提示词。那等于把要禁的 token 又注入一遍（否定框定）。
+        //    现在钉形状约束，并且钉住"原句不许回来"。
+        assertTrue("必须给出主语的硬要求：$p", p.contains("主语只有"))
+        assertTrue("必须要求一句只说一件事：$p", p.contains("一句话只说一件事"))
+        assertFalse("不许再把公文腔原句当反例写进去", p.contains("不许这样写"))
+        for (quoted in listOf("用户喜欢点外卖", "角色要求用户保持健康作息", "双方约定十一点前入睡")) {
+            assertFalse("反例原句不许出现在提示词里：「$quoted」", p.contains(quoted))
+        }
     }
 
     @Test
