@@ -2745,9 +2745,38 @@ class TasksViewModel(
                             //     "有关系没有提问"的孤儿回复（`TurnPairing` 配不成对），
                             //     历史在界面上就渲染不出来。
                             //     ⇒ 必须**先确认这个 id 真的存在且可写**，否则重新解析。
-                            val session = sessionId
-                                ?.takeIf { id -> runCatching { s.currentPath(id).isNotEmpty() }.getOrDefault(false) }
-                                ?: s.ensureSessionForNewMessage().id
+                            // ★★ 2026-11-05（真机报「工作模式里说的话出现在角色聊天里」）：
+                            //
+                            //   原来的写法是
+                            //     `sessionId?.takeIf { 它有消息 } ?: ensureSessionForNewMessage()`。
+                            //   两条路都会掉进**全局当前会话**，而在工作台那就是
+                            //   角色扮演那一条：
+                            //     ① 工作台刚建的空会话一条消息都没有 ⇒ takeIf 判 false ⇒ 掉下去
+                            //     ② VM 刚起、`sessionId` 还是 null（冷启动要等库打开）⇒ 直接掉下去
+                            //   于是「在工作台说的第一句话」被写进了角色的对话历史 ——
+                            //   正是用户看到的现象，而且**第一句必中**，不是偶发竞态。
+                            //
+                            //   ⇒ 工作台**只认自己那本账**（容器的 KEY_WORK_SESSIONS），
+                            //     一次都不许问"全局当前会话是谁"。
+                            //
+                            //   ⚠️ `dedicatedTitle` 是属性，在 lambda 里不被智能转型
+                            //      （这条以前踩过一次）⇒ 先取局部 val。
+                            val base = dedicatedTitle
+                            val session = if (base == null) {
+                                sessionId
+                                    ?.takeIf { id -> runCatching { s.currentPath(id).isNotEmpty() }.getOrDefault(false) }
+                                    ?: s.ensureSessionForNewMessage().id
+                            } else {
+                                sessionId ?: run {
+                                    val existing = workSessions()
+                                    val mine = s.recentSessions(AgentTaskUi.SESSION_LIST_LIMIT)
+                                        .firstOrNull { it.id in existing }
+                                    mine?.id ?: s.newSession().also { ns ->
+                                        s.renameSession(ns.id, workSessionTitle(base, existing.size))
+                                        rememberWorkSession(ns.id)
+                                    }.id
+                                }
+                            }
                             sessionId = session
                             // ══════════════════════════════════════════════
                             //  ★★ 2026-10-26 修的上下文断裂 bug
@@ -2871,6 +2900,12 @@ class TasksViewModel(
                         // ★★ 2026-11-04 晚：模式随调用走 —— 同一个端口，
                         //   聊天页传 ROLEPLAY、工作台传 WORK。
                         mode = mode,
+                        // ★★ 2026-11-05：会话也随调用走。
+                        //   端口里原来有一处 `currentSession()`（记忆抽取调度），
+                        //   那是**全局上次打开的那个会话** —— 在工作台里就是
+                        //   角色扮演那一条。上面刚落库到工作台自己的会话，
+                        //   这里又问一遍全局，等于两个答案各干一半。
+                        sessionId = sessionId,
                         onStep = { step, desc, tier ->
                             update(taskId) {
                                 it.copy(

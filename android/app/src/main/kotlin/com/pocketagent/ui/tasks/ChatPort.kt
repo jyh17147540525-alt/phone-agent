@@ -164,6 +164,21 @@ interface ChatPort {
          */
         mode: com.pocketagent.personalogic.ChatMode =
             com.pocketagent.personalogic.ChatMode.ROLEPLAY,
+
+        /**
+         * **这一轮写进哪个会话**。
+         *
+         * ★★ 2026-11-05：用户报「工作模式里说的话出现在角色聊天里」。
+         *
+         * 根因不止一处：界面上落库用的是它自己那个 `sessionId`，而这个端口
+         * 在调度记忆抽取时**又问了一遍全局当前会话** —— 于是同一轮里，
+         * 消息记在 A 会话、抽取却读 B 会话。工作台和角色扮演同时存在时，
+         * 一方便宜另一方就吃亏。
+         *
+         * ⇒ 端口不再猜：调用方知道自己写在哪儿，就传进来。
+         *   null = 调用方也不知道（预览、测试），此时才退回全局解析。
+         */
+        sessionId: String? = null,
     ): ChatResult
 }
 
@@ -283,6 +298,8 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
          */
         forceAct: Boolean,
         mode: com.pocketagent.personalogic.ChatMode,
+        /** 见接口侧同名参数（2026-11-05：端口不再猜"写进哪个会话"）。 */
+        sessionId: String?,
     ): ChatResult {
         // ── ⓪ 用户重新开口 ⇒ 解除上一轮的「按停」 ────────────────
         //
@@ -705,6 +722,25 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
             //   ⚠️ 用 `chat-<时间戳>` 而不是固定的 "chat"：
             //      固定 id 会让**每一轮**都覆盖同一份检查点，
             //      于是"恢复上次任务"永远只能恢复最后一轮。
+            // ★★ 2026-11-05：检查点里的「计划步数」曾经写死成一条 —— 真机崩溃栈：
+            //
+            //   IllegalArgumentException: completedSteps(2) 不能超过计划步数(1)
+            //     at TaskCheckpoint.<init>(TaskCheckpoint.kt:117)
+            //     at ContainerChatPort$send$…(ChatPort.kt:753)
+            //
+            // 根因：`plannedActions = listOf(snap.action)` **恒为 1 条**，
+            // 而 `completedSteps = snap.step` 会一路涨到 2、3……
+            // 撞上 `TaskCheckpoint.init` 里那句
+            // `require(completedSteps <= plannedActions.size)`。
+            //
+            // ⚠️ 它为什么直到今天才炸：`save` 跑在 `launch` 里，
+            //    异常不在 `catch (e: Exception)` 的范围内 —— 没有被转成
+            //    "这一轮失败"，而是**直接带走进程**。角色扮演里很少真动手
+            //    （纯聊天走 `chatOnly`，根本不进这个循环），所以这颗雷一直没响；
+            //    工作模式强制 `TurnIntent.Act` 之后，第一次干活就踩了。
+            //
+            // ⇒ 按顺序把**真跑过的动作名**攒起来，长度与步数对齐。
+            var actedActions: List<String> = emptyList()
             val taskId = finishedTaskId
             val result = loop.run(
                 PhoneTask(
@@ -748,22 +784,45 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                         lastPerceptionTier = snap.perceptionTier
                         lastPerceptionReason = snap.perceptionReason
                     }
+                    // 长度对齐：重规划时 `step` 可能一次跳好几步，
+                    // 用当前动作补齐 —— 让 `completedSteps` 与
+                    // `plannedActions.size` 恒等（见上面 actedActions 的注释）。
+                    actedActions = com.pocketagent.agentlogic.CheckpointActions.record(
+                        previous = actedActions,
+                        completedSteps = snap.step,
+                        action = snap.action,
+                    )
+                    val plannedActions = actedActions
                     container.checkpointScope.launch {
-                        container.checkpointStore.save(
-                            com.pocketagent.agentlogic.TaskCheckpoint(
-                                taskId = taskId,
-                                userInput = userText,
-                                completedSteps = snap.step,
-                                replanCount = 0,
-                                // ⚠️ `plannedActions` 存**动作枚举名**而不是序号
-                                //    （理由见 TaskCheckpoint 的注释：枚举增删会让
-                                //    序号指向另一个动作）。
-                                plannedActions = listOf(snap.action),
-                                usage = snap.usage,
-                                savedAtMs = System.currentTimeMillis(),
-                                finished = false,
-                            ),
-                        )
+                        // ★★ 2026-11-05：这层 runCatching 是**必须**的，不是保险。
+                        //
+                        //   真机崩溃时看到的是「检查点参数不合法」，
+                        //   但真正让应用消失的是**异常所在的位置**：
+                        //   `launch` 里抛出的异常不会回到 `send` 的
+                        //   `catch (e: Exception)`，而是走
+                        //   CoroutineExceptionHandler → 直接杀进程。
+                        //
+                        //   换句话说：这里以前**任何**一次落盘失败
+                        //   （磁盘满、库被锁、序列化出问题）都能把用户
+                        //   正在干的活连人带手机一起带走。而落盘失败最多
+                        //   让"中断后接着来"变旧一点 —— 那是可接受的损失。
+                        runCatching {
+                            container.checkpointStore.save(
+                                com.pocketagent.agentlogic.TaskCheckpoint(
+                                    taskId = taskId,
+                                    userInput = userText,
+                                    completedSteps = plannedActions.size,
+                                    replanCount = 0,
+                                    // ⚠️ `plannedActions` 存**动作枚举名**而不是序号
+                                    //    （理由见 TaskCheckpoint 的注释：枚举增删会让
+                                    //    序号指向另一个动作）。
+                                    plannedActions = plannedActions,
+                                    usage = snap.usage,
+                                    savedAtMs = System.currentTimeMillis(),
+                                    finished = false,
+                                ),
+                            )
+                        }.onFailure { Timber.w(it, "检查点落盘失败（不影响任务）") }
                     }
                 },
             )
@@ -857,7 +916,8 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
 
             //  完全异步（`scheduleMemoryAbsorb` 内部 launch），不拖慢这一轮。
             runCatching {
-                val sid = container.conversationRepository()
+                // ★ 优先用调用方传进来的会话 —— 见 `send` 的 `sessionId` 参数。
+                val sid = sessionId ?: container.conversationRepository()
                     ?.currentSession()?.id
                 if (sid != null) container.scheduleMemoryAbsorb(sid)
             }.onFailure { Timber.w(it, "记忆抽取调度失败（不影响对话）") }

@@ -38,6 +38,7 @@ object DaemonHandlers {
         RootVerb.SETTINGS to { body -> guarded { settings(runner, body) } },
         RootVerb.QUERY to { body -> guarded { query(runner, body) } },
         RootVerb.EXEC to { body -> guarded { exec(runner, body) } },
+        RootVerb.DISPLAY to { body -> guarded { display(runner, body) } },
     )
 
     /**
@@ -196,6 +197,23 @@ object DaemonHandlers {
         "com.android.settings",
         "com.android.phone",
     )
+
+    // ── DISPLAY（虚拟屏）────────────────────────────────────────────────
+
+    /**
+     * 把目标 App 拉到副屏、在副屏上点、抓副屏画面。
+     *
+     * ⚠️ 这三条命令**不是 root 专属**：shell（uid 2000，例如经无线调试配对后
+     *    的 `app_process`）同样能跑。所以通道的 PROBE 结果要能被上层区分
+     *    "root / shell / 都不是"，别把 shell 直接判成不可用。
+     *
+     * ⚠️ display id 0 是**用户主屏**，一律拒绝 —— 往那儿拉 App 等于把用户的手机抢走。
+     */
+    private fun display(runner: LocalRunner, body: ByteArray): DaemonLoop.WireReply {
+        val argv = decode(body) ?: return refused(BAD_ARGV)
+        val command = DisplayCommands.fromProtocol(argv)
+        return reply(runner.run(command, DUMP_TIMEOUT_MS))
+    }
 
     // ── 共用校验 ─────────────────────────────────────────────────────────
 

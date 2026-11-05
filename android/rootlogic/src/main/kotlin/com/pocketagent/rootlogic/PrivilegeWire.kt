@@ -199,6 +199,15 @@ enum class RootVerb(val wire: Int) {
     /** 受范围与速率约束的网络探测。目标必须过 `ScopeGuard`。 */
     PROBE(7),
 
+    /**
+     * 虚拟屏操作：`launch` / `input` / `capture`。
+     *
+     * ★ 为什么建屏与收屏不在这里：`VirtualDisplay` 是应用自己的对象，
+     *   交给通道反而要额外找它，而且应用被回收后会留下没人负责的屏。
+     *   这里只做"把别的 App 拉进去、在那块屏上点、把画面抓回来"这三件。
+     */
+    DISPLAY(9),
+
     /** 执行一条**已在白名单里**的系统命令（argv 形式，不经 shell）。 */
     EXEC(8),
     ;
