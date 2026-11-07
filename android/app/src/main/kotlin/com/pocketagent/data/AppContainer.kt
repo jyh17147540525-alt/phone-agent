@@ -4410,6 +4410,20 @@ class AppContainer(context: Context) {
                 userAddress = userAddr,
             )
         }
+        // ★★ 2026-11-06：**角色的边界** —— 她知道什么、遇到特定的事怎么反应、
+        //    开口之前心里怎么走。以前这三块全空着（提示词只写了她是谁、
+        //    记得什么、怎么说话），见 `docs/工程/角色扮演论文-依据-2026-11-06.md` §3 缺口 2、3。
+        //
+        // ⚠️ 只传空 known：角色专有事实在用户的自定义人格里，代码里没有，
+        //    这里也不该有 —— 这条规则靠"上下文里没写就是不知道"自洽，
+        //    对任何人格都成立。写死任何鲸鱼娘的事，等于把这一层锁死在一个人格上。
+        // ⚠️ 排在 `discipline` 之后、`voiceSamples` 之前：规矩先立，
+        //    最后一屏仍然是活人怎么说话（示范永远待在末位）。
+        val edge = if (work) {
+            ""
+        } else {
+            com.pocketagent.personalogic.CharacterEdge.promptSection()
+        }
         // ★★ 2026-11-03：**示例对话** —— 比禁令管用得多
         //
         // ⚠️ 调研结论：设定写得越"临床"，模型越认为那种腔调是正常输出。
@@ -4432,8 +4446,14 @@ class AppContainer(context: Context) {
         val clueSection = if (clues.isEmpty()) {
             ""
         } else {
-            "## 她身体上此刻的事\n" + clues.joinToString("\n") { "- $it" } +
-                "\n说得自然一点，不要逐条汇报。"
+            // ★ 2026-11-06：去掉 `- ` 列表符（第七批漏网的那一处）。
+            //   提示词的排版会被照着学：给三条 bullet，它就回三条 bullet，
+            //   而这一段要的恰恰是"别逐条汇报"。改成一句一行，靠换行分隔。
+            buildString {
+                appendLine("## 她身体上此刻的事")
+                for (clue in clues) appendLine(clue)
+                append("说得自然一点，不要逐条汇报。")
+            }
         }
         val withClues0 = if (clueSection.isBlank()) withHuman else withHuman + "\n\n" + clueSection
         // ★★ 2026-11-04：**工作纪律** —— 只在工作模式出现。
@@ -4456,7 +4476,7 @@ class AppContainer(context: Context) {
             .promptSection(permission, workspaceName)
         val withClues = buildString {
             append(withClues0)
-            for (section in listOf(discipline, voiceSamples, workRules, permissionRules)) {
+            for (section in listOf(discipline, edge, voiceSamples, workRules, permissionRules)) {
                 if (section.isNotBlank()) append("\n\n").append(section)
             }
         }
@@ -4468,10 +4488,11 @@ class AppContainer(context: Context) {
         //    ⇒ 每次组装都记一行，下次对话就能核对。
         runCatching {
             Timber.i(
-                "提示词装配：%d 字｜模式 %s｜纪律段 %s｜工作纪律 %s｜示例对话 %s｜生理线索 %s｜世界书 %d 条",
+                "提示词装配：%d 字｜模式 %s｜纪律段 %s｜角色边界 %s｜工作纪律 %s｜示例对话 %s｜生理线索 %s｜世界书 %d 条",
                 withClues.length,
                 mode.label,
                 if (discipline.isNotBlank()) "有(${discipline.length}字)" else "无",
+                if (edge.isNotBlank()) "有(${edge.length}字)" else "无",
                 if (workRules.isNotBlank()) "有(${workRules.length}字)" else "无",
                 if (voiceSamples.isNotBlank()) "有(${voiceSamples.length}字)" else "无",
                 if (clueSection.isNotBlank()) "有" else "无",

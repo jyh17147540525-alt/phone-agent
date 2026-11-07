@@ -212,10 +212,13 @@ class WorldBook(
         val picked = select(query)
         if (picked.isEmpty()) return ""
         return buildString {
+            // ★ 2026-11-06：去掉「以下是…」（元话语）与每条前面的 `- `（列表符）。
+            //   设定是"她本来就记得的事实"，念成清单就成了数据库导出。
+            //   依据 docs/工程/提示词文风-学术依据-2026-11-06.md。
             appendLine("## 这个世界的设定")
-            appendLine("以下是既成事实，不要与之矛盾，也不要主动复述。")
+            appendLine("这些是既成事实，别与之矛盾，也不要主动复述。")
             for (e in picked) {
-                append("- ").appendLine(e.content)
+                appendLine(e.content)
             }
         }.trimEnd()
     }

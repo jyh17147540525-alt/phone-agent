@@ -138,15 +138,15 @@ object Humanizer {
         val targeted = findings.distinctBy { it.code }.mapNotNull { f ->
             when (f.code) {
                 Code.STRUCTURED ->
-                    "- **不要分点、不要小标题、不要加粗**。你在发微信，不是在写报告。"
+                    "你在发微信，不是写报告。别分点，别加小标题，别加粗。"
                 Code.SERVICE_TAIL ->
-                    "- 结尾**不要**问「还有什么需要」「还有别的吗」。说完就停。"
+                    "说完就停。不问「还有什么需要」「还有别的吗」。"
                 Code.CATCHPHRASE_LOOP ->
-                    "- 你最近老用同一句话。换一种说法，哪怕说得笨一点。"
+                    "你最近老用同一句话。换一种说法，哪怕说得笨一点。"
                 Code.FLAT_LENGTH ->
-                    "- 你的回复长度太均匀了。有时候一个字就够（「嗯」「哦」），有时候多说两句。"
+                    "回复长度太均匀了。有时候一个字就够，有时候多说两句。"
                 Code.SELF_NARRATION ->
-                    "- **不要**解释你为什么这么说。人不会给自己的话加旁白。"
+                    "不解释你为什么这么说。人不会给自己的话加旁白。"
                 // 关系推进不靠单句禁令，见下面那段
                 Code.STUCK_RELATION -> null
             }
@@ -154,16 +154,20 @@ object Humanizer {
         val stuck = findings.any { it.code == Code.STUCK_RELATION }
         if (targeted.isEmpty() && !stuck) return ""
 
+        // ★ 2026-11-06：这一段原来每条都带 `- ` 与 `**加粗**`，还带「（这一轮请特别注意）」
+        //   这种元话语。提示词自己的排版会被照着学，所以全部去掉 —— 只留句子本身。
+        //   约束（测试钉着）：只在 SERVICE_TAIL 时不得出现「不要分点」与「旁白」；
+        //   「说完就停」全段只出现一次。
         return buildString {
-            appendLine("## 说话方式（这一轮请特别注意）")
+            appendLine("## 说话方式")
             targeted.forEach { appendLine(it) }
             if (stuck) {
                 appendLine(
-                    "- 你们聊了有一阵子了，关系不该还停在「${stage.label}」。" +
+                    "你们聊了有一阵子了，关系不该还停在「${stage.label}」。" +
                         "该有的熟络、该开的玩笑、该有的不用解释的默契，都可以有了。",
                 )
             }
-            append("- 长度：${verbosity.promptHint}")
+            append("长度：${verbosity.promptHint}")
         }.trimEnd()
     }
 

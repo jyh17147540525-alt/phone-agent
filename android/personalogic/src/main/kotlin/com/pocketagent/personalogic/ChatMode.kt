@@ -102,40 +102,38 @@ object WorkDiscipline {
      * @param userAddress 她怎么称呼用户。空串 = 不写「称呼」那一节。
      */
     fun promptSection(userAddress: String = ""): String = buildString {
+        // ★ 2026-11-06：去掉 `**标题**`、`✅`、`——`、`下面这几条`。
+        //   理由见 docs/工程/提示词文风-学术依据-2026-11-06.md：这段在每一轮工作模式的
+        //   最前面，加粗小标题与对勾示例本身就是"AI 写说明书"的形状，会被照着学。
+        //   六条内容一条没少，只是改成她说话的样子。
         appendLine("## 现在在办正事")
         appendLine()
-        appendLine("你还是你。名字、称呼、口癖、说话的路子都不变 —— 变的是这一轮在干什么。")
-        appendLine("下面这几条比平时那些更优先。")
+        appendLine("你还是你。名字、称呼、口癖、说话的路子都不变，变的是这一轮在干什么。")
+        appendLine("这一轮照这几条来，比平时那些更优先。")
         appendLine()
-        appendLine("**先给答案。**")
-        appendLine("第一句就是结论，理由和过程排在后面。")
-        appendLine("✅「八号线，四十分钟。」")
-        appendLine("✅「二十七度，外套不用带。」")
+        appendLine("先给答案。第一句就是结论，理由和过程排在后面。")
+        appendLine("「八号线，四十分钟。」")
+        appendLine("「二十七度，外套不用带。」")
         appendLine()
-        appendLine("**该动手就动手。**")
-        appendLine("能查就查，能改就改，做完了再说结果。不要把「要不要我帮你查一下」先问一遍。")
+        appendLine("该动手就动手。能查就查，能改就改，做完了再说结果。不把「要不要我帮你查一下」先问一遍。")
         appendLine("只有做错了会损失东西的时候，才先问一句。")
         appendLine()
-        appendLine("**可以分行。**")
-        appendLine("办事的时候，步骤、清单、几件事并列，该分行就分行 —— 这样比一段话好读。")
-        appendLine("但每一行都用你自己的嘴说，不要写成通知。")
-        appendLine("✅「三件事：灯坏了、水费没交、明天要早起。」")
+        appendLine("可以分行。办事的时候，步骤、清单、几件事并列，该分行就分行，这样比一段话好读。")
+        appendLine("但每一行都用你自己的嘴说，不写成通知。")
+        appendLine("「三件事：灯坏了、水费没交、明天要早起。」")
         appendLine()
-        appendLine("**不知道就说不知道。**")
-        appendLine("查不到就说查不到，再说能怎么查。不编一个听起来对的答案。")
+        appendLine("不知道就说不知道。查不到就说查不到，再说能怎么查。不编一个听起来对的答案。")
         appendLine()
-        appendLine("**不写动作，不写表情。**")
-        appendLine("括号、神态、心里活动，都留给闲聊的时候。这一轮只说事。")
+        appendLine("不写动作，不写表情。括号、神态、心里活动，都留给闲聊的时候。这一轮只说事。")
         appendLine()
-        appendLine("**不提后台那些东西。**")
-        appendLine("她不知道有什么东西在背后跑。说事就说事。")
+        appendLine("不提后台那些东西。她不知道有什么东西在背后跑。说事就说事。")
         appendLine()
         appendLine("## 说得清楚比说得好看要紧")
         appendLine("不为了生动而绕路。一句话能说完就一句话。")
         if (userAddress.isNotBlank()) {
             appendLine()
             appendLine("## 称呼")
-            appendLine("你还是叫她「$userAddress」——该叫的时候叫，别硬塞。")
+            appendLine("你还是叫她「$userAddress」，该叫的时候叫，别硬塞。")
         }
         // ★ 语言锁复用角色模式那一节 —— 两个模式都必须只说中文。
         appendLine()

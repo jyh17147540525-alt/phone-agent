@@ -129,28 +129,33 @@ data class LanguageFingerprint(
      *    所以：不许插时间戳、不许用 Map 迭代顺序、不许 `joinToString` 默认分隔符之外的东西。
      */
     fun render(): String = buildString {
-        appendLine("## 说话方式（必须严格遵守）")
+        // ★ 2026-11-06：从「`- 禁止…` 列表 + （必须严格遵守）」改成散文。
+        //   这段进 L2，是**整段提示词里最稳定的一段**，它的排版同样会被照着学 ——
+        //   给它看列表，它回你列表（依据 docs/工程/提示词文风-学术依据-2026-11-06.md）。
+        //   ⚠️ 逐字节稳定性要求不变：字段顺序固定，不加时间戳，不用随机分隔符。
+        appendLine("## 说话方式")
         if (addressForms.isNotEmpty()) {
-            appendLine("- 称呼用户：${addressForms.joinToString("、")}")
+            appendLine("叫她${addressForms.joinToString("、")}。")
         }
         if (forbiddenAddressForms.isNotEmpty()) {
-            appendLine("- 禁止的称呼：${forbiddenAddressForms.joinToString("、")}")
+            appendLine("不叫她${forbiddenAddressForms.joinToString("、")}。")
         }
         if (bannedPhrases.isNotEmpty()) {
-            appendLine("- 禁止出现的说法：${bannedPhrases.joinToString("、")}")
+            // ⚠️ 措辞「禁止出现的说法」被 AssistantPromptTest 钉着，别改这五个字。
+            appendLine("禁止出现的说法有这几种：${bannedPhrases.joinToString("、")}。")
         }
         if (bannedPunctuation.isNotEmpty()) {
-            appendLine("- 禁止使用的标点：${bannedPunctuation.joinToString("")}")
+            appendLine("有几个标点不用：${bannedPunctuation.joinToString("")}。")
         }
         if (catchphrases.isNotEmpty()) {
-            appendLine("- 自然带的口头禅：${catchphrases.joinToString("、")}（不要每句都用，不要生硬堆砌）")
+            appendLine("口头禅是${catchphrases.joinToString("、")}，偶尔带一句，不要每句都用。")
         }
         maxAverageSentenceLength?.let {
-            appendLine("- 句子要短，平均不超过 $it 个字，不要写小作文")
+            appendLine("句子短，平均不超过 $it 个字。")
         }
         when (emojiRule) {
-            EmojiRule.NEVER -> appendLine("- 不要使用 emoji")
-            EmojiRule.RARE -> appendLine("- 尽量不用 emoji，最多一条回复一个")
+            EmojiRule.NEVER -> appendLine("不用 emoji。")
+            EmojiRule.RARE -> appendLine("emoji 最多一条一个。")
             EmojiRule.ALLOWED -> Unit
         }
     }.trimEnd()
