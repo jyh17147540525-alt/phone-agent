@@ -38,6 +38,9 @@ object DisplayCommands {
     /** 上限：真实设备上副屏 id 不会超过这个量级，超了说明参数错了。 */
     const val MAX_DISPLAY_ID = 99
 
+    /** 包名：至少两段，和 `am`/`pm` 的接受范围一致。 */
+    private val PACKAGE = Regex("""^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z0-9_]+)+$""")
+
     /** `包名/类名`。类名允许 `$`（内部类）与前导点（`.MainActivity`）。 */
     private val COMPONENT = Regex("""^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z0-9_]+)+/[a-zA-Z0-9_.$]+$""")
 
@@ -62,6 +65,19 @@ object DisplayCommands {
             throw UnsafeRootArgument("副屏 id（$MIN_DISPLAY_ID–$MAX_DISPLAY_ID，0 是用户主屏）", raw)
         }
         return value
+    }
+
+    /**
+     * 把副屏上的 App 停掉。
+     *
+     * ⚠️ 这一步**必须在收屏之前**：直接 release 虚拟屏，系统会把上面的 Task
+     *    **挪回主屏全屏**，用户会看到应用自己蹦到脸前（真机 2026-10-27 实测）。
+     */
+    fun forceStop(packageName: String): List<String> {
+        if (!PACKAGE.matches(packageName)) {
+            throw UnsafeRootArgument("包名", packageName)
+        }
+        return listOf("am", "force-stop", packageName)
     }
 
     /** 把目标 App 拉到副屏。 */
@@ -145,7 +161,12 @@ object DisplayCommands {
                 if (argv.size != 3) throw UnsafeRootArgument("capture 参数（副屏 id 路径）", argv.drop(1).joinToString(" "))
                 capture(displayId(argv[1]), argv[2])
             }
-            else -> throw UnsafeRootArgument("display 子命令（launch/input/capture）", argv[0])
+            // 收屏之前必须先停 App：直接 release 虚拟屏，系统会把 Task 挪回主屏
+            "stop" -> {
+                if (argv.size != 2) throw UnsafeRootArgument("stop 参数（包名）", argv.drop(1).joinToString(" "))
+                forceStop(argv[1])
+            }
+            else -> throw UnsafeRootArgument("display 子命令（launch/input/capture/stop）", argv[0])
         }
     }
 

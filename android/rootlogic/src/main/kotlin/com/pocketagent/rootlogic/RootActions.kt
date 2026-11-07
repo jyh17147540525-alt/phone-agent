@@ -64,6 +64,20 @@ sealed interface RootAction {
 
     /** 白名单里的只读查询（`dumpsys` / `pm list` / `ls` …）。 */
     data class Query(val argv: List<String>) : RootAction
+
+    // ── 虚拟屏（shell 或 root 都能跑；参数由 [DisplayCommands] 白名单校验）──
+
+    /** 把 App 拉到副屏。 */
+    data class DisplayLaunch(val displayId: Int, val component: String) : RootAction
+
+    /** 在副屏上点一下。 */
+    data class DisplayTap(val displayId: Int, val x: Int, val y: Int) : RootAction
+
+    /** 抓副屏画面。 */
+    data class DisplayCapture(val displayId: Int, val path: String) : RootAction
+
+    /** 停掉副屏上的 App。**收屏之前必须做**，否则 Task 会被挪回主屏。 */
+    data class DisplayStop(val packageName: String) : RootAction
 }
 
 /** `settings` 的三个命名空间 —— 写错一个就是"改了但没生效"。 */
@@ -200,6 +214,20 @@ object RootCommands {
 
         RootAction.Probe -> "id"
 
+        // 虚拟屏这四条：数组元素全是白名单校验过的（组件名/数字/绝对路径），
+        // 里面不可能出现空格，所以拼成字符串交给 `su -c` 不会改变语义。
+        is RootAction.DisplayLaunch ->
+            DisplayCommands.launch(action.displayId, action.component).joinToString(" ")
+        is RootAction.DisplayTap ->
+            DisplayCommands.input(
+                action.displayId,
+                listOf("tap", coord("x", action.x), coord("y", action.y)),
+            ).joinToString(" ")
+        is RootAction.DisplayCapture ->
+            DisplayCommands.capture(action.displayId, action.path).joinToString(" ")
+        is RootAction.DisplayStop ->
+            DisplayCommands.forceStop(action.packageName).joinToString(" ")
+
         is RootAction.Query -> {
             if (action.argv.isEmpty()) throw UnsafeRootArgument("查询", "空")
             if (action.argv.size > 8) throw UnsafeRootArgument("查询", "参数过多")
@@ -222,6 +250,10 @@ object RootCommands {
         is RootAction.SetProp -> "prop.set"
         is RootAction.GetProp -> "shell.root"
         is RootAction.ReadFile -> "file.any"
+        // 虚拟屏上的点按仍是"点屏幕"；抓帧仍是"读屏"；停 App 是最重的那一类
+        is RootAction.DisplayLaunch, is RootAction.DisplayTap -> "screen.tap"
+        is RootAction.DisplayCapture -> "screen.read"
+        is RootAction.DisplayStop -> "shell.root"
         RootAction.Probe, is RootAction.Query -> "shell.root"
     }
 }

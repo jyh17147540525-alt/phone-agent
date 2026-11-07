@@ -215,14 +215,19 @@ class DaemonHandlersTest {
     // ── PROBE / PING ─────────────────────────────────────────────────────
 
     @Test
-    fun `探活看到 uid 零才算可用`() {
+    fun `探活报告身份，root 与 shell 都算可用`() {
         val root = Recorder(ShellResult(0, "uid=0(root) gid=0(root)", ""))
-        val reply = invoke(root, RootVerb.PROBE, emptyList())
-        assertTrue(reply is DaemonLoop.WireReply.Ok)
+        assertTrue(invoke(root, RootVerb.PROBE, emptyList()) is DaemonLoop.WireReply.Ok)
 
-        val notRoot = Recorder(ShellResult(0, "uid=2000(shell)", ""))
-        val refused = invoke(notRoot, RootVerb.PROBE, emptyList())
-        assertTrue("不是 root 就该拒绝，而不是假装可用", refused is DaemonLoop.WireReply.Refused)
+        // shell 是虚拟屏那条路唯一的身份；在这里挡掉它，"免 root 也能不占屏干活"就不成立
+        val shell = Recorder(ShellResult(0, "uid=2000(shell) gid=2000(shell)", ""))
+        assertTrue(invoke(shell, RootVerb.PROBE, emptyList()) is DaemonLoop.WireReply.Ok)
+
+        val neither = Recorder(ShellResult(0, "uid=10123(u0_a123)", ""))
+        assertTrue(
+            "既不是 root 也不是 shell 才算不可用",
+            invoke(neither, RootVerb.PROBE, emptyList()) is DaemonLoop.WireReply.Refused,
+        )
     }
 
     @Test

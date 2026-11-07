@@ -58,15 +58,23 @@ object DaemonHandlers {
 
     // ── PROBE ────────────────────────────────────────────────────────────
 
+    /**
+     * 报告通道进程的身份。
+     *
+     * ⚠️ 这里**不判"够不够用"**，只报告。原因：够不够用取决于要干什么 ——
+     *    shell（uid 2000）改不了系统设置，但虚拟屏那套（`am start --display` /
+     *    `input -d` / `screencap -d`）完全够用。在这里一刀切会把 shell 挡死，
+     *    而那正是"免 root 也能不占屏干活"的唯一一条路。
+     */
     private fun probe(runner: LocalRunner): DaemonLoop.WireReply {
         val result = runner.run(listOf("id"), DEFAULT_TIMEOUT_MS)
         if (result.code != 0) return refused("探活失败（退出码 ${result.code}）")
         val identity = result.stdout.trim()
-        // 不是 root 就别装作通道可用：调用方据此退回 su 那条路。
-        return if (identity.contains("uid=0")) {
-            DaemonLoop.WireReply.Ok(0, identity, "")
-        } else {
-            refused("通道进程不是 root（$identity）")
+        return when (ProbeIdentity.parse(identity)) {
+            PrivilegeIdentity.ROOT, PrivilegeIdentity.SHELL ->
+                DaemonLoop.WireReply.Ok(0, identity, "")
+            PrivilegeIdentity.NONE ->
+                refused("通道进程既不是 root 也不是 shell（$identity）")
         }
     }
 

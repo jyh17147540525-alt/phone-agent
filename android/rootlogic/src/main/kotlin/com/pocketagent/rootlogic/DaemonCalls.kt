@@ -97,6 +97,21 @@ object DaemonCalls {
 
         is RootAction.Probe -> DaemonCall(RootVerb.PROBE, emptyList())
 
+    // ★ 虚拟屏走独立的 DISPLAY 动词，不复用 INJECT/CAPTURE：
+    //   它们的参数形状不同（多一个 display id），混成一个动词会让服务端难以分辨
+    //   "点主屏"和"点副屏"——而这两者的后果差一整块屏幕。
+    is RootAction.DisplayLaunch ->
+        DaemonCall(RootVerb.DISPLAY, listOf("launch", action.component, action.displayId.toString()))
+    is RootAction.DisplayTap ->
+        DaemonCall(
+            RootVerb.DISPLAY,
+            listOf("input", action.displayId.toString(), "tap", action.x.toString(), action.y.toString()),
+        )
+    is RootAction.DisplayCapture ->
+        DaemonCall(RootVerb.DISPLAY, listOf("capture", action.displayId.toString(), action.path))
+    is RootAction.DisplayStop ->
+        DaemonCall(RootVerb.DISPLAY, listOf("stop", action.packageName))
+
         is RootAction.Query -> DaemonCall(
             RootVerb.QUERY,
             listOf(RootCommands.safeToken("查询首词", action.argv.firstOrNull() ?: "")) +
