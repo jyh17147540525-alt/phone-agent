@@ -1,6 +1,8 @@
 package com.pocketagent.assistant
 
 import com.pocketagent.agentlogic.orchestration.Expectation
+import com.pocketagent.agentlogic.orchestration.LimitSignals
+import com.pocketagent.agentlogic.orchestration.StepEffect
 import com.pocketagent.agentlogic.orchestration.PlannedStep
 import com.pocketagent.agentlogic.orchestration.ScreenDigest
 import com.pocketagent.agentlogic.orchestration.ScreenDigestJson
@@ -65,8 +67,24 @@ class McpStepRunner(
             is ToolOutcome.Refused -> StepOutcomeReport(StepStatus.REFUSED, outcome.reason)
             is ToolOutcome.Failed -> StepOutcomeReport(StepStatus.FAILED, outcome.reason)
             is ToolOutcome.Success -> {
-                val digest = digestFor(step, outcome)
-                StepOutcomeReport(StepStatus.DONE, outcome.text.summarize(), digest)
+                val digest = digestFor(step, outcome, spec.needsScreen)
+                val limit = LimitSignals.match(digest)
+                val unmet = step.expect.unmetOn(digest)
+                val effect = when {
+                    // 限额优先：这时连"验收没过"都不重要了，重试一定没用
+                    limit != null -> StepEffect.LIMIT_REACHED
+                    digest == null && step.expect != Expectation.None -> StepEffect.TREE_BLIND
+                    unmet != null -> StepEffect.NO_EFFECT
+                    digest == null && spec.needsScreen -> StepEffect.TREE_BLIND
+                    else -> StepEffect.EFFECT
+                }
+                val detail = when (effect) {
+                    StepEffect.LIMIT_REACHED -> limit ?: outcome.text.summarize()
+                    StepEffect.NO_EFFECT -> unmet ?: "动作发出去了，但界面没有变化"
+                    StepEffect.TREE_BLIND -> "读不到界面，这一步的效果无法核对"
+                    StepEffect.EFFECT -> outcome.text.summarize()
+                }
+                StepOutcomeReport(StepStatus.DONE, detail, digest, effect)
             }
         }
     }
@@ -74,11 +92,18 @@ class McpStepRunner(
     /**
      * 取这一趟要用的屏幕摘要。
      *
-     * 三种情况：没有验收条件 → 不读（省 300ms）；这一步本身就是读屏 → 直接用它的结构化输出；
-     * 其余 → 再读一次。
+     * ★ 什么时候读：有验收条件时**必须**读；会动屏幕的动作（[needsScreen]）即使没写验收
+     *   也要读 —— 否则"点了没反应"和"点成功了"在数据上一模一样，agent 只能猜。
+     *   代价是每个屏上动作多 150–400ms；不读的代价是把失败当成功，然后编一份结果出来。
+     *
+     * ★ 怎么读：这一步本身就是读屏 → 直接用它的结构化输出；其余 → 再读一次。
      */
-    private suspend fun digestFor(step: PlannedStep, success: ToolOutcome.Success): ScreenDigest? {
-        if (step.expect == Expectation.None) return null
+    private suspend fun digestFor(
+        step: PlannedStep,
+        success: ToolOutcome.Success,
+        needsScreen: Boolean,
+    ): ScreenDigest? {
+        if (step.expect == Expectation.None && !needsScreen) return null
 
         success.structured?.takeIf { step.tool == readTool }?.let { return ScreenDigestJson.parse(it) }
 

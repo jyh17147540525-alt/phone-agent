@@ -160,6 +160,8 @@ class SuperAgent(
 
         RunPhase.STOPPED -> "好，停了。"
 
+        RunPhase.LIMIT_REACHED -> report.summary
+
         RunPhase.LOOPING -> "我好像在原地打转（${report.summary}），先停下听听你的。"
 
         RunPhase.OUT_OF_BUDGET -> "预算用完了：${report.summary}。要我接着做吗？"

@@ -142,6 +142,31 @@ data class RunBudget(
     }
 }
 
+/**
+ * 这一步**到底有没有用** —— 动作发出去之后的核对结论。
+ *
+ * ## 为什么"成功"不够
+ *
+ * 手机上最常见的失败不是报错，而是**没反应**：点了一下、界面什么都没变、
+ * 系统也没报错。只看 `status == DONE` 会把它当成成功，接着往下走，
+ * 最后交一份编出来的结果。
+ *
+ * ## 四个值互不重叠
+ *
+ * - [EFFECT]：界面确实变了，或者读回来的值确实是目标值。
+ * - [NO_EFFECT]：动作发出去了、也没报错，但**什么都没变**。这是最需要重规划的一种。
+ * - [TREE_BLIND]：读不到界面（画布、游戏、DRM、锁屏）。**不能当成失败** ——
+ *   工具本身可能成功了，只是我们看不见；当成失败会陷入"重试到天亮"。
+ * - [LIMIT_REACHED]：屏上出现了"已达上限 / 操作过于频繁"这类文字。
+ *   这类失败**重试一定没用**，只能停下来等或换一天。
+ */
+enum class StepEffect(val label: String) {
+    EFFECT("有变化"),
+    NO_EFFECT("没变化"),
+    TREE_BLIND("看不见界面"),
+    LIMIT_REACHED("被限额拦住"),
+}
+
 /** 单步的执行结局。 */
 enum class StepStatus(val label: String) {
     DONE("完成"),
@@ -157,6 +182,11 @@ data class StepOutcomeReport(
     val status: StepStatus,
     val detail: String,
     val digest: ScreenDigest? = null,
+    /**
+     * 动作之后的核对结论。默认 [StepEffect.EFFECT] ——
+     * 调用方没做核对时不该被当成"没变化"（那是把"不知道"当成了"失败"）。
+     */
+    val effect: StepEffect = StepEffect.EFFECT,
 )
 
 /** 记一笔执行历史。报告与"卡住"的判断都靠它。 */
@@ -189,6 +219,9 @@ enum class RunPhase(val label: String) {
     STOPPED("你叫停的"),
     /** 需要用户点一次确认才能继续（钱、删除、停用）。 */
     AWAITING_CONFIRMATION("等你确认"),
+    /** 被平台限额拦住：重试一定没用，只能等。 */
+    LIMIT_REACHED("到上限了"),
+
     OUT_OF_BUDGET("超出预算停了"),
     LOOPING("在打转，停了"),
 }
@@ -204,6 +237,8 @@ data class RunReport(
     val awaitingStep: PlannedStep? = null,
     /** [RunPhase.NEED_INFO] 时要问的问题。 */
     val question: String? = null,
+    /** [RunPhase.LIMIT_REACHED] 时屏上那句话（原样，给用户判断到底撞了哪个上限）。 */
+    val limit: String? = null,
 ) {
     val ok: Boolean get() = phase == RunPhase.DONE
     val steps: Int get() = attempts.size

@@ -123,15 +123,60 @@ class RunOrchestrator(
                 var detail = report.detail
                 var verified: Boolean? = null
 
-                // 规则 1：做完了也要验收
+                // 规则 1：做完了也要验收 —— 但先看执行方给的核对结论
                 if (status == StepStatus.DONE) {
-                    val unmet = step.expect.unmetOn(report.digest)
-                    if (unmet != null) {
-                        status = StepStatus.FAILED
-                        detail = "动作发出去了，但验收没过：$unmet"
-                        verified = false
-                    } else {
-                        verified = true
+                    when (report.effect) {
+                        // 限额：重试一定没用，直接停。这类失败必须与"没做成"分开报，
+                        // 否则用户会以为是自己手机坏了，反复重试把额度用得更干净。
+                        StepEffect.LIMIT_REACHED -> {
+                            val limitText = report.detail.ifBlank { "到上限了" }
+                            return RunReport(
+                                phase = RunPhase.LIMIT_REACHED,
+                                goal = goal,
+                                plan = current,
+                                attempts = attempts + StepAttempt(
+                                    stepId = step.id,
+                                    tool = step.tool,
+                                    signature = step.signature,
+                                    status = StepStatus.FAILED,
+                                    detail = limitText,
+                                    elapsedMs = elapsed(),
+                                    retries = retries,
+                                    verified = false,
+                                ),
+                                summary = LimitSignals.advice(limitText),
+                                limit = limitText,
+                            )
+                        }
+
+                        // 动作发出去、也没报错，但界面什么都没变 —— 当成失败去重规划，
+                        // 而不是当成功继续往下走（那正是"编一份结果"的来源）。
+                        StepEffect.NO_EFFECT -> {
+                            status = StepStatus.FAILED
+                            detail = if (report.detail.isBlank()) {
+                                "动作发出去了，但界面没有变化"
+                            } else {
+                                "动作发出去了，但界面没有变化：${report.detail}"
+                            }
+                            verified = false
+                        }
+
+                        // 读不到界面（画布/游戏/DRM）：不能判失败 —— 重试只会重试到天亮。
+                        StepEffect.TREE_BLIND -> {
+                            verified = null
+                            detail = if (report.detail.isBlank()) "读不到界面，这一步的效果无法核对" else report.detail
+                        }
+
+                        StepEffect.EFFECT -> {
+                            val unmet = step.expect.unmetOn(report.digest)
+                            if (unmet != null) {
+                                status = StepStatus.FAILED
+                                detail = "动作发出去了，但验收没过：$unmet"
+                                verified = false
+                            } else {
+                                verified = true
+                            }
+                        }
                     }
                 }
 

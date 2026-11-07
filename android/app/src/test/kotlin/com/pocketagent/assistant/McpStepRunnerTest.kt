@@ -52,13 +52,15 @@ class McpStepRunnerTest {
     private fun registry(vararg tools: FakeTool) = ToolRegistry(tools.toList())
 
     @Test
-    fun `成功且没有验收条件时不额外读屏`() = runBlocking {
-        val tap = FakeTool("android_tap", ToolOutcome.Success("已派发（a11y，120ms）"))
+    fun `不动屏幕的工具没有验收条件时不额外读屏`() = runBlocking {
+        // ⚠️ 屏上动作**会**读一次屏（见 McpStepRunnerEffectTest）：那是"点了没反应"的唯一判据。
+        //    这里用 setting_write 钉住另一半：不动屏幕的工具不该为核对付 300ms。
+        val write = FakeTool("setting_write", ToolOutcome.Success("已执行"))
         val reader = FakeTool("screen_read", ToolOutcome.Success("不该被调用"))
-        val report = McpStepRunner({ registry(tap, reader) }).run(step("android_tap"))
+        val report = McpStepRunner({ registry(write, reader) }).run(step("setting_write"))
 
         assertEquals(StepStatus.DONE, report.status)
-        assertEquals(1, tap.calls)
+        assertEquals(1, write.calls)
         assertEquals(0, reader.calls)
         assertNull(report.digest)
     }
@@ -159,8 +161,9 @@ class McpStepRunnerTest {
     @Test
     fun `长回执被压成一段给报告看`() = runBlocking {
         val long = "很长的回执。".repeat(200)
-        val tap = FakeTool("android_tap", ToolOutcome.Success(long))
-        val report = McpStepRunner({ registry(tap) }).run(step("android_tap"))
+        // 用不动屏幕的工具：屏上动作的回执会被核对结论替换掉（那是另一条测试的事）
+        val write = FakeTool("setting_write", ToolOutcome.Success(long))
+        val report = McpStepRunner({ registry(write) }).run(step("setting_write"))
 
         assertTrue(report.detail.length <= 301)
         assertTrue(report.detail.endsWith("…"))
