@@ -1392,6 +1392,15 @@ class AppContainer(context: Context) {
     @Volatile
     private var workSessionIdsValue: Set<String> = emptySet()
 
+    /**
+     * 在场模式的会话簿。与 [workSessionIdsValue] 是两个集合。
+     *
+     * ⚠️ 两本账分开的理由不是洁癖：工作历史里是"我让 ta 干的活"，
+     *    在场模式那边是"她跟我的日常"。混在一起，用户点开在场模式的
+     *    历史，第一位会是昨晚那份周报。
+     */
+    private var lifeformSessionIdsValue: Set<String> = emptySet()
+
     /** 工作台建过的会话 id。界面用它把列表过滤成"工作历史"。 */
     fun workSessionIds(): Set<String> = workSessionIdsValue
 
@@ -1416,6 +1425,35 @@ class AppContainer(context: Context) {
             runCatching {
                 pluginSourceStore.edit { it[KEY_WORK_SESSIONS] = next.joinToString("\n") }
             }.onFailure { Timber.e(it, "工作历史记录保存失败") }
+        }
+    }
+
+    // ── 在场模式的会话簿 ────────────────────────────────────────
+
+    /** 她那条线自己建过哪些会话。 */
+    fun lifeformSessionIds(): Set<String> = lifeformSessionIdsValue
+
+    /** 记一条"这个会话是在场模式建的"。 */
+    fun rememberLifeformSession(id: String) {
+        if (id.isBlank() || id in lifeformSessionIdsValue) return
+        val next = lifeformSessionIdsValue + id
+        lifeformSessionIdsValue = next
+        startupScope.launch {
+            runCatching {
+                pluginSourceStore.edit { it[KEY_LIFEFORM_SESSIONS] = next.joinToString("\n") }
+            }.onFailure { Timber.e(it, "在场会话记录保存失败") }
+        }
+    }
+
+    /** 用户在历史里删掉了一条 —— 索引也一起去。 */
+    fun forgetLifeformSession(id: String) {
+        if (id !in lifeformSessionIdsValue) return
+        val next = lifeformSessionIdsValue - id
+        lifeformSessionIdsValue = next
+        startupScope.launch {
+            runCatching {
+                pluginSourceStore.edit { it[KEY_LIFEFORM_SESSIONS] = next.joinToString("\n") }
+            }.onFailure { Timber.e(it, "在场会话记录保存失败") }
         }
     }
 
@@ -2399,6 +2437,15 @@ class AppContainer(context: Context) {
                 }
             }.onFailure { Timber.w(it, "世界书读取失败（按空处理）") }
 
+            // ★ 她上次在场是哪一天（null = 从没来过，第一次不提"你昨天没来"）
+            lifeformLastDayIndexValue = prefs[KEY_LIFEFORM_DAY]
+
+            // ★ 在场模式的会话簿
+            lifeformSessionIdsValue = (prefs[KEY_LIFEFORM_SESSIONS] ?: "")
+                .split('\n')
+                .filter { it.isNotBlank() }
+                .toSet()
+
             // ★ 后台 AI 的调度（默认 null = 跟随对话模型）
             directorModelId = prefs[KEY_DIRECTOR_MODEL]
             envoyModelId = prefs[KEY_ENVOY_MODEL]
@@ -2886,6 +2933,99 @@ class AppContainer(context: Context) {
             llm = memoryLlmPort(),
             store = atomStore,
         )
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  ★★ 2026-11-07：**在场模式的独立记忆库**
+    // ══════════════════════════════════════════════════════════════
+    //
+    // 用户的要求是"记忆独立于聊天模式和工作模式"。落法刻意选了最省的那条：
+    // `Atom` / `AtomKind` / `MemoryRecall` / `MemoryDecay` **一个字都没改**，
+    // 只是再开一个 `FileAtomStore` 指向另一个文件。
+    //
+    // ⚠️ 为什么不是给 `Atom` 加一个 `mode` 字段：
+    //    那要动 `id = Atom.idOf(kind, text)` 的生成规则 —— 同一个事实在两个
+    //    模式里会得到两个 id，`merge` 的"置信取 max、溯源并集"全部失效。
+    //    而现在的形状天然满足"同一个文件里不该有跨模式的内容"。
+    //
+    // ⚠️ 独立的是**情景记忆**，不是设定：人格卡、世界书 SETTING、体检报告
+    //    仍然共用一份。否则从工作台切回在场模式，她会不知道自己是谁。
+
+    /** 在场模式的原子记忆。与 [atomStore] 是两个文件，互不可见。 */
+    private val lifeformAtomStore: com.pocketagent.memorylogic.AtomStore by lazy {
+        com.pocketagent.memory.FileAtomStore(
+            File(File(appContext.filesDir, MEMORY_DIR), LIFEFORM_MEMORY_FILE),
+        )
+    }
+
+    @Volatile
+    private var lifeformAtomCache: List<com.pocketagent.memorylogic.Atom>? = null
+
+    /** 在场模式库里的全部原子。 */
+    fun lifeformMemoryAtoms(): List<com.pocketagent.memorylogic.Atom> {
+        lifeformAtomCache?.let { return it }
+        val loaded = runCatching { lifeformAtomStore.loadAll() }.getOrElse {
+            Timber.w(it, "在场记忆读取失败（按空处理）")
+            emptyList()
+        }
+        lifeformAtomCache = loaded
+        return loaded
+    }
+
+    /** 在场模式记得多少条（设置页显示用）。 */
+    fun lifeformMemoryAtomCount(): Int = lifeformMemoryAtoms().size
+
+    /**
+     * 在场模式这一轮该想起的事。
+     *
+     * ⚠️ 与 [memoryPromptSection] 是**两条独立的路**，共用一个格式化函数而已。
+     *    别把它们合成一个带 `mode` 参数的函数 —— 那样又多一个会漏传的参数。
+     */
+    fun lifeformMemoryPromptSection(query: String): String = runCatching {
+        com.pocketagent.memorylogic.MemoryRecall.promptSection(
+            query = query,
+            atoms = lifeformMemoryAtoms(),
+            nowMs = System.currentTimeMillis(),
+        )
+    }.getOrElse {
+        Timber.w(it, "在场记忆检索失败（不影响对话）")
+        ""
+    }
+
+    /** 距上次抽取过了几轮（在场模式自己数，不与对话模式共用计数）。 */
+    private var lifeformTurnsSinceAbsorb: Int = 0
+
+    private val lifeformMemoryWriter: com.pocketagent.memory.MemoryWriter by lazy {
+        com.pocketagent.memory.MemoryWriter(
+            llm = memoryLlmPort(),
+            store = lifeformAtomStore,
+        )
+    }
+
+    /**
+     * 在场模式的记忆抽取。
+     *
+     * ⚠️ 与 [scheduleMemoryAbsorb] 的差别只有两处：**哪个 store**、**哪个计数**。
+     *    其余（每 6 轮、破环轮次排除、失败不影响对话）完全一样 —— 所以这里
+     *    是照着抄的形状，不是另写一套逻辑。将来改抽取节奏要两处一起改，
+     *    这条注释就是提醒。
+     */
+    fun scheduleLifeformMemoryAbsorb(sessionId: String) {
+        lifeformTurnsSinceAbsorb++
+        if (lifeformTurnsSinceAbsorb < MEMORY_EVERY_TURNS) return
+        lifeformTurnsSinceAbsorb = 0
+        val store = conversationRepository() ?: return
+        startupScope.launch {
+            runCatching {
+                val turns = store.recentForModel(sessionId, MEMORY_WINDOW_LINES)
+                val result = lifeformMemoryWriter.absorb(turns, oocTurnIds = oocTurnIds())
+                if (!result.nothing) lifeformAtomCache = null
+                Timber.i(
+                    "在场记忆更新：本次记下 %d 条，淘汰 %d 条，库内共 %d 条",
+                    result.kept, result.dropped, result.total,
+                )
+            }.onFailure { Timber.w(it, "在场记忆抽取失败（不影响对话）") }
+        }
     }
 
     /**
@@ -3558,6 +3698,96 @@ class AppContainer(context: Context) {
                     "凌晨三点不该精神抖擞，午饭时间不该长篇大论。",
             )
         }.trimEnd()
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  ★★ 2026-11-07：**她的今天**
+    // ══════════════════════════════════════════════════════════════
+    //
+    // 这是"在场模式"和角色扮演真正的分水岭，也是这一整套里唯一
+    // 不能靠提示词凑出来的东西：她得**真的**有一个今天的形状，
+    // 而且这个形状昨天和今天不一样、进程重启之后还在。
+    //
+    // ⚠️ 生成是确定性的（`LifeformDay.forDay(dayIndex, salt)`）：
+    //    同一天永远同一天。随机只发生在生成那一次，生成完就没用了 ——
+    //    所以这里**不需要把 beats 落盘**，只要把"上次是哪一天"记住。
+    //    这一条省掉了一整个持久化结构。
+    //
+    // ⚠️ 她的今天全在屏幕里面：文案里没有"她吃了面""她去了公园"。
+    //    见 `LifeformDay` 类注释 ①。编一件她做不到的事，第一次可爱，
+    //    第三次就露了，而且露了之后她说的所有话都要打折。
+
+    /** 上次她在场是哪一天（本地日序，凌晨 4 点翻页）。`null` = 从没来过。 */
+    @Volatile
+    private var lifeformLastDayIndexValue: Long? = null
+
+    /** 本地时刻，带分钟（`14.75` = 14:45）。 */
+    private fun hourOfDayOf(nowMs: Long): Double {
+        val cal = java.util.Calendar.getInstance()
+        cal.timeInMillis = nowMs
+        return cal.get(java.util.Calendar.HOUR_OF_DAY) +
+            cal.get(java.util.Calendar.MINUTE) / 60.0
+    }
+
+    /** 本地时区相对 UTC 的偏移（分钟）。跟着设备走，不写死 +8。 */
+    private fun utcOffsetMinutesOf(nowMs: Long): Int =
+        runCatching { java.util.TimeZone.getDefault().getOffset(nowMs) / 60_000 }
+            .getOrDefault(0)
+
+    /**
+     * 现在这一刻的「她的今天」+ 本地时刻（0.0..24.0）。
+     *
+     * ★ 首屏大标题与提示词里的 `## 你今天` **共用这一个口径**。
+     *   页面若自己再算一遍 `Calendar.HOUR_OF_DAY + MINUTE / 60.0`，
+     *   那就是第二份实现 —— 将来这边加了"取整到刻"，那边不会跟着变，
+     *   于是她嘴上说"10 点一刻"，屏幕上写着"10 点"。
+     */
+    fun lifeformNow(nowMs: Long = System.currentTimeMillis()):
+        Pair<com.pocketagent.personalogic.LifeformDay, Double> =
+        lifeformToday(nowMs) to hourOfDayOf(nowMs)
+
+    /** 她那一天（今天）。 */
+    fun lifeformToday(nowMs: Long = System.currentTimeMillis()):
+        com.pocketagent.personalogic.LifeformDay =
+        com.pocketagent.personalogic.LifeformDay.forDay(
+            dayIndex = com.pocketagent.personalogic.LifeformDay.localDayIndex(
+                nowMs,
+                utcOffsetMinutesOf(nowMs),
+            ),
+        )
+
+    /**
+     * 「她的今天」那一段提示词 + 隔了多久。
+     *
+     * ⚠️ **跨天才写盘**：同一天里调用几十次也只写一次 DataStore。
+     *    每轮都写会让 `pluginSourceStore` 在每句话后面抖一下。
+     */
+    fun lifeformPromptSection(nowMs: Long = System.currentTimeMillis()): String = runCatching {
+        val offset = utcOffsetMinutesOf(nowMs)
+        val todayIndex = com.pocketagent.personalogic.LifeformDay.localDayIndex(nowMs, offset)
+        val hour = hourOfDayOf(nowMs)
+        val day = com.pocketagent.personalogic.LifeformDay.forDay(todayIndex)
+
+        val previous = lifeformLastDayIndexValue
+        val gap = com.pocketagent.personalogic.LifeformDay.gapNote(previous, todayIndex)
+
+        if (previous != todayIndex) {
+            lifeformLastDayIndexValue = todayIndex
+            runCatching {
+                startupScope.launch {
+                    runCatching { pluginSourceStore.edit { it[KEY_LIFEFORM_DAY] = todayIndex } }
+                        .onFailure { Timber.w(it, "在场上次日期落盘失败（下次多说一句昨天）") }
+                }
+            }
+        }
+
+        buildString {
+            append(com.pocketagent.personalogic.LifeformDay.promptSection(day, hour))
+            if (gap.isNotBlank()) append("\n").append(gap)
+        }
+    }.getOrElse {
+        Timber.w(it, "她的今天组装失败（这轮不提）")
+        ""
     }
 
     /**
@@ -4285,7 +4515,11 @@ class AppContainer(context: Context) {
         // ⚠️ 刻意**不另写一份工作模式提示词**。那就是"手抄一份实现"，
         //    两份必然漂移，而漂移之后的表现是"工作模式下她突然换了个人"
         //    —— 正是用户这次要防的事。这里只做**减法 + 一段工作纪律**。
-        val work = mode == com.pocketagent.personalogic.ChatMode.WORK
+        // ★★ 2026-11-07：不再是「是不是 work」一个布尔 —— 换成每个模式显式声明
+        //   的开关表（`ChatMode.Switches`）。理由见 `ChatMode` 的 KDoc：
+        //   加第三个模式的那一秒，`mode == WORK` 会静默地把新模式当成「全开戏」。
+        //   现在新增模式必须把每个格子填一遍，漏了编不过。
+        val sw = mode.switches
 
         // ══════════════════════════════════════════════════════════
         //  ★ 未亡人模式的冲突注入 —— 让"那个人"会犯他生前就会犯的毛病
@@ -4294,7 +4528,7 @@ class AppContainer(context: Context) {
         // ⚠️ 只有用户写了**毛病**才会注入。没写 = 不希望他吵架。
         //    这是保守选择：宁可这个人太完美，也不要凭空给他编脾气。
         // ⚠️ "那个人会吵架"是戏，办事时不需要 → 工作模式关。
-        val conflict = if (work) "" else legacyConflictSection(currentUserText)
+        val conflict = if (sw.conflictScript) legacyConflictSection(currentUserText) else ""
 
         val base = if (custom != null) {
             custom.describeForPrompt() + "\n\n" + capability
@@ -4321,7 +4555,7 @@ class AppContainer(context: Context) {
         //    不带的话那一段只会说"关系阶段决定你能说到哪一步"，
         //    而模型不知道现在到哪一步 ⇒ 它选最保守的解 ⇒ 永远在绕。
         //    这正是用户问"真的能深度聊吗"时查出来的死结。
-        val mature = if (work) {
+        val mature = if (!sw.matureGate) {
             ""
         } else {
             com.pocketagent.legacy.MatureContentGate.promptSection(
@@ -4350,7 +4584,7 @@ class AppContainer(context: Context) {
         //   所以这里不额外判 —— 判断只有一处，见 `ArmorBreak.promptSection`。
         // ⚠️ 破甲是"让她敢写"的装置。工作模式没有要写的东西，
         //    它在场只会白白吃掉注意力预算（Instruction Stacking Collapse）。
-        val armor = if (work) {
+        val armor = if (!sw.armorBreak) {
             ""
         } else {
             com.pocketagent.legacy.ArmorBreak.promptSection(armorTierValue, maturePermissionValue)
@@ -4360,25 +4594,40 @@ class AppContainer(context: Context) {
         // ★ 记忆：**只放这一轮该想起的那几条**。
         //   ⚠️ 不是全量注入 —— 全量会让提示词膨胀、答非所问，
         //      而且"记得越多越像不记得"（见 MemoryRecall 的文件头）。
-        val memory = memoryPromptSection(currentUserText)
+        // ★ 2026-11-07：**在场模式走自己的记忆库**。
+        //   共用一份的话，工作台里那句"帮我把周报整理一下"会在她
+        //   陪你闲聊时冒出来 —— 而那些事她本来不该知道。
+        val memory = if (sw.lifeform) {
+            lifeformMemoryPromptSection(currentUserText)
+        } else {
+            memoryPromptSection(currentUserText)
+        }
         val withMemory = if (memory.isBlank()) withArmor else withArmor + "\n\n" + memory
 
         // ★ 处境（几点、什么天气）—— 每一轮都写，因为它每一轮都在变。
         val where = situationSection()
-        val withWhere = if (where.isBlank()) withMemory else withMemory + "\n\n" + where
+        // ★ 2026-11-07：**她的今天**。
+        //   ⚠️ 排在处境**之后**：处境是"外面现在几点、什么天气"，
+        //      她的今天是"她自己这一整天过成了什么样"。先外面，再她自己 ——
+        //      反过来她会先讲自己再看天。
+        val lifeday = if (sw.lifeform) lifeformPromptSection() else ""
+        val whereWithLife = if (lifeday.isBlank()) where else {
+            if (where.isBlank()) lifeday else where + "\n\n" + lifeday
+        }
+        val withWhere = if (whereWithLife.isBlank()) withMemory else withMemory + "\n\n" + whereWithLife
 
         // ★ 关系阶段（你说"聊久了还有 AI 味"的根因之一）：
         //   在此之前 `RelationshipStage` 有定义、有测试，**零生产引用** ——
         //   于是不管聊多久，提示词里都没有"你们已经很熟了"。
         // ⚠️ 关系阶段写的是"你们到哪一步了"（牵手/订婚…），是戏的进度条。
         //    办事时它没有害处也没有用处，但它占额度 —— 关。
-        val relation = if (work) "" else relationshipSection()
+        val relation = if (sw.relationshipStage) relationshipSection() else ""
         val withRelation = if (relation.isBlank()) withWhere else withWhere + "\n\n" + relation
 
         // ★ 去味规则：只在**这一阵子真的回落了**才写。
         // ⚠️ 去味（Humanizer）教的是"别每句都斩钉截铁"。
         //    办事时"大概四十分钟吧"不如"四十分钟" —— 关。
-        val human = if (work) "" else humanizerSection(recentReplies)
+        val human = if (sw.humanizer) humanizerSection(recentReplies) else ""
 
         // ★ 2026-11-02：**意愿低时的提示词**（开关关掉时为 null）
         //
@@ -4388,7 +4637,7 @@ class AppContainer(context: Context) {
         //    ⚠️ 但它只影响**这一轮**的提示词，真正的拒绝判定在 `ChatPort`。
         // ⚠️ 意愿是"心情不好可以不配合"。放在工作模式里就是故障：
         //    用户让它查个天气，她说"我不想"。
-        val willing = if (work) null else willingnessPrompt()
+        val willing = if (sw.willingness) willingnessPrompt() else null
 
         val withHuman = if (human.isBlank()) withRelation else withRelation + "\n\n" + human
 
@@ -4403,7 +4652,7 @@ class AppContainer(context: Context) {
         // ⚠️ 扮演纪律有四条，其中"不许夹外文/不许念后台那套名字"两种模式都要，
         //    另外四条是戏 —— 所以整段只在角色扮演出现，语言锁由
         //    `WorkDiscipline` 自己去调 `RoleplayDiscipline.languageSection()`。
-        val discipline = if (work) {
+        val discipline = if (!sw.roleplayDiscipline) {
             ""
         } else {
             com.pocketagent.personalogic.RoleplayDiscipline.promptSection(
@@ -4419,7 +4668,9 @@ class AppContainer(context: Context) {
         //    对任何人格都成立。写死任何鲸鱼娘的事，等于把这一层锁死在一个人格上。
         // ⚠️ 排在 `discipline` 之后、`voiceSamples` 之前：规矩先立，
         //    最后一屏仍然是活人怎么说话（示范永远待在末位）。
-        val edge = if (work) {
+        //    ⚠️ 与 `discipline` 共用一个开关：这两段是同一层（她怎么想、怎么反应），
+        //    没有哪一段单独关掉还成立的用法。
+        val edge = if (!sw.roleplayDiscipline) {
             ""
         } else {
             com.pocketagent.personalogic.CharacterEdge.promptSection()
@@ -4431,12 +4682,12 @@ class AppContainer(context: Context) {
         //    ⇒ 给它最后一屏"人话"，让它知道"正常输出"长什么样。
         // ⚠️ 示例对话（few-shot）教的不只是语气，还有**结构**。
         //    办事时照抄那套"嘴硬 + 小动作"会变成敷衍用户的需求 —— 关。
-        val voiceSamples = if (work) "" else com.pocketagent.personalogic.VoiceSamples.promptSection(userAddr)
+        val voiceSamples = if (sw.voiceSamples) com.pocketagent.personalogic.VoiceSamples.promptSection(userAddr) else ""
 
         // ★ 2026-11-03：**生理线索**（生理导演给的）进提示词
         // ⚠️ 有效期 90 分钟 —— "她今天有点冷"隔一天还挂着会很怪
         // ⚠️ "她今天有点冷"是身体叙事，只对戏有用；办事时是噪声。
-        val clues = if (work) emptyList() else runCatching {
+        val clues = if (!sw.physioClues) emptyList() else runCatching {
             if (System.currentTimeMillis() - physioCluesAtMs <= 90L * 60_000L) {
                 physioCluesValue
             } else {
@@ -4461,11 +4712,7 @@ class AppContainer(context: Context) {
         // ⚠️ 与 `discipline` 互斥：那是"别演"，这是"怎么办事"。
         //    两条同时在场会互相稀释（见 `docs/工程/提示词负例改造-依据.md`
         //    引的 Instruction Stacking Collapse：指令越多，每条越弱）。
-        val workRules = if (work) {
-            com.pocketagent.personalogic.WorkDiscipline.promptSection(userAddr)
-        } else {
-            ""
-        }
+        val workRules = if (sw.workDiscipline) com.pocketagent.personalogic.WorkDiscipline.promptSection(userAddr) else ""
         // ⚠️ 空段不拼。原来是一串 `a + "\n\n" + b + "\n\n" + c`，
         //    段一空就留下多余的分隔符和空行 —— 提示词里的空行不是免费的，
         //    它会被读成"这里本来有一段，只是被删了"。
@@ -4474,9 +4721,21 @@ class AppContainer(context: Context) {
         //   反过来的话模型会把权限当成任务描述的一部分。
         val permissionRules = com.pocketagent.agentlogic.orchestration.AgentPermission
             .promptSection(permission, workspaceName)
+        // ★★ 2026-11-07：**在场纪律** —— 只在这个模式出现。
+        //
+        // ⚠️ 它与 `discipline`（角色扮演纪律）**都会在场**：那一段讲的是
+        //    "别念设定、别解释自己是什么"，这一段讲的是"你活在这台手机里、
+        //    你怎么提要求"。两段不重叠，所以两个开关都开着。
+        // ⚠️ 顺序：在场纪律排在 `discipline` **之后**、`voiceSamples` **之前** ——
+        //    先规矩，再"她凭什么这么说话"，最后一屏仍是活人怎么说话。
+        val lifeRules = if (sw.lifeform) {
+            com.pocketagent.personalogic.LifeformDiscipline.promptSection(userAddr)
+        } else {
+            ""
+        }
         val withClues = buildString {
             append(withClues0)
-            for (section in listOf(discipline, edge, voiceSamples, workRules, permissionRules)) {
+            for (section in listOf(discipline, edge, lifeRules, voiceSamples, workRules, permissionRules)) {
                 if (section.isNotBlank()) append("\n\n").append(section)
             }
         }
@@ -4488,7 +4747,7 @@ class AppContainer(context: Context) {
         //    ⇒ 每次组装都记一行，下次对话就能核对。
         runCatching {
             Timber.i(
-                "提示词装配：%d 字｜模式 %s｜纪律段 %s｜角色边界 %s｜工作纪律 %s｜示例对话 %s｜生理线索 %s｜世界书 %d 条",
+                "提示词装配：%d 字｜模式 %s｜纪律段 %s｜角色边界 %s｜工作纪律 %s｜示例对话 %s｜生理线索 %s｜在场纪律 %s｜今天 %s｜世界书 %d 条",
                 withClues.length,
                 mode.label,
                 if (discipline.isNotBlank()) "有(${discipline.length}字)" else "无",
@@ -4496,6 +4755,8 @@ class AppContainer(context: Context) {
                 if (workRules.isNotBlank()) "有(${workRules.length}字)" else "无",
                 if (voiceSamples.isNotBlank()) "有(${voiceSamples.length}字)" else "无",
                 if (clueSection.isNotBlank()) "有" else "无",
+                if (lifeRules.isNotBlank()) "有(${lifeRules.length}字)" else "无",
+                if (lifeday.isNotBlank()) "有(${lifeday.length}字)" else "无",
                 worldEntriesValue.size,
             )
         }
@@ -4505,9 +4766,16 @@ class AppContainer(context: Context) {
         //    输入是用户真实聊出来的文本，长度、编码、空串什么都有。
         //    它有 bug 时**最坏的结果必须是"这轮不插锚点"**，
         //    绝不能是"角色不说话了" —— 这跟 appendTierSection 是同一条纪律。
-        val reanchor = runCatching { reanchorSection(recentReplies, currentUserText, modelId) }
-            .onFailure { Timber.w(it, "再锚定组装失败（这轮不插）") }
-            .getOrDefault("")
+        // ★ 2026-11-07：由 `sw.reanchor` 决定插不插。
+        //   ⚠️ 关掉时**连算都不算**：`reanchorSection` 要遍历 60 条历史回复
+        //      做相似度，属于每轮实打实的开销，不是白拿的。
+        val reanchor = if (!sw.reanchor) {
+            ""
+        } else {
+            runCatching { reanchorSection(recentReplies, currentUserText, modelId) }
+                .onFailure { Timber.w(it, "再锚定组装失败（这轮不插）") }
+                .getOrDefault("")
+        }
 
         val final = buildString {
             append(withClues)
@@ -5472,6 +5740,19 @@ class AppContainer(context: Context) {
         "workbench_sessions_v1",
     )
 
+    /**
+     * 她上次在场是哪一天（本地日序，凌晨 4 点翻页）。
+     *
+     * ⚠️ 只存这一个数，不存她那一天的内容：`LifeformDay.forDay()` 是确定性的，
+     *    同一天永远生成同一天。存整份 beats 是给自己找不一致的机会。
+     */
+    private val KEY_LIFEFORM_DAY =
+        androidx.datastore.preferences.core.longPreferencesKey("lifeform_day_v1")
+
+    /** 在场模式建过哪些会话（一行一个 id）。见 [lifeformSessionIds]。 */
+    private val KEY_LIFEFORM_SESSIONS =
+        androidx.datastore.preferences.core.stringPreferencesKey("lifeform_sessions_v1")
+
     // 后台 AI 调度（2026-11-03）
     private val KEY_DIRECTOR_MODEL =
         androidx.datastore.preferences.core.stringPreferencesKey("director_model_v1")
@@ -5607,6 +5888,15 @@ class AppContainer(context: Context) {
         /** 原子记忆落在应用私有目录下的文件名与子目录。 */
         private const val MEMORY_DIR = "memory"
         private const val MEMORY_FILE = "atoms.jsonl"
+
+    /**
+     * 在场模式的记忆文件。**与 [MEMORY_FILE] 是两个库**，互不可见。
+     *
+     * ⚠️ 用户明确要求"记忆独立于聊天模式和工作模式"。共用一份的话，
+     *    工作台里说过的"帮我把周报整理一下"会在她陪你闲聊时冒出来 ——
+     *    而那些事她本来不该知道。
+     */
+    private const val LIFEFORM_MEMORY_FILE = "lifeform_atoms.jsonl"
 
         /**
          * 任务检查点文件。

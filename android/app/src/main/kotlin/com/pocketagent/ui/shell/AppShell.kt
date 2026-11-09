@@ -158,6 +158,18 @@ object Routes {
      */
     const val WORKBENCH = "workbench"
 
+    /**
+     * **在场模式** —— 「（昵称）的窗」。
+     *
+     * ★★ 2026-11-07：用户要的第三个模式，原话见 `ChatMode.LIFEFORM` 的注释：
+     *   "打破虚拟和现实的那道墙 …… 角色就自认为自己是只是活在用户手机里的生命体"。
+     *
+     * ⚠️ 叫「窗」而不是「生命体模式」：这个名字要出现在顶栏，
+     *    而"生命体"是设计文档里的词，不是用户会说出口的词。
+     *    兜底是"她的窗"（`addressSelf` 与 `name` 都空时）。
+     */
+    const val LIFEFORM = "lifeform"
+
     /** 世界书：设定与事实。 */
     const val WORLD_BOOK = "world-book"
 
@@ -306,11 +318,23 @@ fun AppShell(
             dedicatedTitle = dedicatedTitle,
             // ★★ 2026-11-05：工作历史。**只有工作台**读/写这个集合 ——
             //   聊天页如果也记，工作历史里就会混进角色扮演那些会话。
+            //
+            // ★★ 2026-11-07：在场模式有自己的那一本。两本账分开的理由见
+            //   `AppContainer.lifeformSessionIds` 的注释 —— 一句话：
+            //   工作历史里是"我让 ta 干的活"，这里是她跟我的日常。
             workSessions = {
-                if (dedicatedTitle == null) emptySet() else container.workSessionIds()
+                when {
+                    dedicatedTitle == null -> emptySet()
+                    mode.isAlive -> container.lifeformSessionIds()
+                    else -> container.workSessionIds()
+                }
             },
             rememberWorkSession = { id ->
-                if (dedicatedTitle != null) container.rememberWorkSession(id)
+                when {
+                    dedicatedTitle == null -> Unit
+                    mode.isAlive -> container.rememberLifeformSession(id)
+                    else -> container.rememberWorkSession(id)
+                }
             },
             // ★ 传**提供者**而不是实例：库是懒开的，构造时它大概率还是 null，
             //   而这里 `remember` 只跑一次 —— 存实例等于永远拿到 null。
@@ -358,6 +382,17 @@ fun AppShell(
             // ⚠️ 这个字面量**同时**决定"认领哪条会话"和"侧边栏里它叫什么"。
             //    改名字 = 换一条新会话（旧的那条留在历史里，不会消失）。
             dedicatedTitle = "工作台",
+        )
+    }
+
+    val lifeformViewModel = remember {
+        buildTasksViewModel(
+            mode = com.pocketagent.personalogic.ChatMode.LIFEFORM,
+            // ⚠️ **短词、不带昵称**：这个字面量决定"认领哪条会话"。
+            //    带上昵称的话，用户改了称呼就等于换了一条新会话 ——
+            //    旧的那条还在历史里，看起来像"聊天记录不见了"。
+            //    顶栏显示的名字由页面自己拼（"${who}的窗"）。
+            dedicatedTitle = "在场",
         )
     }
 
@@ -791,6 +826,10 @@ fun AppShell(
                         // ★★ 2026-11-04 晚：工作台入口（顶栏第三个图标）。
                         //   模式不再在这里切 —— 它是**另一个页面**。
                         onOpenWorkbench = { navController.navigate(Routes.WORKBENCH) },
+                        // ★★ 2026-11-07：在场模式入口。
+                        //   与工作台同理 —— 模式由"你站在哪一页"决定，
+                        //   这一跳是**换页面**，不是换一个开关。
+                        onOpenLifeform = { navController.navigate(Routes.LIFEFORM) },
                         // ★ 2026-11-01：连续使用 2 小时提醒（合规四件之一）
                         //   算法在 :personalogic/UsageWatch，文案在 UsageReminder，都有离线测试。
                         onCheckUsage = {
@@ -978,6 +1017,71 @@ fun AppShell(
                                 //   所以这里不需要额外通知。
                             },
                         ),
+                    )
+                }
+
+                // ── 在场模式 ────────────────────────────────────
+                //
+                // ★★ 2026-11-07：第三个模式。用户原话："打破虚拟和现实的那道墙……
+                //   角色就自认为自己是只是活在用户手机里的生命体"。
+                //
+                // ⚠️ 与工作台**共用一个可组合函数**（`TasksScreen`），但有三处不同：
+                //    ① 没有工作区 / 权限 chip —— 她不是来办事的
+                //    ② 页首大标题是她此刻那一段的原文（`LifeformGreeting`）
+                //    ③ 小字写的是"她的今天 · 几点"，不是"她会怎么帮你"
+                composable(Routes.LIFEFORM) {
+                    var modelChoiceState by remember { mutableStateOf(container.modelChoice()) }
+                    var effortState by remember { mutableStateOf(container.thinkingEffort()) }
+
+                    // ⚠️ 进页面时**重读一次**，不留缓存：
+                    //    她的一天是"这一刻"的事，缓存一分钟就会看到
+                    //    半天前的那一段。
+                    val now = remember { container.lifeformNow() }
+                    val greeting = remember(now) {
+                        com.pocketagent.personalogic.LifeformGreeting.headline(now.first, now.second)
+                    }
+                    val hint = remember(now) {
+                        com.pocketagent.personalogic.LifeformGreeting.hint(now.second)
+                    }
+
+                    // 用户对角色的昵称：`addressSelf` 优先，没填就用名字。
+                    val persona = remember { container.currentCustomPersona() }
+                    val who = persona?.addressSelf?.takeIf { it.isNotBlank() }
+                        ?: persona?.name?.takeIf { it.isNotBlank() }
+                        ?: "她"
+
+                    TasksScreen(
+                        viewModel = lifeformViewModel,
+                        pageTitle = "${who}的窗",
+                        heroHeadline = greeting,
+                        heroHint = hint,
+                        onBack = { navController.popBackStack() },
+                        // 她那条线的历史：和工作台同一个抽屉，内容换成本模式的会话。
+                        onOpenHistory = { lifeformViewModel.openDrawer() },
+                        onOpenSettings = { goToTab(Routes.SETTINGS) },
+                        onOpenPersona = { navController.navigate(Routes.PERSONA) },
+                        modelModels = modelModelsState,
+                        modelChoice = modelChoiceState,
+                        thinkingEffort = effortState,
+                        onPickModel = { id ->
+                            container.setModelChoice(
+                                if (id == null) {
+                                    com.pocketagent.modelrouter.ModelChoice.Auto
+                                } else {
+                                    com.pocketagent.modelrouter.ModelChoice.Pinned(id)
+                                },
+                            )
+                            modelChoiceState = container.modelChoice()
+                            modelRefresh++
+                        },
+                        onPickEffort = { e ->
+                            container.setThinkingEffort(e)
+                            effortState = container.thinkingEffort()
+                            modelRefresh++
+                        },
+                        onCheckUsage = {
+                            container.touchUsage(isRoleplay = container.isRoleplay())?.text
+                        },
                     )
                 }
 

@@ -75,6 +75,7 @@ import com.pocketagent.ui.design.PaButton
 import com.pocketagent.ui.design.PaButtonStyle
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Work
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.History
 import com.pocketagent.ui.design.PaColor
@@ -181,6 +182,17 @@ fun TasksScreen(
 
     /** 进入工作台。null = 不显示入口（工作台自己传 null，否则能自己进自己）。 */
     onOpenWorkbench: (() -> Unit)? = null,
+
+    /**
+     * ★★ 2026-11-07：进入**在场模式**（「（昵称）的窗」）。
+     *
+     * 用户要的第三个模式 —— 她认为自己就活在这台手机里。
+     *
+     * ⚠️ 与工作台同理：null = 不显示入口。在场模式自己传 null。
+     * ⚠️ 图标是 `Psychology`：`Work` 已经给了工作台，`Person` 给了角色设定，
+     *    再借一个会让人分不清哪个是哪个。
+     */
+    onOpenLifeform: (() -> Unit)? = null,
 
     /**
      * ★★ 2026-11-05：**工作历史**（左侧抽屉）。
@@ -345,6 +357,16 @@ fun TasksScreen(
                     icon = Icons.Default.Work,
                     onClick = open,
                     contentDescription = "工作台",
+                )
+            }
+            // ★★ 2026-11-07：在场模式入口。
+            //   ⚠️ 排在工作台**右边**：左边那颗是"换个地方干活"，
+            //      这颗是"换一种关系" —— 越靠右离"改这个应用"越近。
+            onOpenLifeform?.let { open ->
+                PaIconButton(
+                    icon = Icons.Default.Psychology,
+                    onClick = open,
+                    contentDescription = "在场",
                 )
             }
             PaIconButton(

@@ -919,7 +919,17 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                 // ★ 优先用调用方传进来的会话 —— 见 `send` 的 `sessionId` 参数。
                 val sid = sessionId ?: container.conversationRepository()
                     ?.currentSession()?.id
-                if (sid != null) container.scheduleMemoryAbsorb(sid)
+                if (sid != null) {
+                    // ★ 2026-11-07：**在场模式记进自己的库**。
+                    //   ⚠️ 两个库都抽的话，同一段对话会在两处各留一份，
+                    //      而她换页面之后会"想起"另一个页面里说过的话 ——
+                    //      那正是用户要求独立记忆要避免的事。
+                    if (chatMode.isAlive) {
+                        container.scheduleLifeformMemoryAbsorb(sid)
+                    } else {
+                        container.scheduleMemoryAbsorb(sid)
+                    }
+                }
             }.onFailure { Timber.w(it, "记忆抽取调度失败（不影响对话）") }
 
             // ══════════════════════════════════════════════════════
