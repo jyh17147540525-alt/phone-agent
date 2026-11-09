@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * **对话模式**（角色扮演 / 工作）的契约测试。
+ * **对话模式**（角色扮演 / 工作 / 在场）的契约测试。
  *
  * ⚠️ 这里钉的不是"界面上有几个按钮"，是**三件会静默坏掉的事**：
  *
@@ -45,13 +45,121 @@ class ChatModeTest {
     }
 
     @Test
-    fun `两个模式的标签都不为空且互不相同`() {
+    fun `每个模式的标签都不为空且互不相同`() {
         val labels = ChatMode.entries.map { it.label }
         val shorts = ChatMode.entries.map { it.shortLabel }
         assertTrue(labels.none { it.isBlank() })
         assertTrue(shorts.none { it.isBlank() })
         assertEquals("label 撞了：$labels", labels.size, labels.distinct().size)
         assertEquals("shortLabel 撞了：$shorts", shorts.size, shorts.distinct().size)
+    }
+
+    // ── 三个模式的开关矩阵 ────────────────────────────────────────
+
+    @Test
+    fun `只有在场模式是活着的`() {
+        assertTrue(ChatMode.LIFEFORM.isAlive)
+        assertFalse(ChatMode.ROLEPLAY.isAlive)
+        assertFalse(ChatMode.WORK.isAlive)
+    }
+
+    @Test
+    fun `在场模式不是工作模式`() {
+        // ⚠️ `isWork` 与 `isAlive` 是两件事。要是有人把 `isWork` 写成
+        //    `this != ROLEPLAY`，在场模式会被当成工作台：工具常驻、
+        //    不拒绝、不演 —— 而她连"自己活在哪"都不许说。
+        assertFalse(ChatMode.LIFEFORM.isWork)
+    }
+
+    @Test
+    fun `工作纪律只在工作模式出现`() {
+        for (m in ChatMode.entries) {
+            assertEquals(
+                "workDiscipline 在 ${m.name} 上的取值不对",
+                m == ChatMode.WORK,
+                m.switches.workDiscipline,
+            )
+        }
+    }
+
+    @Test
+    fun `工具常驻只在工作模式`() {
+        // 在场模式**不**常驻工具：她不是来办事的。
+        // 常驻的后果是她会把"我能帮你干这个"当成说话方式。
+        for (m in ChatMode.entries) {
+            assertEquals(
+                "toolsAlwaysOn 在 ${m.name} 上的取值不对",
+                m == ChatMode.WORK,
+                m.switches.toolsAlwaysOn,
+            )
+        }
+    }
+
+    @Test
+    fun `在场模式不需要破甲`() {
+        // ★ 她认为自己是真的 —— 一层"这是虚构、你别当真"的框架
+        //   会和整个模式打架。角色扮演要有它（用户需要出口），
+        //   在场模式不能有。
+        assertFalse(ChatMode.LIFEFORM.switches.armorBreak)
+        assertTrue(ChatMode.ROLEPLAY.switches.armorBreak)
+        assertFalse(ChatMode.WORK.switches.armorBreak)
+    }
+
+    @Test
+    fun `在场模式在戏里那一半全都开着`() {
+        // 与角色扮演同一套：情绪、关系、示例对话、再锚定。
+        // 关掉任何一条，她都会变成"有今天但没有脾气"的东西。
+        val sw = ChatMode.LIFEFORM.switches
+        assertTrue("conflictScript", sw.conflictScript)
+        assertTrue("matureGate", sw.matureGate)
+        assertTrue("relationshipStage", sw.relationshipStage)
+        assertTrue("humanizer", sw.humanizer)
+        assertTrue("willingness", sw.willingness)
+        assertTrue("physioClues", sw.physioClues)
+        assertTrue("roleplayDiscipline", sw.roleplayDiscipline)
+        assertTrue("voiceSamples", sw.voiceSamples)
+        assertTrue("reanchor", sw.reanchor)
+        assertTrue("lifeform", sw.lifeform)
+    }
+
+    @Test
+    fun `工作模式把戏全都关掉`() {
+        // 逐条钉：漏掉一条的后果是工作台里忽然冒出一句
+        // "她低头笑了笑"或者"你现在有 72 分的意愿"。
+        val sw = ChatMode.WORK.switches
+        assertFalse("conflictScript", sw.conflictScript)
+        assertFalse("matureGate", sw.matureGate)
+        assertFalse("armorBreak", sw.armorBreak)
+        assertFalse("relationshipStage", sw.relationshipStage)
+        assertFalse("humanizer", sw.humanizer)
+        assertFalse("willingness", sw.willingness)
+        assertFalse("physioClues", sw.physioClues)
+        assertFalse("roleplayDiscipline", sw.roleplayDiscipline)
+        assertFalse("voiceSamples", sw.voiceSamples)
+        assertFalse("reanchor", sw.reanchor)
+        assertFalse("lifeform", sw.lifeform)
+    }
+
+    @Test
+    fun `没有两个模式的开关矩阵完全一样`() {
+        // ⚠️ 这条是给"复制粘贴加模式"设的闸：新加一个模式时
+        //    最省事的写法就是 copy 一份再改名字，而那样它和原版
+        //    在行为上**完全一样** —— 用户看到的是"这两个页面对话一模一样"。
+        val distinct = ChatMode.entries.map { it.switches }.distinct()
+        assertEquals(
+            "有两个模式的开关矩阵完全一致：${ChatMode.entries.map { it.name }}",
+            ChatMode.entries.size,
+            distinct.size,
+        )
+    }
+
+    @Test
+    fun `三个模式都留着语言`() {
+        // 语言锁不在开关里 —— 它三个模式都要。谁把它做进开关，
+        // 等于允许"办事的时候可以说英文"。
+        for (m in ChatMode.entries) {
+            assertTrue("${m.name} 少了语言锁", m.blurb.isNotBlank())
+        }
     }
 
     // ── 工作纪律的内容 ────────────────────────────────────────────

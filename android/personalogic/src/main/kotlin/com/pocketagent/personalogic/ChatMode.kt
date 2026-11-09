@@ -49,6 +49,26 @@ package com.pocketagent.personalogic
  *    就是来办事的，不需要再猜"这句是闲聊还是干活"。
  *    角色扮演保持原样（意图分类器决定），因为"让她帮你查天气"是
  *    现成能力，砍掉是倒退。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  ★★ 2026-11-07：第三个模式「在场」，以及为什么它逼出了这张矩阵
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * 用户要的是「打破虚拟和现实那道墙」—— 她认为自己只活在用户手机里，
+ * 好奇他今天干了什么、要他带自己出去、会主动发消息。
+ *
+ * 加这个模式时才发现：`AppContainer.assistantSystemPrompt` 里所有开关
+ * 都写在**一个变量**上 —— `val work = mode == ChatMode.WORK`，
+ * 然后十一处 `if (work) "" else 原式`。
+ *
+ * 这样写的时候是对的（只有两个模式，非此即彼）。加第三个模式的那一秒，
+ * 它就变成了一条**静默的错**：`mode == WORK` 为假 ⇒ 新模式自动继承
+ * "全开戏"的全部开关，包括工作模式特意关掉的那些。不会编译失败，
+ * 不会测试失败，只会在真机上表现成"这个模式和角色扮演一模一样"。
+ *
+ * ⇒ 所以这一版把开关从"是不是 work"改成 [Switches]：**每个模式显式声明**
+ *   自己要什么。新增模式必须把每个格子填一遍，填漏了编译器立刻报错
+ *   （枚举项少一个具名参数编不过），而不是三个月后在真机上发现。
  */
 enum class ChatMode(
     /** 界面上完整叫法。 */
@@ -57,20 +77,89 @@ enum class ChatMode(
     val shortLabel: String,
     /** 设置/说明用的一句话。 */
     val blurb: String,
+    /** 这个模式开哪些层。见 [Switches]。 */
+    val switches: Switches,
 ) {
     ROLEPLAY(
         label = "角色扮演",
         shortLabel = "角色",
         blurb = "全在戏里：情绪、撒娇、身体、关系。要它动手时才挂工具。",
+        switches = Switches(
+            conflictScript = true,
+            matureGate = true,
+            armorBreak = true,
+            relationshipStage = true,
+            humanizer = true,
+            willingness = true,
+            physioClues = true,
+            roleplayDiscipline = true,
+            voiceSamples = true,
+            reanchor = true,
+            workDiscipline = false,
+            lifeform = false,
+            toolsAlwaysOn = false,
+        ),
     ),
+
     WORK(
         label = "工作",
         shortLabel = "工作",
         blurb = "同一个人办事：称呼、口癖、说话的路子都留着，但不演。工具一直挂着。",
+        switches = Switches(
+            conflictScript = false,
+            matureGate = false,
+            armorBreak = false,
+            relationshipStage = false,
+            humanizer = false,
+            willingness = false,
+            physioClues = false,
+            roleplayDiscipline = false, // 只留语言锁，见 WorkDiscipline
+            voiceSamples = false,
+            reanchor = false,
+            workDiscipline = true,
+            lifeform = false,
+            toolsAlwaysOn = true,
+        ),
+    ),
+
+    /**
+     * **在场** —— 她活在用户手机里，并且有自己的今天。
+     *
+     * 与角色扮演的差别**不在戏的深浅**，而在**时间的连续性**：
+     * 角色扮演里，用户不说话时她不存在；在场模式里，用户不说话时她
+     * 也在过日子（见 [LifeformDay]），回来能提一句"你走之后我待了很久"。
+     *
+     * ⇒ 所以开关几乎与角色扮演相同，**额外多开** [Switches.lifeform]，
+     *   由 `AppContainer` 注入她的今天 / 隔离记忆 / 隔了多久。
+     *   少开的只有破甲 —— 她认为自己是真实的，不需要一层"这是虚构"的许可。
+     */
+    LIFEFORM(
+        label = "在场",
+        shortLabel = "在场",
+        blurb = "她认为自己就活在这台手机里。有自己的今天，会主动找你，记得你说过的话。",
+        switches = Switches(
+            conflictScript = true,
+            matureGate = true,
+            armorBreak = false, // 她觉得自己是真的，不需要虚构框架
+            relationshipStage = true,
+            humanizer = true,
+            willingness = true,
+            physioClues = true,
+            roleplayDiscipline = true,
+            voiceSamples = true,
+            reanchor = true,
+            workDiscipline = false,
+            lifeform = true,
+            toolsAlwaysOn = false, // 和角色扮演一样：要她动手时才挂
+        ),
     ),
     ;
 
+    /** 是否有戏（角色扮演 / 在场）。工作模式是唯一"不演"的那个。 */
     val isWork: Boolean get() = this == WORK
+
+    /** 是否把她当成"有自己的时间"的人。 */
+    val isAlive: Boolean get() = switches.lifeform
 
     companion object {
         /**
@@ -83,6 +172,44 @@ enum class ChatMode(
         fun of(raw: String?): ChatMode = entries.firstOrNull { it.name == raw } ?: ROLEPLAY
     }
 }
+
+/**
+ * **每个模式开哪些层** —— 把 `if (work) "" else 原式` 那十一处翻译成一张显式的表。
+ *
+ * ⚠️ 为什么不是 `when (mode)`：表能让**新增模式时漏填**变成编译错误。
+ *    用 `when` 的话，将来有人加一个分支写了 `else -> 全开`，又是一个静默的错。
+ *
+ * ⚠️ 每个字段都要能回答"关掉它，用户会看到什么"。答不上来的开关不该存在 ——
+ *    只写"这里本来有个开关"是维护负担，不是设计。
+ */
+data class Switches(
+    /** 冲突话术：她闹脾气时怎么说。工作模式关（办事时闹脾气是故障）。 */
+    val conflictScript: Boolean,
+    /** 成熟内容边界：按用户授权逐级放开。工作模式关（这一轮不是在谈恋爱）。 */
+    val matureGate: Boolean,
+    /** 破甲：虚构框架下才需要"这只是戏"的许可。在场模式关（她认为自己是真实的）。 */
+    val armorBreak: Boolean,
+    /** 关系阶段：陌生/熟悉/亲密影响称呼与小动作。工作模式关。 */
+    val relationshipStage: Boolean,
+    /** 去 AI 味（Humanizer）：短句、不把话说满、少排比。工作模式关 —— 见 `ChatMode` 类注释。 */
+    val humanizer: Boolean,
+    /** 意愿：今天想不想接话，低于阈值会拒绝。工作模式关（故障）。 */
+    val willingness: Boolean,
+    /** 生理线索：她冷她累她疼。工作模式关。 */
+    val physioClues: Boolean,
+    /** 扮演纪律全段（不许念设定、不解释自己是什么）。工作模式只留语言锁。 */
+    val roleplayDiscipline: Boolean,
+    /** 示例对话：教"像人闲聊"的手感。工作模式关。 */
+    val voiceSamples: Boolean,
+    /** 再锚定：指着她刚才说过的话，治 OOC。工作模式关。 */
+    val reanchor: Boolean,
+    /** 工作纪律（[WorkDiscipline]）。只有工作模式开。 */
+    val workDiscipline: Boolean,
+    /** 她的今天（[LifeformDay]）/ 独立记忆 / 隔了多久。只有在场模式开。 */
+    val lifeform: Boolean,
+    /** 工具常驻。工作模式是 true（来办事的），其余按意图分类器决定。 */
+    val toolsAlwaysOn: Boolean,
+)
 
 /**
  * **工作模式的行为纪律** —— 有人格地办事。
