@@ -135,10 +135,10 @@ data class LanguageFingerprint(
         //   ⚠️ 逐字节稳定性要求不变：字段顺序固定，不加时间戳，不用随机分隔符。
         appendLine("## 说话方式")
         if (addressForms.isNotEmpty()) {
-            appendLine("叫她${addressForms.joinToString("、")}。")
+            appendLine("叫我${addressForms.joinToString("、")}。")
         }
         if (forbiddenAddressForms.isNotEmpty()) {
-            appendLine("不叫她${forbiddenAddressForms.joinToString("、")}。")
+            appendLine("别叫我${forbiddenAddressForms.joinToString("、")}。")
         }
         if (bannedPhrases.isNotEmpty()) {
             // ⚠️ 措辞「禁止出现的说法」被 AssistantPromptTest 钉着，别改这五个字。

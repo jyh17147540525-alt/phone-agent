@@ -1975,7 +1975,7 @@ class AppContainer(context: Context) {
             p.name.takeIf { it.isNotBlank() }?.let { "名字：$it" },
             p.identity.takeIf { it.isNotBlank() }?.let { "身份：$it" },
             p.addressUser.takeIf { it.isNotBlank() }?.let { "怎么称呼对方：$it" },
-            p.addressSelf.takeIf { it.isNotBlank() }?.let { "怎么自称：$it" },
+            p.addressSelf.takeIf { it.isNotBlank() }?.let { "怎么称呼自己：$it" },
             p.relationTo.takeIf { it.isNotBlank() }?.let { "与对方的关系：$it" },
             p.dialect.takeIf { it.isNotBlank() }?.let { "方言/口音：$it" },
             p.catchphrases.takeIf { it.isNotEmpty() }?.let { "口头禅：${it.joinToString("、")}" },
@@ -4236,7 +4236,7 @@ class AppContainer(context: Context) {
      * 所以它们统一写成占位符 `{who}`，读的时候现换。
      *
      * ⚠️ 顺序：`addressUser` → `addressSelf` 都不合适时退到「你」。
-     *   角色的自称（addressSelf）是"她怎么称呼自己"，不是"怎么称呼用户"，
+     *   addressSelf 是"怎么称呼自己"，不是"怎么称呼用户"，
      *   但在用户没填 addressUser 的情况下，用名字也比写死一个昵称好。
      */
     private fun personalize(text: String): String {
@@ -4531,7 +4531,12 @@ class AppContainer(context: Context) {
         val conflict = if (sw.conflictScript) legacyConflictSection(currentUserText) else ""
 
         val base = if (custom != null) {
-            custom.describeForPrompt() + "\n\n" + capability
+            // ★ 2026-11-12：自定义角色这一支**整条替换**掉了装配器（下面 else 那支），
+            //    所以 L0 里的人称裁决拿不到 —— 用户自己写的角色设定又是第三人称口吻
+            //    （「她是一个……」），模型很容易读成"用户在扮演这个角色"。
+            //    这段放在最前面，先把"写它的是他、被写的是你"钉死，再给设定。
+            com.pocketagent.personalogic.PromptRoles.settingHeader() + "\n\n" +
+                custom.describeForPrompt() + "\n\n" + capability
         } else {
             // ★ 2026-11-02：把"这一句"交给记忆检索 —— 不传的话
         //   每轮都会想起同样的事，那不是记忆，是背景板。
@@ -4701,7 +4706,7 @@ class AppContainer(context: Context) {
             //   提示词的排版会被照着学：给三条 bullet，它就回三条 bullet，
             //   而这一段要的恰恰是"别逐条汇报"。改成一句一行，靠换行分隔。
             buildString {
-                appendLine("## 她身体上此刻的事")
+                appendLine("## 我身体上此刻的事")
                 for (clue in clues) appendLine(clue)
                 append("说得自然一点，不要逐条汇报。")
             }

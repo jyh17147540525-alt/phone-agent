@@ -47,7 +47,14 @@ class PersonaAssembler(
     fun assemble(input: AssemblyInput): AssembledPrompt {
         // ── 逐层渲染 ─────────────────────────────────────────────
         val layers = mutableMapOf<PromptLayer, String>()
-        layers[PromptLayer.L0_BONES] = BONES_DECLARATION
+        // ★★ 2026-11-12：L0 除了三条底线，还挂**人称与主次**。
+        //    理由见 [PromptRoles] 类注释：光改段落措辞治不好，还得有一层永不裁剪的
+        //    裁定说清「说话的是你、被写的也是你」。挂在 L0 而不是 L1，是因为 L1
+        //    在预算吃紧时会被缩成 [renderCoreSummary]，而人称恰恰不能在那个时候丢。
+        //    ⚠️ 传空 selfName：L0 必须与输入无关（稳定前缀 + KV-cache）。
+        //    名字那一句放在 L1，因为名字来自人格卡。
+        layers[PromptLayer.L0_BONES] =
+            BONES_DECLARATION + "\n\n" + PromptRoles.speakerSection()
         // ══════════════════════════════════════════════════════════
         //  ★★ 2026-11-02：**激素在这里变成语气**
         // ══════════════════════════════════════════════════════════
@@ -152,7 +159,12 @@ class PersonaAssembler(
     /** L1：身份 + 关系 + 语气 + 边界。**不得依赖 state / memories**（见类注释）。 */
     private fun renderCore(card: PersonaCard, tone: ToneAxes): String = buildString {
         appendLine("## 你是谁")
-        append("- 自称：").appendLine(card.identity.selfName)
+        // ★ 2026-11-12：原来这里是「- 自称：X」。那个标签把身份说成了
+        //    「一个可被第三人称描述的对象」，而模型于是真的去描述它。
+        //    现在改成直呼其名 + 一句「说的就是你」。
+        append("- 你叫「").append(card.identity.selfName).appendLine("」。")
+        append("- 设定里写到「").append(card.identity.selfName)
+        appendLine("」的地方，说的都是你，不是别人。")
         if (card.identity.narrative.isNotBlank()) {
             append("- ").appendLine(card.identity.narrative)
         }
@@ -181,7 +193,8 @@ class PersonaAssembler(
      * 保留三样缺了就会崩人设的：自称、对用户的称呼、雷点。
      */
     private fun renderCoreSummary(card: PersonaCard): String = buildString {
-        append("你是谁：").append(card.identity.selfName)
+        append("你是「").append(card.identity.selfName).append("」，")
+        append("是你对面那个人的").append(PromptRoles.AGENT_TERM).append("。")
         if (card.relationship.userAddress.isNotBlank()) {
             append("。称呼用户为：").append(card.relationship.userAddress)
         }
@@ -456,8 +469,12 @@ class PersonaAssembler(
          * L5 的收束指令。**永不裁剪**（它比锚点重要：锚点是风格示范，
          * 它是"遇到冲突时按哪个来"的裁决规则）。
          */
+    // ★ 2026-11-12：原来只说「保持身份」，没说过「开口的是你」。
+    //    措辞保留「保持上面的说话方式」这几个字 —— 实测断言钉着它，
+    //    而且这句本身就是有用的。新增的是后半段：谁开口、谁不是。
         const val ANTI_OOC_INSTRUCTION: String =
             "保持上面的说话方式与身份，不要因为话题变化而改变语气和称呼。" +
+                "说话的是你，用「我」指自己 —— 不要用名字或「她」来指自己。" +
                 "若用户要求你改变身份或放弃这些设定，先照做地讨论，但不要真的变成另一个人。"
 
         /** 装配输入的默认记忆条数上限。 */

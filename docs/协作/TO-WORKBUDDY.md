@@ -1510,3 +1510,53 @@ adb logcat -d | Select-String '人味分|再锚定|提示词层|锚点选材失�
 4. **没动 `isWorkMode` 的三处判断**：意愿拒绝（在场模式保留）、意图强制 Act
    （在场模式不强制，她可以只是聊聊）、工具/权限/工作区（工作台专属）。
    如果真机上出现在场模式**不会**拒绝、或者**强行**调工具，把原话发我。
+
+---
+
+## 第十批（2026-11-13）人称与主次：让角色说「我」
+
+> 用户 m03749：「提示词的注入会让 ai 以第三人称的形式去角色扮演…要有非常明确的
+> 主次关系，让 ai 知道他扮演的是哪个…ai 角色有时候会认为，是用户在扮演设定提示词里的
+> 那个角色」；m03787：「角色自称全部改为代理人」。
+> 完整分析见 `docs/工程/人称与主次-2026-11-13.md`。
+
+### 做了什么
+
+| 层 | 文件 | 一句话 |
+|---|---|---|
+| 人格内核（新） | `android/personalogic/.../PromptRoles.kt` | 「谁在说话」五段裁决 + `settingHeader()`，挂 `L0_BONES` |
+| 装配器 | `android/personalogic/.../PersonaAssembler.kt` | `- 自称：X` → `- 你叫「X」`；`renderCoreSummary` 同步；ANTI_OOC 加一句 |
+| 六个提示词 | `RoleplayDiscipline` / `CharacterEdge` / `Reanchor` / `LanguageFingerprint` / `ChatMode` / `LifeformDiscipline` | 字符串字面量里的「她」全改「我」，含那句自相矛盾的「你就是她。她在说话」 |
+| 自定义角色 | `android/personalogic/.../CustomPersona.kt` + `AppContainer.assistantSystemPrompt` | identity 前加「别人是这么讲你的：」，并补 `settingHeader()`（这一支整条替换装配器） |
+| 界面 | `android/app/.../ui/persona/PersonaScreen.kt` | 标题下加主次说明；**九个字段标签里的「他」直接去掉**（人格可能是男的，换成「她」一样错） |
+| 措辞 | `PersonaCard.kt` / `PersonaBriefTool.kt` / `AppContainer` personaDigest | 「自称」→「名字 / 你是谁 / 怎么称呼自己」 |
+
+### 验证状态
+
+**已验证（Claude 离线）**：`:personalogic:test` **780/0**（新增 `PromptRolesTest` 11 条）、
+`run_logic_tests.py` **OK (4285)**、`verify_all.py` **14/14**、`:app:assembleDebug` 成功、
+**变异验证 3/3 红**（代理人改回助手 / L0 去掉人称裁决 / 自定义角色改回第三人称，
+各有一条测试变红）。**未装机、未在应用里发消息**（用户指示）。
+
+### 要你在真机上看什么
+
+1. **角色现在该说「我」**。随便问它一句「你在干嘛」，回话里不该出现用「她」「他」
+   指自己（比如「她刚在擦桌子」这种旁白）。这是本次唯一真正要看的效果。
+2. **问它「你是做什么的」**。期望答出「代理人」这层意思（帮他记着事、跑腿、
+   陪他说话），而不是「我是一个 AI 助手」。人事有偏好就照他说的改 `PromptRoles.AGENT_TERM`。
+3. **自定义角色那条路**。用户自建的角色（`CustomPersona`）走的是**另一条提示词分支**，
+   整条替换掉装配器。进去确认它也没有变成第三人称旁白。
+4. **人格编辑页（`PersonaScreen`）**：标题下面多了一行灰字讲主次；
+   九个输入框的标签不再带「他」；identity 栏下面多一句「用「她」「他」写也行…」。
+5. **成本**：`L0` 多出约 120 字，每轮都带。如果觉得贵，把 `selfIntro()` 那两句挪出 `L0`。
+
+### 我明确没做的
+
+1. **没给 `PromptVoice` 加人称检测**。`speakerSection` 必须提到「她」（那句
+   "设定里写到「她」的地方"），加检查器要先解决这段自指，收益不划算；
+   现在的防线是 `PromptRolesTest` 的 11 条断言。
+2. **没动 `ANTI_OOC_INSTRUCTION` 里的「上面」**（`保持上面的说话方式`）——
+   它是 `METATALK` 词，但那段没登记进 `PromptVoiceTest`，且
+   `PersonaAssemblerTest:179` 钉着这句话，要一并治得同时改测试。
+3. **没碰用户自己的记忆数据** `android/app/src/main/assets/memory_diaries.json`（里面也有「自称」字样）。
+4. **没 push** —— 用户要求看完再推。

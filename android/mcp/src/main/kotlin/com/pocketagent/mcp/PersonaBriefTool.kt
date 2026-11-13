@@ -40,7 +40,7 @@ import kotlinx.serialization.json.putJsonObject
  *
  * | 返回项 | agent 拿它干什么 |
  * |---|---|
- * | 自称 + 对用户的称呼 | 转述时代入正确人称（而不是千篇一律的"助手"） |
+ * | 名字 + 对用户的称呼 | 转述时代入正确人称（而不是千篇一律的"助手"） |
  * | 语气倾向 | 决定"这话该用什么口吻说"（温度/简洁/正式度） |
  * | **禁用语** | **可执行约束** —— 不是描述，是"这几个词不许说" |
  * | 当前状态 + 由头 | 问「你怎么了」时能复述具体原因（无由头 = 中性） |
@@ -65,7 +65,7 @@ class PersonaBriefTool(
     override val name: String = "persona_brief"
 
     override val description: String =
-        "查询助理当前的人格与状态摘要 —— 自称、对用户的称呼、语气倾向、禁用语、" +
+        "查询助理当前的人格与状态摘要 —— 名字、对用户的称呼、语气倾向、禁用语、" +
             "当前情绪/精力及由头、以及安全红线。用于：转述时代入正确人称、" +
             "决定用什么口吻说话、确认哪些词不能说。" +
             "这是**只读**查询：本工具无法修改人格或状态。"
@@ -108,7 +108,7 @@ class PersonaBriefTool(
         appendLine("# 助理人格与状态")
         appendLine()
         appendLine("## 身份")
-        appendLine("- 自称：${brief.selfName}")
+        appendLine("- 你是谁：${brief.selfName}")
         appendLine("- 对用户的称呼：${brief.userAddress}")
         if (brief.catchphrase.isNotBlank()) {
             appendLine("- 口头禅：${brief.catchphrase}")

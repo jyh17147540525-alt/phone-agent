@@ -279,9 +279,11 @@ class PersonaAssemblerTest {
         assertTrue(l0.contains("解锁"))
         assertTrue(l0.contains("不确定"))
         assertTrue(l0.contains("未授权"))
+        // ★ 2026-11-12：L0 现在 = 骨骼 + 人称裁决（谁在说话）。
+        //    两段都是常量，仍然与任何输入无关 —— 断言跟着改，判据不变。
         assertEquals(
             "L0 是常量，任何输入下都不变",
-            PersonaAssembler.BONES_DECLARATION,
+            PersonaAssembler.BONES_DECLARATION + "\n\n" + PromptRoles.speakerSection(),
             l0,
         )
     }

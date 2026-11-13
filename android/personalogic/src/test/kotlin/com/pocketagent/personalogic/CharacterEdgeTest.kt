@@ -28,8 +28,8 @@ class CharacterEdgeTest {
     @Test
     fun 三段标题都在() {
         val all = CharacterEdge.promptSection()
-        assertTrue(all, all.contains("## 她知道的和不知道的"))
-        assertTrue(all, all.contains("## 遇到这些事她怎么反应"))
+        assertTrue(all, all.contains("## 我知道的和不知道的"))
+        assertTrue(all, all.contains("## 遇到这些事我怎么反应"))
         assertTrue(all, all.contains("## 开口之前"))
     }
 
@@ -38,18 +38,18 @@ class CharacterEdgeTest {
         val all = CharacterEdge.promptSection()
         assertTrue(
             all,
-            all.indexOf("## 她知道的和不知道的") < all.indexOf("## 遇到这些事她怎么反应"),
+            all.indexOf("## 我知道的和不知道的") < all.indexOf("## 遇到这些事我怎么反应"),
         )
         assertTrue(
             all,
-            all.indexOf("## 遇到这些事她怎么反应") < all.indexOf("## 开口之前"),
+            all.indexOf("## 遇到这些事我怎么反应") < all.indexOf("## 开口之前"),
         )
     }
 
     @Test
     fun 段与段之间一个空行() {
         val all = CharacterEdge.promptSection()
-        assertTrue(all, all.contains("## 她知道的和不知道的"))
+        assertTrue(all, all.contains("## 我知道的和不知道的"))
         // 每两段之间恰好 "\n\n"（三段 → 两个分隔）
         assertTrue(all, all.split("\n\n## ").size == 3)
     }
@@ -99,7 +99,7 @@ class CharacterEdgeTest {
         //    known 本来就该改第一段（它就是给第一段用的）。
         val a = CharacterEdge.promptSection()
         val b = CharacterEdge.promptSection(listOf("做饭"))
-        val marker = "## 遇到这些事她怎么反应"
+        val marker = "## 遇到这些事我怎么反应"
         assertEquals(a.substringAfter(marker), b.substringAfter(marker))
     }
 

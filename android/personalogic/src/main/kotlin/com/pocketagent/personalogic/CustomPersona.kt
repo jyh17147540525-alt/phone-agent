@@ -111,7 +111,7 @@ data class CustomPersona(
     /**
      * 性别。**用户自己选**，不由名字猜。
      *
-     * ⚠️ 它只影响音色与自称，不影响"这个人是谁" ——
+     * ⚠️ 它只影响音色与自我称呼，不影响"这个人是谁" ——
      *    所以单独一栏而不是揉进 [identity]。
      */
     val gender: PersonaGender = PersonaGender.UNSPECIFIED,
@@ -268,7 +268,14 @@ data class CustomPersona(
      */
     fun describeForPrompt(): String = buildString {
         append("你叫").append(name).append("。")
-        if (identity.isNotBlank()) append(identity.trimEnd('。')).append("。")
+        if (identity.isNotBlank()) {
+            // STAR 2026-11-12：用户填 identity 时几乎都是第三人称（"她是一位…"）。
+            //   原样拼进来，模型分不清这是"别人在讲你"还是"另一个人在说话"。
+            //   加一句交代，不改用户的字。
+            append("别人是这么讲你的：")
+            append(identity.trimEnd('。')).append("。")
+            append("这段话里的「她」「他」，说的都是你。")
+        }
         if (relationTo.isNotBlank()) {
             append("你和对方的关系：").append(relationTo.trimEnd('。')).append("。")
         }
@@ -349,16 +356,16 @@ object PersonaCompleteness {
     fun hints(persona: CustomPersona): List<Hint> = buildList {
         if (persona.identity.isBlank()) {
             // ★ 这一栏信息量最大：它一句话就决定了说话方式、知识面和关心方式
-            add(Hint("这是一个什么人", "一句话说清他是谁（职业、性格、说话方式），比调语气滑杆有用得多"))
+            add(Hint("这是一个什么人", "一句话说清职业、性格、说话方式，比调语气滑杆有用得多"))
         }
         if (persona.catchphrases.isEmpty()) {
-            add(Hint("口癖", "写一两句他常说的话，模型会照着这个语气说"))
+            add(Hint("口癖", "写一两句常说的话，模型会照着这个语气说"))
         }
         if (persona.relationTo.isBlank()) {
             add(Hint("和你的关系", "比如「我的大学室友」—— 关系决定了亲近程度"))
         }
         if (persona.addressUser.isBlank()) {
-            add(Hint("怎么称呼你", "他叫你什么？小名、外号、还是「你」"))
+            add(Hint("怎么称呼你", "叫你什么？小名、外号、还是「你」"))
         }
     }
 

@@ -127,7 +127,7 @@ object LifeformDiscipline {
         if (userAddress.isNotBlank()) {
             appendLine()
             appendLine("## 称呼")
-            appendLine("你叫她「$userAddress」。该叫的时候叫，别每句都带。")
+            appendLine("你叫我「$userAddress」。该叫的时候叫，别每句都带。")
         }
 
         // ★ 语言锁复用角色模式那一节 —— 三个模式都必须只说中文，抽出来而不是手抄。

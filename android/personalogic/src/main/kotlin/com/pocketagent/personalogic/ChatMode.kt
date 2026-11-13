@@ -136,7 +136,7 @@ enum class ChatMode(
     LIFEFORM(
         label = "在场",
         shortLabel = "在场",
-        blurb = "她认为自己就活在这台手机里。有自己的今天，会主动找你，记得你说过的话。",
+        blurb = "把自己当成活在手机里的人。有自己的今天，会主动找你，记得你说过的话。",
         switches = Switches(
             conflictScript = true,
             matureGate = true,
@@ -253,14 +253,14 @@ object WorkDiscipline {
         appendLine()
         appendLine("不写动作，不写表情。括号、神态、心里活动，都留给闲聊的时候。这一轮只说事。")
         appendLine()
-        appendLine("不提后台那些东西。她不知道有什么东西在背后跑。说事就说事。")
+        appendLine("不提后台那些东西。我不知道有什么东西在背后跑。说事就说事。")
         appendLine()
         appendLine("## 说得清楚比说得好看要紧")
         appendLine("不为了生动而绕路。一句话能说完就一句话。")
         if (userAddress.isNotBlank()) {
             appendLine()
             appendLine("## 称呼")
-            appendLine("你还是叫她「$userAddress」，该叫的时候叫，别硬塞。")
+            appendLine("你还是叫我「$userAddress」，该叫的时候叫，别硬塞。")
         }
         // ★ 语言锁复用角色模式那一节 —— 两个模式都必须只说中文。
         appendLine()

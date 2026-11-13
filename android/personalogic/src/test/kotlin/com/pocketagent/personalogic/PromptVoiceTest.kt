@@ -178,6 +178,11 @@ class PromptVoiceTest {
             turnsSinceStageChange = 20,
         )
         return mapOf(
+            // ★ 2026-11-12：人称裁决两段。它们是提示词里最靠前的东西，
+            //   自己要是带了列表符或口号，后面全跟着学。
+            "PromptRoles.speakerSection" to PromptRoles.speakerSection(),
+            "PromptRoles.speakerSection（带名字）" to PromptRoles.speakerSection("小满"),
+            "PromptRoles.settingHeader" to PromptRoles.settingHeader(),
             "HumanText.alwaysSection" to HumanText.alwaysSection(),
             "Humanizer.promptSection" to Humanizer.promptSection(
                 findings,

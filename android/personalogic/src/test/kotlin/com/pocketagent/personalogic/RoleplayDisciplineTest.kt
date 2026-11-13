@@ -318,14 +318,14 @@ class VoiceSamplesTest {
     @Test
     fun `有正面的台词样例`() {
         assertTrue("必须给真正的台词", s.contains("他说："))
-        assertTrue("必须给出她的回应", s.contains("她："))
+        assertTrue("必须给出回应，且用第一人称指自己", s.contains("你："))
     }
 
     @Test
     fun `示例必须长短不齐`() {
         // ⚠️ 这是本组测试的**核心**
         // 四条同构的示例等于教模型"每句都要有反转"
-        val replies = Regex("她：「([^」]*)」").findAll(s).map { it.groupValues[1] }.toList()
+        val replies = Regex("你：「([^」]*)」").findAll(s).map { it.groupValues[1] }.toList()
         assertTrue("示例至少 4 条：${replies.size}", replies.size >= 4)
         val lens = replies.map { it.length }
         assertTrue("最长的一句要明显长于最短的一句（否则结构太齐）：$lens",

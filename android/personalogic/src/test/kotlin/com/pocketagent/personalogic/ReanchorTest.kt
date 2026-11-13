@@ -110,7 +110,7 @@ class ReanchorTest {
     fun `只挑没有句末标点的锚点当 prefill`() {
         val picks = listOf(anchor("随你。"), anchor("……你听谁说的"))
         val p = Reanchor.prefillCandidate(picks)
-        assertEquals("她：「……你听谁说的", p)
+        assertEquals("你：「……你听谁说的", p)
     }
 
     @Test

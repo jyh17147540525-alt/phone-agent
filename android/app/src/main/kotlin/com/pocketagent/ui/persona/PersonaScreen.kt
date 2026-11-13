@@ -210,9 +210,19 @@ fun PersonaScreen(
             )
             Spacer(Modifier.height(PaSpace.xxs))
             Text(
-                text = "说清他是谁、怎么说话，比调一堆滑杆有用。",
+                text = "说清这个人是谁、怎么说话，比调一堆滑杆有用。",
                 style = PaType.caption,
                 color = PaColor.TextSecondary,
+            )
+            Spacer(Modifier.height(PaSpace.xxs))
+            // STAR 2026-11-12（用户 m03749）：「要有非常明确的主次关系」。
+            //   用户一直在填"关于某个人的描述"，但从来没人告诉他谁演谁 ——
+            //   他于是有理由自己猜：是不是我在演她？这句就写在填写的地方。
+            Text(
+                text = "设定是你写的。开口跟你说话的是被写的那个人，它说「我」的时候，" +
+                    "指的就是设定里的那个名字。",
+                style = PaType.caption,
+                color = PaColor.TextTertiary,
             )
         }
 
@@ -223,7 +233,7 @@ fun PersonaScreen(
             PaField(
                 label = "名字",
                 value = name,
-                placeholder = "他会怎么介绍自己",
+                placeholder = "自我介绍时会用的名字",
                 // ⚠️ 输入期就截断，而不是提交时判为非法。
                 //    过长的粘贴会**当场**停在 24 字，用户立刻看见；
                 //    而不是填完一按保存、设定整个变空（那正是原来的 bug）。
@@ -241,9 +251,15 @@ fun PersonaScreen(
             PaField(
                 label = "这是一个什么人",
                 value = identity,
-                placeholder = "一句话说清他的职业、性格、说话方式",
+                placeholder = "一句话说清职业、性格、说话方式",
                 singleLine = false,
                 onValueChange = { identity = it },
+            )
+            Spacer(Modifier.height(PaSpace.xxs))
+            Text(
+                text = "用「她」「他」写也行，那是别人在讲这个人，提示词里会说明它指的是谁。",
+                style = PaType.caption,
+                color = PaColor.TextTertiary,
             )
         }
         item {
@@ -256,7 +272,7 @@ fun PersonaScreen(
         }
         item {
             PaField(
-                label = "他怎么称呼你",
+                label = "怎么称呼你",
                 value = addressUser,
                 placeholder = "小陈 / 你",
                 onValueChange = { addressUser = it },
@@ -264,7 +280,7 @@ fun PersonaScreen(
         }
         item {
             PaField(
-                label = "他常说的话",
+                label = "常说的话",
                 value = catchphrases,
                 placeholder = "用顿号隔开，如：这事儿啊、慢慢来",
                 onValueChange = { catchphrases = it },
@@ -277,7 +293,7 @@ fun PersonaScreen(
                 Spacer(Modifier.height(PaSpace.xxs))
                 Text(
                     text = "写了 ${allPhrases.size} 条，只用前 ${CustomPersona.MAX_CATCHPHRASES} 条 —— " +
-                        "太多会让模型混着用，反而不像他。",
+                        "太多会让模型混着用，反而不像一个人。",
                     style = PaType.caption,
                     color = PaColor.Warning,
                 )
@@ -295,10 +311,10 @@ fun PersonaScreen(
         //   · 共同经历 → 只有你俩懂的梗，比十行形容词更能让关系显得真实
         item { Spacer(Modifier.height(PaSpace.s)) }
         item {
-            Text("让他更像个人", style = PaType.body, color = PaColor.TextPrimary)
+            Text("让这个人更像活人", style = PaType.body, color = PaColor.TextPrimary)
             Spacer(Modifier.height(PaSpace.xxs))
             Text(
-                "下面这几栏不填也能用，但填了之后他会明显不一样。",
+                "下面这几栏不填也能用，但填了之后这个角色会明显不一样。",
                 style = PaType.caption,
                 color = PaColor.TextSecondary,
             )
@@ -320,7 +336,7 @@ fun PersonaScreen(
         }
         item {
             PaField(
-                label = "他平时在干嘛",
+                label = "平时在干嘛",
                 value = dailyLife,
                 placeholder = "例：在一家小公司写代码，最近老加班，通勤要一小时",
                 onValueChange = { dailyLife = it },
@@ -388,8 +404,8 @@ fun PersonaScreen(
         }
         item {
             Text(
-                "作息只影响语气（困了会敷衍、刚醒会短），不影响他能不能回你 —— " +
-                    "你随时找他，他都在。",
+                "作息只影响语气（困了会敷衍、刚醒话短），不影响回不回你 —— " +
+                    "你随时说话，都有回音。",
                 style = PaType.caption,
                 color = PaColor.TextTertiary,
             )
@@ -405,7 +421,7 @@ fun PersonaScreen(
         item { Spacer(Modifier.height(PaSpace.s)) }
         item {
             PaField(
-                label = "他有哪些毛病",
+                label = "有哪些毛病",
                 value = flaws,
                 placeholder = "每行一条，格式：标签：具体表现\n" +
                     "例：爱较真：一说到我的工作就数落我，说我不该辞职",

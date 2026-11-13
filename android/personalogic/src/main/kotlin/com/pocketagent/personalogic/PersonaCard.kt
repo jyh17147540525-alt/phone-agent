@@ -11,7 +11,7 @@ import kotlinx.serialization.Serializable
  *
  * | 层 | 内容 | 在这里吗 |
  * |---|---|---|
- * | ① 身份 | 自称、身份叙事 | ✅ [identity] |
+ * | ① 身份 | 名字、身份叙事 | ✅ [identity] |
  * | ② 关系 | 关系定义、双向称谓、互动协议 | ✅ [relationship] |
  * | ③ 语言指纹 | 称呼/禁令/标点/口癖 | ✅ [fingerprint] |
  * | ④ 性格轴 | 六根语气轴 | ❌ 用既有的 [ToneAxes]（不复制一份） |
@@ -63,7 +63,7 @@ data class PersonaCard(
 ) {
 
     init {
-        require(identity.selfName.isNotBlank()) { "自称不能为空 —— 没有人格的人格卡会让装配器渲染出一片空白" }
+        require(identity.selfName.isNotBlank()) { "名字不能为空 —— 没有人格的人格卡会让装配器渲染出一片空白" }
     }
 
     companion object {
@@ -102,7 +102,7 @@ data class PersonaCard(
 /**
  * ① 身份层。
  *
- * @param selfName 自称（如「小助」）。**非空** —— 装配器 L1 靠它开场
+ * @param selfName 名字（如「小助」）。**非空** —— 装配器 L1 靠它开场
  * @param narrative 身份叙事（如「住在你手机里的房客」）。
  *   允许为空：不是每个人格都需要一段来历，硬编一段只会变成噪音。
  */
