@@ -99,9 +99,34 @@ class PhysiologyEngineTest {
 
     @Test
     fun `睡够会恢复`() {
+        // ★ 2026-11-14：曲线由线性改成指数（τ=4.2h，取自 Borbély 双过程模型，
+        //   见 SleepHomeostasis）。旧断言是"8 小时恢复 4 小时、剩 2 小时"，
+        //   那是线性恢复的算术；指数下 8 小时还掉约 85%，只剩 0.89。
+        //
+        //   哪个更对？补一觉之后确实基本缓过来了 —— 线性的 8 小时只还掉
+        //   三分之二的债，与体感不符。
         val tired = Physiology(sleepDebtHours = 6.0, lastActiveAtMs = 0)
         val rested = PhysiologyEngine.advance(tired, elapsedMs = 8 * 3_600_000L)
-        assertEquals("8 小时应当恢复 4 小时债", 2.0, rested.sleepDebtHours, 1e-9)
+        assertEquals("8 小时应当还掉约 85%", 0.893, rested.sleepDebtHours, 0.01)
+    }
+
+    @Test
+    fun `恢复是指数 不是线性`() {
+        // ══════════════════════════════════════════════════════
+        //  ★ 这条钉住"曲线形状"，而不只是"会变小"
+        // ══════════════════════════════════════════════════════
+        // 线性的特征：每小时还掉一样多 ⇒ 两个 4.2 小时加起来正好是
+        // 一个 8.4 小时还掉的两倍。
+        // 指数的特征：睡满一个时间常数，剩 1/e（约 37%）。
+        val start = Physiology(sleepDebtHours = 8.0, lastActiveAtMs = 0)
+        val oneTau = PhysiologyEngine.advance(start, elapsedMs = (4.2 * 3_600_000).toLong())
+        assertEquals("睡满一个 τ 应剩 1/e", 8.0 / kotlin.math.E, oneTau.sleepDebtHours, 0.01)
+
+        val twoTau = PhysiologyEngine.advance(oneTau, elapsedMs = (4.2 * 3_600_000).toLong())
+        assertTrue(
+            "第二个 τ 还掉的应当明显少于第一个（${8.0 - oneTau.sleepDebtHours} vs ${oneTau.sleepDebtHours - twoTau.sleepDebtHours}）",
+            8.0 - oneTau.sleepDebtHours > oneTau.sleepDebtHours - twoTau.sleepDebtHours,
+        )
     }
 
     @Test
@@ -147,6 +172,22 @@ class PhysiologyEngineTest {
             hourOfDay = 10.0,
         )
         assertTrue("欠睡时上午也不该精神：$tired vs $fresh", tired < fresh)
+    }
+
+    @Test
+    fun `欠睡时最先崩的是下午`() {
+        // ══════════════════════════════════════════════════════
+        //  ★ 这条是把债务项从「减法」改成「乘法」的全部理由
+        // ══════════════════════════════════════════════════════
+        // 旧实现：`昼夜偏移 - 债务×4`，扣分与时段无关 ⇒
+        //   欠睡的人上午掉 20 点、下午也只掉 20 点。
+        // 真实：欠睡最直观的体验就是「下午废掉、上午还能撑一会儿」。
+        // 乘法交互 `C×(1-0.75·S)` 才有这个性质。
+        val debt = Physiology(sleepDebtHours = 5.0, lastActiveAtMs = 0)
+        val morning = PhysiologyEngine.energyModifier(debt, hourOfDay = 10.0)
+        val afternoon = PhysiologyEngine.energyModifier(debt, hourOfDay = 14.5)
+        assertTrue("上午($morning) 应当还撑得住", morning > 0)
+        assertTrue("午后($afternoon) 应当明显更差", afternoon < morning - 10)
     }
 
     // ═══════════════════════════════════════════════════════════

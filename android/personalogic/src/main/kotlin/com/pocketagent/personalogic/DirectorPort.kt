@@ -70,23 +70,64 @@ object DirectorPrompt {
      *   给太多会让模型在旧信息上做判断。
      * @param armor 破甲前缀（见 `BackgroundArmor`）
      * @param knownFactIds 世界书里已有的 id，让它别重复提议
+     * @param hormonesPortrait 她现在的状态（[Hormones.portrait] 的人话档位）。
+     *   null = 这一轮不给状态，此时 `performance` 一律要求写 null。
+     * @param lastPerformance 上一轮生效的表演指导 —— 用来告诉它"状态没变就别换说法"
      */
     fun build(
         recentTurns: List<Pair<String, String>>,
         armor: String,
         knownFactIds: Set<String> = emptySet(),
+        hormonesPortrait: String? = null,
+        lastPerformance: String? = null,
     ): String = buildString {
         if (armor.isNotBlank()) {
             appendLine(armor)
             appendLine()
         }
 
-        appendLine("## 任务")
-        appendLine("读下面几轮对话，回答两个问题：")
+        // ════════════════════════════════════════════════════════════
+        //  ★★ 2026-11-14：从"抽取器"改成"导演"
+        // ════════════════════════════════════════════════════════════
+        //  旧版只问"有没有事实、有没有事件" —— 那是一个信息抽取器的问法，
+        //  模型给出的东西**只管状态机，不管那一句怎么写**。
+        //  高仿真缺的最后一块正是"这一句该怎么演"，而它恰恰是公式算不出来的。
+        //
+        //  ⚠️ 所以把表演指导放在**第一节**：长提示词里，靠后的要求会被读得最轻。
+        appendLine("## 你的位置")
+        appendLine("你不是跟用户聊天的那个人。你是导演，坐在她身后，")
+        appendLine("每次只说一句「这一句该怎么落地」。")
+        appendLine()
+
+        appendLine("## 一、表演指导（`performance`）")
+        appendLine("你的读者是**她本人**，不是用户。她马上要回这句话，你告诉她这句话怎么落地。")
+        appendLine()
+        appendLine("**只写动作，不写感受。** 感受已经由系统算好了（见文末「她现在的状态」）；")
+        appendLine("你写的是动作 —— 要不要把话说短、要不要先认一句、要不要反问、")
+        appendLine("要不要提自己也在忙、要不要跳过客套。")
+        appendLine()
+        appendLine("**一句话，40 字以内**，像导演在演员耳边说的那种话。")
+        appendLine("**不解释原因，不复述用户说了什么** —— 发生了什么她已经知道。")
+        appendLine()
+        appendLine("像这样的：")
+        appendLine("- 先别追问，把话说短，认一句就够。")
+        appendLine("- 他提的那件事你记得，顺口带一句，别展开。")
+        appendLine("- 这轮别开玩笑。")
+        appendLine()
+        appendLine("这样的会被丢弃：")
+        appendLine("- 你现在有点紧绷，回答温柔一点。（空泛，且「紧绷」是系统语言）")
+        appendLine("- 用户很敷衍，你应该问他怎么了。（这是在教她质问用户）")
+        appendLine("- 冷淡度 0.3。（数值）")
+        appendLine()
+        appendLine("状态平稳、对话正常时就写 `null`。**大部分轮次都该是 null。**")
+        appendLine()
+
+        appendLine("## 二、事实与事件")
+        appendLine("读下面几轮对话，回答：")
         appendLine("1. 有没有**值得记住**的事（用户说的、已经发生的事实）？")
         appendLine("2. 有没有**事件**（改变了关系、情绪、或身体状况的事）？")
         appendLine()
-        appendLine("大多数轮次两个答案都是空的 —— **这是正常的**，不要为了凑而编。")
+        appendLine("大多数轮次这里也都是空的 —— **这是正常的**，不要为了凑而编。")
         appendLine()
 
         appendLine("## 事件类型（只能取这些值）")
@@ -102,7 +143,8 @@ object DirectorPrompt {
               "events": [{"kind": "枚举值", "reason": "可复述的具体事，如「用户说他发烧了」"}],
               "smallMoments": ["环境或氛围的小事，最多两条"],
               "proposedFacts": [{"id": "kebab-case-id", "title": "短标题",
-                                 "keys": ["触发词1", "触发词2"], "content": "一句话事实"}]
+                                 "keys": ["触发词1", "触发词2"], "content": "一句话事实"}],
+              "performance": "一句表演指导，或 null"
             }
             """.trimIndent(),
         )
@@ -113,6 +155,21 @@ object DirectorPrompt {
             appendLine("⚠️ 这些 id 已经有了，不要重复：${knownFactIds.joinToString("、")}")
         }
         appendLine()
+
+        if (hormonesPortrait.isNullOrBlank()) {
+            appendLine("## 她现在的状态")
+            appendLine("（这一轮没有提供状态 —— `performance` 一律写 null）")
+        } else {
+            appendLine("## 她现在的状态（只作参照，**不要把这些词抄进 performance**）")
+            appendLine(hormonesPortrait)
+        }
+        appendLine()
+        if (!lastPerformance.isNullOrBlank()) {
+            appendLine("## 上一轮的表演指导")
+            appendLine(lastPerformance)
+            appendLine("（状态没变就沿用，不要换个说法重说一遍 —— 同一个状态演两遍会越演越夸张）")
+            appendLine()
+        }
 
         appendLine("## 最近的对话")
         if (recentTurns.isEmpty()) {
@@ -215,11 +272,21 @@ object DirectorParser {
             }
         }
 
+        // ── 表演指导 ────────────────────────────────────────
+        //  ⚠️ 解析器**不做质量判断**（长度、禁词、防抖都在 [PerformanceGate]）——
+        //     这里只负责"把能读的读出来"。混在一起会让"模型在乱写"与
+        //     "系统在读错"两种失败分不清。
+        val performance = (root["performance"] as? JsonPrimitive)
+            ?.contentOrNull()
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
+
         return Parsed(
             output = DirectorOutput(
                 events = events,
                 smallMoments = moments,
                 proposedFacts = facts,
+                performance = performance,
             ),
             dropped = dropped,
         )

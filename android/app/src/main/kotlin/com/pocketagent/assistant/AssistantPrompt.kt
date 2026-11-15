@@ -1,6 +1,7 @@
 package com.pocketagent.assistant
 
 import com.pocketagent.personalogic.AssemblyInput
+import com.pocketagent.personalogic.Performance
 import com.pocketagent.personalogic.PersonaAssembler
 import com.pocketagent.personalogic.PersonaCard
 import com.pocketagent.personalogic.PersonaPreset
@@ -111,8 +112,17 @@ class AssistantPromptBuilder(
      *     既然大部分轮次不挂工具，提示词就不能永远按"能动手"写。
      *
      * @return 装配器的输出 + 与 [canAct] 匹配的能力声明
+     *
+     * @param performance 这一轮的**表演指导**（后台 AI 写的一句话）。
+     *   由调用方读"当前生效的那条"并传进来 —— 这里**不做有效期判断**
+     *   （有效期在 `PersonaAssembler.renderState` 里按状态时间判，
+     *   这样离线测试与真机走同一条逻辑）。
      */
-    fun build(canAct: Boolean = true, currentUserText: String = ""): String {
+    fun build(
+        canAct: Boolean = true,
+        currentUserText: String = "",
+        performance: Performance? = null,
+    ): String {
         val spec = persona.runtime.currentSpec()
         val assembled = assembler.assemble(
             AssemblyInput(
@@ -129,6 +139,8 @@ class AssistantPromptBuilder(
                 //   ⚠️ 不传的话只有 `alwaysInclude` 的条目在场 ——
                 //      那等于世界书只生效了十分之一，而且看不出来。
                 currentQuery = currentUserText,
+                // ★ 2026-11-14：后台 AI 的表演指导 → L3「这一句怎么演」
+                performance = performance,
             ),
         )
         val capability = if (canAct) CAPABILITY_BOUNDARY else CHAT_ONLY_BOUNDARY

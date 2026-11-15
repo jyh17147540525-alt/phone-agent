@@ -193,4 +193,65 @@ class DirectorParserTest {
         val b = DirectorParser.parse(json.valid)!!
         assertEquals(a.output, b.output)
     }
+
+    // ═══════════════════════════════════════════════════════════
+    //  ★ 表演指导：解析器只负责"取出来"，质量判断归 Gate
+    // ═══════════════════════════════════════════════════════════
+
+    @Test
+    fun `performance 字段会被取出来`() {
+        val raw = """
+            {"performance": "先别追问，把话说短。"}
+        """.trimIndent()
+        val r = DirectorParser.parse(raw)!!
+        assertEquals("先别追问，把话说短。", r.output.performance)
+        assertFalse("有指导就不算空结果", r.output.isEmpty)
+    }
+
+    @Test
+    fun `没有 performance 字段时是 null`() {
+        val r = DirectorParser.parse(json.valid)!!
+        assertNull("老格式（只有事件）也必须能解析", r.output.performance)
+    }
+
+    @Test
+    fun `performance 为 null 或空串都当没有`() {
+        assertNull(DirectorParser.parse("""{"performance": null}""")!!.output.performance)
+        assertNull(DirectorParser.parse("""{"performance": ""}""")!!.output.performance)
+        assertNull(DirectorParser.parse("""{"performance": "  "}""")!!.output.performance)
+        assertNull(
+            "模型偶尔会把 null 当成字符串写出来",
+            DirectorParser.parse("""{"performance": "null"}""")!!.output.performance,
+        )
+    }
+
+    @Test
+    fun `解析器不替 Gate 判质量`() {
+        // ⚠️ 分工：解析器只管"取出非空字符串"，
+        //    长度/禁词/防抖一律在 `PerformanceGate` ——
+        //    理由：解析器判质量就会有第二套规则，两套规则迟早不一致。
+        val raw = """
+            {"performance": "皮质醇很高，你应该安慰我。"}
+        """.trimIndent()
+        val r = DirectorParser.parse(raw)!!
+        assertEquals("皮质醇很高，你应该安慰我。", r.output.performance)
+    }
+
+    @Test
+    fun `提示词在给了状态时才允许写指导`() {
+        val withState = DirectorPrompt.build(
+            recentTurns = listOf("a" to "b"),
+            armor = "",
+            hormonesPortrait = "有点紧",
+            lastPerformance = "把话说短。",
+        )
+        assertTrue("要说明状态只作参照", withState.contains("有点紧"))
+        assertTrue("要带上上一句，避免换个说法重说一遍", withState.contains("把话说短。"))
+
+        val noState = DirectorPrompt.build(listOf("a" to "b"), "")
+        assertTrue(
+            "没给状态时必须明确要求 performance 写 null",
+            noState.contains("这一轮没有提供状态"),
+        )
+    }
 }

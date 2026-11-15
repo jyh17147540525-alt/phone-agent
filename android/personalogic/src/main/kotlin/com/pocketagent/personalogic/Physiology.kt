@@ -41,6 +41,22 @@ import kotlin.math.roundToInt
  *
  * 角色过的应该是用户的"一天"。它跟用户在同一个作息里，
  * 而不是过 UTC。
+ *
+ * ═══════════════════════════════════════════════════════════════
+ *  ★ 2026-11-14：恢复曲线由"线性"改为"指数"（借 Borbély 双过程模型）
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * 原来 `advance` 是 `debt - 0.5×小时`，欠得多和欠得少按同一个斜率还。
+ * 现在换成 `debt × exp(-小时/4.2)`，来源与取舍见 [SleepHomeostasis]。
+ *
+ * 另外 `energyModifier` 的债务项由**减法**改成**乘法交互**：
+ * 欠睡不是"扣固定分数"，而是"按比例削弱当下的清醒度" ——
+ * 所以同一个债，在低谷时段比在峰顶时段更惨。这也解释了为什么
+ * 熬夜之后最先崩的是下午。
+ *
+ * ⚠️ 仍然**不做**的事：睡眠惯性（刚醒来的十几分钟）。它需要"醒来的时刻"，
+ *    而我们只有"用户开始说话的时刻"，把两者当成一回事就会在
+ *    凌晨三点说"你刚睡醒"。
  */
 @kotlinx.serialization.Serializable
 data class Physiology(
@@ -76,8 +92,9 @@ data class Physiology(
         const val DEBT_PER_NIGHT_TURN = 0.25
         /** 睡眠债上限。再多也只是"困"，不该无限。 */
         const val MAX_DEBT = 12.0
-        /** 每小时自然恢复多少债（不交互就是在休息）。 */
-        const val DEBT_RECOVER_PER_HOUR = 0.5
+        // ⚠️ 2026-11-14 删掉了 DEBT_RECOVER_PER_HOUR（0.5/h 的线性恢复）。
+        //    恢复速率现在是指数（SleepHomeostasis.TAU_SLEEP_HOURS），
+        //    任何"每小时固定还多少"的说法都不再成立 —— 别再把它加回来。
     }
 }
 
@@ -150,7 +167,19 @@ object PhysiologyEngine {
      * ⚠️ 是**修正**不是替代：事件仍然能让人精神一振
      *    （凌晨收到一句夸奖也会 +4），但底子由节律决定。
      *
-     * 范围大约 -32..+22。
+     * ★ 2026-11-14：睡眠债的作用方式改了。原来是
+     *   `昼夜偏移 - 债务×常数`（两件事各自算完相加），现在先把
+     *   **有效清醒度**算出来再映射：
+     *
+     * ```
+     *   有效清醒度 = 节律(小时) × (1 - 0.75 × 睡眠压力)
+     *   修正值    = (有效清醒度 - 0.6) × 40
+     * ```
+     *
+     * 差别在"欠睡时下午会崩、上午还能撑"—— 这正是真实体验。
+     * 常数与出处见 [SleepHomeostasis]。
+     *
+     * 范围大约 -24..+14（欠满债时任何时段都不再是正的）。
      */
     fun energyModifier(
         body: Physiology,
@@ -165,23 +194,38 @@ object PhysiologyEngine {
     ): Int {
         // ★ 昼夜型：夜猫子的整个节律后移（不是"晚睡"，是**峰值也后移**）
         val shiftedHour = hourOfDay - profile.circadianShiftHours
-        // 0.6 是"平常"的基准线：高清醒 +，低清醒 -
-        val circadian = ((alertness(shiftedHour) - 0.6) * 40.0)
+        val circadian = alertness(shiftedHour)
 
-        // ★ 贫血/低铁的人，同样的睡眠债会觉得更累
-        val debt = -(body.sleepDebtHours.coerceAtMost(5.0) * 4.0 * profile.fatigueMultiplier)
-        return (circadian + debt).roundToInt()
+        // ★ 贫血/低铁的人，同样的睡眠债 = 更高的睡眠压力
+        //   （fatigueMultiplier 是"这场债对本人的等效倍率"）
+        val sleepPressure =
+            SleepHomeostasis.pressure(body.sleepDebtHours) *
+                profile.fatigueMultiplier.coerceAtLeast(0.0)
+        val effective = SleepHomeostasis.alertness(circadian, sleepPressure)
+
+        // 0.6 是"平常"的基准线：高清醒 +，低清醒 -
+        return ((effective - 0.6) * 40.0).roundToInt()
     }
 
     /**
      * 时间流逝 ⇒ 恢复睡眠债。
      *
      * ★ 恢复是**自然发生**的：用户不来的那几个小时里它就在睡。
+     *
+     * ⚠️ 这是刻意的简化，写清楚免得被当 bug：
+     *    我们没有"入睡"这个事件，只有"用户没说话"。于是把**任何**
+     *    不交互的时段都当成在休息。代价是"用户去上班了"也会还债。
+     *    接受这个代价，是因为另一条路（猜用户几点睡、睡多久）需要
+     *    传感器或用户自述，而编一个作息表就是在撒谎。
+     *
+     * ★ 2026-11-14：曲线由线性改为指数（τ=4.2h，见 [SleepHomeostasis]）。
+     *   1 小时还掉约 21%，4 小时约 62%，8 小时约 85% —— 补觉的
+     *   边际收益递减，而不是每小时固定还半格。
      */
     fun advance(body: Physiology, elapsedMs: Long): Physiology {
         if (elapsedMs <= 0L) return body
         val hours = elapsedMs.toDouble() / 3_600_000.0
-        val recovered = (body.sleepDebtHours - Physiology.DEBT_RECOVER_PER_HOUR * hours)
+        val recovered = SleepHomeostasis.debtAfterRest(body.sleepDebtHours, hours)
             .coerceIn(0.0, Physiology.MAX_DEBT)
         return body.copy(sleepDebtHours = recovered)
     }

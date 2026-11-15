@@ -56,6 +56,7 @@ class PersonaAssemblerTest {
         mems: List<MemoryItem> = memories(),
         anchors: List<DialogueAnchor> = card().anchors,
         latestChangeVersion: Int? = null,
+        performance: Performance? = null,
     ) = AssemblyInput(
         card = card(anchors = anchors),
         tone = ToneAxes(),
@@ -63,6 +64,7 @@ class PersonaAssemblerTest {
         memories = mems,
         budgetTokens = budget,
         latestChangeVersion = latestChangeVersion,
+        performance = performance,
     )
 
     private fun layersOf(p: AssembledPrompt) = p.layers.map { it.layer }
@@ -199,6 +201,71 @@ class PersonaAssemblerTest {
         val l3 = p.layers.first { it.layer == PromptLayer.L3_STATE }.text
         assertTrue("要带可复述的由头", l3.contains("陪你熬到三点"))
         assertFalse("不许把状态做成愧疚杠杆", l3.contains("不理我"))
+    }
+
+    // ── 表演指导（后台 AI 写的那一句）────────────────────────────
+
+    /** 让指导的生成时刻与状态的"现在"对齐 —— 两处用的是同一个时钟。 */
+    private fun guideAt(
+        line: String = "先别追问，把话说短。",
+        state: PersonaState = busyState,
+        ageMs: Long = 60_000,
+    ) = Performance(
+        line = line,
+        atMs = state.physiology.lastActiveAtMs - ageMs,
+        hormonesKey = "有点紧",
+    )
+
+    @Test
+    fun `有指导时状态层多出一段怎么演`() {
+        val p = assembler.assemble(input(state = busyState, performance = guideAt()))
+        val l3 = p.layers.first { it.layer == PromptLayer.L3_STATE }.text
+        assertTrue("指导要进 L3", l3.contains("这一句怎么演"))
+        assertTrue(l3.contains("先别追问，把话说短。"))
+        assertTrue("状态本身还在", l3.contains("陪你熬到三点"))
+        assertFalse(
+            "两句会打架：一句说别管状态，一句说把话说短",
+            l3.contains("语气随之自然一点即可"),
+        )
+    }
+
+    @Test
+    fun `过期的指导不进提示词`() {
+        val p = assembler.assemble(
+            input(state = busyState, performance = guideAt(ageMs = Performance.TTL_MS + 1)),
+        )
+        val l3 = p.layers.first { it.layer == PromptLayer.L3_STATE }.text
+        assertFalse("过期就该丢掉", l3.contains("这一句怎么演"))
+        assertTrue("没有指导时用回模板句", l3.contains("语气随之自然一点即可"))
+    }
+
+    @Test
+    fun `中性状态下只有指导也会产生状态层`() {
+        val neutral = PersonaState()
+        val p = assembler.assemble(
+            input(state = neutral, performance = guideAt(state = neutral)),
+        )
+        assertTrue("指导本身就有内容，不该被中性状态吞掉", PromptLayer.L3_STATE in layersOf(p))
+        val l3 = p.layers.first { it.layer == PromptLayer.L3_STATE }.text
+        assertTrue(l3.contains("这一句怎么演"))
+        assertFalse("中性状态没有状态句可写", l3.contains("此刻的状态"))
+    }
+
+    @Test
+    fun `没有指导时 L3 与以前逐字一致`() {
+        // ⚠️ 这一条防"加了功能顺手改坏了默认文案" —— 它会影响每一轮。
+        //    只钉状态句那一段：后面还跟着「此刻的身体」，那段由生理引擎决定，
+        //    钉死它会让这条测试在生理引擎迭代时无端变红。
+        val p = assembler.assemble(input(state = busyState))
+        val l3 = p.layers.first { it.layer == PromptLayer.L3_STATE }.text
+        assertTrue(
+            "默认文案变了会静默影响每一轮，实际：$l3",
+            l3.startsWith(
+                "## 此刻的状态\n你现在心情不错、精神很好（由头：陪你熬到三点）。" +
+                    "语气随之自然一点即可，不要刻意强调自己的状态。",
+            ),
+        )
+        assertFalse("没有指导时不该出现指导段", l3.contains("这一句怎么演"))
     }
 
     // ── 记忆 ────────────────────────────────────────────────────

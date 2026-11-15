@@ -73,26 +73,43 @@ class HormoneEngineTest {
     // ═══════════════════════════════════════════════════════════
 
     @Test
-    fun `多巴胺比催产素落得快得多`() {
-        // 一次被夸之后睡两小时：那股兴奋基本没了，但亲近还在。
+    fun `多巴胺比催产素落得快`() {
+        // 一次被夸之后过一小时：那股兴奋基本没了，亲近还留一点点。
+        //
+        // ⚠️ 2026-11-14 换了参数之后这条的**量级变了**：旧版是 2h vs 24h，
+        //    要求"两小时后多巴胺掉的是催产素的 5 倍以上"。现在按文献是
+        //    30min vs 45min —— 差别只在**一小时以内**成立，超过一小时
+        //    两条都在中性附近，硬要 5 倍差就是在测参数而不是测行为。
         val s = Hormones(dopamine = 80, oxytocin = 80)
-        val after = engine.advance(s, hours(2.0))
+        val after = engine.advance(s, hours(1.0))
 
-        val dopamineMoved = 80 - after.dopamine
-        val oxytocinMoved = 80 - after.oxytocin
         assertTrue(
-            "多巴胺($dopamineMoved) 应当比催产素($oxytocinMoved) 落得快得多",
-            dopamineMoved > oxytocinMoved * 5,
+            "一小时后催产素(${after.oxytocin}) 应仍高于多巴胺(${after.dopamine})",
+            after.oxytocin > after.dopamine,
         )
+        // 两条都该明显往中性走（不是"还停在高位"）
+        assertTrue("多巴胺应已落到 60 以下：${after.dopamine}", after.dopamine < 60)
+        assertTrue("催产素应已落到 65 以下：${after.oxytocin}", after.oxytocin < 65)
     }
 
     @Test
-    fun `催产素是最黏的那一条`() {
-        // ⚠️ 若它也落得快，"亲密"就变成了每次对话都要重新攒 ——
-        //    那不是关系，那是每次开机都失忆。
-        val s = Hormones(oxytocin = 90)
-        val after = engine.advance(s, hours(6.0))
-        assertTrue("6 小时后仍应明显高于中性：${after.oxytocin}", after.oxytocin > 65)
+    fun `催产素比多巴胺黏，但也就半小时级`() {
+        // ⚠️ 这条测试的**含义在 2026-11-14 被改掉了**，值得记一笔：
+        //    旧版叫「催产素是最黏的那一条」，断言"6 小时后亲密还 >65"。
+        //    那是 24 小时半衰期的产物。但人类血浆催产素 t½ 只有 4.5 分钟，
+        //    受体后的行为余韵也只有 30–60 分钟 —— 一次拥抱影响一整天是错的。
+        //    ⇒ 现在断言的是"半小时窗口里它留得更多"，而不是"它黏一整天"。
+        val dopamineAfter = engine.advance(Hormones(dopamine = 90), hours(0.5)).dopamine
+        val oxytocinAfter = engine.advance(Hormones(oxytocin = 90), hours(0.5)).oxytocin
+        assertTrue(
+            "半小时后催产素($oxytocinAfter) 应比多巴胺($dopamineAfter) 留得多",
+            oxytocinAfter > dopamineAfter,
+        )
+        // 六小时后必须回到中性附近 —— 差别不该拖到第二天
+        assertTrue(
+            "6 小时后催产素应回到 52 以内：${engine.advance(Hormones(oxytocin = 90), hours(6.0)).oxytocin}",
+            engine.advance(Hormones(oxytocin = 90), hours(6.0)).oxytocin <= 52,
+        )
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -302,5 +319,274 @@ class HormoneEngineTest {
     fun `isNeutral 的容差`() {
         assertTrue(Hormones(54, 46, 52, 48).isNeutral())
         assertFalse(Hormones(70, 50, 50, 50).isNeutral())
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  ★ 2026-11-14：指数衰减
+    // ═══════════════════════════════════════════════════════════
+
+    @Test
+    fun `半衰期就是半衰期`() {
+        // 表里的数字就是配置：走掉一个半衰期，偏差正好剩一半。
+        // ⚠️ 这里**不再写死 2h / 8h / 24h / 4h** —— 那是 2026-11-14 换掉的旧值。
+        //    写死就意味着"下次按文献再校准一次，这条测试必红"，
+        //    而红的原因不是行为错了，只是数字改了。
+        val p = HormonePolicy.Default
+        assertEquals(70, engine.advance(Hormones(dopamine = 90), hours(p.dopamineHalfLifeHours)).dopamine)
+        assertEquals(70, engine.advance(Hormones(serotonin = 90), hours(p.serotoninHalfLifeHours)).serotonin)
+        assertEquals(70, engine.advance(Hormones(oxytocin = 90), hours(p.oxytocinHalfLifeHours)).oxytocin)
+
+        // 皮质醇有 HPA 负反馈（规则 8），高位时半衰期会缩短。
+        // 想量"纯半衰期"就得把负反馈关掉 —— 那是这条测试唯一需要的对照。
+        val plain = HormoneEngine(
+            HormonePolicy(
+                dopamineHalfLifeHours = p.dopamineHalfLifeHours,
+                serotoninHalfLifeHours = p.serotoninHalfLifeHours,
+                oxytocinHalfLifeHours = p.oxytocinHalfLifeHours,
+                cortisolHalfLifeHours = p.cortisolHalfLifeHours,
+                cortisolBlocksOxytocinAt = p.cortisolBlocksOxytocinAt,
+                hpaNegativeFeedbackGain = 0.0,
+            ),
+        )
+        assertEquals(70, plain.advance(Hormones(cortisol = 90), hours(p.cortisolHalfLifeHours)).cortisol)
+    }
+
+    @Test
+    fun `皮质醇越高 回落越快`() {
+        // ★ 规则 8（2026-11-14）：HPA 负反馈。
+        // 直觉是"越高越难下来"，但实测正相反 —— TSST 之后 60–90 分钟必回基线。
+        // ⚠️ 钉的是**走掉的比例**，不是绝对值：起点不同，绝对值不能直接比
+        //    （95 落十分钟后的绝对值仍然可能高于 60 落十分钟，那是起点造成的）。
+        val elapsed = hours(HormonePolicy.Default.cortisolHalfLifeHours)
+        val fromHigh = engine.advance(Hormones(cortisol = 95), elapsed).cortisol
+        val fromLow = engine.advance(Hormones(cortisol = 60), elapsed).cortisol
+
+        val highFraction = (95.0 - fromHigh) / 45.0
+        val lowFraction = (60.0 - fromLow) / 10.0
+        assertTrue(
+            "高位走掉 $highFraction，低位走掉 $lowFraction —— 高位应更多",
+            highFraction > lowFraction,
+        )
+        // 95 分出发，一个半衰期后不该还停在 80 以上（那是"没有负反馈"的样子）
+        assertTrue("一个半衰期后应低于 80：$fromHigh", fromHigh < 80)
+    }
+
+    @Test
+    fun `越接近中性走得越慢`() {
+        // 线性的错觉：每小时掉一样多。真实是"越靠近平时的自己，回得越慢"。
+        val fromHigh = 90 - engine.advance(Hormones(dopamine = 90), hours(0.5)).dopamine
+        val fromLow = 60 - engine.advance(Hormones(dopamine = 60), hours(0.5)).dopamine
+        assertTrue("高位($fromHigh) 应当比低位($fromLow) 掉得多", fromHigh > fromLow)
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  ★ 2026-11-14：三条新互锁（规则 4 / 5 / 6）
+    // ═══════════════════════════════════════════════════════════
+
+    @Test
+    fun `紧张时好事也乐不起来`() {
+        // 规则 4：高皮质醇 ⇒ 多巴胺正向增益减半。
+        // 没有它，角色会出现"刚被凶完，一句夸奖就蹦起来"的失真。
+        val calm = engine.step(Hormones(cortisol = 40), HormoneEvent.Praise, 0)
+        val tense = engine.step(Hormones(cortisol = 80), HormoneEvent.Praise, 0)
+        assertTrue(
+            "绷着时多巴胺只该涨一半：${tense.dopamine} vs ${calm.dopamine}",
+            tense.dopamine < calm.dopamine,
+        )
+        assertEquals("平常 +12", 62, calm.dopamine)
+        assertEquals("绷着 +6", 56, tense.dopamine)
+    }
+
+    @Test
+    fun `低血清素时同一件事扎得更深`() {
+        // 规则 5：血清素低 + 负面事件 ⇒ 皮质醇增益 ×1.5。
+        val steady = engine.step(Hormones(serotonin = 55), HormoneEvent.Conflict, 0)
+        val fragile = engine.step(Hormones(serotonin = 30), HormoneEvent.Conflict, 0)
+        assertEquals("平常一次争执 +18", 18, steady.cortisol - Hormones.NEUTRAL)
+        assertEquals("脆弱时 +27", 27, fragile.cortisol - Hormones.NEUTRAL)
+    }
+
+    @Test
+    fun `兴奋时对压力钝一点`() {
+        // 规则 6：高多巴胺 + 负面事件 ⇒ 皮质醇增益 ×0.7。
+        val plain = engine.step(Hormones(), HormoneEvent.Conflict, 0)
+        val elated = engine.step(Hormones(dopamine = 80), HormoneEvent.Conflict, 0)
+        assertTrue(
+            "正高兴时压力涨得少：${elated.cortisol} vs ${plain.cortisol}",
+            elated.cortisol < plain.cortisol,
+        )
+    }
+
+    @Test
+    fun `又亢奋又不稳时按脆弱算`() {
+        // 规则 5 与 6 可能同时成立（低血清素 + 高多巴胺 = 亢奋但不稳）。
+        // 约定 **5 优先** —— "被戳穿"比"被安慰"更常见，也更符合那种状态。
+        val both = engine.step(Hormones(dopamine = 80, serotonin = 30), HormoneEvent.Conflict, 0)
+        val plain = engine.step(Hormones(), HormoneEvent.Conflict, 0)
+        assertTrue(
+            "应当落在「更疼」那一边：${both.cortisol} vs ${plain.cortisol}",
+            both.cortisol > plain.cortisol,
+        )
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  ★ 2026-11-14：饱和（规则 7）
+    // ═══════════════════════════════════════════════════════════
+
+    @Test
+    fun `高位时同样的好事推动得更少`() {
+        // 享乐适应的无状态近似：基线越高，同一份刺激的主观增量越小。
+        val mid = engine.step(Hormones(dopamine = 50), HormoneEvent.Novelty, 0).dopamine - 50
+        val high = engine.step(Hormones(dopamine = 70), HormoneEvent.Novelty, 0).dopamine - 70
+        assertEquals("中位不打折", 15, mid)
+        assertTrue("高位只该涨 $high（比 $mid 少）", high in 1 until mid)
+    }
+
+    @Test
+    fun `往下掉不打折`() {
+        // ⚠️ 饱和**只削正向**。往下掉的时候不该打折 ——
+        //    否则"乐极生悲"会变成"乐极了所以没那么惨"，正好是反的。
+        val mid = 50 - engine.step(Hormones(dopamine = 50), HormoneEvent.Rushed, 0).dopamine
+        val high = 90 - engine.step(Hormones(dopamine = 90), HormoneEvent.Rushed, 0).dopamine
+        assertEquals("掉多少与起点无关", mid, high)
+    }
+
+    @Test
+    fun `压力也有天花板`() {
+        // 饱和对**每条**激素各自成立：皮质醇已经在 70 时再被催，涨得比 50 时少。
+        // ⚠️ 这与规则 6（高多巴胺 ⇒ 压力打折）是两件事：
+        //    那条是**跨激素**的钝化，这条是**同一条激素**的天花板。
+        val mid = engine.step(Hormones(cortisol = 50), HormoneEvent.Rushed, 0).cortisol - 50
+        val high = engine.step(Hormones(cortisol = 70), HormoneEvent.Rushed, 0).cortisol - 70
+        assertEquals("中位不打折", 10, mid)
+        assertTrue("高位只该涨 $high（比 $mid 少）", high in 1 until mid)
+    }
+
+    @Test
+    fun `平常状态下 step 与 apply 一致`() {
+        // 互锁只在"已经偏了"的时候起作用。中性时两条路径必须等价，
+        // 否则调用方换一个方法就得到不同结果 —— 这种 bug 最难查。
+        val events = listOf(
+            HormoneEvent.Praise,
+            HormoneEvent.Novelty,
+            HormoneEvent.Intimacy,
+            HormoneEvent.BeingNeeded,
+        )
+        for (e in events) {
+            assertEquals("$e", engine.apply(neutral, e), engine.step(neutral, e, 0))
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  ★ 2026-11-14：文献校准（表就是配置 + 昼夜反应性）
+    // ═══════════════════════════════════════════════════════════
+
+    @Test
+    fun `默认半衰期就是 HormoneKinetics 里那几个文献值`() {
+        // 防的是"改了政策忘了改表"或反过来。
+        // ⚠️ 这些数字有出处（见 HormoneKinetics），不是随手调的；
+        //    真要改就先改那边，再回来改这条。
+        val p = HormonePolicy.Default
+        assertEquals(0.5, p.dopamineHalfLifeHours, 1e-9)   // 30 分钟（产品量）
+        assertEquals(6.0, p.serotoninHalfLifeHours, 1e-9)  // 色氨酸周转 5–7h
+        assertEquals(0.75, p.oxytocinHalfLifeHours, 1e-9)  // 45 分钟（行为余韵）
+        assertEquals(1.1, p.cortisolHalfLifeHours, 1e-9)   // 66 分钟（血浆 t½）
+        assertEquals(
+            HormoneKinetics.CORTISOL_PLASMA_HALF_LIFE_MINUTES / 60.0,
+            p.cortisolHalfLifeHours,
+            1e-9,
+        )
+    }
+
+    @Test
+    fun `夜间应激反应更小`() {
+        // ★ 规则 9：HPA 轴在昼夜谷值时分泌能力低。
+        // 同样的"被凶"，凌晨两点的皮质醇增量应当比上午十点小。
+        val daytime = engine.step(neutral, HormoneEvent.Conflict, 0, hourOfDay = 10.0)
+        val nighttime = engine.step(neutral, HormoneEvent.Conflict, 0, hourOfDay = 2.0)
+
+        val dayGain = daytime.cortisol - neutral.cortisol
+        val nightGain = nighttime.cortisol - neutral.cortisol
+        assertTrue("白天该涨 $dayGain，夜里涨 $nightGain（应更少）", nightGain < dayGain)
+        assertTrue("夜里也不该完全没反应：$nightGain", nightGain > 0)
+        // 幅度只该差一点点 —— 这是校正，不是"夜里不怕被凶"
+        assertTrue("差得太多了：白天 $dayGain / 夜里 $nightGain", dayGain - nightGain <= 3)
+    }
+
+    @Test
+    fun `不传时刻时不做昼夜校正`() {
+        // `hourOfDay = null` 必须与"白天"等价，否则离线回放与线上会算出两套值。
+        val noHour = engine.step(neutral, HormoneEvent.Conflict, 0)
+        val daytime = engine.step(neutral, HormoneEvent.Conflict, 0, hourOfDay = 10.0)
+        assertEquals(daytime, noHour)
+    }
+
+    @Test
+    fun `stressReactivity 白天是一 夜里最低`() {
+        assertEquals(1.0, HormoneKinetics.stressReactivity(10.0), 1e-9)
+        assertEquals(1.0, HormoneKinetics.stressReactivity(18.0), 1e-9)
+        // 02:00–06:00 是谷底
+        assertEquals(HormoneKinetics.NIGHT_STRESS_REACTIVITY, HormoneKinetics.stressReactivity(3.0), 1e-9)
+        // 22:00 刚开始下调，但还没到底（平滑过渡，不是硬开关）
+        val at22 = HormoneKinetics.stressReactivity(22.0)
+        assertEquals(1.0, at22, 1e-9)
+        // 00:00 在半路上
+        val at0 = HormoneKinetics.stressReactivity(0.0)
+        assertTrue("00:00 应介于两者之间：$at0", at0 in 0.85..1.0)
+        // 负小时与 24+ 也要能处理（时钟回拨 / 跨时区）
+        assertEquals(HormoneKinetics.stressReactivity(23.0), HormoneKinetics.stressReactivity(-1.0), 1e-9)
+        assertEquals(HormoneKinetics.stressReactivity(3.0), HormoneKinetics.stressReactivity(27.0), 1e-9)
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  ★ 2026-11-14（第二轮）：规则 10 社会支持缓冲
+    // ═══════════════════════════════════════════════════════════
+
+    @Test
+    fun `有人在的时候 同一句重话扎得浅`() {
+        // Thorsteinsson & James 1999：社会支持对皮质醇反应的效应量 d = 0.83，
+        // 是心率(0.61)/舒张压(0.51)/皮电(0.25) 里最大的一个。
+        // 我们折成 ×0.75：Conflict 的 +18 变成 +14。
+        val alone = engine.step(Hormones(), HormoneEvent.Conflict, 0L).cortisol
+        val supported = engine.step(Hormones(oxytocin = 70), HormoneEvent.Conflict, 0L).cortisol
+
+        assertEquals("孤身一人时应吃满 +18：$alone", 68, alone)
+        assertEquals("催产素在场时应只吃 +14：$supported", 64, supported)
+        assertTrue("有支持必须比没支持轻：$supported vs $alone", supported < alone)
+
+        // 常量本身也钉一下：它只在注释与文档里被引用，容易变成"改了没人发现"的死常量。
+        assertEquals(0.83, HormoneKinetics.SOCIAL_SUPPORT_CORTISOL_EFFECT_SIZE_D, 1e-9)
+        assertTrue(
+            "缓冲系数必须真的削弱反应（< 1.0）：${HormoneKinetics.SOCIAL_SUPPORT_CORTISOL_GAIN}",
+            HormoneKinetics.SOCIAL_SUPPORT_CORTISOL_GAIN < 1.0,
+        )
+    }
+
+    @Test
+    fun `催产素不够高时 缓冲不生效`() {
+        // 门槛 65：差一点就是"没有支持在场"，不能因为 64 分也打七五折。
+        val justBelow = engine.step(Hormones(oxytocin = 64), HormoneEvent.Conflict, 0L).cortisol
+        assertEquals(68, justBelow)
+    }
+
+    @Test
+    fun `社会缓冲只削负面事件 不给额外好处`() {
+        // ⚠️ 这条边界很关键：规则 10 不能让"她开心"变成免罚，
+        //    也不能反过来给正向事件加成 —— 它只是把同一句重话削浅一点。
+        val plain = engine.step(Hormones(), HormoneEvent.Praise, 0L)
+        val supported = engine.step(Hormones(oxytocin = 70), HormoneEvent.Praise, 0L)
+
+        assertEquals("被夸的增益不该受社会缓冲影响", plain.dopamine, supported.dopamine)
+        assertEquals("皮质醇也不该因为被夸而变动", Hormones.NEUTRAL, supported.cortisol)
+    }
+
+    @Test
+    fun `社会缓冲可以关掉`() {
+        // 对照实验：把系数填 1.0，结果应与"没人陪"完全一致。
+        val off = HormoneEngine(HormonePolicy.Default.copy(socialBufferGain = 1.0))
+        assertEquals(
+            engine.step(Hormones(), HormoneEvent.Conflict, 0L).cortisol,
+            off.step(Hormones(oxytocin = 70), HormoneEvent.Conflict, 0L).cortisol,
+        )
     }
 }

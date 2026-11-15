@@ -108,9 +108,14 @@ class PersonaRuntime(
      *
      * ⚠️ [PersonaEvent.reason] 是必填的（由 [PersonaEvent] 的构造函数强制）——
      *    没有由头的情绪就是随机情绪，而随机情绪 = 崩人设。
+     *
+     * @param hourOfDay 这一刻是本地时间几点（0..24）。用于**夜间应激反应性校正**
+     *   （见 `HormoneKinetics.stressReactivity`）：同样的负面事件，凌晨两点造成
+     *   的皮质醇增量比上午十点小。传 `null` = 不做校正 —— 只有测试与
+     *   离线回放会这么做，线上调用方必须传。
      */
     @Synchronized
-    fun apply(event: PersonaEvent): PersonaState {
+    fun apply(event: PersonaEvent, hourOfDay: Double? = null): PersonaState {
         tick()
         state = stateEngine.apply(state, event)
         // ★ 2026-11-02：事件也要喂给激素。
@@ -118,7 +123,9 @@ class PersonaRuntime(
         //      这里再推一次会把衰减算两遍。
         val hormoneEvent = event.toHormoneEvent()
         if (hormoneEvent != null) {
-            state = state.copy(hormones = hormoneEngine.step(state.hormones, hormoneEvent, 0))
+            state = state.copy(
+                hormones = hormoneEngine.step(state.hormones, hormoneEvent, 0, hourOfDay),
+            )
         }
         return state
     }

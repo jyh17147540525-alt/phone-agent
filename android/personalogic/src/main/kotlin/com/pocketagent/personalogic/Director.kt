@@ -58,10 +58,32 @@ data class DirectorOutput(
      * ⚠️ 这些**不会自动进世界书** —— 要用户确认（见 `WorldBook.withFact`）。
      */
     val proposedFacts: List<ProposedFact> = emptyList(),
+    /**
+     * 这一轮的**表演指导** —— 一句话，最多 60 字。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★★ 2026-11-14：它为什么不是数值、也不是整段提示词
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 与「事件只输出事件、不输出数值」同一条纪律（见本文件类注释）：
+     *
+     * · **不给数值** —— `{ "warmth": 0.2 }` 会和 `Hormones.toneDelta()` 打架，
+     *   而且公式至少有半衰期和文献撑着，模型没有。
+     * · **不给整段提示词** —— 每轮重写人格提示词会让 L0–L2 的稳定前缀失效
+     *   （KV-cache 全废），还会制造两套互相矛盾的提示词。
+     * · **给一句话** —— 公式算不出来的那部分：要不要先认错、要不要追问、
+     *   要不要提自己在忙。那是**场景知识**，不是数值。
+     *
+     * ⚠️ 它必须过 [PerformanceGate] 才会生效（禁词、长度、防抖）。
+     */
+    val performance: String? = null,
 ) {
 
     val isEmpty: Boolean
-        get() = events.isEmpty() && smallMoments.isEmpty() && proposedFacts.isEmpty()
+        get() = events.isEmpty() &&
+            smallMoments.isEmpty() &&
+            proposedFacts.isEmpty() &&
+            performance.isNullOrBlank()
 }
 
 /**

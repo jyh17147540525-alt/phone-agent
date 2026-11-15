@@ -78,7 +78,9 @@ class PersonaAssembler(
 
         layers[PromptLayer.L1_CORE] = renderCore(input.card, effectiveTone)
         layers[PromptLayer.L2_FINGERPRINT] = input.card.fingerprint.render()
-        input.state?.let { layers[PromptLayer.L3_STATE] = renderState(it) }
+        input.state?.let {
+            layers[PromptLayer.L3_STATE] = renderState(it, input.performance)
+        }
         val memories = selectMemories(input.memories, input.memoryLimit)
         if (memories.isNotEmpty()) {
             layers[PromptLayer.L4_MEMORY] = renderMemories(memories)
@@ -204,8 +206,19 @@ class PersonaAssembler(
         }
     }
 
-    /** L3：状态调制。**必须可解释** —— 无由头就不渲染（设计稿 §4.2）。 */
-    private fun renderState(state: PersonaState): String {
+    /**
+     * L3：状态调制。**必须可解释** —— 无由头就不渲染（设计稿 §4.2）。
+     *
+     * ★ 2026-11-14：多了 [Performance]（后台 AI 写的表演指导）。
+     *   它**不是**状态，而是"这一句怎么落地"，所以挂在 L3 末尾 ——
+     *   离对话最近，且与状态同层（两者必须一起出现才不矛盾）。
+     *   过期的指导不注入：一条挂一天的指导会变成新的人设。
+     */
+    private fun renderState(state: PersonaState, performance: Performance? = null): String {
+        // ⚠️ 只在**仍然有效**时注入。时间基准用 `lastActiveAtMs`：
+        //    它由每一次 `currentState()` 推进，语义就是"现在"。
+        //    判错方向是安全的 —— 最坏只是不注入，回到旧的模板句。
+        val guide = performance?.takeIf { it.isFresh(state.physiology.lastActiveAtMs) }
         // ══════════════════════════════════════════════════════════
         //  ★★ 2026-11-02：**精力现在是"事件的 + 生理的"**
         // ══════════════════════════════════════════════════════════
@@ -226,14 +239,17 @@ class PersonaAssembler(
                 PhysiologyEngine.energyModifier(state.physiology, hour, body) +
                 CycleEngine.energyModifier(cycleMoment)
             ).coerceIn(0, 100)
-        if (state.isNeutral()) return ""
-        val parts = buildString {
-            if (state.mood >= 65) append("心情不错")
-            if (state.mood <= 35) append("兴致不高")
-            if (energy <= 35) append("有点累")
-            if (energy >= 70 && state.mood >= 50) append("精神很好")
-        }
-        if (parts.isBlank()) return ""
+        if (state.isNeutral() && guide == null) return ""
+        // ⚠️ 2026-11-14 修：原来是一串 `append()` 直接拼，两条同时命中时
+        //    会拼成「心情不错精神很好」（没有顿号）。前台模型读这种句子
+        //    会把它当成一个词，语气跟着变形。用"、"连接，单条时不变。
+        val parts = buildList {
+            if (state.mood >= 65) add("心情不错")
+            if (state.mood <= 35) add("兴致不高")
+            if (energy <= 35) add("有点累")
+            if (energy >= 70 && state.mood >= 50) add("精神很好")
+        }.joinToString("、")
+        if (parts.isBlank() && guide == null) return ""
         // ★ 2026-11-02：激素里最突出的那一条，可以"说出来"。
         //   ⚠️ `dominant()` 的文案里**不含任何索取**（有测试钉着）——
         //      状态可以被表达，但不能拿来要挟用户（§4.6）。
@@ -247,25 +263,52 @@ class PersonaAssembler(
         )
 
         return buildString {
-            append("## 此刻的状态\n")
-            append("你现在").append(parts)
-            // ⚠️ 只允许"如实带一句由头"，**不许**拿状态做情绪操纵
-            //    （「因为你不理我，我很难过」是明令禁止的反模式，见 §4.6）。
-            if (hormonal != null) {
-                append("，").append(hormonal)
+            if (parts.isNotBlank()) {
+                append("## 此刻的状态\n")
+                append("你现在").append(parts)
+                // ⚠️ 只允许"如实带一句由头"，**不许**拿状态做情绪操纵
+                //    （「因为你不理我，我很难过」是明令禁止的反模式，见 §4.6）。
+                if (hormonal != null) {
+                    append("，").append(hormonal)
+                }
+                if (reason != null) {
+                    append("（由头：").append(reason).append("）")
+                }
+                // ★ 有表演指导时不再说"语气自然一点" ——
+                //   那两句会打架：一句说别管状态，一句说把话说短。
+                append(
+                    if (guide == null) {
+                        "。语气随之自然一点即可，不要刻意强调自己的状态。"
+                    } else {
+                        "。"
+                    },
+                )
+                if (guide != null) append("\n\n")
             }
-            if (reason != null) {
-                append("（由头：").append(reason).append("）")
+            // ══════════════════════════════════════════════════
+            //  ★★ 2026-11-14：后台 AI 的**表演指导**
+            // ══════════════════════════════════════════════════
+            //  ⚠️ 它是**动作**，不是状态。状态说"你有点紧"，
+            //     它说"这轮别追问，把话说短" —— 后者是公式给不出的东西。
+            //     放在状态段之后、生理之前：离这一句最近的那条最有效。
+            if (guide != null) {
+                append("## 这一句怎么演\n").append(guide.line)
             }
-            append("。语气随之自然一点即可，不要刻意强调自己的状态。")
             // ★ 生理那一段单独成段 —— 它说的是"身体怎样"，不是"心情怎样"
             if (physiological != null) {
-                append("\n\n").append(physiological)
+                if (isNotEmpty()) append("\n\n")
+                append(physiological)
             }
             // ★ 2026-11-02：生理周期（只在经期写，其余阶段不写）
-            CycleEngine.promptLine(cycleMoment)?.let { append("\n\n").append(it) }
+            CycleEngine.promptLine(cycleMoment)?.let {
+                if (isNotEmpty()) append("\n\n")
+                append(it)
+            }
             // ★ 体质那一段：标红的化验项 + 报告覆盖不到的身体细节
-            bodySection(state.health)?.let { append("\n\n").append(it) }
+            bodySection(state.health)?.let {
+                if (isNotEmpty()) append("\n\n")
+                append(it)
+            }
         }
     }
 
@@ -519,6 +562,13 @@ data class AssemblyInput(
      * null = 调用方不提供该信息，此时不判过期（**不猜**）。
      */
     val latestChangeVersion: Int? = null,
+    /**
+     * 这一轮的**表演指导**（后台 AI 写的一句话，见 [Performance]）。
+     *
+     * ⚠️ null 是常态 —— 大多数轮次没有指导，L3 用模板句"语气自然一点即可"。
+     *    它**不是状态**，所以不参与预算裁剪的优先级判断（挂在 L3 里一起走）。
+     */
+    val performance: Performance? = null,
 ) {
     companion object {
         /** 默认系统提示词预算。约等于 1200 个汉字的空间。 */

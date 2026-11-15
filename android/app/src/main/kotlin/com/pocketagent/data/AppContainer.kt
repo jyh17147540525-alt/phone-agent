@@ -990,6 +990,8 @@ class AppContainer(context: Context) {
         //    · 久别重逢 —— 上一次说话离现在多久
         //    · 被否定   —— `FrictionLevel` 已有判据
         //    · 被认可   —— `PraiseSignal`（本轮新增）
+        // ⚠️ 时刻只算一次：激素的夜间反应性校正与随后的生理推进必须同一口径
+        val hourNow = hourOfDayOf(nowMs)
         runCatching {
             val gapMs = nowMs - lastPersonaEventAtMs
             // 3 小时没说话算"久别重逢"。⚠️ 只在**真的有过上一轮**时才算，
@@ -1000,6 +1002,7 @@ class AppContainer(context: Context) {
                         kind = com.pocketagent.personalogic.PersonaEventKind.REUNION,
                         reason = "隔了一阵才回来",
                     ),
+                    hourOfDay = hourNow,
                 )
             }
             lastPersonaEventAtMs = nowMs
@@ -1020,20 +1023,19 @@ class AppContainer(context: Context) {
                         //    随机情绪 = 崩人设；由头对不上同样崩。
                         reason = userText.take(24),
                     ),
+                    hourOfDay = hourNow,
                 )
             }
         }.onFailure { Timber.w(it, "激素事件发送失败（不影响对话）") }
 
         // ★ 2026-11-02：**生理** —— 此刻几点、这一轮在不在深夜。
         //   ⚠️ 夜里聊天会累积睡眠债；白天不会。见 `Physiology`。
+        //   ★ 2026-11-14：改用上面那个 `hourNow`，不再自己算一遍 ——
+        //     激素的夜间反应性与这里的睡眠债必须同一时刻，否则跨分钟时
+        //     会出现"激素说 23:59、生理说 00:00"的错位。
         runCatching {
-            val now = System.currentTimeMillis()
-            val cal = java.util.Calendar.getInstance()
-            cal.timeInMillis = now
-            val hour = cal.get(java.util.Calendar.HOUR_OF_DAY) +
-                cal.get(java.util.Calendar.MINUTE) / 60.0
             // ⚠️ 交给 runtime 而不是自己存一份 —— 那会变成两份真相
-            assistantPersona.runtime.recordTurn(hourOfDay = hour)
+            assistantPersona.runtime.recordTurn(hourOfDay = hourNow)
         }.onFailure { Timber.w(it, "生理推进失败（不影响对话）") }
 
         // ★ 2026-11-02：每聊一轮都消耗一点意愿（见 `Willingness`）。
@@ -1253,6 +1255,79 @@ class AppContainer(context: Context) {
     //    退化成现在的行为。这样开关是**可逆的**，不是一次性的。
     @Volatile
     private var allowRefusalValue: Boolean = true
+
+    // ══════════════════════════════════════════════════════════════
+    //  ★★ 2026-11-15：在场模式的两件事 —— 网上见闻、她自己来找你
+    // ══════════════════════════════════════════════════════════════
+    //
+    // ⚠️ 每一项都**只影响在场模式**（`ChatMode.LIFEFORM`）：
+    //    角色扮演那边没开这两个开关，行为一字不变。
+    // ⚠️ 联网那一条的取舍：拿不到就用兜底池，不弹错、不重试、不打扰 ——
+    //    她本来就有"编出来的今天"，少一条见闻不算故障。
+    @Volatile
+    private var lifeformWebOnValue: Boolean = true
+
+    @Volatile
+    private var lifeformProactiveOnValue: Boolean = true
+
+    /** 今天那一条（锁住，见 [lifeformWebItem] 的注释）。 */
+    @Volatile
+    private var lifeformWebLocked: com.pocketagent.personalogic.WebItem? = null
+
+    @Volatile
+    private var lifeformWebLockedDay: Long = Long.MIN_VALUE
+
+    /** 真从网上抓到的那条（还没被锁就用它）。 */
+    @Volatile
+    private var lifeformWebFetched: com.pocketagent.personalogic.WebItem? = null
+
+    @Volatile
+    private var lifeformWebFetchedDay: Long = Long.MIN_VALUE
+
+    @Volatile
+    private var lifeformWebRefreshing: Boolean = false
+
+    /** 今天主动发过几条（跨天才清，见 [lifeformProactiveTick]）。 */
+    @Volatile
+    private var lifeformPulseDay: Long = Long.MIN_VALUE
+
+    @Volatile
+    private var lifeformPulseCount: Int = 0
+
+    @Volatile
+    private var lifeformLastPulseReason: com.pocketagent.personalogic.LifeformPulse.Reason? = null
+
+    // ── 聊天模式（角色扮演 / 在场）──────────────────────────
+    /**
+     * 当前模式，默认 [com.pocketagent.personalogic.ChatMode.ROLEPLAY]。
+     *
+     * ⚠️ 默认值**必须**是 ROLEPLAY：老版本没有这个键，读到 null 时
+     *    `ChatMode.of` 也会给 ROLEPLAY —— 于是升级后行为一字不变。
+     *    要把她切到"有自己的时间"，得显式调 [setChatMode]。
+     */
+    @Volatile
+    private var chatModeValue: com.pocketagent.personalogic.ChatMode =
+        com.pocketagent.personalogic.ChatMode.ROLEPLAY
+
+    /** 当前聊天模式。见 [chatModeValue]。 */
+    fun chatMode(): com.pocketagent.personalogic.ChatMode = chatModeValue
+
+    /**
+     * 切换聊天模式。
+     *
+     * ⚠️ 这个开关**只改"她有没有自己的时间"**（见 `ChatMode.Switches`），
+     *    不改人格、不改记忆、不改安全边界。
+     */
+    fun setChatMode(mode: com.pocketagent.personalogic.ChatMode) {
+        if (chatModeValue == mode) return
+        chatModeValue = mode
+        startupScope.launch {
+            runCatching { pluginSourceStore.edit { it[KEY_CHAT_MODE] = mode.name } }
+                .onFailure { Timber.w(it, "聊天模式落盘失败") }
+        }
+    }
+
+    private val webReader by lazy { com.pocketagent.assistant.WebReader() }
 
     /**
      * 意愿。**会随对话消耗、随时间恢复**。
@@ -1696,6 +1771,24 @@ class AppContainer(context: Context) {
 
     fun worldEntries(): List<com.pocketagent.personalogic.WorldEntry> = worldEntriesValue
 
+    // ── 表演指导（场记写的，进下一轮提示词）──────────────────
+    /**
+     * 当前生效的那条表演指导。
+     *
+     * ★ 2026-11-14：后台 AI 从"只产事件"扩到"还产一句话的表演指导"。
+     *   它**不改状态**（状态仍归 `HormoneEngine`），只改这一句的写法。
+     *
+     * ⚠️ 只存**一条**：同一状态的第二句指导会让人格闪。
+     *    过期判断在 `PersonaAssembler.renderState`（按状态时间），
+     *    这里只管存与取 —— 两处都判一次，方向都是"宁可不用"。
+     */
+    @Volatile
+    private var performanceValue: com.pocketagent.personalogic.Performance? = null
+
+    /** 当前生效的表演指导；没有（或已过期）返回 null。 */
+    fun currentPerformance(): com.pocketagent.personalogic.Performance? =
+        performanceValue?.takeIf { it.isFresh(System.currentTimeMillis()) }
+
     fun pendingFacts(): List<com.pocketagent.personalogic.ProposedFact> = pendingFactsValue
 
     /**
@@ -1839,6 +1932,10 @@ class AppContainer(context: Context) {
             else -> physioEffort
         }
 
+        // ★ 2026-11-14：先给她此刻的**行为档位**（`portrait()` 只说"有点紧"
+        //   这类话，不含激素名）—— 后台模型会照抄，抄了激素名就撞闸。
+        val portrait = assistantPersona.runtime.currentState().hormones.portrait()
+
         val armor = com.pocketagent.legacy.BackgroundArmor.promptSection(
             tier = armorTier(),
             isAdultContext = maturePermissionValue.matureEnabled,
@@ -1847,6 +1944,8 @@ class AppContainer(context: Context) {
             recentTurns = listOf(userText to assistantText),
             armor = armor,
             knownFactIds = assistantPersona.runtime.currentSpec().let { emptySet<String>() },
+            hormonesPortrait = portrait,
+            lastPerformance = currentPerformance()?.line,
         )
 
         val raw = backgroundLlmComplete(prompt, purpose, modelId, effort)
@@ -1872,6 +1971,7 @@ class AppContainer(context: Context) {
                         kind = com.pocketagent.personalogic.PersonaEventKind.DISAPPOINTED,
                         reason = p.clues.first().second.take(24),
                     ),
+                    hourOfDay = hourOfDayOf(System.currentTimeMillis()),
                 )
             }
             backgroundRuns++
@@ -1890,6 +1990,31 @@ class AppContainer(context: Context) {
             Timber.w("后台任务 %s 丢弃了 %d 条（枚举不认识或缺字段）", task.label, parsed.dropped)
         }
 
+        // ── 表演指导：一句话，过闸才生效 ──────────────────────
+        //  ⚠️ 与事件**分开过闸**：事件错了会污染状态（所以有 DirectorGate 的
+        //     限频/上限），指导错了只是这一句写得不像她 —— 拒了不影响事件。
+        //     反过来也一样：指导被拒时事件照常生效。
+        run {
+            val verdict = com.pocketagent.personalogic.PerformanceGate.accept(
+                raw = parsed.output.performance,
+                previous = performanceValue,
+                nowMs = System.currentTimeMillis(),
+                hormonesKey = portrait,
+            )
+            when (verdict) {
+                is com.pocketagent.personalogic.PerformanceVerdict.Accepted -> {
+                    performanceValue = verdict.performance
+                    Timber.i("表演指导：%s", verdict.performance.line)
+                }
+                is com.pocketagent.personalogic.PerformanceVerdict.Rejected -> {
+                    // 空值是常态（大多数轮次不需要指导），不必刷日志
+                    if (!parsed.output.performance.isNullOrBlank()) {
+                        Timber.i("表演指导被拒：%s", verdict.reason)
+                    }
+                }
+            }
+        }
+
         // ── 过滤：限频、上限、去重 ──────────────────────────
         val accepted = com.pocketagent.personalogic.DirectorGate.accept(
             output = parsed.output,
@@ -1902,12 +2027,14 @@ class AppContainer(context: Context) {
         backgroundRuns++
 
         // ── 生效：事件 → 激素 ──────────────────────────────
+        val directorHour = hourOfDayOf(System.currentTimeMillis())
         for (e in accepted.events) {
             assistantPersona.runtime.apply(
                 com.pocketagent.personalogic.PersonaEvent(
                     kind = e.kind.toPersonaEventKind(),
                     reason = e.reason,
                 ),
+                hourOfDay = directorHour,
             )
         }
         // ⚠️ 提议的事实**不自动入库** —— 需要用户确认（见 WorldBook.withFact）。
@@ -2401,6 +2528,12 @@ class AppContainer(context: Context) {
             )
             // ★ 拒绝开关（默认 true：见 allowRefusalValue 的注释）
             allowRefusalValue = prefs[KEY_ALLOW_REFUSAL] ?: true
+
+            // ★ 在场模式的两个开关（默认都开：见 lifeformWebOnValue 的注释）
+            lifeformWebOnValue = prefs[KEY_LIFEFORM_WEB] ?: true
+            lifeformProactiveOnValue = prefs[KEY_LIFEFORM_PROACTIVE] ?: true
+            // ★ 聊天模式（默认角色扮演：没这个键的老用户行为不变）
+            chatModeValue = com.pocketagent.personalogic.ChatMode.of(prefs[KEY_CHAT_MODE])
 
             // ★ 工作台的权限档 / 工作区（坏值不抛，见 `AgentPermission.of`）
             permissionModeValue =
@@ -3521,6 +3654,12 @@ class AppContainer(context: Context) {
      *    [ProactiveNotifier] 只负责发。本函数只做"取事实 → 交出去"。
      */
     private suspend fun proactiveTick() {
+        // ★ 在场模式走她自己的那条路（说带「她的今天」与「她在网上看到的」）。
+        //   门槛一分不改，仍交给 :legacy 的 ProactivePlanner —— 那边已经回填了两条。
+        if (chatMode().isAlive) {
+            lifeformProactiveTick()
+            return
+        }
         val store = conversationRepository() ?: return
         val session = runCatching { store.currentSession() }.getOrNull() ?: return
         val path = runCatching { store.currentPath(session.id) }.getOrNull() ?: return
@@ -3609,31 +3748,130 @@ class AppContainer(context: Context) {
             appendLine()
             appendLine("只输出这句话本身，不要任何前缀、引号或解释。")
         }
-        return runCatching {
-            val repo = when (val opened = openCredentialStore()) {
-                is CredentialStoreResult.Ready -> opened.repository
-                else -> return null
+        return oneShot(prompt)
+    }
+
+    /**
+     * 用当前对话模型写一句短话。
+     *
+     * ★ 抽出来是因为这件事已经有第二处要做（在场模式那一句）——
+     *   取 key、选模型、收流式增量三步一模一样，抄第二份迟早漂移。
+     * ⚠️ 失败一律返回 null，**绝不退回模板句**：
+     *   一句不像她的话，比不发出来更伤（用户会立刻看出是系统在凑字数）。
+     */
+    private suspend fun oneShot(prompt: String, maxChars: Int = 180): String? = runCatching {
+        val repo = when (val opened = openCredentialStore()) {
+            is CredentialStoreResult.Ready -> opened.repository
+            else -> return null
+        }
+        val config = when (
+            val r = modelRepository()?.all().orEmpty()
+                .resolveForPurpose(ModelRole.CHAT)
+        ) {
+            is ModelResolution.Found -> r.config
+            is ModelResolution.None -> return null
+        }
+        repo.useKey(config.credentialId) { provider, credential ->
+            val request = ChatRequest(
+                model = config.modelId,
+                messages = listOf(ChatMessage.user(prompt)),
+                tools = emptyList(),
+            )
+            val sb = StringBuilder()
+            provider.chat(request = request, credential = credential).collect { chunk ->
+                if (chunk is ChatChunk.Delta) sb.append(chunk.text)
             }
-            val config = when (
-                val r = modelRepository()?.all().orEmpty()
-                    .resolveForPurpose(ModelRole.CHAT)
-            ) {
-                is ModelResolution.Found -> r.config
-                is ModelResolution.None -> return null
+            sb.toString().trim().take(maxChars).takeIf { it.isNotBlank() }
+        }
+    }.getOrNull()
+
+    /**
+     * 在场模式里，**她**自己来找你。
+     *
+     * ⭐ 与 [proactiveTick] 的差别只有一件事：说什么。
+     *    这一条会带上「## 你今天」与「## 你在网上看到的」——
+     *    没有这两段，她发的就只是「在干嘛」，那是提醒，不是她。
+     *
+     * ⚠️ 门槛一分不改，仍由 `:legacy` 的 `ProactivePlanner.decide` 判
+     *    （12 轮、3 小时没说话、5 小时没发过、23 点到 8 点静默）。
+     *    这里只多一道「一天最多两条」—— 再多就不是想他，是催他。
+     *
+     * ⚠️ 只发通知，**不写进会话**：写进去就是一条没有提问的回复，
+     *    `TasksScreen` 会把它渲染成「（这一轮的提问没有保存下来）」。
+     */
+    private suspend fun lifeformProactiveTick() {
+        if (!lifeformProactiveOnValue) return
+        val store = conversationRepository() ?: return
+        val session = runCatching { store.currentSession() }.getOrNull() ?: return
+        val path = runCatching { store.currentPath(session.id) }.getOrNull() ?: return
+        val lastUser = path.lastOrNull { it.role == com.pocketagent.memorylogic.TurnRole.USER }
+            ?: return
+        val now = System.currentTimeMillis()
+        val idle = now - lastUser.at
+        val hour = hourOfDayOf(now)
+        val offset = utcOffsetMinutesOf(now)
+        val dayIndex = com.pocketagent.personalogic.LifeformDay.localDayIndex(now, offset)
+        if (lifeformPulseDay != dayIndex) {
+            // 跨天了：昨天那两条不算今天的。
+            lifeformPulseDay = dayIndex
+            lifeformPulseCount = 0
+        }
+        val day = com.pocketagent.personalogic.LifeformDay.forDay(dayIndex)
+
+        // 今天那条网上的东西还没取就顺手抓一次；抓不到用兜底，这一轮不空着。
+        runCatching { refreshLifeformWeb(now) }
+
+        val plan = com.pocketagent.personalogic.LifeformPulse.plan(
+            com.pocketagent.personalogic.LifeformPulse.Facts(
+                hourOfDay = hour,
+                idleHours = idle / 3_600_000L,
+                sentToday = lifeformPulseCount,
+                seed = dayIndex,
+                hasWeb = lifeformWebItem(now) != null,
+                hasBeatNow = day.at(hour) != null,
+                hasBeatEarlier = day.before(hour).isNotEmpty(),
+                lastReason = lifeformLastPulseReason,
+            ),
+        ) ?: return
+
+        val facts = com.pocketagent.legacy.ProactivePlanner.Facts(
+            nowMs = now,
+            lastUserAtMs = lastUser.at,
+            lastProactiveAtMs = lastProactiveAtMs,
+            turnCount = path.size,
+        )
+        val line = notifier.tick(facts) { lifeformPulseLine(plan) } ?: return
+
+        lifeformPulseCount += 1
+        lifeformLastPulseReason = plan.reason
+        lastProactiveAtMs = System.currentTimeMillis()
+        persistLastProactiveAt(lastProactiveAtMs)
+        Timber.i("在场主动消息已发出（由头=%s，%d 字）", plan.reason.name, line.length)
+    }
+
+    /** 拼那一段提示词，交给 [oneShot]。人设 + 她的今天 + 网上看到 + 由头，四段。 */
+    private suspend fun lifeformPulseLine(
+        plan: com.pocketagent.personalogic.LifeformPulse.Plan,
+    ): String? {
+        val persona = activeCustomPersona
+        val who = persona?.describeForPrompt()?.takeIf { it.isNotBlank() }
+            ?: "你是一个有自己脾气的人，不是客服。"
+        val prompt = buildString {
+            appendLine(who)
+            appendLine()
+            val lifeday = runCatching { lifeformPromptSection() }.getOrDefault("")
+            if (lifeday.isNotBlank()) {
+                appendLine(lifeday)
+                appendLine()
             }
-            repo.useKey(config.credentialId) { provider, credential ->
-                val request = ChatRequest(
-                    model = config.modelId,
-                    messages = listOf(ChatMessage.user(prompt)),
-                    tools = emptyList(),
-                )
-                val sb = StringBuilder()
-                provider.chat(request = request, credential = credential).collect { chunk ->
-                    if (chunk is ChatChunk.Delta) sb.append(chunk.text)
-                }
-                sb.toString().trim().take(180).takeIf { it.isNotBlank() }
+            val web = runCatching { lifeformWebSection() }.getOrDefault("")
+            if (web.isNotBlank()) {
+                appendLine(web)
+                appendLine()
             }
-        }.getOrNull()
+            append(plan.promptText)
+        }
+        return oneShot(prompt, maxChars = 120)
     }
 
     private suspend fun loadLastProactiveAt(): Long =
@@ -3788,6 +4026,89 @@ class AppContainer(context: Context) {
     }.getOrElse {
         Timber.w(it, "她的今天组装失败（这轮不提）")
         ""
+    }
+
+    /**
+     * 今天她在网上看到的那一条（**一天之内不换**）。
+     *
+     * ⚠️ 为什么锁一天：一天里换三次，她就会说三件不同的事，
+     *    对方那边看起来像"这个角色在随机抓句子"。锁住之后，她今天**就是**
+     *    看到了这一条 —— 讲几次都还是它。
+     * ⚠️ 拿不到网就用兜底池（`WebDigest.fallback`）：这个模式的体验是
+     *    「她今天看到点东西」，不是「她成功联网了」。
+     */
+    fun lifeformWebItem(
+        nowMs: Long = System.currentTimeMillis(),
+    ): com.pocketagent.personalogic.WebItem? {
+        if (!lifeformWebOnValue) return null
+        val day = com.pocketagent.personalogic.LifeformDay.localDayIndex(
+            nowMs,
+            utcOffsetMinutesOf(nowMs),
+        )
+        lifeformWebLocked?.let { if (lifeformWebLockedDay == day) return it }
+        val fetched = lifeformWebFetched?.takeIf { lifeformWebFetchedDay == day }
+        val item = com.pocketagent.personalogic.WebDigest.pick(day, fetched)
+        lifeformWebLocked = item
+        lifeformWebLockedDay = day
+        return item
+    }
+
+    /** 「## 你在网上看到的」那一段。没开就是空串。 */
+    fun lifeformWebSection(nowMs: Long = System.currentTimeMillis()): String {
+        val item = lifeformWebItem(nowMs) ?: return ""
+        return com.pocketagent.personalogic.WebDigest.promptSection(item)
+    }
+
+    /**
+     * 后台去抓一次今天的那条。
+     *
+     * ★ 只写 `fetched`，**不碰已经锁住的那条**：锁在第一次用的时候就定了，
+     *   中途换成真抓到的，会让同一天里她说两件不同的事。
+     * ⇒ 所以最早抓到的那次越早越好：启动时一次、每 20 分钟的 tick 一次。
+     */
+    suspend fun refreshLifeformWeb(nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (!lifeformWebOnValue) return false
+        val day = com.pocketagent.personalogic.LifeformDay.localDayIndex(
+            nowMs,
+            utcOffsetMinutesOf(nowMs),
+        )
+        if (lifeformWebFetchedDay == day && lifeformWebFetched != null) return true
+        if (lifeformWebRefreshing) return false
+        lifeformWebRefreshing = true
+        return try {
+            val item = runCatching { webReader.fetch() }.getOrNull() ?: return false
+            lifeformWebFetched = item
+            lifeformWebFetchedDay = day
+            Timber.i("在网上翻到了：%s", item.title)
+            true
+        } finally {
+            lifeformWebRefreshing = false
+        }
+    }
+
+    /** 那两个开关（界面读，改值走 setter → DataStore）。 */
+    fun lifeformWebOn(): Boolean = lifeformWebOnValue
+
+    fun lifeformProactiveOn(): Boolean = lifeformProactiveOnValue
+
+    fun setLifeformWebOn(on: Boolean) {
+        lifeformWebOnValue = on
+        if (!on) {
+            lifeformWebLocked = null
+            lifeformWebFetched = null
+        }
+        startupScope.launch {
+            runCatching { pluginSourceStore.edit { it[KEY_LIFEFORM_WEB] = on } }
+                .onFailure { Timber.w(it, "在场联网开关落盘失败") }
+        }
+    }
+
+    fun setLifeformProactiveOn(on: Boolean) {
+        lifeformProactiveOnValue = on
+        startupScope.launch {
+            runCatching { pluginSourceStore.edit { it[KEY_LIFEFORM_PROACTIVE] = on } }
+                .onFailure { Timber.w(it, "在场主动消息开关落盘失败") }
+        }
     }
 
     /**
@@ -4539,8 +4860,17 @@ class AppContainer(context: Context) {
                 custom.describeForPrompt() + "\n\n" + capability
         } else {
             // ★ 2026-11-02：把"这一句"交给记忆检索 —— 不传的话
-        //   每轮都会想起同样的事，那不是记忆，是背景板。
-        assistantPrompt.build(canAct, currentUserText)
+            //    每轮都会想起同样的事，那不是记忆，是背景板。
+            //
+            // ★ 2026-11-14：把后台 AI 写的**表演指导**一起带上。
+            //    ⚠️ 只接在这一支 —— 上面自定义角色那支整条替换了装配器，
+            //       L3 状态段本来就不出现，硬塞一句指导会和她的人设打架。
+            //       自定义角色要这块能力，得先让 L3 进得去（另一件事）。
+            assistantPrompt.build(
+                canAct = canAct,
+                currentUserText = currentUserText,
+                performance = currentPerformance(),
+            )
         }
         val withConflict = if (conflict.isBlank()) base else base + "\n\n" + conflict
 
@@ -4616,8 +4946,15 @@ class AppContainer(context: Context) {
         //      她的今天是"她自己这一整天过成了什么样"。先外面，再她自己 ——
         //      反过来她会先讲自己再看天。
         val lifeday = if (sw.lifeform) lifeformPromptSection() else ""
-        val whereWithLife = if (lifeday.isBlank()) where else {
-            if (where.isBlank()) lifeday else where + "\n\n" + lifeday
+        // ★ 2026-11-15：**她今天在网上看到的**。
+        //   ⚠️ 与「她的今天」并进同一块：这两段都是"她自己过的日子"，
+        //      处境那一段是"外面现在什么样" —— 先外面，再她自己。
+        //   ⚠️ 拿不到网时这里放的是兜底池里的一条（见 `WebDigest.fallback`），
+        //      所以这一段**不会空**；空的只可能是开关关掉。
+        val lifeweb = if (sw.lifeform) lifeformWebSection() else ""
+        val lifeBlock = listOf(lifeday, lifeweb).filter { it.isNotBlank() }.joinToString("\n\n")
+        val whereWithLife = if (lifeBlock.isBlank()) where else {
+            if (where.isBlank()) lifeBlock else where + "\n\n" + lifeBlock
         }
         val withWhere = if (whereWithLife.isBlank()) withMemory else withMemory + "\n\n" + whereWithLife
 
@@ -4752,7 +5089,7 @@ class AppContainer(context: Context) {
         //    ⇒ 每次组装都记一行，下次对话就能核对。
         runCatching {
             Timber.i(
-                "提示词装配：%d 字｜模式 %s｜纪律段 %s｜角色边界 %s｜工作纪律 %s｜示例对话 %s｜生理线索 %s｜在场纪律 %s｜今天 %s｜世界书 %d 条",
+                "提示词装配：%d 字｜模式 %s｜纪律段 %s｜角色边界 %s｜工作纪律 %s｜示例对话 %s｜生理线索 %s｜在场纪律 %s｜今天 %s｜网上 %s｜世界书 %d 条",
                 withClues.length,
                 mode.label,
                 if (discipline.isNotBlank()) "有(${discipline.length}字)" else "无",
@@ -4762,6 +5099,7 @@ class AppContainer(context: Context) {
                 if (clueSection.isNotBlank()) "有" else "无",
                 if (lifeRules.isNotBlank()) "有(${lifeRules.length}字)" else "无",
                 if (lifeday.isNotBlank()) "有(${lifeday.length}字)" else "无",
+                if (lifeweb.isNotBlank()) "有(${lifeweb.length}字)" else "无",
                 worldEntriesValue.size,
             )
         }
@@ -5613,6 +5951,10 @@ class AppContainer(context: Context) {
             //   所以这里没预热的话，前半小时角色永远说"我不知道天气"。
             runCatching { situation.weather() }
                 .onFailure { Timber.d(it, "天气预热失败（不影响对话）") }
+            // ★ 顺手把今天那条网上的东西抓回来：提示词路径是同步的，
+            //   抓在这一刻，第一句话就能用上真的；抓不到就走兜底池。
+            runCatching { refreshLifeformWeb() }
+                .onFailure { Timber.d(it, "网上见闻预热失败（用兜底池）") }
             while (true) {
                 kotlinx.coroutines.delay(PROACTIVE_TICK_MS)
                 runCatching { proactiveTick() }
@@ -5718,6 +6060,15 @@ class AppContainer(context: Context) {
 
     /** 「允许它拒绝」开关。见 [allowRefusalValue]。 */
     private val KEY_ALLOW_REFUSAL = booleanPreferencesKey("allow_refusal_v1")
+
+    /** 在场模式：她今天在网上看到什么。见 [lifeformWebOnValue]。 */
+    private val KEY_LIFEFORM_WEB = booleanPreferencesKey("lifeform_web_v1")
+
+    /** 在场模式：她自己来找你。见 [lifeformProactiveOnValue]。 */
+    private val KEY_LIFEFORM_PROACTIVE = booleanPreferencesKey("lifeform_proactive_v1")
+
+    /** 聊天模式（角色扮演 / 在场）。见 [chatModeValue]。 */
+    private val KEY_CHAT_MODE = stringPreferencesKey("chat_mode_v1")
 
     /** 工作台「权限」档。见 [permissionModeValue]。 */
     private val KEY_PERMISSION_MODE = androidx.datastore.preferences.core.stringPreferencesKey(
