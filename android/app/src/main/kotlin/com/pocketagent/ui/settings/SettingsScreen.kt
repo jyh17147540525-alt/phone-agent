@@ -93,6 +93,24 @@ fun SettingsScreen(
      */
     allowRefusal: Boolean = true,
     onToggleAllowRefusal: ((Boolean) -> Unit)? = null,
+    /**
+     * **在场模式：让她上网看看**。
+     *
+     * ⚠️ 只影响在场模式（打破第四面墙那个页面）。关掉之后她不联网，
+     *    今天「看到」的东西退回兜底池（那池子里都是真的常识，不是新闻）。
+     *    角色扮演那边没有这个功能，所以这一行与它无关。
+     */
+    lifeformWeb: Boolean = true,
+    onToggleLifeformWeb: ((Boolean) -> Unit)? = null,
+    /**
+     * **在场模式：她自己来找你**。
+     *
+     * ⚠️ 只发通知、不写进会话（见 `AppContainer.lifeformProactiveTick`）。
+     *    门槛复用 `ProactivePlanner`：聊够 12 轮、3 小时没说话、5 小时没发过、
+     *    不在 23–8 点之间，且一天最多两条。
+     */
+    lifeformProactive: Boolean = true,
+    onToggleLifeformProactive: ((Boolean) -> Unit)? = null,
     /** 后台 AI 的调度页。为 null 时不显示入口。 */
     onOpenBackgroundAi: (() -> Unit)? = null,
     /** 世界书面板。为 null 时不显示入口。 */
@@ -345,6 +363,58 @@ fun SettingsScreen(
                         title = "后台 AI",
                         subtitle = "场记与记忆抽取用哪个模型、思考多深",
                         onClick = onOpenBackgroundAi,
+                    )
+
+                    // ══════════════════════════════════════════════
+                    //  ★★ 2026-11-15：**在场模式**的两个开关
+                    // ══════════════════════════════════════════════
+                    //
+                    // ⚠️ 这两行只管在场模式（打破第四面墙那个页面）。
+                    //    角色扮演那边根本没有这两个能力，所以不需要
+                    //    「只在某个模式里才显示」的条件 —— 摆在这里不会误导。
+                    //
+                    // ⚠️ 副标题写的是**关掉之后会怎样**，而不是「这个功能是什么」：
+                    //    用户来点开关的时候想知道的是代价。
+                    PaListDivider()
+                    PaListRow(
+                        icon = Icons.Default.Cable,
+                        title = "让她上网看看",
+                        subtitle = if (lifeformWeb) {
+                            "她今天会自己在网上翻到点东西；只取一条，不搜你的事"
+                        } else {
+                            "不联网，今天翻到的只是常识兜底，不会提到新闻"
+                        },
+                        onClick = null,
+                        trailingContent = {
+                            androidx.compose.material3.Switch(
+                                checked = lifeformWeb,
+                                onCheckedChange = { onToggleLifeformWeb?.invoke(it) },
+                                colors = androidx.compose.material3.SwitchDefaults.colors(
+                                    checkedThumbColor = PaColor.SurfaceHigh,
+                                    checkedTrackColor = PaColor.Accent,
+                                ),
+                            )
+                        },
+                    )
+                    PaListRow(
+                        icon = Icons.Default.Notifications,
+                        title = "她自己来找你",
+                        subtitle = if (lifeformProactive) {
+                            "聊得久了、你又半天没说话，她可能发一条消息过来"
+                        } else {
+                            "她不会主动发消息（你找她时一切照常）"
+                        },
+                        onClick = null,
+                        trailingContent = {
+                            androidx.compose.material3.Switch(
+                                checked = lifeformProactive,
+                                onCheckedChange = { onToggleLifeformProactive?.invoke(it) },
+                                colors = androidx.compose.material3.SwitchDefaults.colors(
+                                    checkedThumbColor = PaColor.SurfaceHigh,
+                                    checkedTrackColor = PaColor.Accent,
+                                ),
+                            )
+                        },
                     )
 
                     PaListDivider()

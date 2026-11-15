@@ -1210,6 +1210,13 @@ fun AppShell(
                     //    这边我当初只写了 getter，漏了状态承接。
                     var allowRefusalOn by remember { mutableStateOf(container.allowRefusal()) }
 
+                    // ⚠️ 同一个坑的第三次：这两个也是普通 `@Volatile var`。
+                    //    不在这里承接状态，点了开关不动（而设置其实已经生效）。
+                    var lifeformWebOn by remember { mutableStateOf(container.lifeformWebOn()) }
+                    var lifeformProactiveOn by remember {
+                        mutableStateOf(container.lifeformProactiveOn())
+                    }
+
                     SettingsScreen(
                         keyStatus = keyStatus,
                         onOpenKeys = { navController.navigate(Routes.KEYS) },
@@ -1217,6 +1224,13 @@ fun AppShell(
         allowRefusal = allowRefusalOn,
         onToggleAllowRefusal = { allowRefusalOn = it; container.setAllowRefusal(it) },
         onOpenBackgroundAi = { navController.navigate(Routes.BACKGROUND_AI) },
+        lifeformWeb = lifeformWebOn,
+        onToggleLifeformWeb = { lifeformWebOn = it; container.setLifeformWebOn(it) },
+        lifeformProactive = lifeformProactiveOn,
+        onToggleLifeformProactive = {
+            lifeformProactiveOn = it
+            container.setLifeformProactiveOn(it)
+        },
         onOpenWorldBook = { navController.navigate(Routes.WORLD_BOOK) },
         onOpenHealth = { navController.navigate(Routes.HEALTH) },
         onOpenDsh = { navController.navigate(Routes.DSH) },

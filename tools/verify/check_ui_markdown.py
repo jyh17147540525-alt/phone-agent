@@ -120,6 +120,8 @@ MODEL_FACING = {
     "personalogic/ChatMode.kt",        # 工作模式的纪律段（写给模型，不是界面）
     "personalogic/LifeformDiscipline.kt", # 在场模式的纪律段（写给模型，不是界面）
     "personalogic/LifeformDay.kt",     # 「她的今天」拼进提示词的那一节
+    "personalogic/WebDigest.kt",       # 网上见闻那段（写给模型，不是界面）
+    "personalogic/LifeformPulse.kt",   # 「你想发条消息给他」那段（写给模型）
     "memorylogic/AtomExtractor.kt",      # 记忆抽取提示词（写给模型）
     # ── 工作台的权限档位（2026-11-04 加）──────────────────────
     # ⚠️ `AgentPermission.promptSection` 拼的是**系统提示词的一段**
