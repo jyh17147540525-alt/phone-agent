@@ -126,6 +126,13 @@ fun UserProfileScreen(
     val draft = assemble()
     val promptChars = draft.promptSection(callNameFromCharacter = characterCallsYou.orEmpty()).length
     val fromCharacter = characterCallsYou?.trim().orEmpty()
+    // 角色设定那一栏常常是一整段说明（主称呼、什么时候换称呼、说话语气……），
+    // 整段抄进界面会变成一堵墙，这里只截开头让人认得出是哪一条。
+    val fromCharacterShort = if (fromCharacter.length <= 20) {
+        fromCharacter
+    } else {
+        fromCharacter.take(20).trimEnd() + "…"
+    }
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -151,7 +158,7 @@ fun UserProfileScreen(
         if (fromCharacter.isNotEmpty()) {
             item {
                 Text(
-                    text = "角色设定里已经写了「$fromCharacter」，就用那个 —— 两份称呼并存，他会挑错一个。" +
+                    text = "角色设定里已经写了「$fromCharacterShort」，就用那个 —— 两份称呼并存，他会挑错一个。" +
                         "这里留空就好。",
                     style = PaType.caption,
                     color = PaColor.TextTertiary,
