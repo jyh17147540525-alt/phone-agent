@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Cable
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.FileDownload
@@ -122,6 +123,13 @@ fun SettingsScreen(
     onOpenPermissions: (() -> Unit)? = null,
     onOpenCapabilities: (() -> Unit)? = null,
     onOpenPrivilegeMode: (() -> Unit)? = null,
+    /**
+     * 「关于你」—— 用户自己的设定与习惯。
+     *
+     * ★ 它排在「角色设定」**之前**：这一页是"他是谁"，下一页是"你是谁"，
+     *   先说自己更合理 —— 而且用户第一次进来最想填的其实是自己。
+     */
+    onOpenUserProfile: (() -> Unit)? = null,
     onOpenPersona: (() -> Unit)? = null,
     /** 当前明暗偏好 */
     themeMode: ThemeMode = ThemeMode.SYSTEM,
@@ -301,6 +309,18 @@ fun SettingsScreen(
             item {
                 PaListGroup {
                     PaListDivider()
+                    // ★ 2026-11-16：**关于你**（用户自己）。
+                    //
+                    //   在这一行之前，app 里角色的人格、身体、世界书都是
+                    //   用户填的，唯独对面那个人是白纸 —— 于是每段新关系
+                    //   都要从「你是做什么的」开始。这一页把已知的那一半交出去。
+                    PaListRow(
+                        icon = Icons.Default.AccountCircle,
+                        title = "关于你",
+                        subtitle = "你自己的设定和习惯：他知道你是谁，就不用从头问起",
+                        onClick = onOpenUserProfile,
+                    )
+
                     // ★ 角色设定是**聊天体验的上游**：它决定"和你说话的是谁"。
                     //   放在权限之前 —— 用户更常来改的是这个。
                     PaListRow(

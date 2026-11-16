@@ -71,6 +71,7 @@ import com.pocketagent.mcp.PersonaBriefTool
 import com.pocketagent.mcp.ScreenReadTool
 import com.pocketagent.mcp.McpTool
 import com.pocketagent.personalogic.CustomPersona
+import com.pocketagent.personalogic.UserProfile
 import com.pocketagent.rootlogic.DeviceState
 import com.pocketagent.rootlogic.PrivilegeMode
 import com.pocketagent.rootlogic.RootActions
@@ -950,6 +951,24 @@ class AppContainer(context: Context) {
     private var activeCustomPersona: CustomPersona? = null
 
     /**
+     * **用户自己的档案**（「关于你」那一页）的存储。
+     *
+     * ⚠️ 与 [CustomPersonaStore] 完全分开：一个存"她是谁"，一个存"我是谁"。
+     *    合在一起会让"换角色"顺手清掉用户档案 —— 那是他最不想重填的东西。
+     */
+    private val userProfileStore: UserProfileStore by lazy { UserProfileStore(appContext) }
+
+    /**
+     * 当前生效的用户档案。null = 用户还没填过（提示词里一个字都不加）。
+     *
+     * ★ 为什么它能明显改善"刚认识时的干瘪"：app 里角色的人格、身体、
+     *   世界书都是用户填的，唯独**对面那个人**从来是白纸 —— 于是每次
+     *   新关系都要从「你是做什么的」重新问一遍。这份档案就是那张纸。
+     */
+    @Volatile
+    private var activeUserProfile: UserProfile? = null
+
+    /**
      * 已发生的冲突记录。**内存版** —— 还没接持久化。
      *
      * ⚠️ 这是**已知缺口**：进程一死这些记录就没了，于是"它不记得吵过"。
@@ -1138,6 +1157,34 @@ class AppContainer(context: Context) {
     suspend fun clearCustomPersona() {
         customPersonaStore.clear()
         activeCustomPersona = null
+    }
+
+    /** 读一次磁盘上的用户档案（应用启动时调一次即可）。 */
+    suspend fun loadUserProfile() {
+        activeUserProfile = runCatching { userProfileStore.load() }.getOrNull()
+        val p = activeUserProfile
+        Timber.i(
+            "用户档案：%s",
+            if (p == null || p.isEmpty()) "未设置（提示词里不加这一段）" else "已加载（${p.promptSection().length} 字）",
+        )
+    }
+
+    /**
+     * 保存用户档案 —— **保存后立刻生效**。
+     *
+     * ⚠️ 与 [saveCustomPersona] 一样同步更新内存：只写盘不更新内存的话，
+     *    用户填完要重启才生效，而界面上没有任何提示 —— 他会以为保存失败。
+     */
+    suspend fun saveUserProfile(profile: UserProfile) {
+        userProfileStore.save(profile)
+        activeUserProfile = profile
+        Timber.i("用户档案已保存并生效：%d 字", profile.promptSection().length)
+    }
+
+    /** 清空用户档案 —— 回到"她还不了解你"。 */
+    suspend fun clearUserProfile() {
+        userProfileStore.clear()
+        activeUserProfile = null
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -1781,13 +1828,15 @@ class AppContainer(context: Context) {
      * ⚠️ 只存**一条**：同一状态的第二句指导会让人格闪。
      *    过期判断在 `PersonaAssembler.renderState`（按状态时间），
      *    这里只管存与取 —— 两处都判一次，方向都是"宁可不用"。
+     *
+     * ★ 2026-11-16：过闸/保留/过期三段逻辑抽到 `PerformanceSlot`
+     *   （纯 Kotlin，时钟可注入，8 条测试覆盖）。放在这里的时候
+     *   `:app` 单测跑不起 Android 运行时，等于零覆盖。
      */
-    @Volatile
-    private var performanceValue: com.pocketagent.personalogic.Performance? = null
+    private val performanceSlot = com.pocketagent.personalogic.PerformanceSlot()
 
     /** 当前生效的表演指导；没有（或已过期）返回 null。 */
-    fun currentPerformance(): com.pocketagent.personalogic.Performance? =
-        performanceValue?.takeIf { it.isFresh(System.currentTimeMillis()) }
+    fun currentPerformance(): com.pocketagent.personalogic.Performance? = performanceSlot.current()
 
     fun pendingFacts(): List<com.pocketagent.personalogic.ProposedFact> = pendingFactsValue
 
@@ -1994,16 +2043,15 @@ class AppContainer(context: Context) {
         //  ⚠️ 与事件**分开过闸**：事件错了会污染状态（所以有 DirectorGate 的
         //     限频/上限），指导错了只是这一句写得不像她 —— 拒了不影响事件。
         //     反过来也一样：指导被拒时事件照常生效。
+        //  ⚠️ 被拒时 `PerformanceSlot` 保留旧值（不清空）：模型偶然写一句
+        //     垃圾，不该把这一轮本来有效的指导弄没。
         run {
-            val verdict = com.pocketagent.personalogic.PerformanceGate.accept(
+            val verdict = performanceSlot.offer(
                 raw = parsed.output.performance,
-                previous = performanceValue,
-                nowMs = System.currentTimeMillis(),
                 hormonesKey = portrait,
             )
             when (verdict) {
                 is com.pocketagent.personalogic.PerformanceVerdict.Accepted -> {
-                    performanceValue = verdict.performance
                     Timber.i("表演指导：%s", verdict.performance.line)
                 }
                 is com.pocketagent.personalogic.PerformanceVerdict.Rejected -> {
@@ -3330,7 +3378,7 @@ class AppContainer(context: Context) {
      *   那就是用户明确禁止的事（见 [VirtualScreenHost.stop] 的注释）。
      */
     val virtualScreenHost: com.pocketagent.assistant.VirtualScreenHost by lazy {
-        com.pocketagent.assistant.VirtualScreenHost(appContext)
+        com.pocketagent.assistant.VirtualScreenHost(appContext, displayActions)
     }
 
     /**
@@ -4711,6 +4759,9 @@ class AppContainer(context: Context) {
     /** 当前自定义角色（供界面显示）。 */
     fun currentCustomPersona(): CustomPersona? = activeCustomPersona
 
+    /** 当前用户档案（供「关于你」页回填）。 */
+    fun currentUserProfile(): UserProfile? = activeUserProfile
+
     /**
      * 助理的系统提示词构造器（`PersonaAssembler` 的消费方）。
      *
@@ -4872,7 +4923,24 @@ class AppContainer(context: Context) {
                 performance = currentPerformance(),
             )
         }
-        val withConflict = if (conflict.isBlank()) base else base + "\n\n" + conflict
+        // ★ 2026-11-16：**用户自己的档案**在这里进提示词（「关于你」页）。
+        //
+        //   位置在 base 之后、人格完整性之前：它讲的是"对面那个人是谁"，
+        //   与角色的"我是谁"并列 —— 先立人，再谈关系。
+        //
+        //   ⚠️ 必须放在两支之外：上面自定义角色那一支**整条替换**掉了装配器，
+        //      漏掉这里就等于"用自定义角色时档案白填"（同 `PromptRoles` 的教训）。
+        //
+        //   ⚠️ 称呼让位：角色设定里的 `addressUser` 优先，档案里那条**整行不输出**。
+        //      两份称呼并存时模型会挑错一个，而叫错名字比不叫更伤人。
+        val userCard = currentUserProfile()
+            ?.promptSection(callNameFromCharacter = custom?.addressUser.orEmpty())
+            .orEmpty()
+        val withConflict = buildString {
+            append(base)
+            if (conflict.isNotBlank()) append("\n\n").append(conflict)
+            if (userCard.isNotBlank()) append("\n\n").append(userCard)
+        }
 
         // ★ 人格完整性 —— **每一轮、每个角色都写**。
         //   自定义角色也要写：用户自己写的角色卡通常不会想到"不要说自己是 AI"
@@ -5313,6 +5381,17 @@ class AppContainer(context: Context) {
             "root 通道：%s",
             if (found != null) "已发现（127.0.0.1:${found.port}）" else "未发现（走 su 兜底）",
         )
+    }
+
+    /**
+     * 虚拟屏动作的执行者。
+     *
+     * ★ 与 `agentTools` 里的那份是同一个策略（先常驻通道、退回 `su`），
+     *   但独立一个实例：虚拟屏在"用户没发消息"时也可能被打开，
+     *   不该因为工具表还没构造就用人手拼字符串的老路。
+     */
+    private val displayActions: RootActions by lazy {
+        RootActions(SuShellPort(), daemon = DaemonEndpoint.open())
     }
 
     private val agentTools: List<McpTool> by lazy {
@@ -5911,6 +5990,11 @@ class AppContainer(context: Context) {
             //     在重启后**静默失效**（不报错，只是变回默认人格）。
             runCatching { loadCustomPersona() }
                 .onFailure { Timber.e(it, "自定义角色加载失败") }
+            // ★ 2026-11-16：用户档案同样要在启动时加载。
+            //   ⚠️ 也独立于后面那条 `?: return@launch` —— 理由同上：
+            //      "没有插件源配置"不该让用户档案永远读不到。
+            runCatching { loadUserProfile() }
+                .onFailure { Timber.e(it, "用户档案加载失败") }
             runCatching { loadThemeMode() }
                 .onFailure { Timber.e(it, "主题偏好加载失败") }
             runCatching { loadMaturePermission() }

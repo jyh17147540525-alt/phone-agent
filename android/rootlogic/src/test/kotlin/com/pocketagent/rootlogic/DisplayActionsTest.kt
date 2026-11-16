@@ -100,6 +100,59 @@ class DisplayActionsTest {
         )
     }
 
+    // ── 副屏滑动 / 输入 / 按键 ──────────────────────────────────────────────
+
+    @Test
+    fun `副屏滑动的 su 命令带五段参数`() {
+        assertEquals(
+            "input -d 5 swipe 1 2 3 4 300",
+            RootCommands.payload(RootAction.DisplaySwipe(5, 1, 2, 3, 4, 300)),
+        )
+    }
+
+    @Test
+    fun `副屏输入的文字在 su 那条路上被单引号包住`() {
+        // ⚠️ 不包的话 `su -c` 会把「晚点 到」拆成两个参数交给 input
+        assertEquals(
+            "input -d 5 text '晚点 到'",
+            RootCommands.payload(RootAction.DisplayText(5, "晚点 到")),
+        )
+    }
+
+    @Test
+    fun `副屏按键的 su 命令`() {
+        assertEquals(
+            "input -d 5 keyevent 4",
+            RootCommands.payload(RootAction.DisplayKey(5, "4")),
+        )
+    }
+
+    @Test
+    fun `通道里滑动文字按键都是数组，文字不拆`() {
+        assertEquals(
+            listOf("input", "5", "swipe", "1", "2", "3", "4", "300"),
+            DaemonCalls.of(RootAction.DisplaySwipe(5, 1, 2, 3, 4, 300)).argv,
+        )
+        assertEquals(
+            listOf("input", "5", "text", "晚点 到"),
+            DaemonCalls.of(RootAction.DisplayText(5, "晚点 到")).argv,
+        )
+        assertEquals(
+            listOf("input", "5", "keyevent", "4"),
+            DaemonCalls.of(RootAction.DisplayKey(5, "4")).argv,
+        )
+    }
+
+    @Test
+    fun `文字含单引号时两条路都拒绝`() {
+        assertThrows(UnsafeRootArgument::class.java) {
+            RootCommands.payload(RootAction.DisplayText(5, "a'b"))
+        }
+        assertThrows(UnsafeRootArgument::class.java) {
+            DisplayCommands.fromProtocol(listOf("input", "5", "text", "a'b"))
+        }
+    }
+
     // ── 能力归属 ────────────────────────────────────────────────────────────
 
     @Test

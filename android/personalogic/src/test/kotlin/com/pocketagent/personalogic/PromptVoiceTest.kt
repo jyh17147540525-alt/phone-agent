@@ -218,6 +218,28 @@ class PromptVoiceTest {
             "CharacterEdge.promptSection（带 known）" to CharacterEdge.promptSection(
                 listOf("做饭", "擦桌子"),
             ),
+            // ★ 2026-11-16：「关于你」那一段。它紧跟人格核心进来，
+            //   要是自己带了列表符或口号，模型会照着给它自己加设定。
+            "UserProfile.promptSection（填满）" to UserProfile(
+                callName = "老板",
+                gender = UserGender.MALE,
+                ageBand = UserAgeBand.THIRTIES,
+                livingWith = LivingWith.ALONE,
+                work = "做后端的，天天加班",
+                nowBusy = "在赶一个上线的版本",
+                chatStyle = ChatStyle.TERSE,
+                likes = listOf("冰美式", "下雨天", "安静"),
+                dislikes = listOf("开会", "电话"),
+                taboos = listOf("别提前一份工作"),
+                bodyNotes = "腰不好，坐久了要站起来",
+                sleepHour = 2,
+                wakeHour = 9,
+                knownFacts = listOf("第一次见面在便利店", "她记得他喝冰美式"),
+                extra = "不太会说漂亮话",
+            ).promptSection(),
+            "UserProfile.promptSection（只填雷区）" to UserProfile(
+                taboos = listOf("别提他前女友"),
+            ).promptSection(),
         )
     }
 }

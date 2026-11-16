@@ -107,6 +107,21 @@ object DaemonCalls {
             RootVerb.DISPLAY,
             listOf("input", action.displayId.toString(), "tap", action.x.toString(), action.y.toString()),
         )
+    is RootAction.DisplaySwipe ->
+        DaemonCall(
+            RootVerb.DISPLAY,
+            listOf(
+                "input", action.displayId.toString(), "swipe",
+                action.fromX.toString(), action.fromY.toString(),
+                action.toX.toString(), action.toY.toString(),
+                action.millis.coerceIn(1, 60_000).toString(),
+            ),
+        )
+    is RootAction.DisplayText ->
+        DaemonCall(RootVerb.DISPLAY, listOf("input", action.displayId.toString(), "text", action.text))
+    is RootAction.DisplayKey ->
+        DaemonCall(RootVerb.DISPLAY, listOf("input", action.displayId.toString(), "keyevent", action.code))
+
     is RootAction.DisplayCapture ->
         DaemonCall(RootVerb.DISPLAY, listOf("capture", action.displayId.toString(), action.path))
     is RootAction.DisplayStop ->

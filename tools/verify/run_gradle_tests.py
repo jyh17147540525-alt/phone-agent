@@ -123,7 +123,17 @@ def run() -> tuple[int, str]:
     if jh:
         env["JAVA_HOME"] = jh
 
-    cmd = [gradlew, *TASKS, "--console=plain", "--offline",
+    cmd = [
+        gradlew, *TASKS, "--console=plain", "--offline",
+        # ★ 2026-11-16：这两项是给**本机环境**的，不是给代码的。
+        #   在 Windows 中文路径 + 并行构建（另一个智能体也在跑 Gradle）时，
+        #   Kotlin 的 caches-jvm 会报
+        #     `Could not get file mode for ...caches-jvm`
+        #     `Could not close incremental caches in ...id-to-file.tab`
+        #   然后整个 :app:testDebugUnitTest 红掉 —— 而代码其实是好的。
+        #   关掉增量与构建缓存只影响速度；判据仍然成立，因为下面固定了 --rerun-tasks。
+        "--no-build-cache",
+        "-Pkotlin.incremental=false",
            # ⚠️ 必须 rerun：UP-TO-DATE 时测试不跑，而"没跑"正是陈旧产物的样子
            "--rerun-tasks",
            # 路径含中文，必须跳过 AGP 的路径检查

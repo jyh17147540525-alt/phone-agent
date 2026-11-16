@@ -79,6 +79,7 @@ import com.pocketagent.ui.design.PaScreen
 import com.pocketagent.ui.design.PaBanner
 import com.pocketagent.ui.design.PaBannerTone
 import com.pocketagent.ui.persona.PersonaScreen
+import com.pocketagent.ui.profile.UserProfileScreen
 import com.pocketagent.ui.settings.PrivilegeModeScreen
 import com.pocketagent.ui.settings.SettingsScreen
 import com.pocketagent.ui.settings.SettingsViewModel
@@ -119,6 +120,15 @@ object Routes {
 
     /** 角色设定（自定义角色 / 未亡人模式入口）。 */
     const val PERSONA = "persona"
+
+    /**
+     * **「关于你」** —— 用户自己的设定与习惯。
+     *
+     * ★ 与 [PERSONA] 是**两件事**：那一页定"和你说话的是谁"，
+     *   这一页定"对面那个人是谁"。缺了后者，每段新关系都要
+     *   从「你是做什么的」重新开始。
+     */
+    const val USER_PROFILE = "user-profile"
 
     /** 长期记忆的 3D 星图。 */
     const val MEMORY_GRAPH = "memory-graph"
@@ -1241,6 +1251,7 @@ fun AppShell(
                         onOpenCapabilities = { navController.navigate(Routes.CAPABILITIES) },
                         onOpenPrivilegeMode = { navController.navigate(Routes.PRIVILEGE_MODE) },
                         onOpenPersona = { navController.navigate(Routes.PERSONA) },
+                        onOpenUserProfile = { navController.navigate(Routes.USER_PROFILE) },
                         // ★ 明暗偏好：用 remember 承接，切换后立刻重组。
                         //   容器是唯一事实来源，这里只是读 + 回写。
                         themeMode = themeMode,
@@ -1676,6 +1687,40 @@ fun AppShell(
                 // ⚠️ `ModelConfig` 这张表**仍在用** —— 删的是界面，不是数据。
 
                 // ── 后台 AI 调度 ────────────────────────────────
+                composable(Routes.USER_PROFILE) {
+                    val scope = rememberCoroutineScope()
+                    // ★ remember 承接：容器返回的是同一个实例，但每次重组
+                    //   重新取值会让 `remember(initial)` 的 key 变化 ——
+                    //   用户正在填的字会被"重新开始"。
+                    val initialProfile = remember { container.currentUserProfile() }
+                    // 角色设定里已经填的「怎么称呼你」—— 以那边为准（见 UserProfile.promptSection）。
+                    val callsYou = remember { container.currentCustomPersona()?.addressUser }
+
+                    PaScreen(
+                        title = "关于你",
+                        onBack = { navController.popBackStack() },
+                    ) {
+                        UserProfileScreen(
+                            initial = initialProfile,
+                            characterCallsYou = callsYou,
+                            onSave = { profile ->
+                                scope.launch {
+                                    runCatching { container.saveUserProfile(profile) }
+                                        .onFailure { Timber.e(it, "用户档案保存失败") }
+                                    navController.popBackStack()
+                                }
+                            },
+                            onClear = {
+                                scope.launch {
+                                    runCatching { container.clearUserProfile() }
+                                        .onFailure { Timber.e(it, "用户档案清空失败") }
+                                    navController.popBackStack()
+                                }
+                            },
+                        )
+                    }
+                }
+
                 composable(Routes.BACKGROUND_AI) {
                     // ══════════════════════════════════════════════════
                     //  ★★ 2026-11-03：这几项必须是**Compose 状态**

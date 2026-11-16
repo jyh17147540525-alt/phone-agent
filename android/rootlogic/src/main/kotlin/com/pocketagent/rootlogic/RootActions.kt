@@ -73,6 +73,22 @@ sealed interface RootAction {
     /** 在副屏上点一下。 */
     data class DisplayTap(val displayId: Int, val x: Int, val y: Int) : RootAction
 
+    /** 在副屏上滑一下。 */
+    data class DisplaySwipe(
+        val displayId: Int,
+        val fromX: Int,
+        val fromY: Int,
+        val toX: Int,
+        val toY: Int,
+        val millis: Int,
+    ) : RootAction
+
+    /** 在副屏上输入文字（焦点须已在那块屏的输入框里）。 */
+    data class DisplayText(val displayId: Int, val text: String) : RootAction
+
+    /** 在副屏上按一个键。 */
+    data class DisplayKey(val displayId: Int, val code: String) : RootAction
+
     /** 抓副屏画面。 */
     data class DisplayCapture(val displayId: Int, val path: String) : RootAction
 
@@ -151,8 +167,12 @@ object RootCommands {
      */
     fun checkedKeyCode(code: String): String {
         val safe = safeToken("按键", code)
-        if (safe !in KEY_CODES) throw UnsafeRootArgument("按键", code)
-        return safe
+        if (safe in KEY_CODES) return safe
+        // 数字键码（4 / 26 …）与名字等价，`input keyevent` 两种都收。
+        // 虚拟屏那边传进来的是 Int，硬要求名字就得在调用方再维护一张映射表，
+        // 而那张表迟早会和这里的 KEY_CODES 漂移。
+        if (Regex("""^\d{1,3}$""").matches(safe)) return safe
+        throw UnsafeRootArgument("按键", code)
     }
 
     /** 坐标：允许负数（多屏/虚拟屏会出现），但要挡住溢出级的值。 */
@@ -223,6 +243,28 @@ object RootCommands {
                 action.displayId,
                 listOf("tap", coord("x", action.x), coord("y", action.y)),
             ).joinToString(" ")
+        is RootAction.DisplaySwipe ->
+            DisplayCommands.input(
+                action.displayId,
+                listOf(
+                    "swipe",
+                    coord("fromX", action.fromX),
+                    coord("fromY", action.fromY),
+                    coord("toX", action.toX),
+                    coord("toY", action.toY),
+                    action.millis.coerceIn(1, 60_000).toString(),
+                ),
+            ).joinToString(" ")
+        is RootAction.DisplayText -> {
+            // ⚠️ 文字是唯一含空格的东西，而 `su -c` 会把整串交给 shell 再分词 ——
+            //   直接 joinToString(" ") 会把「晚点 到」拆成两个参数交给 input。
+            //   所以这一段必须用单引号包起来。数组那条路（常驻通道）不需要引号，
+            //   这正是两条路不能共用一个"拼好的字符串"的原因。
+            val argv = DisplayCommands.input(action.displayId, listOf("text", action.text))
+            argv.dropLast(1).joinToString(" ") + " '" + argv.last() + "'"
+        }
+        is RootAction.DisplayKey ->
+            DisplayCommands.input(action.displayId, listOf("keyevent", checkedKeyCode(action.code))).joinToString(" ")
         is RootAction.DisplayCapture ->
             DisplayCommands.capture(action.displayId, action.path).joinToString(" ")
         is RootAction.DisplayStop ->
@@ -251,7 +293,8 @@ object RootCommands {
         is RootAction.GetProp -> "shell.root"
         is RootAction.ReadFile -> "file.any"
         // 虚拟屏上的点按仍是"点屏幕"；抓帧仍是"读屏"；停 App 是最重的那一类
-        is RootAction.DisplayLaunch, is RootAction.DisplayTap -> "screen.tap"
+        is RootAction.DisplayLaunch, is RootAction.DisplayTap,
+        is RootAction.DisplaySwipe, is RootAction.DisplayText, is RootAction.DisplayKey -> "screen.tap"
         is RootAction.DisplayCapture -> "screen.read"
         is RootAction.DisplayStop -> "shell.root"
         RootAction.Probe, is RootAction.Query -> "shell.root"

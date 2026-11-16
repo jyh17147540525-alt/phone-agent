@@ -8,6 +8,8 @@ import android.hardware.display.VirtualDisplay
 import android.media.Image
 import android.media.ImageReader
 import com.pocketagent.hosting.HostingCommands
+import com.pocketagent.rootlogic.RootAction
+import com.pocketagent.rootlogic.RootActions
 import com.pocketagent.hosting.VirtualScreenCommands
 import timber.log.Timber
 import java.io.ByteArrayOutputStream
@@ -44,7 +46,18 @@ import java.util.concurrent.TimeUnit
  *    而不是挂在某个 Activity 上 —— Activity 会被系统回收，
  *    而它一被回收，用户屏幕上就会多出一个应用的窗口。
  */
-class VirtualScreenHost(private val context: Context) {
+class VirtualScreenHost(
+    private val context: Context,
+    /**
+     * 虚拟屏动作的执行者。
+     *
+     * ★ 为什么不再直接 `su -c "input -d 5 tap ..."`：
+     *   常驻通道装上后一次往返 <5ms 且参数是数组；装不上时 [RootActions] 自己退回 `su`。
+     *   两条路都走同一份参数校验（[com.pocketagent.rootlogic.DisplayCommands]），
+     *   所以"root 用户能点、shell 用户点不动"这类分叉不会再出现。
+     */
+    private val actions: RootActions = RootActions(SuShellPort()),
+) {
 
     init {
         // 登记为进程内当前宿主（见 companion 里 current 的注释）
@@ -183,11 +196,17 @@ class VirtualScreenHost(private val context: Context) {
         //
         // ⇒ 先 `am force-stop`，再启动。代价是一次冷启动（慢 1～3 秒），
         //   换来的是"绝不会出现在用户屏幕上"这条硬指标。
-        root(VirtualScreenCommands.forceStop(packageName))
+        // 先停：目标应用若本来在主屏有 Task，`am start --display N` 会把**那个 Task**
+        // 整个拉到前台（用户眼前会突然弹出微信）。停不掉不算致命 —— 继续试一次，
+        // 但把原因记下来，免得"为什么又跑到主屏了"查不到。
+        act(RootAction.DisplayStop(packageName))?.let {
+            Timber.w("虚拟屏：先停 %s 没成功（%s），仍尝试拉起", packageName, it)
+        }
         Thread.sleep(KILL_SETTLE_MS)
 
-        val out = root(VirtualScreenCommands.startOnDisplay(id, component))
-            ?: return "root 命令没返回（su 不可用？）"
+        val launched = actions.run(RootAction.DisplayLaunch(id, component))
+        if (!launched.ok) return "启动失败：${launched.describe()}"
+        val out = launched.stdout
         // ⚠️ `am start` 失败时**退出码仍是 0**，只能看输出里有没有 Error。
         if (out.contains("Error") || out.contains("Exception")) {
             return "启动失败：${out.trim().take(160)}"
@@ -341,25 +360,25 @@ class VirtualScreenHost(private val context: Context) {
         if (x !in 0 until width || y !in 0 until height) {
             return "坐标 ($x,$y) 超出虚拟屏 ${width}x$height —— 点的会是别的地方"
         }
-        root(VirtualScreenCommands.tapOnDisplay(id, x, y)) ?: return "root 命令没返回"
+        act(RootAction.DisplayTap(id, x, y))?.let { return it }
         return null
     }
 
     fun swipe(x1: Int, y1: Int, x2: Int, y2: Int): String? {
         val id = displayId ?: return "虚拟屏还没建"
-        root(VirtualScreenCommands.swipeOnDisplay(id, x1, y1, x2, y2)) ?: return "root 命令没返回"
+        act(RootAction.DisplaySwipe(id, x1, y1, x2, y2, 300))?.let { return it }
         return null
     }
 
     fun type(text: String): String? {
         val id = displayId ?: return "虚拟屏还没建"
-        root(VirtualScreenCommands.typeOnDisplay(id, text)) ?: return "root 命令没返回"
+        act(RootAction.DisplayText(id, text))?.let { return it }
         return null
     }
 
     fun key(keyCode: Int): String? {
         val id = displayId ?: return "虚拟屏还没建"
-        root(VirtualScreenCommands.keyOnDisplay(id, keyCode)) ?: return "root 命令没返回"
+        act(RootAction.DisplayKey(id, keyCode.toString()))?.let { return it }
         return null
     }
 
@@ -418,7 +437,7 @@ class VirtualScreenHost(private val context: Context) {
      */
     fun stop() {
         for (pkg in hosted.toList()) {
-            root(VirtualScreenCommands.forceStop(pkg))
+            act(RootAction.DisplayStop(pkg))?.let { Timber.w("虚拟屏：收屏前停 %s 失败（%s）", pkg, it) }
             Timber.i("虚拟屏：已清掉 %s", pkg)
         }
         hosted.clear()
@@ -451,6 +470,16 @@ class VirtualScreenHost(private val context: Context) {
     private fun resolveComponent(pkg: String): String? =
         root(HostingCommands.resolveLauncher(pkg))
             ?.let { HostingCommands.parseLauncherComponent(it) }
+
+    /**
+     * 跑一条虚拟屏动作，把失败翻成一句人话。
+     *
+     * @return null = 成功
+     */
+    private fun act(action: RootAction): String? {
+        val result = actions.run(action)
+        return if (result.ok) null else "虚拟屏命令失败（${result.describe()}）"
+    }
 
     private fun root(cmd: String): String? = runCatching {
         val p = ProcessBuilder("su", "-c", cmd).redirectErrorStream(true).start()
