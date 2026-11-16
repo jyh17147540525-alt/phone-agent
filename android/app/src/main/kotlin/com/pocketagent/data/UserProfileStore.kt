@@ -67,8 +67,9 @@ class UserProfileStore(private val context: Context) {
         put("gender", p.gender.name)
         put("ageBand", p.ageBand.name)
         put("livingWith", p.livingWith.name)
-        put("work", p.work)
-        put("nowBusy", p.nowBusy)
+        put("hardHistory", buildJsonArray { p.hardHistory.forEach { add(JsonPrimitive(it)) } })
+        put("bigMoments", buildJsonArray { p.bigMoments.forEach { add(JsonPrimitive(it)) } })
+        put("proudOf", buildJsonArray { p.proudOf.forEach { add(JsonPrimitive(it)) } })
         put("chatStyle", p.chatStyle.name)
         put("likes", buildJsonArray { p.likes.forEach { add(JsonPrimitive(it)) } })
         put("dislikes", buildJsonArray { p.dislikes.forEach { add(JsonPrimitive(it)) } })
@@ -88,8 +89,9 @@ class UserProfileStore(private val context: Context) {
             gender = o.enumOf("gender", UserGender.entries, UserGender.UNSPECIFIED),
             ageBand = o.enumOf("ageBand", UserAgeBand.entries, UserAgeBand.UNSPECIFIED),
             livingWith = o.enumOf("livingWith", LivingWith.entries, LivingWith.UNSPECIFIED),
-            work = o.str("work"),
-            nowBusy = o.str("nowBusy"),
+            hardHistory = o["hardHistory"]?.stringList().orEmpty(),
+            bigMoments = o["bigMoments"]?.stringList().orEmpty(),
+            proudOf = o["proudOf"]?.stringList().orEmpty(),
             chatStyle = o.enumOf("chatStyle", ChatStyle.entries, ChatStyle.UNSPECIFIED),
             likes = o["likes"]?.stringList().orEmpty(),
             dislikes = o["dislikes"]?.stringList().orEmpty(),

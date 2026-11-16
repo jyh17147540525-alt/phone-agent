@@ -9,7 +9,7 @@ import org.junit.Test
  * 「关于你」那一页的提示词段。
  *
  * ★ 这个测试守着的东西，比"字段能拼出来"重要得多：
- *   ① 空的不许出现（不许「工作：未填」）—— 角色看到空槽只会开始盘问，
+ *   ① 空的不许出现（不许「喜欢：未填」）—— 角色看到空槽只会开始盘问，
  *      而这一页存在的唯一理由就是**省掉**那些提问；
  *   ② 超预算要整行删，不许截半句 —— 半句会被模型当真；
  *   ③ 雷区永远不裁 —— 说错话的代价比"少知道一点"高得多；
@@ -22,8 +22,9 @@ class UserProfileTest {
         gender = UserGender.MALE,
         ageBand = UserAgeBand.TWENTIES,
         livingWith = LivingWith.ALONE,
-        work = "产品经理",
-        nowBusy = "在赶一个上线的东西，连着两周加班",
+        hardHistory = listOf("外婆走的那年他一直在加班", "上一份工作撑到抑郁"),
+        bigMoments = listOf("在北方待过四年", "学过两年吉他"),
+        proudOf = listOf("一个人把房子装修完了"),
         chatStyle = ChatStyle.TERSE,
         likes = listOf("冰美式", "老港片", "下雨天不出门"),
         dislikes = listOf("香菜"),
@@ -48,7 +49,7 @@ class UserProfileTest {
         assertTrue(p.contains("别提他父亲。"))
         assertFalse(p.contains("未填"))
         // 没填的槽一个字都不该冒出来。
-        assertFalse(p.contains("工作："))
+        assertFalse(p.contains("很少提"))
         assertFalse(p.contains("喜欢"))
     }
 
@@ -65,13 +66,17 @@ class UserProfileTest {
 
     @Test
     fun 性别决定这一页用他还是她() {
-        val she = UserProfile(gender = UserGender.FEMALE, work = "护士").promptSection()
+        val she = UserProfile(gender = UserGender.FEMALE, bigMoments = listOf("当过护士"))
+            .promptSection()
         assertTrue(she.startsWith("## 关于她"))
         assertTrue(she.contains("这些是她自己填的"))
-        assertTrue(she.contains("她还想让你知道") || !she.contains("还想让你知道"))
+        // 过往那行也要跟着换代词，否则会出现「关于她」里夹「他经历过」。
+        assertTrue(she.contains("她经历过：当过护士。"))
 
-        val he = UserProfile(gender = UserGender.MALE, work = "护士").promptSection()
+        val he = UserProfile(gender = UserGender.MALE, bigMoments = listOf("当过护士"))
+            .promptSection()
         assertTrue(he.startsWith("## 关于他"))
+        assertTrue(he.contains("他经历过：当过护士。"))
     }
 
     @Test
@@ -84,8 +89,10 @@ class UserProfileTest {
     @Test
     fun 填了的每一栏都真的进了提示词() {
         val p = full().promptSection()
-        assertTrue(p.contains("工作：产品经理。"))
-        assertTrue(p.contains("最近：在赶一个上线的东西，连着两周加班。"))
+        assertTrue(p.contains("他有些事很少提：外婆走的那年他一直在加班；上一份工作撑到抑郁。"))
+        assertTrue(p.contains("你知道就好，别主动问，也别把这几件事当话题。"))
+        assertTrue(p.contains("他经历过：在北方待过四年；学过两年吉他。"))
+        assertTrue(p.contains("提起这些他会高兴：一个人把房子装修完了。"))
         assertTrue(p.contains("他喜欢冰美式、老港片、下雨天不出门。"))
         assertTrue(p.contains("他不喜欢香菜。"))
         assertTrue(p.contains("别提他父亲，也别提换工作。"))
@@ -110,7 +117,7 @@ class UserProfileTest {
         assertTrue(p.contains("别提他父亲"))
         assertTrue(p.contains("他叫「小陈」"))
         // 可以裁的那些全走了。
-        assertFalse(p.contains("工作："))
+        assertFalse(p.contains("他经历过"))
         assertFalse(p.contains("喜欢冰美式"))
         assertFalse(p.contains("还想让你知道"))
     }
@@ -157,9 +164,41 @@ class UserProfileTest {
 
     @Test
     fun 自由文本单栏最多一百二十字() {
-        val p = UserProfile(work = "啊".repeat(300)).promptSection()
-        val line = p.lines().first { it.startsWith("工作：") }
+        val p = UserProfile(bodyNotes = "啊".repeat(300)).promptSection()
+        val line = p.lines().first { it.startsWith("身体：") }
         assertTrue("实际 ${line.length} 字", line.length <= UserProfile.MAX_FIELD_CHARS + 4)
+    }
+
+    // ── 过往 ────────────────────────────────────────────────
+
+    @Test
+    fun 难受过的事后面必须跟着别主动问() {
+        // 缺了这句，这一栏就是一颗雷：模型会把创伤当话题往上凑。
+        val p = UserProfile(hardHistory = listOf("外婆走了")).promptSection()
+        assertTrue(p.contains("他有些事很少提：外婆走了。"))
+        assertTrue(p.contains("别主动问"))
+    }
+
+    @Test
+    fun 过往比喜欢更容易活下来() {
+        // 预算紧的时候先丢「喜欢」，因为「懂他」主要靠过往那几行。
+        val p = UserProfile(
+            hardHistory = listOf("外婆走了"),
+            likes = listOf("冰美式"),
+        ).promptSection(maxChars = 40)
+        assertTrue(p.contains("外婆走了"))
+        assertFalse("喜欢这行优先级更低，该被裁掉：$p", p.contains("冰美式"))
+    }
+
+    @Test
+    fun 三条过往各说各的互不串台() {
+        val moments = UserProfile(bigMoments = listOf("在北方待过四年")).promptSection()
+        assertFalse("只填经历时不该冒出「很少提」", moments.contains("很少提"))
+        assertFalse(moments.contains("会高兴"))
+
+        val proud = UserProfile(proudOf = listOf("装修完了")).promptSection()
+        assertFalse(proud.contains("很少提"))
+        assertFalse(proud.contains("经历过"))
     }
 
     @Test

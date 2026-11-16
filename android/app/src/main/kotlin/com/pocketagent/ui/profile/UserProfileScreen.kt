@@ -89,8 +89,9 @@ fun UserProfileScreen(
     var gender by remember(initial) { mutableStateOf(initial?.gender ?: UserGender.UNSPECIFIED) }
     var ageBand by remember(initial) { mutableStateOf(initial?.ageBand ?: UserAgeBand.UNSPECIFIED) }
     var livingWith by remember(initial) { mutableStateOf(initial?.livingWith ?: LivingWith.UNSPECIFIED) }
-    var work by remember(initial) { mutableStateOf(initial?.work.orEmpty()) }
-    var nowBusy by remember(initial) { mutableStateOf(initial?.nowBusy.orEmpty()) }
+    var hardHistory by remember(initial) { mutableStateOf(initial?.hardHistory.orEmpty().joinToString("\n")) }
+    var bigMoments by remember(initial) { mutableStateOf(initial?.bigMoments.orEmpty().joinToString("、")) }
+    var proudOf by remember(initial) { mutableStateOf(initial?.proudOf.orEmpty().joinToString("、")) }
     var chatStyle by remember(initial) { mutableStateOf(initial?.chatStyle ?: ChatStyle.UNSPECIFIED) }
     var likes by remember(initial) { mutableStateOf(initial?.likes.orEmpty().joinToString("、")) }
     var dislikes by remember(initial) { mutableStateOf(initial?.dislikes.orEmpty().joinToString("、")) }
@@ -108,8 +109,9 @@ fun UserProfileScreen(
         gender = gender,
         ageBand = ageBand,
         livingWith = livingWith,
-        work = work.trim().take(UserProfile.MAX_FIELD_CHARS),
-        nowBusy = nowBusy.trim().take(UserProfile.MAX_FIELD_CHARS),
+        hardHistory = PersonaInput.splitList(hardHistory, UserProfile.MAX_ITEMS),
+        bigMoments = PersonaInput.splitList(bigMoments, UserProfile.MAX_ITEMS),
+        proudOf = PersonaInput.splitList(proudOf, UserProfile.MAX_ITEMS),
         chatStyle = chatStyle,
         likes = PersonaInput.splitList(likes, UserProfile.MAX_ITEMS),
         dislikes = PersonaInput.splitList(dislikes, UserProfile.MAX_ITEMS),
@@ -201,24 +203,40 @@ fun UserProfileScreen(
         }
 
         item { Spacer(Modifier.height(PaSpace.xs)) }
-        item { PaSectionTitle("你在做什么") }
+        item { PaSectionTitle("你的过去") }
         item {
-            Field(
-                label = "做什么的",
-                hint = "工作、学业、还是在家 —— 用你自己的说法写。",
-                value = work,
-                onValueChange = { work = it },
-                placeholder = "上班 / 读书 / 待着",
-                singleLine = true,
+            PaBanner(
+                tone = PaBannerTone.Info,
+                title = "他会知道，但不会主动问",
+                description = "这几栏写的是你已经过完的那部分。它不是话题清单：" +
+                    "填进来，等于让他知道你摔过、也站起来了。",
             )
         }
         item {
             Field(
-                label = "最近在忙什么",
-                hint = "这一栏最值钱：他知道你现在在忙什么，第一句就能接上。",
-                value = nowBusy,
-                onValueChange = { nowBusy = it },
-                placeholder = "在赶一个项目，月底要交",
+                label = "难受过的事",
+                hint = "失去过谁、病过、难熬的那几年。一条一行。",
+                value = hardHistory,
+                onValueChange = { hardHistory = it },
+                placeholder = "外婆走的那年我一直在加班\n上一份工作撑到抑郁",
+            )
+        }
+        item {
+            Field(
+                label = "特别的经历",
+                hint = "做过的事、去过的地方、拐过弯的那几年。用「、」或换行分开。",
+                value = bigMoments,
+                onValueChange = { bigMoments = it },
+                placeholder = "在北方待过四年、学过两年吉他",
+            )
+        }
+        item {
+            Field(
+                label = "骄傲过的事",
+                hint = "提起这些你会高兴。他知道该往哪儿夸你。",
+                value = proudOf,
+                onValueChange = { proudOf = it },
+                placeholder = "一个人把房子装修完了",
             )
         }
 

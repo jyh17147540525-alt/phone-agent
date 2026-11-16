@@ -22,14 +22,18 @@ package com.pocketagent.personalogic
  * ══════════════════════════════════════════════════════════════
  *
  * ① **填了才写，空的一条不出现**。
- *    没填「工作」就一个字都不提 —— 不许出现「工作：未填」这种。
+ *    没填「喜欢」就一个字都不提 —— 不许出现「喜欢：未填」这种。
  *    角色看到一个"未填"的槽，只会开始盘问，那就正好反了。
  *
  * ② **写成散文短句，不写成条目**。
  *    理由见 [PromptVoice]：提示词的排版也是提示词。一段 `- 工作：产品经理`
  *    会让模型学会用列表回答。这里的每一句都是完整的话。
  *
- * ③ **首尾各一句框定**。
+ * ③ **过往不等于话题清单**。
+ *    「难受过的事」后面必须跟着「别主动问」—— 用户敢填创伤，是因为
+ *    相信它不会被拿出来用。少了这句，这一栏就是一颗雷。
+ *
+ * ④ **首尾各一句框定**。
  *    开头「这些是他自己填的」防模型把资料当成"剧情设定"去演；
  *    结尾「这些你已经知道，别再从头问一遍」防它逐条盘问 ——
  *    这一页存在的唯一理由就是省掉那些问题，如果它照着问一遍，等于没做。
@@ -50,10 +54,18 @@ data class UserProfile(
     val gender: UserGender = UserGender.UNSPECIFIED,
     val ageBand: UserAgeBand = UserAgeBand.UNSPECIFIED,
     val livingWith: LivingWith = LivingWith.UNSPECIFIED,
-    /** 做什么的（自由文本：职业 / 学业 / 状态）。 */
-    val work: String = "",
-    /** 最近在忙什么、正在经历什么。这一条最容易让角色"接得上话"。 */
-    val nowBusy: String = "",
+    /**
+     * 难受过的事、放不下的事（失去、病、难熬的那几年）。
+     *
+     * ★ 这一栏是「懂他」最直接的来源，也是**最容易被用坏**的一栏：
+     *   知道不等于要处理。所以 [hardLine] 里那句「别主动问」不是客套，
+     *   它是这一栏能被填的前提 —— 用户敢填，是因为相信它不会被拿出来用。
+     */
+    val hardHistory: List<String> = emptyList(),
+    /** 特别的经历：做过的事、去过的地方、拐过弯的那几年。 */
+    val bigMoments: List<String> = emptyList(),
+    /** 让他骄傲过、高兴过的事。 */
+    val proudOf: List<String> = emptyList(),
     val chatStyle: ChatStyle = ChatStyle.UNSPECIFIED,
     val likes: List<String> = emptyList(),
     val dislikes: List<String> = emptyList(),
@@ -101,9 +113,12 @@ data class UserProfile(
         // ── 1：他怎么说话 ────────────────────────────────────────
         add(1, chatStyle.promptLine(p))
 
-        // ── 2：他在做什么 ────────────────────────────────────────
-        add(2, labelled("工作", work))
-        add(2, labelled("最近", nowBusy))
+        // ── 2/3：过往 ────────────────────────────────────────────
+        // 「懂他」靠的是这一段，不是「知道他今天在忙什么」。
+        // 难过的那条排最前：一个人觉得被理解，几乎总是从「你知道我摔过」开始。
+        add(2, hardLine(p))
+        add(3, momentsLine(p))
+        add(3, proudLine(p))
 
         // ── 3/4：喜欢与不喜欢 ────────────────────────────────────
         add(4, listLine(p, "喜欢", likes))
@@ -184,11 +199,42 @@ data class UserProfile(
         return "$p$verb" + clean.joinToString("、") + "。"
     }
 
+    /**「标签：内容。」一格行的通用写法。身体那一栏用它。*/
     private fun labelled(label: String, raw: String): String {
         val t = raw.trim().trimEnd('。', '，', '.', ',', '；', ';', ' ')
         if (t.isEmpty()) return ""
         return "$label：${t.take(MAX_FIELD_CHARS)}。"
     }
+
+    /**
+     * 难受过的那些事。
+     *
+     * ★ 后半句是这一整页里最要紧的一句。模型拿到"用户的创伤"最常见的两种走样：
+     *   把它当话题往上凑，或者拿「我懂你的痛」这种空话去接。
+     *   两种都会让用户当场把这一栏删掉，所以这句必须进提示词，
+     *   而且必须和资料写在同一行 —— 单独说一遍，它会被当成氛围描述略过去。
+     */
+    private fun hardLine(p: String): String {
+        val clean = items(hardHistory)
+        if (clean.isEmpty()) return ""
+        return "${p}有些事很少提：" + clean.joinToString("；") +
+            "。你知道就好，别主动问，也别把这几件事当话题。"
+    }
+
+    private fun momentsLine(p: String): String {
+        val clean = items(bigMoments)
+        if (clean.isEmpty()) return ""
+        return "${p}经历过：" + clean.joinToString("；") + "。"
+    }
+
+    private fun proudLine(p: String): String {
+        val clean = items(proudOf)
+        if (clean.isEmpty()) return ""
+        return "提起这些${p}会高兴：" + clean.joinToString("；") + "。"
+    }
+
+    private fun items(raw: List<String>): List<String> =
+        raw.map { it.trim() }.filter { it.isNotEmpty() }.take(MAX_ITEMS)
 
     private fun sleepLine(p: String): String {
         val s = sleepHour?.coerceIn(0, 23)
