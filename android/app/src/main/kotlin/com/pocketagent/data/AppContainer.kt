@@ -2697,6 +2697,23 @@ class AppContainer(context: Context) {
      */
     suspend fun pickModelFor(scenario: com.pocketagent.modelrouter.Scenario):
         com.pocketagent.modelrouter.PickResult {
+        val known = runCatching { credentialStore?.knownCredentialIds() }.getOrNull()
+        val first = pickModelOnce(scenario, known)
+        if (first.config != null || known == null) return first
+        // ★ 2026-11-17：全是孤儿配置（模型绑的 Key 本机都不在了）—— 试着自愈一次。
+        //   只挡住不修的话，分身用户得手动把 22 个模型一个个重导一遍。
+        val adopted = runCatching { adoptOrphanModels(known) }.getOrDefault(0)
+        if (adopted <= 0) return first
+        return pickModelOnce(
+            scenario,
+            runCatching { credentialStore?.knownCredentialIds() }.getOrNull(),
+        )
+    }
+
+    private suspend fun pickModelOnce(
+        scenario: com.pocketagent.modelrouter.Scenario,
+        knownCredentialIds: Set<String>?,
+    ): com.pocketagent.modelrouter.PickResult {
         val models = runCatching { modelRepository()?.all().orEmpty() }
             .getOrElse { emptyList() }
         return com.pocketagent.modelrouter.pickModel(
@@ -2704,7 +2721,40 @@ class AppContainer(context: Context) {
             choice = modelChoice(),
             effort = thinkingEffortValue,
             scenario = scenario,
+            // ★ 2026-11-17：把"本机真实存在的凭据 id"交给调度层。
+            //   没有它，绑着已删 Key 的模型会被选中，然后 `useKey` 返回 null，
+            //   用户看到的却是"回复里外文太多"。
+            knownCredentialIds = knownCredentialIds,
         )
+    }
+
+    /**
+     * 把绑着已删凭据的模型配置改绑到本机唯一那条对话用凭据。
+     *
+     * ★ 2026-11-17 真机：应用分身里模型全部绑着已删 Key ⇒ 界面报"外文太多"。
+     *   本机只有一条对话用凭据时，改绑是**唯一合理**的修复；两条以上就
+     *   不知道该接哪条，此时不动，让 `pickModel` 把理由说清楚。
+     *
+     * @return 实际改绑的条数
+     */
+    private suspend fun adoptOrphanModels(known: Set<String>): Int {
+        val candidates = runCatching { credentialStore?.llmCredentialIds() }.getOrNull().orEmpty()
+        // ★ 判断"能不能改绑"放在 `OrphanRepair`（纯 Kotlin，有离线测试）：
+        //   恰好一条才动手；两条以上"不猜"是纪律，不是保守 ——
+        //   OpenAI 的模型接到 Anthropic 的 Key 上只会换来另一个错误。
+        val target = com.pocketagent.modelrouter.OrphanRepair.adoptionTarget(candidates)
+        if (target == null) {
+            if (com.pocketagent.modelrouter.OrphanRepair.ambiguous(candidates)) {
+                Timber.w("模型改绑：本机有 %d 条对话用凭据，不猜该接哪一条", candidates.size)
+            }
+            return 0
+        }
+        val store = modelRepository() ?: return 0
+        val n = runCatching { store.repointOrphans(known, target) }.getOrDefault(0)
+        if (n > 0) {
+            Timber.w("模型改绑：%d 条绑着已删 Key 的配置接到凭据 %s", n, target)
+        }
+        return n
     }
 
     private fun persistModelSelection() {

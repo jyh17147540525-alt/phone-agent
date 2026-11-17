@@ -28,10 +28,11 @@ class ModelPickerTest {
         roles: Set<ModelRole> = setOf(ModelRole.CHAT, ModelRole.WORKER),
         enabled: Boolean = true,
         outPrice: Double? = 1.0,
+        credentialId: String = "cred",
     ) = ModelConfig(
         id = id,
         label = "",
-        credentialId = "cred",
+        credentialId = credentialId,
         modelId = "model-$id",
         modelDisplayName = "模型$id",
         tier = tier,
@@ -45,6 +46,74 @@ class ModelPickerTest {
     private val standard = model("std", ModelTier.STANDARD)
     private val heavy = model("heavy", ModelTier.HEAVY)
     private val all = listOf(light, standard, heavy)
+
+    // ═══════════════════════════════════════════════════════════
+    //  ★ 绑着已删 Key 的模型（2026-11-17 真机 bug）
+    // ═══════════════════════════════════════════════════════════
+    //
+    // 应用分身里 22 条 model_config 全绑着一条已不存在的凭据：
+    // `useKey` 返回 null ⇒ 模型从未被调用 ⇒ 界面报"回复里外文太多"。
+    // ⇒ 调度层只挑凭据还在的模型；一个都不剩时说清楚是 Key 的问题。
+
+    @Test
+    fun `绑着已删 Key 的模型不会被选中`() {
+        val ghost = model("ghost", ModelTier.HEAVY, credentialId = "gone")
+        val r = pickModel(
+            listOf(ghost, standard),
+            ModelChoice.Auto,
+            ThinkingEffort.HIGH,
+            Scenario.CHAT,
+            knownCredentialIds = setOf("cred"),
+        )
+        assertNotNull(r.config)
+        assertEquals("std", r.config?.id)
+    }
+
+    @Test
+    fun `全部模型的 Key 都没了时，理由直指 Key 而不是没有模型`() {
+        val gone = listOf(
+            model("a", ModelTier.LIGHT, credentialId = "gone"),
+            model("b", ModelTier.HEAVY, credentialId = "gone"),
+        )
+        val r = pickModel(
+            gone,
+            ModelChoice.Auto,
+            ThinkingEffort.HIGH,
+            Scenario.CHAT,
+            knownCredentialIds = setOf("cred"),
+        )
+        assertNull(r.config)
+        assertTrue(r.reason, r.reason.contains("Key"))
+        assertTrue(r.reason, r.reason.contains("API Key"))
+        assertFalse(r.reason, r.reason.contains("停用"))
+    }
+
+    @Test
+    fun `钉死的模型 Key 失效时会回落到能用的那个，并说明原因`() {
+        val ghost = model("ghost", ModelTier.HEAVY, credentialId = "gone")
+        val r = pickModel(
+            listOf(ghost, standard),
+            ModelChoice.Pinned(ghost.id),
+            ThinkingEffort.HIGH,
+            Scenario.CHAT,
+            knownCredentialIds = setOf("cred"),
+        )
+        assertNotNull(r.config)
+        assertEquals("std", r.config?.id)
+        assertTrue(r.reason, r.reason.contains("Key"))
+    }
+
+    @Test
+    fun `不传凭据集合时行为完全不变`() {
+        val ghost = model("ghost", ModelTier.HEAVY, credentialId = "gone")
+        val r = pickModel(
+            listOf(ghost),
+            ModelChoice.Pinned(ghost.id),
+            ThinkingEffort.HIGH,
+            Scenario.CHAT,
+        )
+        assertEquals(ghost, r.config)
+    }
 
     // ═══════════════════════════════════════════════════════════
     //  ★ 钉死优先

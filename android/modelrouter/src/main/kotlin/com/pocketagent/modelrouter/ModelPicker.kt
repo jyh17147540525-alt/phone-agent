@@ -209,14 +209,36 @@ fun pickModel(
     choice: ModelChoice,
     effort: ThinkingEffort,
     scenario: Scenario,
+    knownCredentialIds: Set<String>? = null,
 ): PickResult {
+
+    // ── 步骤 0：把绑着"本机已不存在的 Key"的模型剔掉 ──────────
+    //
+    // ⚠️ 2026-11-17 真机（应用分身 / XSpace）：22 条 model_config 全都绑着一条
+    //    本机已经不存在的凭据 id。`useKey` 静默返回 null ⇒ **模型从未被调用**，
+    //    而旧代码把这件事翻译成"回复里外文占了太多"。
+    //    用户看到红字，排查方向全错 —— 这正是本项目的头号 bug 形态「安静地少做一件事」。
+    // ⇒ 调度层只挑**凭据真的还在**的模型；一个都不剩时，说清楚是 Key 的问题，
+    //   而不是含糊地说"没有可用模型"。
+    val live = if (knownCredentialIds == null) {
+        models
+    } else {
+        models.filter { it.credentialId in knownCredentialIds }
+    }
+    if (models.isNotEmpty() && live.isEmpty()) {
+        return PickResult(
+            config = null,
+            reason = "你配的 ${models.size} 个模型都绑着本机已不存在的 Key（删过 Key 就会这样）。" +
+                "去「设置 → API Key」重新加一条，再回来选模型。",
+        )
+    }
 
     // ── 步骤 1/2：钉死的模型 ────────────────────────────────
     if (choice is ModelChoice.Pinned) {
         val pinned = models.firstOrNull { it.id == choice.configId }
         return when {
             pinned == null -> autoPick(
-                models = models,
+                models = live,
                 effort = effort,
                 scenario = scenario,
                 // ⚠️ 用户选的那个**不存在了**（被删）—— 必须说出来
@@ -224,10 +246,19 @@ fun pickModel(
             )
 
             !pinned.enabled -> autoPick(
-                models = models,
+                models = live,
                 effort = effort,
                 scenario = scenario,
                 prefix = "「${pinned.effectiveLabel}」已停用，这次自动挑了",
+            )
+
+            // ⚠️ 模型还在、也启用着，但它绑的 Key 在本机没了 ——
+            //    真实机器上最容易被误判成"模型不能用"的一种故障，必须说出来。
+            knownCredentialIds != null && pinned.credentialId !in knownCredentialIds -> autoPick(
+                models = live,
+                effort = effort,
+                scenario = scenario,
+                prefix = "「${pinned.effectiveLabel}」绑的 Key 在这台设备上找不到了，这次自动挑了",
             )
 
             else -> PickResult(
@@ -238,7 +269,7 @@ fun pickModel(
     }
 
     // ── 步骤 3：自动 ────────────────────────────────────────
-    return autoPick(models, effort, scenario, prefix = null)
+    return autoPick(live, effort, scenario, prefix = null)
 }
 
 /**

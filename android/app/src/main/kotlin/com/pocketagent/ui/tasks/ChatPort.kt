@@ -348,6 +348,9 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
         val pick = container.pickModelFor(com.pocketagent.modelrouter.Scenario.CHAT)
         val config = pick.config ?: return ChatResult.Failed(pick.reason)
         Timber.i("模型选择：%s（%s）", config.modelId, pick.reason)
+        // ★ 2026-11-17 真机排查：模型行绑的是哪条凭据。
+        //   `useKey` 解析不到时，这行是**唯一线索** —— 别再有下一个"红字之谜"。
+        Timber.i("模型绑定的凭据：%s", config.credentialId)
         val model = config.modelId
 
         // ══════════════════════════════════════════════════════════
@@ -846,6 +849,17 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
     //   不要再走下面的输出清洗 —— 那句话是我们自己写的，没有外文可洗。
     superResult?.let { return it }
 
+    // ★ 2026-11-17 真机排查：`text == null` 有两种完全不同的成因 ——
+    //   ① `useKey` 解析不到凭据（模型**根本没被调用**，本轮实测 3ms 就失败）
+    //   ② 模型真的一个字都没吐
+    //   旧代码把两者都翻译成"外文占了太多"，于是用户重试到天亮也修不好。
+    if (text == null) {
+        Timber.w(
+            "本轮没有拿到回复：模型 %s 绑定的凭据 %s 在本机解析不到（或模型没吐字）",
+            config.modelId, config.credentialId,
+        )
+    }
+
     // ══════════════════════════════════════════════════════════════
     //  ★★ 2026-11-03：**输出清洗 —— 剔掉中文里夹的外文**
     // ══════════════════════════════════════════════════════════════
@@ -897,7 +911,8 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
         //    上一版这里也报外文过多，于是**空回复被伪装成语言问题**，
         //    用户照着提示重试，永远得到同一句。
         text.isNullOrBlank() -> ChatResult.Failed(
-            "模型这次一个字都没返回。可能是 Key 无效、额度用完，或该模型不支持对话。",
+            "没拿到回复：这个模型绑的 Key 在本机可能已经不存在了（删过 Key 就会这样），" +
+                "也可能是 Key 失效或额度用完。去「设置 → API Key」点一下「校验」，再回来试。",
         )
         cleanText == null -> ChatResult.Failed("模型返回了空内容。可能是 Key 无效、额度用完，或该模型不支持对话。")
         cleanText.isBlank() -> ChatResult.Failed("模型返回了空内容。可能是 Key 无效、额度用完，或该模型不支持对话。")

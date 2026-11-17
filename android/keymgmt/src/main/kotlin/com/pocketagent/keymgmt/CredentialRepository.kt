@@ -13,6 +13,7 @@ import com.pocketagent.provider.api.ProviderException
 import com.pocketagent.provider.api.TtsProvider
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import timber.log.Timber
 import java.util.UUID
 
 /**
@@ -306,6 +307,26 @@ class CredentialRepository(
      *
      * @return null = 这条凭据已经不存在
      */
+    /**
+     * 本机**真实存在**的凭据 id 集合。
+     *
+     * ★ 2026-11-17 真机：应用分身里 22 条 model_config 全绑着一条已不存在的凭据，
+     *   `useKey` 静默返回 null ⇒ 模型从未被调用，界面却报"回复里外文太多"。
+     *   调度层需要这个集合来只挑"凭据还在"的模型（见 `ModelPicker.pickModel`）。
+     */
+    suspend fun knownCredentialIds(): Set<String> =
+        runCatching { dao.all().map { it.id }.toSet() }.getOrElse { emptySet() }
+
+    /**
+     * 本机所有「对话用」凭据的 id。
+     *
+     * 自愈改绑时用：只有**恰好一条**时才能确定该把孤儿配置接到哪里 ——
+     * 两条以上就属于"用户自己知道他要哪条"，此时不该猜。
+     */
+    suspend fun llmCredentialIds(): List<String> = runCatching {
+        dao.all().filter { it.purpose == CredentialPurpose.LLM }.map { it.id }
+    }.getOrElse { emptyList() }
+
     suspend fun providerIdOf(id: String): String? = dao.byId(id)?.providerId
 
     suspend fun listModelsOf(id: String): List<com.pocketagent.provider.api.ModelInfo>? {
@@ -455,9 +476,28 @@ class CredentialRepository(
         credentialId: String,
         block: suspend (provider: LlmProvider, credential: ProviderCredential) -> T,
     ): T? {
-        val entity = dao.byId(credentialId) ?: return null
-        if (entity.purpose != CredentialPurpose.LLM) return null
-        val provider = providers.firstOrNull { it.id == entity.providerId } ?: return null
+        // ★★ 2026-11-17 真机：三条 `return null` 全是**静默**的 ——
+        //    调用方只会看到"没有结果"，然后在别处被翻译成一句
+        //    毫不相干的话（那次是"外文占了太多"），排查时只能靠猜。
+        //    ⇒ 每条都留一行日志，点名是哪一环断的。
+        val entity = dao.byId(credentialId)
+        if (entity == null) {
+            Timber.w("useKey：凭据 %s 在本机不存在（模型可能还绑着一条已删的 Key）", credentialId)
+            return null
+        }
+        if (entity.purpose != CredentialPurpose.LLM) {
+            Timber.w("useKey：凭据 %s 的用途是 %s，不是对话用", credentialId, entity.purpose)
+            return null
+        }
+        val provider = providers.firstOrNull { it.id == entity.providerId }
+        if (provider == null) {
+            Timber.w(
+                "useKey：凭据 %s 声明的服务商 %s 没有注册（已注册 %d 个：%s）",
+                credentialId, entity.providerId, providers.size,
+                providers.joinToString { it.id },
+            )
+            return null
+        }
 
         return crypto.withDecryptedKey(
             EncryptedBlob(ciphertext = entity.ciphertext, iv = entity.iv)

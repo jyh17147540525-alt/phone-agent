@@ -300,6 +300,33 @@ class ModelConfigRepositoryImpl(
     }
 
     /**
+     * 把「绑着本机已不存在的凭据」的模型配置改绑到 [credentialId]。
+     *
+     * ★ 2026-11-17 真机定位到的故障：应用分身（XSpace / user 999）里 22 条
+     *   model_config 全都绑着一条本机已删掉的凭据；`useKey` 因此直接返回
+     *   null，**模型从未被调用**，界面报的却是"回复里外文太多"。
+     *
+     * 这些行本来就是坏的（永远取不到 Key），改绑是**修复**而不是猜测 ——
+     * 保留用户起的名字、档位、价格与角色，只换 credentialId。
+     *
+     * ⚠️ 只在"本机恰好有一条对话用凭据"时由上层调用；两条以上时不知道该
+     *    接哪一条，宁可不动，让界面把话说清楚。
+     *
+     * @return 改绑的条数（0 = 没有孤儿）
+     */
+    suspend fun repointOrphans(knownCredentialIds: Set<String>, credentialId: String): Int {
+        var n = 0
+        db.withTransaction {
+            for (row in dao.all()) {
+                if (row.credentialId in knownCredentialIds) continue
+                dao.upsert(row.copy(credentialId = credentialId))
+                n += 1
+            }
+        }
+        return n
+    }
+
+    /**
      * 某个凭据下配了哪些模型。用于 Key 管理页显示"这个 Key 有 N 个模型"，
      * 以及删除 Key 前的确认弹窗。
      */
