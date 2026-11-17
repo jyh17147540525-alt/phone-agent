@@ -61,6 +61,9 @@ object OutputSanitizer {
     /** 一串拉丁字母（含词内连字符/撇号）。 */
     private val LATIN_RUN = Regex("[A-Za-z][A-Za-z'’-]{0,30}")
 
+    /** 一个汉字。用来判断"清洗后还剩不剩中文"。 */
+    private val CJK = Regex("[\\u4e00-\\u9fff]")
+
     /**
      * 清洗一段输出。
      *
@@ -145,4 +148,38 @@ object OutputSanitizer {
      */
     fun isNearlyEmpty(cleaned: String, original: String): Boolean =
         original.length >= 12 && cleaned.length * 3 < original.length
+
+    /**
+     * 从模型原文得到**能显示给人看的那一份**。
+     *
+     * ⚠️ 2026-11-17 用户报：开启应用分身、换了模型与思考强度之后，**每一轮回复**
+     *    都成了红字「外文占了太多，清洗后几乎没剩下中文，请重试一次」。他去重试，
+     *    拿到的还是同一句 —— 因为模型下一轮照样整段外文。
+     *
+     * ⚠️ 一刀切丢弃是最差的处理：他既看不到模型说了什么，也判断不出是模型跑偏、
+     *    提示词没生效，还是网关把推理塞进了正文。**把回复扔掉的清洗，比不洗更糟。**
+     *
+     * ⇒ 三段阶梯，只有走到最后才放弃：
+     *   ① 严格清洗（删外文）—— 正常情况走这条
+     *   ② 宽松清洗（保住英文词，仍删西里尔/谚文/假名那类乱码）—— 严格清洗几乎删空时
+     *   ③ 原文 —— 连宽松清洗都不剩东西（整段俄文、韩文）
+     *
+     * 注意这不改变「中文场景不该夹外文」这个判断：[clean] 与 [isNearlyEmpty] 都没动，
+     * 改动只在于**不再拿"清洗后为空"当作"不给用户看"的理由**。
+     *
+     * @return 可显示的文本（原文本身为空时返回空串）
+     */
+    fun displayable(raw: String): String {
+        if (raw.isBlank()) return ""
+        val strict = clean(raw)
+        // ★ 只要严格清洗后**还剩中文**，那就是能给人看的东西 —— 哪怕它比原文短很多。
+        //   `isNearlyEmpty` 的 1/3 比例只是"还有没有中文"的近似，遇到
+        //   「一句中文 + 一大段英文」会误判成空，于是把整段英文又放回来了。
+        if (strict.isNotBlank() && (CJK.containsMatchIn(strict) || !isNearlyEmpty(strict, raw))) {
+            return strict
+        }
+        val loose = clean(raw, allowLatin = true)
+        if (loose.isNotBlank()) return loose
+        return raw.trim()
+    }
 }

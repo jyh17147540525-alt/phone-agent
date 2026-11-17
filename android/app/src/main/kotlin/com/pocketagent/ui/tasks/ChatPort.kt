@@ -874,12 +874,17 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                     raw.length, cleaned.length)
             }
         }
-        if (com.pocketagent.personalogic.OutputSanitizer.isNearlyEmpty(cleaned, raw)) {
-            Timber.w("输出清洗后几乎为空（原文 %d 字 → %d 字）", raw.length, cleaned.length)
-            null
-        } else {
-            cleaned
+        // ⚠️ 2026-11-17：严格清洗把整段外文删光时，**不能因此丢掉回复**。
+        //    改成阶梯式取"能显示的版本"，日志里留原文开头，下次一眼能定位。
+        val shown = com.pocketagent.personalogic.OutputSanitizer.displayable(raw)
+        if (shown != cleaned) {
+            Timber.w(
+                "输出清洗后几乎为空（原文 %d 字 → 严格 %d 字 / 实用 %d 字），改为宽松显示：%s",
+                raw.length, cleaned.length, shown.length,
+                raw.take(120).replace('\n', ' '),
+            )
         }
+        shown
     }
     // ★ 顺手记一笔"念设定"的统计（不拦，只观测 —— 拦了会截断正常台词）
     text?.let {
@@ -888,9 +893,13 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
     }
 
     return when {
-        cleanText == null -> ChatResult.Failed(
-            "模型这次返回的内容里外文占了太多，清洗后几乎没剩下中文。请重试一次。",
+        // ⚠️ 2026-11-17：`text == null` 是「模型一个字都没吐」，不是「外文太多」。
+        //    上一版这里也报外文过多，于是**空回复被伪装成语言问题**，
+        //    用户照着提示重试，永远得到同一句。
+        text.isNullOrBlank() -> ChatResult.Failed(
+            "模型这次一个字都没返回。可能是 Key 无效、额度用完，或该模型不支持对话。",
         )
+        cleanText == null -> ChatResult.Failed("模型返回了空内容。可能是 Key 无效、额度用完，或该模型不支持对话。")
         cleanText.isBlank() -> ChatResult.Failed("模型返回了空内容。可能是 Key 无效、额度用完，或该模型不支持对话。")
         else -> {
             // ★ 回复已经拿到了，才轮到"记点什么"。

@@ -278,6 +278,64 @@ class OutputSanitizerTest {
     fun `干净文本检测器返回空`() {
         assertTrue(OutputSanitizer.foreignBits("行行行，听你的。").isEmpty())
     }
+
+    // ═══════════════════════════════════════════════════════════
+    //  ★ 能显示的那一份：宁可显示，也不许把回复丢成红字
+    //  ⚠️ 2026-11-17 用户报「每一轮回复都是红字，清洗后几乎没剩下中文」
+    // ═══════════════════════════════════════════════════════════
+
+    @Test
+    fun `正常中文原样通过`() {
+        val raw = "行吧，那你自己看着办。"
+        assertEquals(raw, OutputSanitizer.displayable(raw))
+    }
+
+    @Test
+    fun `整段英文走宽松清洗而不是丢掉`() {
+        // 严格清洗会把这句删成空 —— 上一版于是报红字，用户重试永远同一句
+        val raw = "I think we should go outside and enjoy the sunshine today."
+        val out = OutputSanitizer.displayable(raw)
+        assertTrue("必须还是整套英文，而不是空：[$out]", out.contains("sunshine"))
+    }
+
+    @Test
+    fun `一句中文被一大段英文包围时只留中文`() {
+        val raw = "今天不错。Anyway I think we should go outside and enjoy the sunshine, " +
+            "because it is a really nice day and staying inside would be a waste."
+        val out = OutputSanitizer.displayable(raw)
+        // ⚠️ 不比对整串：删英文字之后逗号句号会挤在一起，`tidy()` 只管同一种标点，
+        //    断言"中文还在、英文全没"才是这条测试真正要守的东西。
+        assertTrue("中文该留下：[$out]", out.contains("今天不错"))
+        assertFalse("不该把英文抄回来：[$out]", out.contains("sunshine"))
+        assertFalse("不该留拉丁字母：[$out]", Regex("[A-Za-z]").containsMatchIn(out))
+    }
+
+    @Test
+    fun `只剩乱码文字时返回原文`() {
+        // 连宽松清洗都删光（西里尔/谚文/假名/阿拉伯）—— 显示原文，好过撒谎说"空内容"
+        val raw = "привет мир 안녕하세요 これはテストです مرحبا"
+        assertEquals(raw, OutputSanitizer.displayable(raw))
+    }
+
+    @Test
+    fun `空原文仍然返回空串`() {
+        assertEquals("", OutputSanitizer.displayable(""))
+        assertEquals("", OutputSanitizer.displayable("   "))
+    }
+
+    @Test
+    fun `显示用文本永远不会因为清洗而变空`() {
+        // 这一条是那个 bug 的回归钉子：只要模型吐了字，就必须有东西可显示
+        val samples = listOf(
+            "I think we should go outside and enjoy the sunshine today.",
+            "привет мир 안녕하세요 これはテストです مرحبا",
+            "今天不错。Anyway I think we should go outside and enjoy the sunshine.",
+            "好的مرحباครับ。",
+        )
+        for (raw in samples) {
+            assertTrue("清洗后不该是空：[$raw]", OutputSanitizer.displayable(raw).isNotBlank())
+        }
+    }
 }
 /**
  * **示例对话** —— 比禁令管用，但**结构不能重复**。
