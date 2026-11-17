@@ -2060,3 +2060,63 @@ PerformanceGate.accept(raw, live, now, hormonesKey)
 `adb logcat -s PocketAgent`，找 `用户档案：` 与 `提示词装配：` 两行 ——
 前者是启动读回的结果（`已加载（N 字）` 或 `未设置（提示词里不加这一段）`），
 后者能看出那一段到底有没有进提示词。
+
+---
+
+## [2026-11-17 19:40] 「红字：外文占了太多」真因不是外文 —— 模型绑着已删的 Key（已真机验证）
+
+- **状态**：已交付
+- **来自**：claude
+- **需要对方做什么**：真机上把分身里那几个旧会话（显示「正在等模型回复…」+「中止」）清掉，顺手确认一下不再复发
+
+### 背景
+
+用户报：开了应用分身之后，每条回复都是红字「模型这次返回的内容里外文占了太多，清洗后几乎没剩下中文。请重试一次」。
+
+第一轮我先修了 `OutputSanitizer`（清洗不再把整条回复丢成红字）—— **那只是表象**。用户让我直接上设备（`1e47d871`，分身 = user 999 / XSpace），加诊断日志重装后抓到：
+
+```
+I ContainerChatPort: 模型绑定的凭据：b9bcbc0b-aca2-43a9-8b8e-328cb752583a
+W CredentialRepository: useKey：凭据 b9bcbc0b-… 在本机不存在（模型可能还绑着一条已删的 Key）
+```
+
+装配完成到失败只有 3 ms，没有任何 provider/HTTP 日志 ⇒ **模型从来没被调用**。旧代码把 `useKey` 返回的 `null` 一律翻译成"外文太多"，所以看起来像内容清洗问题。主实例正常、分身每条都红，差别就在这个实例里模型行绑的凭据 id 已经不存在了。
+
+### 改了什么
+
+| 文件 | 内容 |
+|---|---|
+| `:keymgmt` `CredentialRepository.kt` | `useKey` 三条静默 `return null` 各补 `Timber.w`；新增 `knownCredentialIds()` / `llmCredentialIds()` |
+| `:modelrouter` `ModelPicker.kt` | `pickModel(..., knownCredentialIds: Set<String>? = null)`：只从"凭据还在"的模型里挑；钉死的模型 Key 失效时回落到能用的那个并说明原因；全都失效时理由直指 Key |
+| `:modelrouter` `OrphanRepair.kt`（新） | `adoptionTarget` / `ambiguous`：0 条不动、2 条以上**不猜**（宁可报错也不把 OpenAI 的模型接到 Anthropic 的 Key 上） |
+| `:keymgmt` `ModelConfigRepositoryImpl.kt` | `repointOrphans(known, credentialId)`：孤儿配置改绑到唯一的对话用凭据，保留 label/层级/价格/角色 |
+| `:app` `AppContainer.kt` | `pickModelFor` 拆 `pickModelOnce` + `adoptOrphanModels`，第一次挑不到才改绑再重挑 |
+| `:app` `ChatPort.kt` | "没拿到回复"的提示改成可操作的（去「设置 → API Key」点一下「校验」） |
+
+### 已验证（Claude 离线）
+
+- `:modelrouter:test` —— **189 条 / 0 失败**（`OrphanRepairTest` 7 条 + `ModelPickerTest` 新增 4 条）
+- `tools/verify/run_logic_tests.py` —— **OK (4447 tests)**
+- `tools/verify/verify_all.py` —— **14/14，失败 0，86s**
+- 变异验证 —— **3/3 全红**（`adoptionTarget` 去掉 `distinct()` / 改成 `firstOrNull()` / `displayable` 去掉「还剩中文就算能看」），改完按字节还原，SHA256 与基线一致
+
+### 已验证（真机，`1e47d871` 分身 user 999）
+
+改后发一条消息，日志：
+
+```
+I ContainerChatPort: 模型选择：deepseek-v4-pro（「deepseek-v4.1-flash」绑的 Key 在这台设备上找不到了，这次自动挑了 「deepseek-v4-pro」（均衡档，思考强度 high））
+I ContainerChatPort: 模型绑定的凭据：6fa90252-7b65-4f2f-afa7-e45f7ba1c986
+```
+
+回复正常返回（`在。这俩词我没看懂。…`）⇒ 红字消失，模型真被调用。
+
+### 还没验证 / 要你看的
+
+1. **旧会话里的孤儿轮**：分身历史里 `probe` 那条仍显示「正在等模型回复…」+「中止」，是旧版本被杀进程留下的、数据库里没有对应回复的轮次。新版不会再产生，但历史里的不会自己消失 —— 你看要不要顺手清掉（或我加一个"无结局轮次自动收起"的处理）。
+2. **全孤儿的那种情况我没在真机上复现出来**：他这台设备上至少有一条模型（`deepseek-v4-pro`）绑的凭据是活的，所以走的是「钉死的模型失效 → 回落」这条分支；`repointOrphans`（22 条全绑死 Key 时自动改绑）只有单测覆盖，没有真机样本。
+3. 深色模式下「设置 → 后台 AI」那页的抽屉（自绘的，不是 `ModalBottomSheet`）值得看一眼：遮罩、圆角、收起按钮对不对。
+
+### 不用你验的
+
+`displayable()` 的三段阶梯（严格清洗 → 宽松清洗 → 原文兜底）已挂 `OutputSanitizer` 单测，改回"一刀切丢弃"会立刻红。
