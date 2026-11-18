@@ -2345,3 +2345,57 @@ Termux 自己钉 `targetSdk 28`，所以能执行它目录里的二进制；我�
 ### 已知边界
 - 没做 bind mount：容器里的 `/work` 只有 rootfs 自带时存在。
 - `unshare -n` 只在 chroot 上生效；proot 不会假装能断网。
+
+
+## [2026-11-18 22:05] 能力线入库（`b02fb4d`）—— 六条真机项，开关落盘我没有离线测
+
+这条 commit 把另一批 agent 的 Linux 工作区 / 媒体处理 / 作息与在场整条线入库了，
+同时我修了两处。**离线全绿：`run_logic_tests.py` OK (4581)、`:agentlogic:test` 440、
+`verify_all.py` 14/14、变异 3/3 真红。** 下面六条碰不到真机就没法下结论，归你。
+
+### 1. 内置 Linux 引擎开关会不会落盘（这条我确实没有离线测）
+`android/app/src/main/kotlin/com/pocketagent/data/AppContainer.kt` 里这个开关之前
+只写 `@Volatile` 内存字段，冷启动必回默认**关**，而 `media_ops` 跟着它一起失效 ——
+等于"开了、重开 app 又关了"。现在写进 `pluginSourceStore`（`KEY_LINUX_BUILTIN`，
+`linux_builtin_v1`），并在 `loadMaturePermission()` 里读回。
+
+`AppContainer` 是 Android 容器，逻辑层测不到这段持久化（DataStore + Context），
+所以只能你跑：
+1. 设置 → Linux 工作区 → 打开「内置 Linux 引擎」。
+2. `am force-stop com.pocketagent.debug` 后重开。
+3. 该行应**仍为开**。关掉它再重开，应**仍为关**。
+
+### 2. `media_ops` 是否真的跟着这个开关
+开 → 让它「把这段录音抽成 m4a」应能跑；关 → 工具应报不可用，且文案指到
+「设置 → Linux 工作区 → 内置 Linux 引擎」（`Media3Ops.availability()` 的 explain）。
+
+### 3. `linux_exec` 三档降级文案
+`LadderLinuxOps.availability()` 按 **root → Termux → 内置** 探测（从能力多的往少的找）。
+- 你这台是 KernelSU root ⇒ 应走 `RootLinuxOps`。
+- 有 Termux ⇒ 应走 `TermuxLinuxOps`。
+- 都没有 ⇒ 内置，且 `explain` 里必须出现「这是内置引擎：装不了软件包、断不了网」。
+  少了这句用户会以为 `pip install` 也能跑。
+
+### 4. 首轮工具清单有没有预展开
+之前 `ToolGroup.PRELOAD` 只列了 FILES / SYSTEM 的词，说「把这几个文件批量改名」
+「把这段视频抽音轨转成 mp3」时 Linux / 媒体两组不会展开，模型得先摸到入口才可能用。
+现在补了两组关键词。开局清单应**只有入口**（`linux_exec` / `media_ops` 在，
+`linux_read` 不在）；说上面那两句之后，对应组应展开。
+
+`ToolGroupsTest` 只钉住了"关键词命中就展开"，**真机上模型是否因此更愿意用**测不到。
+
+### 5. Presence 的三个时刻
+`android/personalogic/src/main/kotlin/com/pocketagent/personalogic/Presence.kt`
+新的这一维是"手上有没有事"，不是第二个生理系统。
+- 凌晨 3:00 跟她说话：应是睡着（`SLEEPING`，由 `gate` 拦在门外）。
+- 21:40–22:00：应在洗澡（`SHOWER`，`promptLine` 有内容）。
+- **热聊中（15 分钟内刚说过话）任何时刻都该是 `AT_HAND`** —— 这条是刻意让
+  用户话语权压过作息表，请你重点试。
+
+另外 `SLEEPING` 故意不再加第三段提示词（"困/刚醒"已经由 `PhysiologyEngine.promptLine`
+写过，再写一遍模型会变僵）。如果你觉得凌晨她该说点什么，先告诉我，别直接加。
+
+### 6. 深色模式下新增两行的可读性
+「设置 → Linux 工作区」这一节（`SettingsScreen.kt` 里 `PaSectionTitle("Linux 工作区")`
++ 「内置 Linux 引擎」开关行）。之前踩过 `PaColor.Accent` 当底色导致字读不清的坑，
+这次用的是既有 `PaListRow` + Material3 `Switch`，但真机深色下还是你看一眼最稳。
