@@ -95,7 +95,20 @@ object DaemonCalls {
             listOf("pm", "disable-user", "--user", "0", RootCommands.safeToken("包名", action.pkg)),
         )
 
-        is RootAction.Probe -> DaemonCall(RootVerb.PROBE, emptyList())
+        is RootAction.LinuxShell -> DaemonCall(
+        RootVerb.LINUX,
+        LinuxWire.encode(
+            LinuxWire.Request(
+                kind = action.kind,
+                rootfs = action.rootfs,
+                workDir = action.workDir,
+                networkOff = action.networkOff,
+                inner = action.inner,
+            ),
+        ),
+    )
+
+    is RootAction.Probe -> DaemonCall(RootVerb.PROBE, emptyList())
 
     // ★ 虚拟屏走独立的 DISPLAY 动词，不复用 INJECT/CAPTURE：
     //   它们的参数形状不同（多一个 display id），混成一个动词会让服务端难以分辨

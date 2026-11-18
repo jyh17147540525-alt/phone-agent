@@ -18,6 +18,7 @@ plugins {
     //    报错信息完全指不到"根脚本漏了一行"，排查成本很高，所以留这段注释。
     //    规则：**子模块会用到的每个插件，根脚本都要 apply false 声明一遍。**
     alias(libs.plugins.kotlin.jvm) apply false
+    alias(libs.plugins.chaquopy) apply false
 }
 
 // 统一的编译选项，供各模块继承

@@ -92,6 +92,19 @@ sealed interface RootAction {
     /** 抓副屏画面。 */
     data class DisplayCapture(val displayId: Int, val path: String) : RootAction
 
+    /**
+     * 在 Linux 容器里跑一条命令。
+     *
+     * @param inner 容器内的命令（首词已由 [LinuxCommands] 校验过白名单）
+     */
+    data class LinuxShell(
+        val kind: LinuxKind,
+        val rootfs: String,
+        val workDir: String,
+        val inner: List<String>,
+        val networkOff: Boolean = false,
+    ) : RootAction
+
     /** 停掉副屏上的 App。**收屏之前必须做**，否则 Task 会被挪回主屏。 */
     data class DisplayStop(val packageName: String) : RootAction
 }
@@ -270,6 +283,14 @@ object RootCommands {
         is RootAction.DisplayStop ->
             DisplayCommands.forceStop(action.packageName).joinToString(" ")
 
+        is RootAction.LinuxShell -> LinuxCommands.launch(
+            kind = action.kind,
+            rootfs = action.rootfs,
+            workDir = action.workDir,
+            inner = action.inner,
+            networkOff = action.networkOff,
+        ).joinToString(" ")
+
         is RootAction.Query -> {
             if (action.argv.isEmpty()) throw UnsafeRootArgument("查询", "空")
             if (action.argv.size > 8) throw UnsafeRootArgument("查询", "参数过多")
@@ -292,6 +313,7 @@ object RootCommands {
         is RootAction.SetProp -> "prop.set"
         is RootAction.GetProp -> "shell.root"
         is RootAction.ReadFile -> "file.any"
+        is RootAction.LinuxShell -> "shell.root"
         // 虚拟屏上的点按仍是"点屏幕"；抓帧仍是"读屏"；停 App 是最重的那一类
         is RootAction.DisplayLaunch, is RootAction.DisplayTap,
         is RootAction.DisplaySwipe, is RootAction.DisplayText, is RootAction.DisplayKey -> "screen.tap"

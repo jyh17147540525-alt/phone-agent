@@ -167,6 +167,12 @@ enum class ToolChannel(val label: String) {
     /** 本机回环（虚拟屏托管、dsh 侧调用）。 */
     LOOPBACK("本机回环"),
 
+    /** Linux 工作区（proot / chroot）。不碰屏幕，但会写 /work。 */
+    LINUX("Linux 工作区"),
+
+    /** 媒体处理（本机算力，不上屏）。 */
+    MEDIA("媒体处理"),
+
     /** 进程内纯逻辑：人格、上下文、记忆。不碰系统。 */
     IN_PROCESS("进程内"),
 }

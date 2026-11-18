@@ -79,7 +79,7 @@ class PersonaAssembler(
         layers[PromptLayer.L1_CORE] = renderCore(input.card, effectiveTone)
         layers[PromptLayer.L2_FINGERPRINT] = input.card.fingerprint.render()
         input.state?.let {
-            layers[PromptLayer.L3_STATE] = renderState(it, input.performance)
+            layers[PromptLayer.L3_STATE] = renderState(it, input.performance, input.presence)
         }
         val memories = selectMemories(input.memories, input.memoryLimit)
         if (memories.isNotEmpty()) {
@@ -214,11 +214,43 @@ class PersonaAssembler(
      *   离对话最近，且与状态同层（两者必须一起出现才不矛盾）。
      *   过期的指导不注入：一条挂一天的指导会变成新的人设。
      */
-    private fun renderState(state: PersonaState, performance: Performance? = null): String {
+    private fun renderState(
+        state: PersonaState,
+        performance: Performance? = null,
+        presence: Boolean = false,
+    ): String {
         // ⚠️ 只在**仍然有效**时注入。时间基准用 `lastActiveAtMs`：
         //    它由每一次 `currentState()` 推进，语义就是"现在"。
         //    判错方向是安全的 —— 最坏只是不注入，回到旧的模板句。
         val guide = performance?.takeIf { it.isFresh(state.physiology.lastActiveAtMs) }
+        // ★ 2026-11-17：**她手上正有事**（在吃饭 / 在洗澡）。
+        //
+        // ⚠️ 这里必须**关掉热聊保护**（`hotChatMinutes = 0`）—— 这一点反直觉：
+        //    保护的本意是"别把她从对话里拉走"（主动消息要用），
+        //    而这里是对话本身：她当然可以边吃边回。
+        //    洗澡那条文案就是照"被消息叫出来、腾出手看一眼"写的。
+        //    若在这里也开保护，`lastActiveAtMs` 恒等于"现在"，
+        //    于是永远命中保护、这一段永远不出现 —— 接了个寂寞。
+        //
+        // ⚠️ `lastActiveAtMs <= 0`（还没交互过）时不算：1970 年的某一分钟
+        //    会算出"她在洗澡"这种荒唐结果。与 [localHourOf] 同一道保护。
+        // ⚠️ 只有开了 `ChatMode.Switches.presence` 的模式（现在是「在场」）才写这一段。
+        //    角色扮演 / 工作模式里**时间是停的** —— 用户不说话她就不存在，
+        //    一个不存在的人没有"吃饭时间"。2026-11-17 用户口径：
+        //    先只加在在场模式，其余模式按需求再逐个打开。
+        val presenceLine = if (presence) {
+            state.physiology.lastActiveAtMs.takeIf { it > 0L }?.let { nowMs ->
+                PresenceEngine.promptLine(
+                    PresenceEngine.at(
+                        nowMs = nowMs,
+                        utcOffsetMinutes = localOffsetMinutesOf(nowMs),
+                        hotChatMinutes = 0,
+                    ),
+                )
+            }
+        } else {
+            null
+        }
         // ══════════════════════════════════════════════════════════
         //  ★★ 2026-11-02：**精力现在是"事件的 + 生理的"**
         // ══════════════════════════════════════════════════════════
@@ -239,7 +271,7 @@ class PersonaAssembler(
                 PhysiologyEngine.energyModifier(state.physiology, hour, body) +
                 CycleEngine.energyModifier(cycleMoment)
             ).coerceIn(0, 100)
-        if (state.isNeutral() && guide == null) return ""
+        if (state.isNeutral() && guide == null && presenceLine == null) return ""
         // ⚠️ 2026-11-14 修：原来是一串 `append()` 直接拼，两条同时命中时
         //    会拼成「心情不错精神很好」（没有顿号）。前台模型读这种句子
         //    会把它当成一个词，语气跟着变形。用"、"连接，单条时不变。
@@ -249,7 +281,7 @@ class PersonaAssembler(
             if (energy <= 35) add("有点累")
             if (energy >= 70 && state.mood >= 50) add("精神很好")
         }.joinToString("、")
-        if (parts.isBlank() && guide == null) return ""
+        if (parts.isBlank() && guide == null && presenceLine == null) return ""
         // ★ 2026-11-02：激素里最突出的那一条，可以"说出来"。
         //   ⚠️ `dominant()` 的文案里**不含任何索取**（有测试钉着）——
         //      状态可以被表达，但不能拿来要挟用户（§4.6）。
@@ -293,6 +325,12 @@ class PersonaAssembler(
             //     放在状态段之后、生理之前：离这一句最近的那条最有效。
             if (guide != null) {
                 append("## 这一句怎么演\n").append(guide.line)
+            }
+            // ★ 手上正有事：说的是"这会儿在做什么"，比"身体怎样"更具体、更当场，
+            //   所以排在生理那一段前面。
+            if (presenceLine != null) {
+                if (isNotEmpty()) append("\n\n")
+                append(presenceLine)
             }
             // ★ 生理那一段单独成段 —— 它说的是"身体怎样"，不是"心情怎样"
             if (physiological != null) {
@@ -377,6 +415,17 @@ class PersonaAssembler(
         return cal.get(java.util.Calendar.HOUR_OF_DAY) +
             cal.get(java.util.Calendar.MINUTE) / 60.0
     }
+
+    /**
+     * 本地时区相对 UTC 的偏移（分钟）。
+     *
+     * ⚠️ [PresenceEngine] 要的是分钟（`utcOffsetMinutes`），不是小时 ——
+     *    印度是 +330 这种半小时时区，按小时截断会差出半小时的作息。
+     *    `epochMs <= 0` 或取不到时按东八区兜底（与 [localHourOf] 的"中午"同性质）。
+     */
+    private fun localOffsetMinutesOf(epochMs: Long): Int =
+        runCatching { java.util.TimeZone.getDefault().getOffset(epochMs) / 60_000 }
+            .getOrDefault(480)
 
     private fun renderMemories(memories: List<MemoryItem>): String = buildString {
         appendLine("## 你记得的事")
@@ -569,6 +618,14 @@ data class AssemblyInput(
      *    它**不是状态**，所以不参与预算裁剪的优先级判断（挂在 L3 里一起走）。
      */
     val performance: Performance? = null,
+    /**
+     * 这个模式里她**有没有自己的此刻**（`ChatMode.Switches.presence`）。
+     *
+     * ⚠️ 默认 false = 老调用点行为不变：不写"这个点你一般在做什么"那一段。
+     *    只有「在场」模式传 true —— 其余模式里时间是停的，她随叫随到，
+     *    替她编"我正在吃饭"就是给一个不存在的人安作息。
+     */
+    val presence: Boolean = false,
 ) {
     companion object {
         /** 默认系统提示词预算。约等于 1200 个汉字的空间。 */

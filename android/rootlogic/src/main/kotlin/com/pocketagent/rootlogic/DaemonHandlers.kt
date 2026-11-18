@@ -39,6 +39,7 @@ object DaemonHandlers {
         RootVerb.QUERY to { body -> guarded { query(runner, body) } },
         RootVerb.EXEC to { body -> guarded { exec(runner, body) } },
         RootVerb.DISPLAY to { body -> guarded { display(runner, body) } },
+        RootVerb.LINUX to { body -> guarded { linux(runner, body) } },
     )
 
     /**
@@ -217,6 +218,26 @@ object DaemonHandlers {
      *
      * ⚠️ display id 0 是**用户主屏**，一律拒绝 —— 往那儿拉 App 等于把用户的手机抢走。
      */
+    /**
+     * 在容器里跑命令。
+     *
+     * ★ 服务端**重新解析一遍**线上形状（[LinuxWire.decode]）：客户端能发什么，
+     *   不该成为"能不能执行"的唯一依据。参数不合法 → `Refused`（这条路走不通），
+     *   而不是 `HANDLER_FAILED`（处理器炸了）—— 两者的排查方向相反。
+     */
+    private fun linux(runner: LocalRunner, body: ByteArray): DaemonLoop.WireReply {
+        val argv = decode(body) ?: return refused(BAD_ARGV)
+        val request = LinuxWire.decode(argv)
+        val command = LinuxCommands.launch(
+            kind = request.kind,
+            rootfs = request.rootfs,
+            workDir = request.workDir,
+            inner = request.inner,
+            networkOff = request.networkOff,
+        )
+        return reply(runner.run(command, LINUX_TIMEOUT_MS))
+    }
+
     private fun display(runner: LocalRunner, body: ByteArray): DaemonLoop.WireReply {
         val argv = decode(body) ?: return refused(BAD_ARGV)
         val command = DisplayCommands.fromProtocol(argv)
@@ -265,5 +286,6 @@ object DaemonHandlers {
     class HandlerRejection(reason: String) : Exception(reason)
 
     private const val BAD_ARGV = "请求参数无法解析"
-    private const val DUMP_TIMEOUT_MS = 30_000
+    private const val LINUX_TIMEOUT_MS = 65_000
+private const val DUMP_TIMEOUT_MS = 30_000
 }

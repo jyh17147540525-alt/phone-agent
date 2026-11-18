@@ -72,6 +72,23 @@ class ChatModeTest {
     }
 
     @Test
+    fun `只有在场模式让她有作息`() {
+        // ★ 2026-11-17 用户口径：「这个功能是要加入到一个模式里……后续会根据需求，
+        //   部分加入其他模式」。所以它必须是**开关**，不是写死的 `mode == LIFEFORM`。
+        // ⚠️ 这条防的不是"少开了"，是**顺手给别人也开了** ——
+        //    角色扮演 / 工作模式里时间是停的，用户不说话她就不存在；
+        //    给一个不存在的人按上时刻表，提示词里就会出现"我正在吃饭"，
+        //    模型照着说，用户从没经历过那顿饭。
+        for (m in ChatMode.entries) {
+            assertEquals(
+                "presence 在 ${m.name} 上的取值不对",
+                m == ChatMode.LIFEFORM,
+                m.switches.presence,
+            )
+        }
+    }
+
+    @Test
     fun `工作纪律只在工作模式出现`() {
         for (m in ChatMode.entries) {
             assertEquals(

@@ -38,14 +38,17 @@ class ToolCatalogTest {
         "android_tap",
         "android_type",
         "android_key",
+        "linux_exec",
+        "linux_read",
+        "media_ops",
     )
 
     // ── 覆盖 ────────────────────────────────────────────────────────────────
 
     @Test
-    fun `内建目录覆盖全部 18 个真实工具`() {
-        assertEquals(18, catalog.all.size)
-        assertEquals(18, realToolNames.size)
+    fun `内建目录覆盖全部 21 个真实工具`() {
+        assertEquals(21, catalog.all.size)
+        assertEquals(21, realToolNames.size)
         for (name in realToolNames) {
             assertNotNull("目录里缺 $name", catalog.byId(name))
         }
@@ -55,7 +58,7 @@ class ToolCatalogTest {
     fun `coverage 与真实工具表一致`() {
         val coverage = catalog.coverage(realToolNames)
         assertTrue(coverage.explain(), coverage.complete)
-        assertEquals(18, coverage.registered.size)
+        assertEquals(21, coverage.registered.size)
     }
 
     @Test
@@ -103,7 +106,7 @@ class ToolCatalogTest {
     fun `不可逆集合只收真正撤不回来的`() {
         val irreversible = catalog.irreversible().map { it.id }.toSet()
         assertEquals(
-            setOf("android_tap", "android_type", "android_batch", "prop_write", "root_exec", "office_run"),
+            setOf("android_tap", "android_type", "android_batch", "prop_write", "root_exec", "linux_exec", "media_ops", "office_run"),
             irreversible,
         )
         // setting_write 改回去就恢复；它不该进这个集合
@@ -166,14 +169,14 @@ class ToolCatalogTest {
         val text = catalog.describeForPrompt()
         assertTrue(text.contains("android_tap："))
         assertTrue(text.contains("（会占屏）"))
-        assertTrue(text.contains("可用工具（18 条）"))
+        assertTrue(text.contains("可用工具（21 条）"))
         assertTrue("超预算", text.length <= ToolCatalog.MAX_PROMPT_CHARS)
     }
 
     @Test
     fun `提示词段条数封顶并说明省略多少`() {
         val text = catalog.describeForPrompt(limit = 5)
-        assertTrue(text.contains("另有 13 条没列出"))
+        assertTrue(text.contains("另有 16 条没列出"))
         // 头部 1 行 + 5 条 + 省略说明 1 行
         assertEquals(7, text.lines().size)
     }

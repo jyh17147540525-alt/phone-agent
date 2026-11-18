@@ -117,11 +117,16 @@ class AssistantPromptBuilder(
      *   由调用方读"当前生效的那条"并传进来 —— 这里**不做有效期判断**
      *   （有效期在 `PersonaAssembler.renderState` 里按状态时间判，
      *   这样离线测试与真机走同一条逻辑）。
+     *
+     * @param presence 这个模式里她**有没有自己的此刻**（`ChatMode.Switches.presence`）。
+     *   只有「在场」模式传 true。其余模式里时间是停的、她随叫随到，
+     *   替她编"我正在吃饭"就是给一个不存在的人安作息。
      */
     fun build(
         canAct: Boolean = true,
         currentUserText: String = "",
         performance: Performance? = null,
+        presence: Boolean = false,
     ): String {
         val spec = persona.runtime.currentSpec()
         val assembled = assembler.assemble(
@@ -141,6 +146,8 @@ class AssistantPromptBuilder(
                 currentQuery = currentUserText,
                 // ★ 2026-11-14：后台 AI 的表演指导 → L3「这一句怎么演」
                 performance = performance,
+                // ★ 2026-11-17：她有没有自己的此刻（只有「在场」模式 true）
+                presence = presence,
             ),
         )
         val capability = if (canAct) CAPABILITY_BOUNDARY else CHAT_ONLY_BOUNDARY

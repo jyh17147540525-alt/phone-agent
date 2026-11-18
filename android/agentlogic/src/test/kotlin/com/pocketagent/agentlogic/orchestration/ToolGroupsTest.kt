@@ -22,7 +22,7 @@ class ToolGroupsTest {
         val offer = explorer.offer()
 
         val base = catalog.all.filter { ToolGrouping.groupOf(it.id) == ToolGroup.BASE }.map { it.id }
-        assertEquals((base + listOf("android_tap", "root_exec", "office_tools")).sorted(), offer.ids.sorted())
+        assertEquals((base + listOf("android_tap", "root_exec", "office_tools", "linux_exec", "media_ops")).sorted(), offer.ids.sorted())
         assertTrue(offer.opened.isEmpty())
     }
 
@@ -180,5 +180,27 @@ class ToolGroupsTest {
         val explorer = ToolExplorer(catalog)
         explorer.onCall("root_exec")
         assertEquals(explorer.offer().ids, explorer.offer().ids)
+    }
+
+    @Test
+    fun `目标里提到脚本或命令行就预先展开 Linux 工作区`() {
+        val explorer = ToolExplorer(catalog)
+        explorer.preload("把这几个文件批量改名，写个 python 脚本跑一遍")
+        assertTrue(ToolGroup.LINUX in explorer.opened())
+    }
+
+    @Test
+    fun `目标里提到音轨或转码就预先展开媒体处理`() {
+        val explorer = ToolExplorer(catalog)
+        explorer.preload("把这段视频抽音轨转成 mp3")
+        assertTrue(ToolGroup.MEDIA in explorer.opened())
+    }
+
+    @Test
+    fun `普通闲聊不会预先展开 Linux 或媒体`() {
+        val explorer = ToolExplorer(catalog)
+        explorer.preload("今天有点累，陪我说会儿话吧")
+        assertFalse(ToolGroup.LINUX in explorer.opened())
+        assertFalse(ToolGroup.MEDIA in explorer.opened())
     }
 }

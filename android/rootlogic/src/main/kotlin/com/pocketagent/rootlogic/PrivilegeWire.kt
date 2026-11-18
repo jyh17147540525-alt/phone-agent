@@ -208,6 +208,15 @@ enum class RootVerb(val wire: Int) {
      */
     DISPLAY(9),
 
+    /**
+     * Linux 工作区（chroot / proot）。形状见 [LinuxWire]。
+     *
+     * ⚠️ 与 `EXEC` 分开：`EXEC` 是"跑一条系统命令"，这条是"在容器里跑"。
+     *    混成一个动词的后果是服务端没法决定"要不要套 chroot"，
+     *    只能相信客户端说的 —— 那等于把最后一道闸交给可能被篡改的那一侧。
+     */
+    LINUX(10),
+
     /** 执行一条**已在白名单里**的系统命令（argv 形式，不经 shell）。 */
     EXEC(8),
     ;

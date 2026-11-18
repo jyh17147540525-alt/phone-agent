@@ -1,0 +1,102 @@
+package com.pocketagent.assistant
+
+import com.pocketagent.mcp.LinuxAvailability
+import com.pocketagent.mcp.LinuxOpsPort
+import com.pocketagent.mcp.LinuxReadResult
+import com.pocketagent.mcp.LinuxRunResult
+import com.pocketagent.rootlogic.LinuxKind
+import com.pocketagent.rootlogic.LinuxRejected
+import com.pocketagent.rootlogic.RootAction
+import com.pocketagent.rootlogic.RootActions
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+
+/**
+ * B2：root 档的 chroot 容器。
+ *
+ * ## 它比内置引擎多什么
+ *
+ * 能装包（`apt/apk`）、能跑任意已装程序、能 `unshare -n` **真断网**。
+ * 代价是：必须有 root，而且必须先有一份根文件系统 —— 那个下载器属于 M5，这里不做。
+ *
+ * ## 没有根文件系统时说什么
+ *
+ * 不说"不可用"，说清**缺哪一步**：root 有了、目录还没有。否则用户会以为 root 白拿了。
+ *
+ * ## `/work` 的边界（必须诚实）
+ *
+ * 容器里的 `/work` 是我们 bind 进去的那个目录；当前实现直接 `chroot`，
+ * 没有做 bind mount —— 所以容器内 `/work` 只有根文件系统自己带的时候才存在。
+ * 需要处理手机里的文件时，走内置引擎（同进程、读写真实路径），不要假装 chroot 能看见。
+ */
+class RootLinuxOps(
+    private val actions: RootActions,
+    private val workDir: File,
+    private val rootfsDir: File,
+    private val rootAvailable: () -> Boolean,
+) : LinuxOpsPort {
+
+    override suspend fun availability(): LinuxAvailability {
+        if (!rootAvailable()) {
+            return LinuxAvailability(
+                ready = false,
+                explain = "这台机器没有 root（或没给本应用授权）。root 档的容器能装包、能真断网，" +
+                    "但需要 Magisk/KernelSU 授权；不给也能用内置引擎或 Termux。",
+            )
+        }
+        if (!looksLikeRootfs()) {
+            return LinuxAvailability(
+                ready = false,
+                explain = "root 有了，但还没有根文件系统（${rootfsDir.absolutePath}）。" +
+                    "这一步需要下载解包，属于后面才做的事；现在可以先用内置引擎或 Termux。",
+            )
+        }
+        return LinuxAvailability(
+            ready = true,
+            explain = "root 容器可用（能装包、能 unshare -n 断网）。注意：容器里的 /work 只在根文件系统自带时才有。",
+        )
+    }
+
+    override suspend fun run(argv: List<String>, timeoutSec: Int): LinuxRunResult {
+        val startedAt = System.currentTimeMillis()
+        val result = try {
+            actions.run(
+                RootAction.LinuxShell(
+                    kind = LinuxKind.ROOT_CHROOT,
+                    rootfs = rootfsDir.absolutePath,
+                    workDir = workDir.absolutePath,
+                    inner = argv,
+                ),
+            )
+        } catch (e: LinuxRejected) {
+            throw IllegalArgumentException(e.message ?: "参数不被接受")
+        }
+        return LinuxRunResult(
+            exitCode = result.code,
+            stdout = result.stdout,
+            stderr = result.stderr,
+            durationMs = System.currentTimeMillis() - startedAt,
+        )
+    }
+
+    /** 读 `/work` 与"哪个后端跑的命令"无关：应用自己读自己的目录。 */
+    override suspend fun read(path: String, maxBytes: Int): LinuxReadResult = withContext(Dispatchers.IO) {
+        if (!path.startsWith("/work/")) throw IllegalArgumentException("只能读 /work 下：$path")
+        val relative = path.removePrefix("/work/")
+        if (relative.isBlank() || relative.split('/').any { it == ".." }) {
+            throw IllegalArgumentException("路径越界：$path")
+        }
+        val file = File(workDir, relative)
+        if (!file.isFile) throw java.io.FileNotFoundException("没有这个文件：$path")
+        val bytes = file.readBytes()
+        val truncated = bytes.size > maxBytes
+        LinuxReadResult(if (truncated) bytes.copyOf(maxBytes) else bytes, truncated)
+    }
+
+    /** 根文件系统"看起来像"的最低判据：有 `bin/`（chroot 进去至少能执行东西）。 */
+    private fun looksLikeRootfs(): Boolean {
+        val bin = File(rootfsDir, "bin")
+        return rootfsDir.isDirectory && bin.isDirectory
+    }
+}

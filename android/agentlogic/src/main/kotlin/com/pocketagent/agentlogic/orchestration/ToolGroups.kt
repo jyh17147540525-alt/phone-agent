@@ -41,6 +41,17 @@ enum class ToolGroup(
 
     /** 授权目录：列工具清单、在授权目录里读写。 */
     FILES("授权目录", "office_tools"),
+
+    /**
+     * Linux 工作区：跑命令、读回结果。
+     *
+     * ★ 单独一组而不是并进 [FILES]：它的**代价**与授权目录完全不同（会跑任意脚本、
+     *   会长时间占 CPU），混在一起会让模型以为"和读文件差不多"。
+     */
+    LINUX("Linux 工作区", "linux_exec"),
+
+    /** 媒体处理：一个工具四种动作。 */
+    MEDIA("媒体处理", "media_ops"),
 }
 
 /** 工具 → 组的静态映射。未登记的工具按 [ToolGroup.BASE] 处理（永远可见，宁多给不漏给）。 */
@@ -69,6 +80,10 @@ object ToolGrouping {
         // 授权目录
         "office_tools" to ToolGroup.FILES,
         "office_run" to ToolGroup.FILES,
+        // Linux 工作区
+        "linux_exec" to ToolGroup.LINUX,
+        "linux_read" to ToolGroup.LINUX,
+        "media_ops" to ToolGroup.MEDIA,
     )
 
     fun groupOf(tool: String): ToolGroup = of[tool] ?: ToolGroup.BASE
@@ -84,6 +99,14 @@ object ToolGrouping {
     private val PRELOAD: Map<ToolGroup, List<String>> = mapOf(
         ToolGroup.FILES to listOf("文件", "表格", "文档", "目录", "导出", "保存", "xlsx", "docx", "pdf", "附件"),
         ToolGroup.SYSTEM to listOf("root", "su", "设置", "属性", "停用", "禁用", "卸载", "权限", "包名"),
+        ToolGroup.LINUX to listOf(
+            "linux", "bash", "python", "脚本", "命令行", "终端", "批量", "正则",
+            "sed", "awk", "jq", "grep", "清洗", "跑一遍", "算一下",
+        ),
+        ToolGroup.MEDIA to listOf(
+            "音轨", "音频", "视频", "录音", "转码", "抽音", "截帧",
+            "mp3", "m4a", "mp4", "webm", "wav", "分辨率", "时长",
+        ),
     )
 
     fun groupsImpliedBy(goal: String): Set<ToolGroup> {

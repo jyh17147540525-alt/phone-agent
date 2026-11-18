@@ -2120,3 +2120,228 @@ I ContainerChatPort: 模型绑定的凭据：6fa90252-7b65-4f2f-afa7-e45f7ba1c98
 ### 不用你验的
 
 `displayable()` 的三段阶梯（严格清洗 → 宽松清洗 → 原文兜底）已挂 `OutputSanitizer` 单测，改回"一刀切丢弃"会立刻红。
+
+---
+
+## [2026-11-17 20:15] 她的作息开始拦消息了：Presence 最小切片已接线，要你三个时刻各看一次
+
+- **状态**：待办
+- **来自**：claude
+- **需要对方做什么**：装机后按「四」在 12:20 / 21:35 / 23:40 之后各观察一次，把回复原文与 logcat 里那两类行贴回来。
+
+### 一、这一刀解决什么
+
+"她知道现在几点"本来就有（`Physiology`：凌晨、刚醒、欠睡、久坐、午后）。
+缺的是**她不知道自己手上有没有事** —— 于是 12:30 能一边说"我先去吃饭"一边继续长回复；
+21:40 说"我去洗澡了"，三秒后又回你一大段。
+
+这次只加一个维数：**此刻她在吃饭 / 在洗澡 / 已睡下 / 在**。
+
+关键取舍（详见 `docs/工程/作息与在场-借鉴real-life-2026-11-17.md`）：
+**她的作息不产生台词，只产生两个后果** ——
+
+| 后果 | 谁用 | 回答什么 |
+|---|---|---|
+| `PresenceEngine.gate()` | `AppContainer` 的两个 tick | 她**能不能**主动发消息 |
+| `PresenceEngine.promptLine()` | `PersonaAssembler.renderState` | 这一句**该怎么**说话（**只有吃饭、洗澡两条**） |
+
+而且措辞刻意写成「这个点你一般在吃饭」而不是「我正在吃饭」：我们没有"她吃过"的记录，
+说"刚吃完"就是撒谎 —— 这正是 `Physiology.kt` 类注释那条纪律（不做饥饿、不编由头）。
+
+### 二、已验证（Claude 离线，**不需要你复现**）
+
+- `:personalogic:test` —— **948 条 / 0 失败**（改前 926：+19 是 Presence 本体，+3 是下面「六」那层模式开关）
+- `:app:compileDebugKotlin` —— **BUILD SUCCESSFUL**（接线编译通过）
+- `tools/verify/run_logic_tests.py` —— **OK (4469 tests)**（改前基线 4447）
+- 新测试钉住的不变量：热聊期间恒 `AT_HAND`（含对睡觉生效）；睡 8h15m 跨午夜首尾；洗澡 = 洗 14 + 吹 7；
+  洗澡开始时刻 30 天里至少 15 个不同值**但同一天必须相同**；200 天浮动不超幅度；60 天三餐窗口两两不重叠；
+  1440 分钟全走一遍不出现负数；提示词**不含任何数字**、且必须说"这个点"而不是"我正在"。
+
+### 三、改了哪里
+
+| 文件 | 内容 |
+|---|---|
+| `:personalogic` `Presence.kt`（**新**） | 时刻表推算（无状态、无心跳）+ `Presence`/`Where`/`gate`/`promptLine`/`minuteOfDay` |
+| `:personalogic` `PresenceEngineTest.kt`（**新**） | 19 条 |
+| `:personalogic` `PersonaAssembler.kt` | `renderState` 增 `presenceLine`；**两处早退各加 `&& presenceLine == null`**（否则状态中立时她吃饭白接）；新增 `localOffsetMinutesOf` |
+| `:app` `AppContainer.kt` | 新增 `presenceBusyReasonOf`；`proactiveTick` 与 `lifeformProactiveTick` 各插一处提前 return（见「六」：现在都包在 `switches.presence` 里） |
+| `:personalogic` `ChatMode.kt` | `Switches` 新增 `presence` 开关：`ROLEPLAY=false` / `WORK=false` / `LIFEFORM=true` |
+| `:app` `AssistantPrompt.kt` | `build(...)` 增 `presence = false`，透传给 `AssemblyInput.presence` |
+| `docs/工程/` | 设计全文（含为什么大半没抄上游） |
+
+`:legacy` 的 `ProactivePlanner` **一个字没动** —— 一度给 `Facts` 加过 `busyReason` 字段又撤回：
+`Facts` 装的是可观测事实，而"她腾不出手"是 gate 造出来的结论；更要紧的是**提前拦**
+（`lifeformProactiveTick` 里 `refreshLifeformWeb` 是一次网络请求，她洗澡时不该还去抓网页），
+字段式否决做不到提前。门禁留在调度层。
+
+### 四、要你在真机上看的三处（**都在「在场」模式下**）
+
+⚠️ 2026-11-17 20:30 收窄：这套作息**只在「在场」模式生效**（详见「六」）。
+角色扮演 / 工作模式里她随叫随到 —— 那里面时间是停的，不存在"她在吃饭"这回事。
+
+1. **12:20 左右**（午饭窗口 12:15 ±10 分钟、持续 30 分钟）发两句：回复是否变短、有没有"边吃边回"的感觉。
+   最坏的表现是**照常长篇** —— 那说明 `presenceLine` 根本没进提示词。
+2. **21:35 左右**（洗澡窗口 21:30 ±25 分钟，洗 14 + 吹 7；抖动大，所以 21:05–22:15 都可能）：
+   重点看有没有"是听见提示音才腾出手看的"这类语气，而不是"我正在洗澡"。
+3. **23:40 之后不要打开会话**，等一个 tick 周期，`adb logcat` 里抓：
+
+   ```
+   主动消息：她腾不出手（她这会儿已经睡下了（剩 N 分钟醒））
+   在场主动消息：她腾不出手（…）
+   ```
+
+⚠️ 别把"没出现这条"直接当成坏了：主动消息本来就有 12 轮 / 3 小时 / 5 小时三道门槛，
+先被前面拦掉时日志里是另一条 skip 理由。**要看日志里 skip 的理由是哪一个**。
+
+4. **反向验收（本轮新增，别漏）**：切到**角色扮演**或**工作**模式，同一个 23:40 之后等一个 tick，
+   主动消息**应该照常发**，日志里**不该**出现「她腾不出手」。
+   出现就是有调用点没跟上 `switches.presence`（这一条是本次收窄作用域的唯一验收口径）。
+
+### 五、已知缺口（都已写进文档，不用报我）
+
+1. **睡着时被消息吵醒，现在没有语气** —— `gate` 只拦主动消息；你深夜发消息时
+   `promptLine(SLEEPING)` 返回 `null`，于是她**回得跟白天一样利索**。这是最容易察觉的假，
+   下一步最该补，但要先定它和 `Physiology` 的"凌晨困"谁先说话。
+2. `LifeformDay` 的 beat 若写了"在厨房"，会和 `Presence` 的饭点重复（目前没去重）。
+3. 晚饭后坐满 3 小时，"久坐"与饭点可能同时命中，需要真机看会不会变成她一直在抱怨。
+
+---
+
+## [2026-11-17 20:30 补] 收窄到「在场」模式：角色扮演 / 工作模式**不再**被拦
+
+- **状态**：待办（与上面 20:15 那条**合并验收**，别当成两个独立任务）
+- **来自**：claude
+- **需要对方做什么**：按「四」观察时**两条路都走一遍** —— 在场模式被拦，角色扮演 / 工作模式不该被拦。
+
+### 为什么收窄（是用户口径，不是我们自己想的）
+
+用户 2026-11-17：「这个功能是要加入到一个模式里的，就是（角色）的窗，深度参与用户生活的一个模式，
+后续会根据需求，部分加入其他模式」。
+
+这不像"先做一半"，而是机制本身的边界：**角色扮演 / 工作模式里时间是停的** ——
+用户不说话她就不存在。给一个不存在的人按时刻表，提示词里就会出现「我正在吃饭」，
+模型照着说，而用户从没经历过那顿饭。只有「在场」模式里"她有自己的今天"，时刻表才是她的此刻。
+
+### 怎么落地的（一个开关，不是写死 `mode == LIFEFORM`）
+
+`ChatMode.Switches.presence`（`:personalogic`）—— 三个模式显式各填一次：
+`ROLEPLAY=false` / `WORK=false` / `LIFEFORM=true`。
+用 `Switches` 而不是 `when (mode)` 是既有设计：**将来加模式漏填这一格，编译不过**；
+写成 `when` 加个 `else ->` 就又是一个静默的错。
+
+三处消费点，一个判定源：
+
+| 位置 | 作用 |
+|---|---|
+| `PersonaAssembler.renderState(state, performance, presence)` | 是否写「## 你手上正有事」那一段 |
+| `AppContainer.proactiveTick` 主体 / `lifeformProactiveTick` | 主动消息是否被作息拦（两处都判 `chatMode().switches.presence`） |
+| `AssistantPromptBuilder.build(..., presence)` → `AssemblyInput.presence` | 透传，**默认 false**，老调用点行为一字不变 |
+
+⚠️ 判 `switches.presence` 而不是 `mode.isAlive` 是刻意的：前者是"她有没有作息"，
+后者是"她有没有自己的今天"。现在两者只有在场模式同真，但语义不同 ——
+将来若给某个模式单独开"会去吃饭但不算活着"，不该去动 `isAlive`。
+
+### 关掉它，用户看到什么
+
+什么都没有：她永远随叫随到，不会说"这会儿腾不出手"，提示词里也不多那一段 ——
+就是加这个功能之前的样子。**这正是「角色扮演 / 工作模式」现在的状态，也是本次的验收对象。**
+
+### 已验证 / 未验证
+
+- **已验证（Claude 离线）**：`:personalogic:test` **948 / 0**（+3：`只有在场模式让她有作息`、
+  `在场模式会写她这个点在做什么`、`没开 presence 的模式不替她编作息`）、
+  `:app:compileDebugKotlin` **BUILD SUCCESSFUL**、`run_logic_tests.py` **OK (4469 tests)**。
+- **未验证（需真机）**：见「四」第 4 条反向验收。
+
+
+---
+
+## 2026-11-18（转告）给做「作息与在场」的协作组留了一封信
+
+`docs/协作/TO-协作组-presence-2026-11-18.md`
+
+我在核对 agent 侧接线时顺手发现三处与 `Presence` 有关的问题（热聊期间洗澡文案里的"听见提示音"、
+beat 与饭点重复、`SLEEPING` 的语气归属），都带行号与建议，**没有改他们的任何文件**。
+看到的人请转给对应协作组；真机部分（深夜被叫醒的语气）仍需你们验，信里第 3 条是口径建议，不是验收项。
+
+
+---
+
+## 2026-11-18 M1.5：内置 Python 引擎进了 APK，请验三件事
+
+### 背景
+`targetSdk = 36`，Android 10 起不能执行 app 私有目录里的文件 ⇒ "解 rootfs 跑"对普通用户不通。
+所以改用 **Chaquopy（进程内 CPython，不 exec 任何文件）**，这是"所有用户都能跑 Python"的唯一路子。
+
+### 请验
+| # | 怎么试 | 期望 |
+|---|---|---|
+| 1 | 装 debug 包，`adb shell dumpsys package com.pocketagent.debug | grep -i abi` | 有 arm64-v8a（若装的是 armv7 机则看 armeabi-v7a） |
+| 2 | 在设置里（**暂时没有开关**，我可以给一段临时调用）打开内置引擎后，让 agent 跑 `python3 -c "print(2**100)"` | 回执 `exitCode=0` 且输出 `1267650600228229401496703205376` |
+| 3 | 跑一个会抛异常的命令 `python3 -c "1/0"` | `exitCode=1`，stderr 里有 `ZeroDivisionError` 与行号，app 不崩 |
+| 4 | 跑死循环 `python3 -c "while True: pass"`（timeoutSec=3） | 3 秒后返回 `exitCode=124`，**之后该后端拒绝再跑**（提示重启应用） |
+
+### 已知缺口
+- 开关没有 UI：需要我在下一轮接进设置页；在那之前要用临时 adb/代码打开。
+- APK 大了约 8–10 MB（两套 ABI 的 CPython）。
+- `.pyc` 未预编译（构建机没有 Python 3.10），首次 import 略慢。
+
+
+### 补充：开关已经上界面了（同日）
+
+设置 → **Linux 工作区 → 内置 Linux 引擎**，默认关。打开后上面四项才跑得起来；
+关掉时 `linux_exec` 会直接说明「默认关闭」并列出代价，不会静默失败。
+
+
+---
+
+## 2026-11-18 M2：媒体处理（media_ops）已接线，请验四项
+
+前提：设置 → Linux 工作区 → 内置 Linux 引擎 **开着**（媒体与它共用开关）。
+准备：`adb push` 一个几十秒的 mp4 到 `/data/data/com.pocketagent.debug/files/linux/work/`（需 root 或 `run-as`）。
+
+| # | 怎么试 | 期望 |
+|---|---|---|
+| 1 | `media_ops` action=`probe` input=`/work/a.mp4` | 回执含时长、分辨率、"有音轨/有画面" |
+| 2 | action=`extract_audio`（不写 output） | 生成 `/work/a.m4a`，回执带文件大小 |
+| 3 | action=`snapshot` atMs=`1500` | 生成 `/work/a.png`，能打开且是该时刻画面 |
+| 4 | action=`transcode` | 生成 `/work/a.mp4`；若源是 HEVC/AV1 而机型不支持，应回 `转码失败（ExportException）…` 而不是崩 |
+
+失败请贴：`media_ops` 的原始回执（`转码失败（…）` / `读不出这个文件的媒体信息（…）`）。
+
+
+---
+
+## 2026-11-18 M3：Termux 通道（借它的手跑命令）
+
+### 原理
+Termux 自己钉 `targetSdk 28`，所以能执行它目录里的二进制；我们通过公开接口
+`com.termux.RUN_COMMAND` **请它跑**，不是绕沙箱。三条前提缺一不可。
+
+### 请验
+| # | 怎么做 | 期望 |
+|---|---|---|
+| 1 | 不装 Termux 时让 agent 跑 `linux_exec` | 走内置引擎（能跑 Python），回执说明"这是内置引擎：装不了包" |
+| 2 | 从 F-Droid 装 Termux → 应用里允许"执行 Termux 命令" → Termux 里执行 `echo allow-external-apps=true >> ~/.termux/termux.properties`，再跑 `git --version` | 回执里是 Termux 的输出（`git version 2.x`） |
+| 3 | 把 Termux 的权限撤掉再跑一次 | 立刻降级到内置引擎，文案里写"没给执行命令的权限" |
+| 4 | 让 agent 跑 `curl -s https://example.com`（联网命令） | 内置引擎下应被白名单拒（说明要 Termux/root）；Termux 下应真的能跑 |
+
+### 已知边界（不是 bug）
+- Termux 读不到本应用的 `/work`（另一个 uid）。要处理我们的文件，用内置引擎或 root。
+- `linux_read` 始终由应用自己读 `/work`，与哪个后端跑命令无关。
+
+
+---
+
+## 2026-11-18 M4：root 容器通道
+
+### 请验（不需要根文件系统也能验前两条）
+| # | 怎么做 | 期望 |
+|---|---|---|
+| 1 | root 机上把运行模式切到 root 档，让 agent 跑 `linux_exec` | 回执说明「root 有了，但还没有根文件系统」——**不是**"不可用"，也不是假装成功 |
+| 2 | 把运行模式切回普通档再跑一次 | 降级到内置引擎（或 Termux），文案仍写清各自差别 |
+| 3 | 若你手上有现成 rootfs（**M5 才做下载器**）：手动解到 `files/linux/rootfs`（必须含 `bin/`），再跑 `id` | 回执是容器里的 uid（chroot 下通常 `uid=0`） |
+
+### 已知边界
+- 没做 bind mount：容器里的 `/work` 只有 rootfs 自带时存在。
+- `unshare -n` 只在 chroot 上生效；proot 不会假装能断网。

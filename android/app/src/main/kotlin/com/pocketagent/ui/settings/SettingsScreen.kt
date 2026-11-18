@@ -94,6 +94,16 @@ fun SettingsScreen(
      */
     allowRefusal: Boolean = true,
     onToggleAllowRefusal: ((Boolean) -> Unit)? = null,
+
+    /**
+     * **「内置 Linux 引擎」开关**（D5：默认关）。
+     *
+     * ⚠️ 这一行必须把**代价**写在副标题里：它在应用进程内跑代码，
+     *    能读到应用自己的数据（含聊天记录与已保存的 Key）。相册与别的应用读不到。
+     *    只写"开启后可用 Python"会让用户在不知道代价的情况下点开。
+     */
+    linuxBuiltin: Boolean = false,
+    onToggleLinuxBuiltin: ((Boolean) -> Unit)? = null,
     /**
      * **在场模式：让她上网看看**。
      *
@@ -484,6 +494,35 @@ fun SettingsScreen(
                             }
                         }
                     }
+                }
+            }
+
+            item {
+                Spacer(Modifier.height(PaSpace.xs))
+                PaSectionTitle("Linux 工作区")
+            }
+            item {
+                PaListGroup {
+                    PaListRow(
+                        icon = Icons.Default.Memory,
+                        title = "内置 Linux 引擎",
+                        subtitle = if (linuxBuiltin) {
+                            "已开启：能跑 Python（标准库）。装不了软件包、断不了网；与应用同进程，可读到应用自己的数据（含聊天记录）"
+                        } else {
+                            "关着。开启后能直接跑 Python（标准库），但装不了包、断不了网，且能读到应用自己的数据"
+                        },
+                        onClick = null,
+                        trailingContent = {
+                            androidx.compose.material3.Switch(
+                                checked = linuxBuiltin,
+                                onCheckedChange = { onToggleLinuxBuiltin?.invoke(it) },
+                                colors = androidx.compose.material3.SwitchDefaults.colors(
+                                    checkedThumbColor = PaColor.SurfaceHigh,
+                                    checkedTrackColor = PaColor.Accent,
+                                ),
+                            )
+                        },
+                    )
                 }
             }
 

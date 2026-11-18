@@ -7,6 +7,8 @@
 [versions]
 # 构建工具
 agp                     = "8.13.0"
+chaquopy                = "17.2.0"
+media3                  = "1.11.1"
 kotlin                  = "2.2.20"
 ksp                     = "2.2.20-2.0.4"
 hilt                    = "2.57"
@@ -81,6 +83,9 @@ truth                   = "1.4.4"
 timber                  = "5.0.1"
 
 [libraries]
+androidx-media3-transformer = { module = "androidx.media3:media3-transformer", version.ref = "media3" }
+androidx-media3-effect = { module = "androidx.media3:media3-effect", version.ref = "media3" }
+androidx-media3-common = { module = "androidx.media3:media3-common", version.ref = "media3" }
 # ── AndroidX 基础 ──────────────────────────────────────
 androidx-core-ktx           = { module = "androidx.core:core-ktx",                       version.ref = "coreKtx" }
 androidx-appcompat          = { module = "androidx.appcompat:appcompat",                 version.ref = "appcompat" }
@@ -160,6 +165,7 @@ androidx-test-espresso      = { module = "androidx.test.espresso:espresso-core",
 
 [plugins]
 android-application         = { id = "com.android.application",              version.ref = "agp" }
+chaquopy                    = { id = "com.chaquo.python",                version.ref = "chaquopy" }
 android-library             = { id = "com.android.library",                  version.ref = "agp" }
 kotlin-android              = { id = "org.jetbrains.kotlin.android",         version.ref = "kotlin" }
 kotlin-jvm                  = { id = "org.jetbrains.kotlin.jvm",             version.ref = "kotlin" }

@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.chaquopy)
 
     // ⚠️ ksp 与 hilt 插件在 M0 一并摘掉，而不是"留着不用"。
     //    Hilt 的 Gradle 插件会校验是否声明了 hilt-compiler 依赖，
@@ -42,6 +43,11 @@ android {
 
         // 只保留中文与英文资源，减小包体
         resourceConfigurations += listOf("zh", "en")
+
+        // Chaquopy 要求 defaultConfig 里就有 abiFilters（release 里那份不够用）
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     buildTypes {
@@ -249,6 +255,10 @@ dependencies {
 
     // ── AndroidX ────────────────────────────────────────
     implementation(libs.androidx.core.ktx)
+    // ★ M2 媒体后端：ffmpeg-kit 已停维（二进制下架），转码改走 Media3 Transformer。
+    implementation(libs.androidx.media3.transformer)
+    implementation(libs.androidx.media3.effect)
+    implementation(libs.androidx.media3.common)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime)
     implementation(libs.androidx.lifecycle.viewmodel)
@@ -285,4 +295,21 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.core)
     androidTestImplementation(libs.androidx.test.junit)
     androidTestImplementation(libs.androidx.test.espresso)
+}
+
+
+/**
+ * Chaquopy：把 CPython 以 JNI 方式嵌进来（B0 内置引擎的 Python 后端）。
+ *
+ * ★ 为什么不用 proot：`targetSdk = 36`，Android 10 起禁止执行 app 私有目录里的文件，
+ *   "解 rootfs 再跑"对普通用户天然不通；Chaquopy 是**进程内调用**，一个字节都不 exec。
+ *
+ * ⚠️ 不配 pip：M1.5 只用标准库。要装第三方包必须同时做三件事 —— 白名单、体积核算、
+ *   以及"这些包会不会读本应用文件"的评估。
+ */
+chaquopy {
+    defaultConfig {
+        pip {
+        }
+    }
 }

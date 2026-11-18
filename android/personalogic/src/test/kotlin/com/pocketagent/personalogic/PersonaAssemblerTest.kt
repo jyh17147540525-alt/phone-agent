@@ -57,6 +57,7 @@ class PersonaAssemblerTest {
         anchors: List<DialogueAnchor> = card().anchors,
         latestChangeVersion: Int? = null,
         performance: Performance? = null,
+        presence: Boolean = false,
     ) = AssemblyInput(
         card = card(anchors = anchors),
         tone = ToneAxes(),
@@ -65,6 +66,7 @@ class PersonaAssemblerTest {
         budgetTokens = budget,
         latestChangeVersion = latestChangeVersion,
         performance = performance,
+        presence = presence,
     )
 
     private fun layersOf(p: AssembledPrompt) = p.layers.map { it.layer }
@@ -334,6 +336,57 @@ class PersonaAssemblerTest {
         val p = assembler.assemble(input(anchors = emptyList()))
         assertTrue(p.anchorStatus is AnchorStatus.Absent)
         assertFalse(PromptLayer.L5_ANCHORS in layersOf(p))
+    }
+
+    // ── 她自己的此刻（只有「在场」模式开）────────────────────────
+
+    /**
+     * 按**设备时区**取今天的某个时刻。
+     *
+     * ⚠️ 不写死 +8：`renderState` 用的是 `TimeZone.getDefault()`，
+     *    测试若假设东八区，在 CI（UTC）上会整体偏 8 小时，
+     *    断言的就不是"吃饭时她手上正有事"，而是"随便某个时刻"。
+     */
+    private fun todayAt(hour: Int, minute: Int): Long {
+        val cal = java.util.Calendar.getInstance()
+        cal.set(java.util.Calendar.HOUR_OF_DAY, hour)
+        cal.set(java.util.Calendar.MINUTE, minute)
+        cal.set(java.util.Calendar.SECOND, 0)
+        cal.set(java.util.Calendar.MILLISECOND, 0)
+        return cal.timeInMillis
+    }
+
+    @Test
+    fun `在场模式会写她这个点在做什么`() {
+        // 12:30 恒在午饭窗口内：窗口起点 = 12:15 ± 10 分钟、长 30 分钟，
+        // 所以 [12:05, 12:25] 任一时刻开始的窗口都覆盖 12:30（jitter 按天固定，测试不该猜它）。
+        val noon = todayAt(12, 30)
+        val state = PersonaState(
+            mood = 80,
+            energy = 75,
+            physiology = Physiology(lastActiveAtMs = noon),
+        )
+        val p = assembler.assemble(input(state = state, presence = true))
+        val l3 = p.layers.first { it.layer == PromptLayer.L3_STATE }.text
+        assertTrue("开了 presence 却没写她手上在做什么：\n$l3", l3.contains("## 你手上正有事"))
+    }
+
+    @Test
+    fun `没开 presence 的模式不替她编作息`() {
+        // ★ 角色扮演 / 工作模式里时间是停的 —— 用户不说话她就不存在，
+        //   一个不存在的人没有"吃饭时间"。给她安一个作息是给幻觉递素材：
+        //   模型会照着"我正在吃饭"编出用户从没经历过的场景。
+        val noon = todayAt(12, 30)
+        val state = PersonaState(
+            mood = 80,
+            energy = 75,
+            physiology = Physiology(lastActiveAtMs = noon),
+        )
+        val p = assembler.assemble(input(state = state)) // presence 默认 false
+        val l3 = p.layers.firstOrNull { it.layer == PromptLayer.L3_STATE }?.text.orEmpty()
+        assertFalse("没开 presence 也写了她在做什么：\n$l3", l3.contains("## 你手上正有事"))
+        // 反向确认这一段不是因为 L3 空着才没有（否则测试是假的绿色）。
+        assertTrue("L3 本来就该有内容：\n$l3", l3.isNotBlank())
     }
 
     // ── 底线宣告 ────────────────────────────────────────────────

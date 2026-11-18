@@ -103,11 +103,20 @@ import com.pocketagent.mcp.TapTool
 import com.pocketagent.mcp.ScreenShotTool
 import com.pocketagent.mcp.ToolGate
 import com.pocketagent.mcp.ToolRegistry
+import com.pocketagent.mcp.LinuxExecTool
+import com.pocketagent.mcp.LinuxReadTool
+import com.pocketagent.mcp.MediaOpsTool
 import com.pocketagent.agentlogic.AgentLlmPort
 import com.pocketagent.agentlogic.orchestration.ModelPlanner
 import com.pocketagent.agentlogic.orchestration.RunBudget
 import com.pocketagent.agentlogic.orchestration.SuperAgent
 import com.pocketagent.assistant.McpStepRunner
+import com.pocketagent.assistant.BuiltinLinuxOps
+import com.pocketagent.assistant.LadderLinuxOps
+import com.pocketagent.assistant.RootLinuxOps
+import com.pocketagent.assistant.TermuxLinuxOps
+import com.pocketagent.mcp.LinuxOpsPort
+import com.pocketagent.assistant.Media3Ops
 import com.pocketagent.memorylogic.ContextOffloader
 import com.pocketagent.safety.DefaultSafetyGuard
 import com.pocketagent.modelrouter.ModelRouteCoordinator
@@ -2580,6 +2589,9 @@ class AppContainer(context: Context) {
             // ★ 在场模式的两个开关（默认都开：见 lifeformWebOnValue 的注释）
             lifeformWebOnValue = prefs[KEY_LIFEFORM_WEB] ?: true
             lifeformProactiveOnValue = prefs[KEY_LIFEFORM_PROACTIVE] ?: true
+
+            // ★ 内置 Linux 引擎（默认关：见 linuxBuiltinEnabledFlag 的注释）
+            linuxBuiltinEnabledFlag = prefs[KEY_LINUX_BUILTIN] ?: false
             // ★ 聊天模式（默认角色扮演：没这个键的老用户行为不变）
             chatModeValue = com.pocketagent.personalogic.ChatMode.of(prefs[KEY_CHAT_MODE])
 
@@ -3766,6 +3778,21 @@ class AppContainer(context: Context) {
         val now = System.currentTimeMillis()
         val idle = now - lastUser.at
 
+        // ★ 她本人有没有空，比「该不该打扰用户」更靠前：
+        //   人在浴室里，后面那些门槛算得再准也没意义。
+        //
+        // ⚠️ 判 `switches.presence` 而不是直接调 `presenceBusyReasonOf`：
+        //    这是**模式的产品决策**，不是工具函数的能力边界 ——
+        //    关掉它的模式（角色扮演 / 工作）里她随叫随到，没有"在吃饭"这回事。
+        //    走到这里 `isAlive` 必为 false，所以当前恒不拦；留着这一支是为了
+        //    将来单独给某个模式开作息（用户 2026-11-17：后续按需求部分加入）。
+        if (chatMode().switches.presence) {
+            presenceBusyReasonOf(now, lastUser.at)?.let {
+                Timber.d("主动消息：她腾不出手（%s）", it)
+                return
+            }
+        }
+
         // ══════════════════════════════════════════════════════════
         //  ★ 情境：几点、在哪、天气怎样（用户明确要求的四件事之一）
         // ══════════════════════════════════════════════════════════
@@ -3908,6 +3935,16 @@ class AppContainer(context: Context) {
         val idle = now - lastUser.at
         val hour = hourOfDayOf(now)
         val offset = utcOffsetMinutesOf(now)
+
+        // ★ 比 `LifeformPulse.plan` 更早拦住：洗澡时不该还去网上抓东西。
+        //   ⚠️ 同样按 `switches.presence` 判 —— 在场模式当前为 true，
+        //      但若哪天把它关掉，她要立刻回到"随时可发"的老样子。
+        if (chatMode().switches.presence) {
+            presenceBusyReasonOf(now, lastUser.at)?.let {
+                Timber.d("在场主动消息：她腾不出手（%s）", it)
+                return
+            }
+        }
         val dayIndex = com.pocketagent.personalogic.LifeformDay.localDayIndex(now, offset)
         if (lifeformPulseDay != dayIndex) {
             // 跨天了：昨天那两条不算今天的。
@@ -4069,6 +4106,36 @@ class AppContainer(context: Context) {
     private fun utcOffsetMinutesOf(nowMs: Long): Int =
         runCatching { java.util.TimeZone.getDefault().getOffset(nowMs) / 60_000 }
             .getOrDefault(0)
+
+    /**
+     * 她此刻腾不腾得出手（见 `:personalogic` 的 `PresenceEngine`）。
+     *
+     * 返回非 null = 现在不该由她主动开口；那句话直接进日志，
+     * 免得以后翻日志还要猜「为什么没发」。
+     *
+     * ⚠️ 两件事在这一层一起判掉了，因为它们本来就是一件事：
+     *   · **作息** —— 这个点她在吃饭 / 洗澡 / 已经睡下（常态，可以很久）；
+     *   · **热聊** —— 十五分钟内还在说话，那她一定在。
+     *    热聊必须压过作息，否则会出现「聊到一半她说去洗澡」。
+     *
+     * ★ 为什么放在调度层而不是塞进 `:legacy` 的 `ProactivePlanner.Facts`：
+     *   `Facts` 装的是**可观测事实**（轮次、时间戳），而这个字符串是
+     *   **结论**（由 gate 造出来）。而且提前拦能省掉后面那次抓网页。
+     *
+     * ⚠️ 调用方必须自己判 `chatMode().switches.presence` —— 本函数不判。
+     *    "这个模式里她有没有自己的此刻"是产品决策（只有「在场」有），
+     *    而这里只管"以她的作息算，现在几点、她在干嘛"。
+     *    混在一起会让将来给某个模式开作息时莫名其妙地整段失效。
+     */
+    private fun presenceBusyReasonOf(nowMs: Long, lastUserAtMs: Long): String? {
+        val presence = com.pocketagent.personalogic.PresenceEngine.at(
+            nowMs = nowMs,
+            utcOffsetMinutes = utcOffsetMinutesOf(nowMs),
+            lastUserSpokeAtMs = lastUserAtMs,
+        )
+        return (com.pocketagent.personalogic.PresenceEngine.gate(presence)
+            as? com.pocketagent.personalogic.PresenceEngine.Gate.Mute)?.reason
+    }
 
     /**
      * 现在这一刻的「她的今天」+ 本地时刻（0.0..24.0）。
@@ -4971,6 +5038,12 @@ class AppContainer(context: Context) {
                 canAct = canAct,
                 currentUserText = currentUserText,
                 performance = currentPerformance(),
+                // ★ 2026-11-17：她有没有自己的此刻 —— 只在「在场」模式为 true。
+                //   ⚠️ 判断必须走 `switches.presence` 而不是 `mode.isAlive`：
+                //      前者是"她有没有作息"，后者是"她有没有自己的今天"。
+                //      现在两者只有在场模式同时成立，但将来要给别的模式单独开
+                //      「会去吃饭但不算活着」时，这里不该跟着改。
+                presence = sw.presence,
             )
         }
         // ★ 2026-11-16：**用户自己的档案**在这里进提示词（「关于你」页）。
@@ -5444,6 +5517,72 @@ class AppContainer(context: Context) {
         RootActions(SuShellPort(), daemon = DaemonEndpoint.open())
     }
 
+    /**
+     * 「内置 Linux 引擎」的开关（D5：**默认关**）。
+     *
+     * ★ 为什么默认关：它在**同一个进程里**跑代码，能读到应用自己的数据（含聊天记录与
+     *   已保存的 Key）。相册与别的应用读不到（沙箱所限），但"能读自己的数据"这一条
+     *   就足够让默认值必须是关 —— 开启页会把这句话原样写给用户。
+     */
+    @Volatile
+    private var linuxBuiltinEnabledFlag: Boolean = false
+
+    fun isLinuxBuiltinEnabled(): Boolean = linuxBuiltinEnabledFlag
+
+    fun setLinuxBuiltinEnabled(on: Boolean) {
+        linuxBuiltinEnabledFlag = on
+        startupScope.launch {
+            runCatching { pluginSourceStore.edit { it[KEY_LINUX_BUILTIN] = on } }
+                .onFailure { Timber.e(it, "内置 Linux 引擎开关保存失败") }
+        }
+        Timber.i("内置 Linux 引擎：%s", if (on) "已开启" else "已关闭")
+    }
+
+    /**
+     * B0 内置引擎：只有 Python（标准库），进程内执行。
+     *
+     * 它是**所有用户**都能用的那条路（root → Termux → 内置 → 无）。
+     * 工作区固定为 `<files>/linux/work`，容器里看到的是 `/work`。
+     */
+    /** 媒体后端（Media3）。与内置引擎共用一个开关 —— 两者都是"本机算力"。 */
+    /** Termux 通道（B1）。装了才能用；`availability()` 会自己探活。 */
+    val termuxLinuxOps: TermuxLinuxOps by lazy {
+        TermuxLinuxOps(appContext, File(appContext.filesDir, "linux/work"))
+    }
+
+    /**
+     * 实际给工具用的 Linux 后端：**能借 Termux 就借**，借不到用内置引擎。
+     *
+     * ★ 为什么是"运行时选"：用户可能中途装 Termux / 撤权限，开机选一次会让它一直说不可用。
+     */
+    /** root 容器（B2）：根文件系统放在 `files/linux/rootfs`，还没装时如实说缺哪一步。 */
+    private val rootLinuxOps: RootLinuxOps by lazy {
+        RootLinuxOps(
+            actions = displayActions,
+            workDir = File(appContext.filesDir, "linux/work"),
+            rootfsDir = File(appContext.filesDir, "linux/rootfs"),
+            rootAvailable = { effectivePrivilegeMode() == PrivilegeMode.ROOT },
+        )
+    }
+
+    private val linuxOps: LinuxOpsPort by lazy {
+        LadderLinuxOps(termux = termuxLinuxOps, builtin = builtinLinuxOps, root = rootLinuxOps)
+    }
+
+    val mediaOps: Media3Ops by lazy {
+        Media3Ops(appContext, File(appContext.filesDir, "linux/work"), ::isLinuxBuiltinEnabled)
+    }
+
+    val builtinLinuxOps: BuiltinLinuxOps by lazy {
+        BuiltinLinuxOps(
+            context = appContext,
+            enabled = ::isLinuxBuiltinEnabled,
+            workDir = java.io.File(appContext.filesDir, "linux/work"),
+        ).also { ops ->
+            if (!ops.prepareWorkDir()) Timber.w("内置引擎：工作区目录建不起来")
+        }
+    }
+
     private val agentTools: List<McpTool> by lazy {
         // ★ 一个 `RootActions` 实例同时给"点按"和"读屏"用：它们共享同一个
         //   `su` 端口，分开建两个实例只会让日志里出现两条互不相干的时间线。
@@ -5605,6 +5744,10 @@ class AppContainer(context: Context) {
             SettingWriteTool(systemOps, safetyPort, rootUsable),
             PropWriteTool(systemOps, safetyPort, rootUsable),
             AppDisableTool(systemOps, safetyPort, rootUsable),
+            // ── Linux 工作区（B0 内置引擎；Termux / root 后端后续接手同一个端口）──
+            LinuxExecTool(linuxOps),
+            LinuxReadTool(linuxOps),
+            MediaOpsTool(mediaOps),
         )
     }
 
@@ -6200,6 +6343,15 @@ class AppContainer(context: Context) {
 
     /** 在场模式：她自己来找你。见 [lifeformProactiveOnValue]。 */
     private val KEY_LIFEFORM_PROACTIVE = booleanPreferencesKey("lifeform_proactive_v1")
+
+    /**
+     * 「内置 Linux 引擎」开关。
+     *
+     * ⚠️ 必须落盘：它同时管着 `media_ops`（见 `Media3Ops` 的构造参数）。
+     *    不落盘的话用户开了开关、重开 app 又变回关，媒体处理跟着一起失效，
+     *    而他找不到任何地方解释这件事。
+     */
+    private val KEY_LINUX_BUILTIN = booleanPreferencesKey("linux_builtin_v1")
 
     /** 聊天模式（角色扮演 / 在场）。见 [chatModeValue]。 */
     private val KEY_CHAT_MODE = stringPreferencesKey("chat_mode_v1")

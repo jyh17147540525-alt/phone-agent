@@ -98,6 +98,8 @@ enum class ChatMode(
             workDiscipline = false,
             lifeform = false,
             toolsAlwaysOn = false,
+            // 她只在用户说话时存在 —— 关掉戏之后没有"她此刻在哪"这回事。
+            presence = false,
         ),
     ),
 
@@ -119,6 +121,8 @@ enum class ChatMode(
             workDiscipline = true,
             lifeform = false,
             toolsAlwaysOn = true,
+            // 办事时她不该"在吃饭" —— 用户叫她做事，她必须在。
+            presence = false,
         ),
     ),
 
@@ -151,6 +155,8 @@ enum class ChatMode(
             workDiscipline = false,
             lifeform = true,
             toolsAlwaysOn = false, // 和角色扮演一样：要她动手时才挂
+            // ★ 只有这一个模式开：她有自己的今天（[lifeform]），也就有自己的此刻。
+            presence = true,
         ),
     ),
     ;
@@ -209,6 +215,24 @@ data class Switches(
     val lifeform: Boolean,
     /** 工具常驻。工作模式是 true（来办事的），其余按意图分类器决定。 */
     val toolsAlwaysOn: Boolean,
+    /**
+     * **她自己的作息**：几点吃饭、几点洗澡、几点睡下（见 [Presence]）。
+     *
+     * ⚠️ 关掉它，用户**看不到**任何东西 —— 她永远随叫随到，不会说"这会儿腾不出手"。
+     *    这正是角色扮演 / 工作模式现在的样子：那里面**时间是停的**，
+     *    用户不说话她就不存在，而一个不存在的人没有"吃饭时间"。
+     *
+     * ⚠️ 开着它，那个模式要接受两件事：
+     *    ① 提示词里会多一段"这个点你一般在做什么"（L3 状态层）；
+     *    ② **主动消息会被她的作息拦掉**（见 `AppContainer.proactiveTick`）。
+     *    所以它只在 [ChatMode.LIFEFORM] 开 —— 那个模式的存在理由就是"她有自己的今天"。
+     *
+     * ★ 2026-11-17 用户口径：「这个功能是要加入到一个模式里的，就是（角色）的窗，
+     *   深度参与用户生活的一个模式，后续会根据需求，部分加入其他模式」。
+     *   ⇒ 所以它是一个**开关**，不是写死的 `mode == LIFEFORM`：
+     *     将来要给别的模式开，改一行布尔即可，不必碰 `:app`。
+     */
+    val presence: Boolean,
 )
 
 /**

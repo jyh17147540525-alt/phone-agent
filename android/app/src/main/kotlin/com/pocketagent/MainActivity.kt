@@ -57,6 +57,11 @@ class PocketAgentApp : Application() {
         //   用户按悬浮球的停时，应用可能正跑着任务、界面根本没起来；
         //   注册晚一步，那一下按停就白按了 —— 而"急停没反应"是
         //   最不能容忍的失效形态（用户以为停住了，它还在点屏）。
+        // ★ Termux 通道的结果是**异步广播**回来的：接收器必须在任何任务开始前就在
+        //    （用户可能一进应用就让它跑命令；那时再注册会漏掉第一批结果）。
+        runCatching { com.pocketagent.assistant.TermuxLinuxOps.install(this) }
+            .onFailure { Timber.w(it, "Termux 结果接收器没装上（Termux 通道会不可用）") }
+
         val stopSignals = container.installStopSignals()
         if (!stopSignals) {
             Timber.w("急停信号没装上 —— 本次运行不该显示「按停」入口")
