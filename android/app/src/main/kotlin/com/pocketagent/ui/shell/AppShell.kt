@@ -1227,6 +1227,8 @@ fun AppShell(
                     var lifeformProactiveOn by remember {
                         mutableStateOf(container.lifeformProactiveOn())
                     }
+                    // root 容器的状态问磁盘一次：装过的人重装 APK 后不该又看到"未安装"
+                    LaunchedEffect(Unit) { container.refreshRootfsState() }
 
                     SettingsScreen(
                         keyStatus = keyStatus,
@@ -1236,6 +1238,9 @@ fun AppShell(
         onToggleAllowRefusal = { allowRefusalOn = it; container.setAllowRefusal(it) },
         linuxBuiltin = linuxBuiltinOn,
         onToggleLinuxBuiltin = { linuxBuiltinOn = it; container.setLinuxBuiltinEnabled(it) },
+        // root 容器的安装状态由容器持有（snapshot state），这里直接读就能重组
+        rootfsState = container.rootfsState,
+        onInstallRootfs = { settingsScope.launch { container.installRootfs() } },
         onOpenBackgroundAi = { navController.navigate(Routes.BACKGROUND_AI) },
         lifeformWeb = lifeformWebOn,
         onToggleLifeformWeb = { lifeformWebOn = it; container.setLifeformWebOn(it) },

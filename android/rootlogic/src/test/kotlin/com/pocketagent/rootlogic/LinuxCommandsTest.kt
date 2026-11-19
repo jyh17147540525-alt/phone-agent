@@ -197,10 +197,16 @@ class LinuxCommandsTest {
 
     @Test
     fun `chroot 的启动命令不需要挂载`() {
-        assertEquals(
-            listOf("chroot", "/rootfs", "python3", "-c", "print(1)"),
-            LinuxCommands.launch(LinuxKind.ROOT_CHROOT, "/rootfs", "/work", listOf("python3", "-c", "print(1)")),
+        // ★ 必须经容器里的 /bin/sh 转一手：`chroot <root> id` 是拿**宿主**的 PATH 去 exec，
+        //   容器里的 busybox applet 一个都不在宿主 PATH 上 ⇒ 退出码 127（真机原样翻过）。
+        val argv = LinuxCommands.launch(
+            LinuxKind.ROOT_CHROOT, "/rootfs", "/work", listOf("python3", "-c", "print(1)"),
         )
+        assertEquals(listOf("chroot", "/rootfs", "/bin/sh", "-c"), argv.dropLast(1))
+        val script = argv.last()
+        // PATH 必须在容器里重设：chroot 不换环境，宿主的 /system/bin 带进来只会得到 127
+        assertTrue(script, script.startsWith("PATH=${LinuxCommands.CONTAINER_PATH}; export PATH; exec "))
+        assertTrue(script, script.contains("'python3' '-c' 'print(1)'"))
     }
 
     @Test

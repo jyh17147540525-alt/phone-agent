@@ -570,6 +570,13 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
     var actedInLoop = false
     // SuperAgent 的结局（如果这一轮它接管了）—— 见下面的早返回。
     var superResult: ChatResult? = null
+
+    // ★ 工作台：进模型之前把选中的工作区拉进 `/work`。
+    //   放在这里（而不是工具里）的理由：模型要先"看见"文件才可能去读它；
+    //   等工具触发再拉，第一轮它已经说了"这里没有东西"。
+    //   聊天页不做 —— 那里的 `/work` 是角色自己的草稿纸。
+    if (chatMode.isWork) runCatching { container.syncWorkspace("进模型前") }
+
     val text = try {
         store.useKey(config.credentialId) { provider, credential ->
             // ── 纯对话：一次性请求，零工具 ────────────────────
@@ -872,6 +879,10 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
     //
     // ⇒ 必须在返回前洗。洗完要是几乎没剩下东西，那是整段外文胡话 ——
     //   不能返回空串（比错回复更让人困惑），直接报失败让用户重试。
+    // ★ 工作台：出模型之后把 `/work` 里改过的东西推回工作区。
+    //   失败不打断这一轮 —— 用户要的那句话已经拿到了，同步失败是下一件事。
+    if (chatMode.isWork) runCatching { container.syncWorkspace("出模型后") }
+
     val cleanText = text?.let { raw ->
         val cleaned = com.pocketagent.personalogic.OutputSanitizer.clean(raw)
         if (cleaned != raw) {

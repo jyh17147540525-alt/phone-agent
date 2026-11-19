@@ -80,6 +80,9 @@ object LinuxCommands {
         "insmod", "modprobe", "setenforce",
     )
 
+    /** 容器里的标准 PATH（Alpine 的 applet 都在 /bin 与 /usr/bin）。 */
+    const val CONTAINER_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
     const val MIN_TIMEOUT_SEC = 1
     const val MAX_TIMEOUT_SEC = 60
     const val MAX_ARGV = 32
@@ -159,8 +162,18 @@ object LinuxCommands {
         return when (kind) {
             LinuxKind.ROOT_CHROOT -> {
                 val root = rootfs ?: throw LinuxRejected("rootfs", "chroot 需要根目录")
-                if (networkOff) listOf("unshare", "-n", "chroot", root) + inner
-                else listOf("chroot", root) + inner
+                // ★ 必须经容器里的 /bin/sh 转一手再 exec。
+                //   直接 `chroot <root> id` 时，`id` 是拿**宿主**的 PATH 去 exec 的
+                //   （chroot 只换根，不换环境），于是找不到程序 → 退出码 127，
+                //   模型看到的就是"这工作区里压根没有这个程序"。真机原样翻过。
+                // ★ PATH 必须**在容器里重设**。chroot 只换根、不换环境：宿主的 PATH
+                //   （/system/bin:…）被原样带进来，而容器里没有这些目录 ⇒ busybox 的 applet
+                //   一个都找不到，退出码 127。真机上"id 没跑成"两次都是这个原因。
+                val command = "PATH=$CONTAINER_PATH; export PATH; exec " +
+                    inner.joinToString(" ") { quote(it) }
+                val shell = listOf("/bin/sh", "-c", command)
+                if (networkOff) listOf("unshare", "-n", "chroot", root) + shell
+                else listOf("chroot", root) + shell
             }
 
             LinuxKind.EXTERNAL_PROOT, LinuxKind.BUNDLED_PROOT -> {
@@ -181,6 +194,13 @@ object LinuxCommands {
     private fun looksLikePath(token: String): Boolean =
         token.startsWith("/") || token.startsWith("./") || token.startsWith("../") ||
             token == ".." || (token.contains('/') && !token.contains('\n'))
+
+    /**
+     * POSIX 单引号转义 —— 参数已过白名单与路径校验，这里只是**不让它变成两条命令**。
+     *
+     * `'` 本身用 `'\''` 断开再拼，是 shell 引号里唯一需要处理的字符。
+     */
+    internal fun quote(token: String): String = "'" + token.replace("'", "'\\''") + "'"
 
     /**
      * 路径规则：

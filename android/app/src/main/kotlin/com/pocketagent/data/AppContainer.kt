@@ -1464,6 +1464,34 @@ class AppContainer(context: Context) {
     @Volatile
     private var activeWorkspaceIdValue: String? = null
 
+    /**
+     * 工作区 ↔ 容器 `/work` 的搬运工。
+     *
+     * ★ 只在**工作台**里用：聊天页没有"工作区"这回事，那里的 `/work`
+     *   是角色自己的草稿纸，不该被用户的文档目录覆盖。
+     */
+    private val workspaceBridge: WorkspaceBridge by lazy {
+        WorkspaceBridge(
+            context = appContext,
+            workDir = File(appContext.filesDir, "linux/work"),
+            treeUri = {
+                runCatching {
+                    val roots = com.pocketagent.capability.SafDirectoryGrants(appContext).grantedRoots()
+                    val picked = roots.firstOrNull { it.id == activeWorkspaceIdValue } ?: roots.firstOrNull()
+                    picked?.token?.takeIf { it.isNotBlank() }?.let { android.net.Uri.parse(it) }
+                }.getOrNull()
+            },
+        )
+    }
+
+    /**
+     * 进模型之前拉、出模型之后推。
+     *
+     * @param phase 只用于日志
+     * @return 给人看的一句话（没有工作区/无变化时 null）
+     */
+    suspend fun syncWorkspace(reason: String): String? = workspaceBridge.sync(reason)
+
     fun activeWorkspaceId(): String? = activeWorkspaceIdValue
 
     fun setActiveWorkspace(id: String?) {
@@ -5559,11 +5587,58 @@ class AppContainer(context: Context) {
     private val rootLinuxOps: RootLinuxOps by lazy {
         RootLinuxOps(
             actions = displayActions,
+            // ★ 与其它后端共用同一个 work 目录：容器里的 /work 是它 bind mount 进去的，
+            //   所以"内置引擎写的文件"在 root 容器里看得见，换后端不会丢文件。
             workDir = File(appContext.filesDir, "linux/work"),
             rootfsDir = File(appContext.filesDir, "linux/rootfs"),
             rootAvailable = { effectivePrivilegeMode() == PrivilegeMode.ROOT },
+            // 挂载点重启后会消失：每次跑命令前确认一次（/proc/mounts 里查得到就不重挂）
+            ensureWorkMount = { rootfsInstallerIfReady()?.mountWork() },
         )
     }
+
+    /** rootfs 的布局：rootfs 目录 + 共享工作区。纯路径，不碰磁盘。 */
+    val rootfsLayout: com.pocketagent.rootlogic.RootfsLayout by lazy {
+        com.pocketagent.rootlogic.RootfsLayout(
+            rootfsDir = File(appContext.filesDir, "linux/rootfs").absolutePath,
+            workDir = File(appContext.filesDir, "linux/work").absolutePath,
+        )
+    }
+
+    /** rootfs 安装状态。**界面直接读**，所以必须是 snapshot state（普通 var 不触发重组）。 */
+    private val rootfsStateHolder =
+        androidx.compose.runtime.mutableStateOf<com.pocketagent.rootlogic.RootfsState>(
+            com.pocketagent.rootlogic.RootfsState.Absent,
+        )
+
+    /** rootfs 安装状态。**界面直接读** —— 普通 `var` 改了不会重组（这是本项目踩过四次的坑）。 */
+    var rootfsState: com.pocketagent.rootlogic.RootfsState
+        get() = rootfsStateHolder.value
+        private set(value) {
+            rootfsStateHolder.value = value
+        }
+
+    private val rootfsInstaller: RootfsInstaller by lazy {
+        RootfsInstaller(
+            context = appContext,
+            actions = displayActions,
+            layout = rootfsLayout,
+            onState = { rootfsState = it },
+        )
+    }
+
+    /** 启动时读一次磁盘，别让界面显示"没装"而磁盘上明明装好了。 */
+    fun refreshRootfsState() {
+        rootfsState = rootfsInstaller.probe()
+    }
+
+    /** 装 root 容器的根文件系统（下载 → 解包 → 挂 /work）。 */
+    suspend fun installRootfs() {
+        rootfsInstaller.install()
+    }
+
+    private fun rootfsInstallerIfReady(): RootfsInstaller? =
+        if (rootfsInstaller.probe() is com.pocketagent.rootlogic.RootfsState.Ready) rootfsInstaller else null
 
     private val linuxOps: LinuxOpsPort by lazy {
         LadderLinuxOps(termux = termuxLinuxOps, builtin = builtinLinuxOps, root = rootLinuxOps)

@@ -35,6 +35,14 @@ class RootLinuxOps(
     private val workDir: File,
     private val rootfsDir: File,
     private val rootAvailable: () -> Boolean,
+    /**
+     * 跑命令前确认 `/work` 挂上了。
+     *
+     * ★ 挂载点**重启后消失**，而 rootfs 不会。只装一次就完事的后果是：
+     *   装完当天好好的，第二天开机后容器里 `/work` 变成空目录，
+     *   用户以为"我上次写的文件没了"。
+     */
+    private val ensureWorkMount: (suspend () -> Unit)? = null,
 ) : LinuxOpsPort {
 
     override suspend fun availability(): LinuxAvailability {
@@ -59,7 +67,8 @@ class RootLinuxOps(
             return LinuxAvailability(
                 ready = false,
                 explain = "root 有了，但还没有根文件系统（${rootfsDir.absolutePath}）。" +
-                    "这一步需要下载解包，属于后面才做的事；现在可以先用内置引擎或 Termux。",
+                    "去 设置 → LINUX 工作区 → 「root 容器」点一下安装（约 3.6 MB，一次性），" +
+                    "装完这一档就能跑任意程序；不装也能先用内置引擎或 Termux。",
             )
         }
         return LinuxAvailability(
@@ -70,6 +79,8 @@ class RootLinuxOps(
 
     override suspend fun run(argv: List<String>, timeoutSec: Int): LinuxRunResult {
         val startedAt = System.currentTimeMillis()
+        // 挂载失败不阻断命令：没有 /work 也能跑 `id`，只是写文件会落到容器里。
+        runCatching { ensureWorkMount?.invoke() }
         val result = try {
             actions.run(
                 RootAction.LinuxShell(
@@ -77,6 +88,10 @@ class RootLinuxOps(
                     rootfs = rootfsDir.absolutePath,
                     workDir = workDir.absolutePath,
                     inner = argv,
+                    // 容器以 root 跑 ⇒ 它在 /work 里建的文件属主是 root，
+                    // 应用之后读不回来（linux_read 与工作区同步都会 EACCES）。
+                    // 每条命令跑完把属主改回应用自己。
+                    workOwner = "${android.os.Process.myUid()}:${android.os.Process.myUid()}",
                 ),
             )
         } catch (e: LinuxRejected) {

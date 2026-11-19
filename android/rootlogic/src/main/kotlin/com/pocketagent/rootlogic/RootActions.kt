@@ -103,10 +103,42 @@ sealed interface RootAction {
         val workDir: String,
         val inner: List<String>,
         val networkOff: Boolean = false,
+        /**
+         * 跑完之后把 `<workDir>` 里的属主改回它，例如 `"10499:10499"`。
+         *
+         * ★ 为什么必须做：容器是以 root 跑的，它在 `/work` 里建出来的文件属主是
+         *   root，而应用（uid 10499/99910499）之后既读不回来（`linux_read`
+         *   报 EACCES），也覆盖不了它（同步推回时同样 EACCES）。真机上第一次
+         *   撞见就是「share.txt: open failed: EACCES」。
+         *   不留这个善后，root 容器就成了"能写进去、拿不出来"的一口井。
+         */
+        val workOwner: String? = null,
     ) : RootAction
 
     /** 停掉副屏上的 App。**收屏之前必须做**，否则 Task 会被挪回主屏。 */
     data class DisplayStop(val packageName: String) : RootAction
+
+    /**
+     * 解包 rootfs（root 容器安装流程的第二步）。
+     *
+     * 载荷全部由我们自己拼，**没有用户输入**；三个路径都过 [RootCommands.safeToken]，
+     * 所以拼不出第二条命令。下载不在这里 —— 下载在应用进程里做（它有网络权限），
+     * 让 `su` 去 `curl` 等于把联网能力塞进 root 通道。
+     */
+    data class ProvisionRootfs(
+        val tarPath: String,
+        val rootfsDir: String,
+        val workDir: String,
+    ) : RootAction
+
+    /**
+     * 把宿主的工作区 bind mount 到 `<rootfs>/work`。
+     *
+     * ★ 为什么要挂而不是"容器里另建一个目录"：不挂的话，用户用内置引擎写的文件
+     *   在 root 容器里看不见 —— 换个后端文件就"消失"，比没有这个能力更糟。
+     *   挂载点在重启后消失，所以每次跑命令前都要确认（`/proc/mounts` 里查得到就不动）。
+     */
+    data class MountWork(val rootfsDir: String, val workDir: String) : RootAction
 }
 
 /** `settings` 的三个命名空间 —— 写错一个就是"改了但没生效"。 */
@@ -283,13 +315,43 @@ object RootCommands {
         is RootAction.DisplayStop ->
             DisplayCommands.forceStop(action.packageName).joinToString(" ")
 
-        is RootAction.LinuxShell -> LinuxCommands.launch(
-            kind = action.kind,
-            rootfs = action.rootfs,
-            workDir = action.workDir,
-            inner = action.inner,
-            networkOff = action.networkOff,
-        ).joinToString(" ")
+        // ★ 每个 token 都要引号包起来。这条 payload 是交给 `su -c "<payload>"` 的**一条** shell
+        //   字符串：不引号的话，`/bin/sh -c exec 'id'` 会被外层 shell 拆成 `sh -c exec` + `$0=id`，
+        //   于是 sh 只跑了个空 `exec` —— 退出码 0、输出空。真机上就是这么"跑成了但什么都没打出来"。
+        is RootAction.LinuxShell -> {
+            val argv = LinuxCommands.launch(
+                kind = action.kind,
+                rootfs = action.rootfs,
+                workDir = action.workDir,
+                inner = action.inner,
+                networkOff = action.networkOff,
+            ).joinToString(" ") { LinuxCommands.quote(it) }
+            val owner = action.workOwner
+            if (owner == null) argv
+            else {
+                // 用 `;` 而不是 `&&`：命令自己失败（退出码非 0）时，属主照样要改回来，
+                // 否则一个失败的 `mkdir` 就留下一批 root 文件，之后永远读不回来。
+                "$argv; chown -R ${safeToken("属主", owner)} " +
+                    safeToken("工作区", action.workDir) + " 2>/dev/null"
+            }
+        }
+
+        is RootAction.ProvisionRootfs -> {
+            val tar = safeToken("tar", action.tarPath)
+            val root = safeToken("rootfs", action.rootfsDir)
+            val work = safeToken("work", action.workDir)
+            // `rm -rf <root>/*` 之后解包：重装必须干净，否则旧文件会跟新 rootfs 混在一起。
+            "mkdir -p $root && rm -rf $root/* && " +
+                "tar -xf $tar -C $root && mkdir -p $work && echo PA_ROOTFS_OK"
+        }
+
+        is RootAction.MountWork -> {
+            val root = safeToken("rootfs", action.rootfsDir)
+            val work = safeToken("work", action.workDir)
+            // mountpoint -q 不打印；挂过就不再挂（重复挂会叠成多层，卸载时很麻烦）
+            "mkdir -p $root/work && " +
+                "(mountpoint -q $root/work || mount -o bind $work $root/work) && echo PA_MOUNT_OK"
+        }
 
         is RootAction.Query -> {
             if (action.argv.isEmpty()) throw UnsafeRootArgument("查询", "空")
@@ -314,6 +376,8 @@ object RootCommands {
         is RootAction.GetProp -> "shell.root"
         is RootAction.ReadFile -> "file.any"
         is RootAction.LinuxShell -> "shell.root"
+        is RootAction.ProvisionRootfs -> "shell.root"
+        is RootAction.MountWork -> "shell.root"
         // 虚拟屏上的点按仍是"点屏幕"；抓帧仍是"读屏"；停 App 是最重的那一类
         is RootAction.DisplayLaunch, is RootAction.DisplayTap,
         is RootAction.DisplaySwipe, is RootAction.DisplayText, is RootAction.DisplayKey -> "screen.tap"
@@ -356,7 +420,10 @@ class RootActions(
             return ShellResult(code = REJECTED, stdout = "", stderr = e.message ?: "参数不合法")
         }
 
-        if (daemon != null) {
+        // ★ 安装 rootfs 的两条动作**只走 su**：通道的 EXEC 白名单里没有
+        //   `tar`/`mount`（那是刻意的），硬发过去只会拿到一个拒绝码，
+        //   而拒绝码不会触发"退回 su"——用户会看到"安装失败"却看不出原因。
+        if (daemon != null && DaemonCalls.supports(action)) {
             val viaDaemon = runViaDaemon(action)
             if (viaDaemon != null) return viaDaemon
             // 通道不可用（连不上/断线/协议不对）→ 退回 su。**不重试通道**：

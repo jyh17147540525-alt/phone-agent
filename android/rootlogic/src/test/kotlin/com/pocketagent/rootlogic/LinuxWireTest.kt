@@ -102,7 +102,13 @@ class LinuxWireTest {
                 inner = listOf("id"),
             ),
         )
-        assertEquals("chroot /data/local/tmp/pa-root id", payload)
+        // 经 /bin/sh 转一手再 exec —— 见 LinuxCommandsTest 里那条同因的改动
+        // 每个 token 都单引号包起来：payload 是交给 `su -c "…"` 的**一条**字符串，
+        // 不引的话 `-c exec 'id'` 会被外层 shell 拆成 `sh -c exec` + `$0=id` —— 退出码 0、输出空。
+        // 这里只钉结构，不钉转义后的完整字形（那种断言改一处转义就全红，信息量还低）。
+        assertTrue(payload, payload.startsWith("'chroot' '/data/local/tmp/pa-root' '/bin/sh' '-c'"))
+        assertTrue(payload, payload.contains("exec"))
+        assertTrue(payload, payload.contains("'id'"))
     }
 
     @Test
@@ -116,7 +122,7 @@ class LinuxWireTest {
                 networkOff = true,
             ),
         )
-        assertTrue("root 档的断网是 unshare -n：$payload", payload.startsWith("unshare -n chroot"))
+        assertTrue("root 档的断网是 unshare -n：$payload", payload.startsWith("'unshare' '-n' 'chroot'"))
     }
 
     @Test

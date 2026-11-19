@@ -28,7 +28,22 @@ object DaemonCalls {
      * @throws UnsafeRootArgument 参数越界时抛出（与 `su` 那条路**同一个异常类型**，
      *   这样上层 `RootActions.run` 的 catch 不用分两套）。
      */
+    /**
+     * 这条动作能不能走通道。
+     *
+     * ★ 安装 rootfs 走不了：通道的 `EXEC` 有白名单（只读工具），`tar`/`mount`
+     *   不在里面，也不该在 —— 那是"安装流程"的一次性动作，不是模型能反复要的活。
+     */
+    fun supports(action: RootAction): Boolean = when (action) {
+        is RootAction.ProvisionRootfs, is RootAction.MountWork -> false
+        else -> true
+    }
+
     fun of(action: RootAction): DaemonCall = when (action) {
+        // 走到这里说明 [supports] 的判断被绕过了；直接炸掉比偷偷发一条坏请求好。
+        is RootAction.ProvisionRootfs, is RootAction.MountWork ->
+            throw IllegalStateException("rootfs 安装只能走 su（见 supports）")
+
         is RootAction.Tap -> DaemonCall(
             RootVerb.INJECT,
             listOf("tap", coord("x", action.x), coord("y", action.y)),

@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Cable
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
@@ -104,6 +105,14 @@ fun SettingsScreen(
      */
     linuxBuiltin: Boolean = false,
     onToggleLinuxBuiltin: ((Boolean) -> Unit)? = null,
+    /**
+     * **root 容器的根文件系统**（下载 → 解包 → 挂 /work）。
+     *
+     * ⚠️ 这一行必须显示"现在到哪一步了"：下载是几十秒的事，
+     *    只给一个可点的按钮，用户分不清"没反应"和"正在下"。
+     */
+    rootfsState: com.pocketagent.rootlogic.RootfsState = com.pocketagent.rootlogic.RootfsState.Absent,
+    onInstallRootfs: (() -> Unit)? = null,
     /**
      * **在场模式：让她上网看看**。
      *
@@ -521,6 +530,25 @@ fun SettingsScreen(
                                     checkedTrackColor = PaColor.Accent,
                                 ),
                             )
+                        },
+                    )
+                    // root 容器：还要一个根文件系统才跑得动任意程序。
+                    // 它不是开关而是"装 / 没装"，所以这一行是可点的（不是 Switch）。
+                    val busy = rootfsState is com.pocketagent.rootlogic.RootfsState.Downloading ||
+                        rootfsState is com.pocketagent.rootlogic.RootfsState.Unpacking
+                    PaListRow(
+                        icon = Icons.Default.Folder,
+                        title = "root 容器",
+                        subtitle = com.pocketagent.rootlogic.RootfsProvision.explain(rootfsState),
+                        onClick = if (busy || rootfsState is com.pocketagent.rootlogic.RootfsState.Ready) {
+                            null
+                        } else {
+                            { onInstallRootfs?.invoke() }
+                        },
+                        trailing = when {
+                            rootfsState is com.pocketagent.rootlogic.RootfsState.Ready -> "已就绪"
+                            busy -> "进行中"
+                            else -> "安装"
                         },
                     )
                 }
