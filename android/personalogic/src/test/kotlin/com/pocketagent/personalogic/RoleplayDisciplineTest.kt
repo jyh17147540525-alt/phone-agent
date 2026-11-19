@@ -248,6 +248,68 @@ class OutputSanitizerTest {
     }
 
     // ═══════════════════════════════════════════════════════════
+    //  ★ 工具文案里的技术词不许被当成"外文"删掉（2026-11-18 真机）
+    // ═══════════════════════════════════════════════════════════
+    //
+    //  应用分身里 linux_exec 被安全策略拒绝，模型如实转述三条原因，
+    //  里面带着 Linux / Termux / root。清洗把它们整词删掉之后，用户看到：
+    //    「这台机器没， 容器那档用不了」
+    //  —— 碎了，而且他再也看不出该去哪儿开开关。
+
+    @Test
+    fun `我们自己在工具文案里说过的技术词要原样留下`() {
+        // 一条一条钉：删掉白名单里任何一个，这里就会红。
+        val words = listOf(
+            "Linux", "Termux", "root", "Python", "Magisk", "KernelSU",
+            "JSON", "API", "Key", "MCP", "dsh", "adb",
+            "mp3", "m4a", "mp4", "wav", "webm", "png", "jpg",
+            "PocketAgent", "F-Droid", "OCR", "CSV", "XLSX",
+            "python3", "uid", "exitcode", "selinux", "kernel", "apk",
+        )
+        for (w in words) {
+            val src = "这一项是 $w 的事。"
+            assertEquals("被删了：$w → [${OutputSanitizer.clean(src)}]", src, OutputSanitizer.clean(src))
+        }
+    }
+
+    @Test
+    fun `拒绝文案不会被削成病句`() {
+        val raw = "跑不了。内置 Linux 引擎默认关闭；Termux 没给权限；root 容器这一档用不上。"
+        val out = OutputSanitizer.clean(raw)
+        assertTrue("Linux 被删了：[$out]", out.contains("Linux"))
+        assertTrue("Termux 被删了：[$out]", out.contains("Termux"))
+        assertTrue("root 被删了：[$out]", out.contains("root"))
+    }
+
+    @Test
+    fun `模型自己退化冒出来的英文词照旧删掉`() {
+        assertEquals("今天我不想说话。", OutputSanitizer.clean("今天interpolate我不想说话。"))
+        assertEquals("今天天气不错。", OutputSanitizer.clean("今天天气fine不错。"))
+    }
+
+    @Test
+    fun `代码块里的英文和符号原样保留`() {
+        // ★ 2026-11-19 真机抓到的原样：模型给出可照做的命令，被清洗成
+        //   「这档只吃，` 不认」—— 用户没法照做，还以为模型在胡说。
+        val src = "这样跑：\n```python\nimport os\nprint(os.getuid())\n```\n就这样。"
+        assertEquals(src, OutputSanitizer.clean(src))
+    }
+
+    @Test
+    fun `行内代码里的命令不被删`() {
+        val src = "内置引擎只吃 `python3 -c`，`id` 不认。"
+        assertEquals(src, OutputSanitizer.clean(src))
+    }
+
+    @Test
+    fun `散文里的英文照旧删掉但代码保住`() {
+        val src = "这个 feature 用 `npm run build` 就行。"
+        val out = OutputSanitizer.clean(src)
+        assertFalse("散文里的 feature 没删：[$out]", out.contains("feature"))
+        assertTrue("代码被删了：[$out]", out.contains("npm run build"))
+    }
+
+    // ═══════════════════════════════════════════════════════════
     //  ★ 安全阀
     // ═══════════════════════════════════════════════════════════
 

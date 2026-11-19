@@ -5837,7 +5837,16 @@ class AppContainer(context: Context) {
     fun setPrivilegeMode(mode: PrivilegeMode): Pair<PrivilegeMode, RootProbeResult> {
         selectedPrivilegeMode = mode
         // 只在选 root 时才值得探 —— 选普通模式时探了也没用
-        val probe = if (mode == PrivilegeMode.ROOT) RootProbe.probe() else RootProbeResult.NotRooted
+        // ★ 2026-11-19 真机：这里是 `else RootProbeResult.NotRooted`。
+        //   后果是「手机明明有 root、上次探测还是 Available，只因为你选了普通档，
+        //   界面立刻改口说『这台手机没有 root』」—— 用户当场投诉了一句假话。
+        //   档位是档位，设备有没有 root 是另一件事，不能用一个变量混着记。
+        val probe = if (mode == PrivilegeMode.ROOT) {
+            RootProbe.probe()
+        } else {
+            // 只有从来没探过才记"没 root"；探过就保留上次结论。
+            lastRootProbe ?: RootProbeResult.NotRooted
+        }
         lastRootProbe = probe
         Timber.i("权限模式：选择=%s 探测=%s 实际=%s", mode, probe::class.simpleName, effectivePrivilegeMode())
         startupScope.launch {

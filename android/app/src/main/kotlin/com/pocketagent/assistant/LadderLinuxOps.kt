@@ -52,8 +52,26 @@ class LadderLinuxOps(
         }
     }
 
-    override suspend fun run(argv: List<String>, timeoutSec: Int): LinuxRunResult =
-        pick().run(argv, timeoutSec)
+    override suspend fun run(argv: List<String>, timeoutSec: Int): LinuxRunResult {
+        // ★ 2026-11-19 真机：root 档明明通了、只是没装根文件系统，而内置引擎
+        //   回一句「只支持 python3」，模型就照着这句答，用户听到的永远是
+        //   「内核默认关闭」。降级时**必须**把上面两档缺什么一起带回去，
+        //   否则模型没有信息可讲，只能重复内置引擎那句。
+        val rootStatus = root?.availability()
+        if (rootStatus?.ready == true) return root.run(argv, timeoutSec)
+
+        val termuxStatus = termux.availability()
+        if (termuxStatus.ready) return termux.run(argv, timeoutSec)
+
+        val result = builtin.run(argv, timeoutSec)
+        if (result.exitCode == 0) return result
+        val why = "（这一档是内置引擎，只吃 python3。" +
+            "Termux：${termuxStatus.explain}" +
+            (rootStatus?.let { "；root 容器：${it.explain}" } ?: "") + "）"
+        return result.copy(
+            stderr = listOf(result.stderr.trim(), why).filter { it.isNotBlank() }.joinToString("\n"),
+        )
+    }
 
     override suspend fun read(path: String, maxBytes: Int): LinuxReadResult =
         pick().read(path, maxBytes)

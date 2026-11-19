@@ -141,16 +141,26 @@ fun PrivilegeModeScreen(
                 probe is RootProbeResult.Failed -> PaBannerTone.Warning
                 else -> PaBannerTone.Info
             }
+            // ★ 2026-11-19 真机：这里是 `else Node`。后果是手机明明有 root、
+            //   上次探测还是 Available，只因为档位选的是普通，横幅就断言
+            //   「这台手机没有 root」—— 用户当场投诉"它一直在说没 root"。
+            //   现在把「有没有 root」和「选了哪一档」分开说。
             val title = when {
                 isRoot -> "Root 已就绪"
                 checked != isRoot && checked -> "开关是开的，但实际没生效"
+                probe is RootProbeResult.Available -> "手机有 root，现在是普通模式"
                 probe is RootProbeResult.Denied -> "手机有 root，但本应用没被授权"
                 else -> "当前是普通模式"
             }
             PaBanner(
                 tone = tone,
                 title = title,
-                description = probe?.explain() ?: PrivilegeMode.NON_ROOT.summary,
+                description = when {
+                    !isRoot && probe is RootProbeResult.Available ->
+                        "root 是通的（上次探测拿到了 uid=0），只是你把档位设成了普通。" +
+                            "要用 root 能力，点上面那一行切回 Root 模式就行。"
+                    else -> probe?.explain() ?: PrivilegeMode.NON_ROOT.summary
+                },
             )
         }
 

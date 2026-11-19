@@ -41,8 +41,18 @@ class RootLinuxOps(
         if (!rootAvailable()) {
             return LinuxAvailability(
                 ready = false,
-                explain = "这台机器没有 root（或没给本应用授权）。root 档的容器能装包、能真断网，" +
-                    "但需要 Magisk/KernelSU 授权；不给也能用内置引擎或 Termux。",
+                // ══════════════════════════════════════════════════════
+                //  ★ 2026-11-18 真机：原来是「这台机器没有 root（或没给本应用
+                //    授权）」。可这台机器是 KernelSU root，日志也打了
+                //    「root 通道：已发现常驻通道」—— 用不了的真正原因是
+                //    effectivePrivilegeMode() 还是普通档（第 0 档，选普通时
+                //    绝不自动升级）。把档位说成"设备没有 root"，用户会去查
+                //    手机是不是丢了 root，而不是去切档。
+                // ══════════════════════════════════════════════════════
+                explain = "root 容器这一档现在用不上：要么权限档位还是普通（第 0 档），" +
+                    "要么这台机器没给 root 授权。它比内置引擎强得多——能装软件包、能真断网；" +
+                    "要开它：设置 → 运行模式，把那一行切成 Root 模式（需要 Magisk/KernelSU 授权）。" +
+                    "不切也能用内置引擎或 Termux。",
             )
         }
         if (!looksLikeRootfs()) {

@@ -38,6 +38,27 @@ object OutputSanitizer {
     private val LATIN_KEEP = setOf(
         "ok", "okay", "wifi", "app", "id", "url", "qq", "cpu", "gps",
         "ai", "pdf", "excel", "word", "ppt", "usb", "sms", "otp",
+        // ══════════════════════════════════════════════════════════════
+        //  ★ 2026-11-18 真机（应用分身）：`linux_exec` 被安全策略拒绝，
+        //    模型如实转述三条原因，里面带着 Linux / Termux / root。
+        //    清洗把它们**整词删掉**，用户看到的是：
+        //      「这台机器没， 容器那档用不了」
+        //    —— 句子碎了，而且他再也看不出该去哪儿开开关。
+        //
+        //  ⚠️ 白名单只收**我们自己在工具结果、设置界面里说过的技术词**。
+        //    模型自己退化冒出来的英文（interpolate、fine…）照旧删：
+        //    那一类才是用户最初投诉的"牛头不对马嘴"。
+        // ══════════════════════════════════════════════════════════════
+        "linux", "termux", "root", "python", "magisk", "kernelsu",
+        "json", "api", "key", "mcp", "dsh", "adb",
+        "mp3", "m4a", "mp4", "wav", "webm", "png", "jpg",
+        // ★ 2026-11-19：工具结果/设置界面里真会出现的词。缺一个就是一整句被削掉。
+        "python3", "bash", "uid", "gid", "exitcode", "argv", "stdin", "stdout", "stderr",
+        "selinux", "kernel", "apk", "ssh", "git", "npm", "node", "pip", "venv",
+        "http", "https", "yaml", "toml", "xml", "html", "md", "txt",
+        // 我们自己界面与工具文案里出现的名字/格式（真机：模型转述
+        // 「设置 → 应用 → PocketAgent → 权限」被削成「设置 → 应用 → → 权限」）。
+        "pocketagent", "f-droid", "ocr", "csv", "xlsx",
     )
 
     /**
@@ -59,7 +80,18 @@ object OutputSanitizer {
     )
 
     /** 一串拉丁字母（含词内连字符/撇号）。 */
-    private val LATIN_RUN = Regex("[A-Za-z][A-Za-z'’-]{0,30}")
+    private val LATIN_RUN = Regex("[A-Za-z][A-Za-z0-9’-]{0,30}")
+
+    /** 围栏代码块（``` 或 ~~~，含语言标记）。 */
+    private val CODE_BLOCK = Regex("```[\\s\\S]*?```|~~~[\\s\\S]*?~~~")
+
+    /** 行内代码 `…`（不跨行，限长避免把整段吃掉）。 */
+    private val CODE_INLINE = Regex("`[^`\\n]{1,200}`")
+
+    /** 挖代码时的占位符：私用区字符，不会被任何清洗规则碰到。 */
+    private const val MARK_OPEN = "\uE000"
+
+    private const val MARK_CLOSE = "\uE001"
 
     /** 一个汉字。用来判断"清洗后还剩不剩中文"。 */
     private val CJK = Regex("[\\u4e00-\\u9fff]")
@@ -75,7 +107,24 @@ object OutputSanitizer {
     fun clean(text: String, allowLatin: Boolean = false): String {
         if (text.isBlank()) return text
 
+        // ── ⓪ 先把代码段挖出来存着 ──────────────────────
+        //
+        // ★ 2026-11-19 真机上抓到的：模型回一句
+        //   「内置引擎只吃 `python3 -c`，`id` 不认」，被清洗成
+        //   「这档只吃，` 不认」—— 命令和代码全没了，用户没法照做。
+        //
+        //   代码块里的英文/符号**不是"外文漂移"，是内容本身**。
+        //   所以：先挖走 → 只清洗剩下的散文 → 再原样放回。
+        val kept = ArrayList<String>()
         var out = text
+        out = CODE_BLOCK.replace(out) { m ->
+            kept += m.value
+            MARK_OPEN + (kept.size - 1) + MARK_CLOSE
+        }
+        out = CODE_INLINE.replace(out) { m ->
+            kept += m.value
+            MARK_OPEN + (kept.size - 1) + MARK_CLOSE
+        }
 
         // ── ① 非中文文字系统：直接删 ────────────────────
         out = FOREIGN_SCRIPTS.replace(out, "")
@@ -88,7 +137,13 @@ object OutputSanitizer {
         }
 
         // ── ③ 收拾残局 ──────────────────────────────────
-        return tidy(out)
+        out = tidy(out)
+
+        // ── ④ 把代码原样放回 ────────────────────────────
+        for (i in kept.indices) {
+            out = out.replace(MARK_OPEN + i + MARK_CLOSE, kept[i])
+        }
+        return out
     }
 
     /**
