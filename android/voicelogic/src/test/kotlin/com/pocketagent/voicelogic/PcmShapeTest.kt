@@ -53,4 +53,52 @@ class PcmShapeTest {
         PcmShape.fadeEdges(src, sampleRate = 24_000, fadeMs = 1)
         assertArrayEquals(copy, src)
     }
+
+    /** 造一段 24kHz 单声道 PCM：前面 toneMs 说话，然后 silentMs 静音，再 toneMs 说话。 */
+    private fun toneSilenceTone(toneMs: Int, silentMs: Int, amp: Int = 6_000): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        fun tone(ms: Int) {
+            val n = 24 * ms
+            for (i in 0 until n) {
+                val v = (amp * Math.sin(2 * Math.PI * 200.0 * i / 24_000.0)).toInt()
+                out.write(v and 0xFF)
+                out.write((v shr 8) and 0xFF)
+            }
+        }
+        fun silence(ms: Int) {
+            repeat(24 * ms) { out.write(0); out.write(0) }
+        }
+        tone(toneMs); silence(silentMs); tone(toneMs)
+        return out.toByteArray()
+    }
+
+    @Test
+    fun `服务商塞的长静音会被压短`() {
+        val shaped = PcmShape.collapseSilence(toneSilenceTone(1_000, 1_200), 24_000)
+        // 原本 3.2 秒，压完应该接近 1+0.12+1 秒
+        val ms = shaped.size / 48
+        assertTrue("压完 $ms ms 应该 < 2600", ms < 2_600)
+        assertTrue("压完 $ms ms 应该 > 1900", ms > 1_900)
+    }
+
+    @Test
+    fun `开头与结尾的静音整段剪掉_不再自己垫空白`() {
+        val raw = java.io.ByteArrayOutputStream().apply {
+            repeat(24 * 300) { write(0); write(0) }          // 开头 300ms 静音
+            val t = toneSilenceTone(500, 0)
+            write(t, 0, t.size)
+            repeat(24 * 300) { write(0); write(0) }          // 结尾 300ms 静音
+        }.toByteArray()
+        val shaped = PcmShape.collapseSilence(raw, 24_000)
+        val ms = shaped.size / 48
+        // toneSilenceTone(500, 0) = 两段 500ms 的 tone 连在一起，共 1000ms
+        assertTrue("剪完 $ms ms 应接近 1000ms", ms in 960..1_060)
+    }
+
+    @Test
+    fun `短气口不会被压`() {
+        val shaped = PcmShape.collapseSilence(toneSilenceTone(400, 150), 24_000)
+        val ms = shaped.size / 48
+        assertTrue("气口保留，长度应接近 950ms，实际 $ms", ms in 900..1_000)
+    }
 }

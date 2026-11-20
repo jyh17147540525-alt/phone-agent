@@ -36,6 +36,82 @@ object PcmShape {
      * @param fadeMs 首尾各淡多少毫秒
      * @return **新数组**（不改入参：缓存里存的是干净数据，播一次不能把缓存改了）
      */
+    /**
+     * **把内部的长静音压短，首尾静音整段剪掉。**
+     *
+     * 真机实测（2026-11-20，`e8bc38c0…pcm`，487 680 字节 / 24kHz 单声道 / 10.16 秒）：
+     * 服务商返回的音频里，句子之间塞着 0.5 秒、1.15 秒的纯数字静音。
+     * 用户听到的是"整个音频前半段有一段空白" —— 那不是我们加的，
+     * 是服务商自己在句子之间停顿，而我们的 60 秒分条把多句装进了同一条。
+     *
+     * 规则：连续静音 > [minRunMs] 的，压到 [keepMs]（保留一点气口，不然像卡带）；
+     * 开头结尾的静音直接剪掉 —— 用户明确要求"空白只留在结尾"，
+     * 而结尾那 2 秒由调用方自己补（[com.pocketagent.voicelogic.VoiceNote.TAIL_PAD_MS]）。
+     *
+     * @param threshold 判定为静音的峰值。真机静音段峰值都在 60 以内，正常说话 5000 以上。
+     */
+    fun collapseSilence(
+        bytes: ByteArray,
+        sampleRate: Int = 24_000,
+        bytesPerSample: Int = 2,
+        keepMs: Int = 120,
+        minRunMs: Int = 400,
+        threshold: Int = 120,
+    ): ByteArray {
+        if (bytes.size < bytesPerSample * 2) return bytes
+        val step = bytesPerSample.coerceAtLeast(1)
+        val total = bytes.size / step
+        fun sampleAt(i: Int): Int {
+            val lo = bytes[i * step].toInt() and 0xFF
+            val hi = bytes[i * step + 1].toInt()
+            return (hi shl 8) or lo
+        }
+        val frameMs = 10
+        val frameSamples = (sampleRate / 1000 * frameMs).coerceAtLeast(1)
+        val frames = total / frameSamples
+        if (frames < 4) return bytes
+        val quiet = BooleanArray(frames)
+        for (f in 0 until frames) {
+            var peak = 0
+            val base = f * frameSamples
+            for (i in 0 until frameSamples) {
+                val v = kotlin.math.abs(sampleAt(base + i))
+                if (v > peak) peak = v
+            }
+            quiet[f] = peak < threshold
+        }
+        val minRunFrames = (minRunMs / frameMs).coerceAtLeast(1)
+        val keepFrames = (keepMs / frameMs).coerceAtLeast(0)
+        val out = java.io.ByteArrayOutputStream(bytes.size)
+        var f = 0
+        // 开头静音：整段丢
+        while (f < frames && quiet[f]) f++
+        while (f < frames) {
+            if (!quiet[f]) {
+                out.write(bytes, f * frameSamples * step, frameSamples * step)
+                f++
+                continue
+            }
+            var end = f
+            while (end < frames && quiet[end]) end++
+            val run = end - f
+            val atTail = end >= frames
+            if (atTail) {
+                // 结尾静音丢掉，由调用方补固定长度
+            } else if (run > minRunFrames) {
+                var k = 0
+                while (k < keepFrames) {
+                    out.write(bytes, (f + k.coerceAtMost(run - 1)) * frameSamples * step, frameSamples * step)
+                    k++
+                }
+            } else {
+                out.write(bytes, f * frameSamples * step, run * frameSamples * step)
+            }
+            f = end
+        }
+        return out.toByteArray()
+    }
+
     fun fadeEdges(bytes: ByteArray, sampleRate: Int, fadeMs: Int = DEFAULT_FADE_MS): ByteArray {
         val fadeSamples = (sampleRate.toLong() * fadeMs / 1000L).toInt()
         val totalSamples = bytes.size / 2

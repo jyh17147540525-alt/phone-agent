@@ -133,7 +133,13 @@ class TtsSpeaker(private val context: Context) {
         //     它自己会等设备就绪；我们不再手写 AudioTrack 的 24kHz 假设。
         //     WAV 头是死的 44 字节，字节内容仍是服务商原样 PCM —— 不重新编码。
         stopped = false
-        val shaped = com.pocketagent.voicelogic.PcmShape.fadeEdges(pcm, PCM_SAMPLE_RATE, EDGE_FADE_MS)
+        // ★ 2026-11-20 真机：用户说"整个音频前半段会有一段空白，我要求的空白只在结尾"。
+        //   抽查缓存（487680 字节 / 24kHz / 10.16s）证明：空白是**服务商给的** ——
+        //   0.90s 起 0.50s、5.65s 起 1.15s 的纯数字静音（峰值 <60），不是我们垫的。
+        //   所以这里先压掉内部长静音、剪掉首尾静音，**不额外垫开头**；
+        //   结尾那 2 秒由调用方按用户要求补。
+        val trimmed = com.pocketagent.voicelogic.PcmShape.collapseSilence(pcm, PCM_SAMPLE_RATE)
+        val shaped = com.pocketagent.voicelogic.PcmShape.fadeEdges(trimmed, PCM_SAMPLE_RATE, EDGE_FADE_MS)
         val file = java.io.File(context.cacheDir, "voice_clip.wav")
         return try {
             writeWav(file, shaped)
@@ -279,9 +285,6 @@ class TtsSpeaker(private val context: Context) {
     companion object {
         /** OpenAI 兼容 TTS 的 PCM 输出格式：24kHz / 16bit / 单声道。 */
         const val PCM_SAMPLE_RATE = 24_000
-
-        /** 起播垫的静音：给输出通路一点上电时间，把"啪"藏在静音里。 */
-        private const val STARTUP_PAD_MS = 80
 
         /** 首尾淡变时长。20ms 仍在一个字的起音之内，听不出被压。 */
         private const val EDGE_FADE_MS = 20
