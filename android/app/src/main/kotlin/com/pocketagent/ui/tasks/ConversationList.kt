@@ -268,6 +268,9 @@ private fun TurnBubbles(
         val showReply = (task.state == TaskState.Done || task.state == TaskState.Failed) &&
             reply.isNotBlank()
 
+        // ★ 2026-11-20 用户定的顺序：**语音在上，文字在下**（像微信那样先看到那条语音）。
+        com.pocketagent.ui.tasks.VoiceRowAbove(replyText = reply, visible = showReply)
+
         AnimatedVisibility(
             visible = showReply,
             // ══════════════════════════════════════════════════════
@@ -326,8 +329,8 @@ private fun TurnBubbles(
                     )
                 }
             }
-            // ★ 2026-11-20：语音条 + 文件卡片（钩子由 TasksScreen 经 CompositionLocal 送入）
-            com.pocketagent.ui.tasks.ReplyExtrasRow(replyText = reply)
+            // ★ 2026-11-20：文件卡片在正文**下面**（"这轮做出来的东西"，属附注）
+            com.pocketagent.ui.tasks.FilesRowBelow(replyText = reply, visible = showReply)
         }
 
         // ── 失败时的补充说明（只在没有正文时兜底）────────────

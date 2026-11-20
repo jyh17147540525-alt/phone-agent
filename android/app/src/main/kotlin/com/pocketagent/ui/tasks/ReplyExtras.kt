@@ -249,20 +249,32 @@ internal val LocalVoiceReply =
  *   条子，比不画更让人以为应用坏了。
  */
 @androidx.compose.runtime.Composable
-internal fun ReplyExtrasRow(replyText: String) {
+internal fun VoiceRowAbove(replyText: String, visible: Boolean) {
+    if (!visible) return
     val hooks = LocalVoiceReply.current ?: return
+    if (!hooks.canSpeak) return
     val clips = hooks.clipsOf(replyText)
+    if (clips.isEmpty()) return
+    VoiceClipGroup(
+        clips = clips,
+        playingText = hooks.playingText,
+        onPlay = hooks.onToggle,
+        modifier = androidx.compose.ui.Modifier.padding(bottom = PaSpace.xs),
+    )
+}
+
+/**
+ * 回复**下面**那张文件卡片。
+ *
+ * ★ 用户 m09943 定的顺序：「语音在上，文字在下」—— 语音条在正文之前，
+ *   文件卡片在正文之后（它是"这轮做出来的东西"，属于附注，不属于发言）。
+ */
+@androidx.compose.runtime.Composable
+internal fun FilesRowBelow(replyText: String, visible: Boolean) {
+    if (!visible) return
+    val hooks = LocalVoiceReply.current ?: return
     val files = com.pocketagent.filelogic.ReplyFiles.parse(replyText)
-    if (hooks.canSpeak && clips.isNotEmpty()) {
-        Spacer(Modifier.height(PaSpace.xs))
-        VoiceClipGroup(
-            clips = clips,
-            playingText = hooks.playingText,
-            onPlay = hooks.onToggle,
-        )
-    }
-    if (files.isNotEmpty()) {
-        Spacer(Modifier.height(PaSpace.xs))
-        ReplyFileCards(files = files, onOpen = hooks.onOpenFile)
-    }
+    if (files.isEmpty()) return
+    Spacer(Modifier.height(PaSpace.xs))
+    ReplyFileCards(files = files, onOpen = hooks.onOpenFile)
 }
