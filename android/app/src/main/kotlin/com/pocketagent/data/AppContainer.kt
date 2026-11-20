@@ -3927,7 +3927,12 @@ class AppContainer(context: Context) {
                 Timber.w("语音条：媒体音量是 0，仍然照播（请用户自己调音量）")
             }
             ttsReadyHolder.value = true
-            played = ttsSpeaker.playPcm(pcm)
+            // ★ 2026-11-20 用户要求：播放时长比云端返回的音频**多 2 秒**，
+            //   哪怕那 2 秒是空的也要放。补在播放端而不是缓存里：
+            //   缓存存的是服务商原样字节，将来换 pad 长度不必重合成。
+            played = ttsSpeaker.playPcm(
+                pcm + ByteArray(com.pocketagent.voicelogic.VoiceNote.TAIL_PAD_BYTES),
+            )
         }
         if (!sawKey) Timber.w("语音条：没有默认语音 Key（去「设置 → API Key → 语音」里配一条并设为默认）")
         played
@@ -4018,7 +4023,9 @@ class AppContainer(context: Context) {
         var ms: Int? = null
         repo.useDefaultTtsKey { _, credential ->
             val key = voiceNoteStore.keyOf(clipText.trim(), credential.voiceOverride, null)
+            // ★ 显示时长也要含末尾那 2 秒静音，否则条长和实际播放对不上。
             ms = voiceNoteStore.cachedDurationMs(key)
+                ?.let { com.pocketagent.voicelogic.VoiceNote.paddedMs(it) }
         }
         ms
     }

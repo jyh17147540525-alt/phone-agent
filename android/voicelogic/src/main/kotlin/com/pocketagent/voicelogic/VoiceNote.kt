@@ -38,6 +38,24 @@ object VoiceNote {
     /** 一条回复最多切几条 —— 再多就是"刷屏"，用户要的是一条消息里几条，不是十几条。 */
     const val MAX_CLIPS: Int = 8
 
+    /**
+     * 条子末尾固定多放 2 秒**静音**。
+     *
+     * ★ 用户 2026-11-20 明确要求："语音的播放时长要比云端语音模型返回的音频要长 2 秒，
+     *   哪怕这两秒是空白没内容也要放。"
+     *
+     * 为什么要这样：云端音频常在最后一个字的尾音上就断，听感像被掐掉。
+     * 补 2 秒静音等于给一句话留气口，和真人对讲一样。
+     * ⚠️ 所以**显示时长也要算上这 2 秒**，否则条长和实际不符，用户会以为坏了。
+     */
+    const val TAIL_PAD_MS = 2_000
+
+    /** 末尾静音补多少字节（24kHz / 16bit / 单声道）。 */
+    val TAIL_PAD_BYTES: Int
+        // ⚠️ 用 getter 而不是 const：`const val` 的初始化发生在声明处，
+        //    而这个表达式依赖下面才声明的 PCM_* 三个常量 —— 编译器会直接拒绝。
+        get() = TAIL_PAD_MS * PCM_SAMPLE_RATE / 1000 * PCM_BYTES_PER_SAMPLE * PCM_CHANNELS
+
     /** OpenAI 兼容 TTS 的裸 PCM 输出：24 kHz / 16 bit / 单声道。 */
     const val PCM_SAMPLE_RATE: Int = 24_000
     const val PCM_BYTES_PER_SAMPLE: Int = 2
@@ -65,7 +83,7 @@ object VoiceNote {
         fun flush() {
             val s = buf.toString().trim()
             buf.setLength(0)
-            if (s.isNotEmpty()) out.add(Clip(s, estimateMs(s)))
+            if (s.isNotEmpty()) out.add(clipOf(s))
         }
 
         body.split(SENTENCE_END).forEach { piece ->
@@ -76,7 +94,7 @@ object VoiceNote {
                 flush()
                 var rest = sentence
                 while (rest.length > budget) {
-                    out.add(Clip(rest.take(budget), estimateMs(rest.take(budget))))
+                    out.add(clipOf(rest.take(budget)))
                     rest = rest.drop(budget)
                 }
                 if (rest.isNotEmpty()) buf.append(rest)
@@ -94,10 +112,21 @@ object VoiceNote {
         if (out.size > MAX_CLIPS) {
             val head = out.subList(0, MAX_CLIPS - 1).toList()
             val tailText = out.subList(MAX_CLIPS - 1, out.size).joinToString("") { it.text }
-            return head + Clip(tailText, estimateMs(tailText))
+            return head + clipOf(tailText)
         }
         return out
     }
+
+    /**
+     * 造一条语音条，时长**已经含**末尾那 2 秒静音。
+     *
+     * ⚠️ 统一从这里造：四处 `Clip(...)` 各自拼时长，迟早有一处忘了加 pad，
+     *   而表现出来的只是"这条条子短了两秒"——没人会想到是这里。
+     */
+    private fun clipOf(text: String): Clip = Clip(text, estimateMs(text) + TAIL_PAD_MS)
+
+    /** 真实时长 + 末尾静音 —— 界面显示用这个，别直接拿 pcmDurationMs。 */
+    fun paddedMs(rawMs: Int): Int = rawMs + TAIL_PAD_MS
 
     /** 估算一段话念多久。 */
     fun estimateMs(text: String): Int {

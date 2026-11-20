@@ -70,6 +70,32 @@ class VoiceNoteTest {
         val text = (1..20).joinToString("") { "第${it}句话。" }
         val short = VoiceNote.plan(text, maxSeconds = 5)
         assertTrue(short.size > 1)
-        short.forEach { assertTrue(it.estimateMs <= 6_000) }
+        // 上限算的是**说话内容**的时长；条子上显示的还要再加末尾 2 秒静音
+        // （用户要求"播放时长比云端音频长 2 秒"），所以这里放宽一个 pad。
+        short.forEach { assertTrue(it.estimateMs <= 6_000 + VoiceNote.TAIL_PAD_MS) }
+    }
+
+    @Test
+    fun `每条语音的时长都含末尾那两秒静音`() {
+        val clips = VoiceNote.plan("今天有点累，不想说话。")
+        assertTrue("至少要有一条", clips.isNotEmpty())
+        for (c in clips) {
+            assertTrue(
+                "「${c.text}」的时长 ${c.estimateMs}ms 里没有算上 2 秒 pad",
+                c.estimateMs >= VoiceNote.TAIL_PAD_MS,
+            )
+        }
+    }
+
+    @Test
+    fun `显示时长在真实时长上再加两秒`() {
+        assertEquals(5_000, VoiceNote.paddedMs(3_000))
+        assertEquals(2_000, VoiceNote.paddedMs(0))
+    }
+
+    @Test
+    fun `末尾静音的字节数和两秒对得上`() {
+        // 24kHz * 16bit * 单声道 = 48000 字节/秒
+        assertEquals(96_000, VoiceNote.TAIL_PAD_BYTES)
     }
 }
