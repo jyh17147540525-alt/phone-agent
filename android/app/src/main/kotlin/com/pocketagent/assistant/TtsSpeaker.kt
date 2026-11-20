@@ -121,52 +121,65 @@ class TtsSpeaker(private val context: Context) {
     @Suppress("BlockingMethodInNonBlockingContext")
     fun playPcm(pcm: ByteArray): Boolean {
         if (pcm.isEmpty()) return false
-        // ⚠️ 2026-11-20 真机崩过：`stop()`（界面线程）在 `playPcm`（IO 线程）
-        //    正往 AudioTrack 写的时候把它 release 了 —— native 层直接
-        //    SIGSEGV/SIGABRT，表现为"啪"一声爆音然后闪退，重启后再放又好了
-        //    （时序凑不上而已）。所以 close 与 write 必须互斥。
+        // ★★ 2026-11-20 第三轮：用户原话"沙沙声的爆音，现在还会，就是刚生成的音频
+        //   播放第一遍才会，播放第二遍就不会了"。
+        //
+        //   同一条字节、同一段代码，第一遍沙沙、第二遍正常 ⇒ **不是数据问题**。
+        //   （缓存里抽查过：首尾采样都在 ±10 以内，也不是容器格式冒充 PCM。）
+        //   剩下的是 AudioTrack 这条路的起播状态：它要求调用方把采样率/声道
+        //   说对，而首播那一下正好撞在输出通路上电、采样率未收敛的窗口里。
+        //
+        //   ⇒ 换成 **MediaPlayer 播一个标准 WAV**：格式转换与输出路由交给系统媒体栈，
+        //     它自己会等设备就绪；我们不再手写 AudioTrack 的 24kHz 假设。
+        //     WAV 头是死的 44 字节，字节内容仍是服务商原样 PCM —— 不重新编码。
         stopped = false
-        // ★ 2026-11-20：首尾各淡 8ms。合成器输出常带直流偏置、或从半周期开始，
-        //   波形从 0 直接跳到非零 —— 听感就是"啪"。淡变把跳变压成渐变，
-        //   8ms 在语音上比一个字的起音还短，听不出来（见 PcmShape 的 KDoc）。
-        // ★ 2026-11-20 第二轮：用户说"还是会爆音，刚生成的才会"。
-        //   真机缓存里抽查过字节：首尾采样都在 ±10 以内（接近零点），
-        //   不是数据跳变，也不是容器格式冒充 PCM。剩下的可能就是**硬件路径起播**：
-        //   AudioTrack 刚建、输出通路（扬声器/蓝牙）刚上电时的那一下。
-        //   数据里治不了它，但可以给它一段**安静的起播时间**：
-        //   前面垫 80ms 静音，起播电流噪声落在静音段里，听不见。
-        val startupPad = ByteArray(PCM_SAMPLE_RATE / 1000 * STARTUP_PAD_MS * 2)
-        val shaped = com.pocketagent.voicelogic.PcmShape.fadeEdges(
-            startupPad + pcm,
-            PCM_SAMPLE_RATE,
-            fadeMs = EDGE_FADE_MS,
-        )
+        val shaped = com.pocketagent.voicelogic.PcmShape.fadeEdges(pcm, PCM_SAMPLE_RATE, EDGE_FADE_MS)
+        val file = java.io.File(context.cacheDir, "voice_clip.wav")
         return try {
+            writeWav(file, shaped)
+            val mp = android.media.MediaPlayer()
+            val done = java.util.concurrent.CountDownLatch(1)
+            mp.setOnCompletionListener { done.countDown() }
+            mp.setOnErrorListener { _, _, _ -> done.countDown(); true }
             synchronized(lock) {
-                closeTrackLocked()
-                openTrackLocked()
+                releaseLocked()
+                player = mp
+                this.done = done
             }
-            var offset = 0
-            while (offset < shaped.size) {
-                val consumed = synchronized(lock) {
-                    if (stopped) return@synchronized -1
-                    val t = track ?: return@synchronized -1
-                    val n = minOf(CHUNK_BYTES, shaped.size - offset)
-                    val written = t.write(shaped, offset, n)
-                    if (written < 0) -1 else written
-                }
-                if (consumed < 0) break
-                offset += consumed
-            }
-            // ★ 写完了不等于播完了：STREAM 模式下最后一段还在缓冲区里。
-            //   立刻 release 会把尾音砍掉（第二种"爆音"来源）。
-            drainLocked(shaped.size)
+            mp.setDataSource(file.absolutePath)
+            mp.prepare()
+            mp.start()
+            // 等它自然播完；stop() 会 release 并把 latch 放掉。
+            done.await(60, java.util.concurrent.TimeUnit.SECONDS)
             true
         } catch (t: Throwable) {
             Timber.w(t, "语音条播放失败（不打扰用户）")
             false
         } finally {
-            synchronized(lock) { closeTrackLocked() }
+            synchronized(lock) { releaseLocked() }
+        }
+    }
+
+    /** 写一个标准 44 字节头的 WAV（单声道 16bit）。字节内容原样，不重编码。 */
+    private fun writeWav(file: java.io.File, pcm: ByteArray) {
+        val dataLen = pcm.size
+        val header = java.nio.ByteBuffer.allocate(44).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        header.put("RIFF".toByteArray(Charsets.US_ASCII))
+        header.putInt(36 + dataLen)
+        header.put("WAVE".toByteArray(Charsets.US_ASCII))
+        header.put("fmt ".toByteArray(Charsets.US_ASCII))
+        header.putInt(16)                       // PCM 子块大小
+        header.putShort(1)                      // PCM
+        header.putShort(1)                      // 单声道
+        header.putInt(PCM_SAMPLE_RATE)
+        header.putInt(PCM_SAMPLE_RATE * 2)      // 字节率
+        header.putShort(2)                      // 块对齐
+        header.putShort(16)                     // 位深
+        header.put("data".toByteArray(Charsets.US_ASCII))
+        header.putInt(dataLen)
+        file.outputStream().use { out ->
+            out.write(header.array())
+            out.write(pcm)
         }
     }
 
@@ -189,8 +202,18 @@ class TtsSpeaker(private val context: Context) {
     /** 立刻停。 */
     fun stop() {
         stopped = true
-        // 等正在写的那一块写完再 release：中途 release 就是上面那个崩溃。
-        synchronized(lock) { closeTrackLocked() }
+        synchronized(lock) { releaseLocked() }
+    }
+
+    private fun releaseLocked() {
+        val p = player
+        player = null
+        done?.countDown()
+        done = null
+        if (p != null) {
+            runCatching { p.stop() }
+            runCatching { p.release() }
+        }
     }
 
     private fun openTrackLocked() {
@@ -246,6 +269,12 @@ class TtsSpeaker(private val context: Context) {
 
     /** write / close 的互斥锁。见 [playPcm] 里那段崩溃记录。 */
     private val lock = Any()
+
+    /** 当前播放器。用 MediaPlayer 而不是 AudioTrack，理由见 [playPcm]。 */
+    private var player: android.media.MediaPlayer? = null
+
+    /** 播完/出错/被停时放行 [playPcm] 的等待。 */
+    private var done: java.util.concurrent.CountDownLatch? = null
 
     companion object {
         /** OpenAI 兼容 TTS 的 PCM 输出格式：24kHz / 16bit / 单声道。 */
