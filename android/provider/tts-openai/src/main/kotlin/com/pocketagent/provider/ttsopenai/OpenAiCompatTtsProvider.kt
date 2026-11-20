@@ -459,10 +459,17 @@ class OpenAiCompatTtsProvider(
      * ⚠️ 顺序不能反：`SpeechRequest.voiceId` 是这一次合成的明确选择
      *    （比如界面上的音色试听），凭据上的是"这个 Key 默认用哪个"。
      */
-    private fun resolveVoice(request: SpeechRequest, credential: ProviderCredential?): String =
-        request.voiceId?.trim()?.takeIf { it.isNotEmpty() }
+    private fun resolveVoice(request: SpeechRequest, credential: ProviderCredential?): String {
+        // ⚠️ **必须是 id，不能是"给人看的名字"**。Breeze 官方云端的
+        //    `/v1/text-to-speech/{voice_id}` 拿不到这个 id 就回
+        //    `404 {"code":"RESOURCE_NOT_FOUND","detail":"Voice not found."}`
+        //    —— 2026-11-20 真机就是这么一点声音都没有的：凭据里存的是
+        //    「月夜低语者」这种显示名。所以这里逐级挑第一个"像 id 的"。
+        val chosen = request.voiceId?.trim()?.takeIf { it.isNotEmpty() }
             ?: credential?.voiceOverride?.trim()?.takeIf { it.isNotEmpty() }
-            ?: profile.defaultVoiceId
+        if (chosen != null && TtsVoices.looksLikeId(chosen)) return chosen
+        return profile.defaultVoiceId
+    }
 
     /** ElevenLabs 的格式码。只映射我们真正会请求的那两个。 */
     private fun elevenLabsFormat(format: AudioFormat): String = when (format) {

@@ -624,6 +624,33 @@ private fun EditorCard(
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = "音色 id（可选，留空用默认；如 alloy）",
             )
+            // ★ 2026-11-20 晚：手打 voice_id 是错的主要来源（用户会填界面上的
+            //   名字，云端回 404 Voice not found.）。有音色库的厂商就给个挑的入口。
+            val voiceProfile = com.pocketagent.provider.ttsopenai.TtsProfiles
+                .byId(editor.providerId.orEmpty())
+            if (voiceProfile?.protocol ==
+                com.pocketagent.provider.ttsopenai.TtsProtocol.ELEVENLABS
+            ) {
+                Spacer(Modifier.height(PaSpace.xs))
+                var pickerOpen by remember { mutableStateOf(false) }
+                PaButton(
+                    text = "从音色库选一个",
+                    onClick = { pickerOpen = true },
+                    style = PaButtonStyle.Glass,
+                    fillWidth = true,
+                )
+                if (pickerOpen) {
+                    VoicePickerDialog(
+                        baseUrl = editor.baseUrl,
+                        apiKey = editor.keyInput,
+                        onPick = { id ->
+                            onVoice(id)
+                            pickerOpen = false
+                        },
+                        onDismiss = { pickerOpen = false },
+                    )
+                }
+            }
         }
 
         if (editor.error != null) {
