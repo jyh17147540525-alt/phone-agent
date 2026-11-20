@@ -3844,6 +3844,28 @@ class AppContainer(context: Context) {
      * ⚠️ 放应用私有目录（`filesDir/voice_notes`）：说的是什么比文件更敏感，
      *   没必要让别的应用读到。
      */
+    private val voiceTagStore by lazy { VoiceTagStore(appContext) }
+
+    /** 当前生效的语音标签库（按厂商）。配好语音 Key 之前返回 null。 */
+    fun voiceTags(): com.pocketagent.voicelogic.VoiceTagSet? =
+        ttsVendorSeed?.let { voiceTagStore.effective(it) }
+
+    /** 配好语音 Key 之后拉一次官方标签；换厂商换库。失败只用内置兜底。 */
+    suspend fun refreshVoiceTags() {
+        val vendorId = ttsVendorSeed ?: return
+        runCatching {
+            val web = com.pocketagent.assistant.HttpWebOps()
+            voiceTagStore.refresh(vendorId) { url -> web.fetch(url, 200_000).text }
+        }.onFailure { Timber.w(it, "语音标签刷新失败（不影响对话）") }
+    }
+
+    /** 当前默认语音凭据用的厂商 id；探测语音 Key 时写入。 */
+    @Volatile
+    private var ttsVendorSeed: String? = null
+
+    @Volatile
+    private var voiceTagsFetched = false
+
     private val voiceNoteStore: com.pocketagent.assistant.VoiceNoteStore by lazy {
         com.pocketagent.assistant.VoiceNoteStore(java.io.File(appContext.filesDir, "voice_notes"))
     }
@@ -4013,6 +4035,11 @@ class AppContainer(context: Context) {
                         val voice = credential.voiceOverride?.takeIf { it.isNotBlank() }
                         val bits = listOfNotNull(name, model, voice)
                         ttsLabelHolder.value = bits.joinToString(" · ")
+                        ttsVendorSeed = provider.id
+                        if (!voiceTagsFetched) {
+                            voiceTagsFetched = true
+                            startupScope.launch { refreshVoiceTags() }
+                        }
                     }
                 }
                 if (!ttsReadyHolder.value) ttsProbeStarted = false
@@ -5311,6 +5338,9 @@ class AppContainer(context: Context) {
     private val assistantPrompt by lazy {
         AssistantPromptBuilder(
             persona = assistantPersona,
+            voiceTagsPrompt = {
+                com.pocketagent.voicelogic.VoiceTags.promptSection(voiceTags())
+            },
             // ★ 按这一句检索该想起什么（见 recallMemories 的注释）
             recallMemories = { query -> memoryReader.recall(query) },
         )

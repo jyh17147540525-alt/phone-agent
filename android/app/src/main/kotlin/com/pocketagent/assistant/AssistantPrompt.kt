@@ -90,6 +90,14 @@ class AssistantPromptBuilder(
      *
      * @param query 用户这一句（用于相关性打分）
      */
+    /**
+     * 厂商规定的语音标签（`[laughs]` 之类），来自该厂商的官方文档。
+     *
+     * 只给文本模型看：它写进正文，语音合成时被念成情绪，而用户看到的正文里
+     * 会被 `VoiceTags.visibleText` 切干净。空串 = 这一轮不加。
+     */
+    private val voiceTagsPrompt: () -> String = { "" },
+
     private val recallMemories: (String) -> List<com.pocketagent.personalogic.MemoryItem> =
         { emptyList() },
 ) {
@@ -151,7 +159,10 @@ class AssistantPromptBuilder(
             ),
         )
         val capability = if (canAct) CAPABILITY_BOUNDARY else CHAT_ONLY_BOUNDARY
-        return assembled.text + "\n\n" + capability
+        val tags = runCatching { voiceTagsPrompt() }.getOrDefault("")
+        return listOf(assembled.text, capability, tags)
+            .filter { it.isNotBlank() }
+            .joinToString("\n\n")
     }
 
     /**

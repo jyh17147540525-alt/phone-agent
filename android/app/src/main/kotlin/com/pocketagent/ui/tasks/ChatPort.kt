@@ -1017,7 +1017,11 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
                 .onFailure { Timber.w(it, "语音预生成失败（不影响对话）") }
 
             ChatResult.Ok(
-                text = cleanText,
+                // 标签只给语音合成看；用户眼前只有台词与括号动作。
+                text = com.pocketagent.voicelogic.VoiceTags.visibleText(
+                    cleanText,
+                    container.voiceTags(),
+                ),
                 // ★★ 2026-11-04：改成 `actedInLoop`（原来是 `didAct`）。
                 //   工作模式下 `didAct` 恒为 true，用它会把每条回复都画成
                 //   任务卡片；而角色扮演下"判成 Act 但模型没调工具"
