@@ -3852,6 +3852,7 @@ class AppContainer(context: Context) {
      *   "正文 → 适合念的形态"这一步 —— 和 [speakAsync] 共用 [spokenForm]。
      */
     private val ttsReadyHolder = androidx.compose.runtime.mutableStateOf(false)
+    private val ttsLabelHolder = androidx.compose.runtime.mutableStateOf<String?>(null)
 
     /** 只探一次（探到有就置真；探不到下次还会再探）。 */
     @Volatile
@@ -3927,13 +3928,28 @@ class AppContainer(context: Context) {
                         is CredentialStoreResult.Ready -> opened.repository
                         else -> null
                     }
-                    repo?.useDefaultTtsKey { _, _ -> ttsReadyHolder.value = true }
+                    repo?.useDefaultTtsKey { provider, credential ->
+                        ttsReadyHolder.value = true
+                        val name = com.pocketagent.provider.ttsopenai.TtsProfiles
+                            .byId(provider.id)?.displayName ?: provider.id
+                        val model = credential.modelOverride?.takeIf { it.isNotBlank() }
+                        val voice = credential.voiceOverride?.takeIf { it.isNotBlank() }
+                        val bits = listOfNotNull(name, model, voice)
+                        ttsLabelHolder.value = bits.joinToString(" · ")
+                    }
                 }
                 if (!ttsReadyHolder.value) ttsProbeStarted = false
             }
         }
         return ttsReadyHolder.value
     }
+
+    /**
+     * 当前用来"说话"的语音模型（厂商 + 模型 + 音色），没配就是 null。
+     *
+     * ★ 用户要能在设置里看见这件事：看不见就分不清"没接线"和"接错了"。
+     */
+    fun ttsLabel(): String? = ttsLabelHolder.value
 
     /** 停掉正在播的语音条。 */
     fun stopVoiceClip() {

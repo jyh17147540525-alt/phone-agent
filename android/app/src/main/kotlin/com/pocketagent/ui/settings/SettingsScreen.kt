@@ -96,6 +96,10 @@ fun SettingsScreen(
      */
     allowRefusal: Boolean = true,
     onToggleAllowRefusal: ((Boolean) -> Unit)? = null,
+    /** 当前语音模型（厂商 · 模型 · 音色）；null = 没配语音 Key。 */
+    ttsLabel: String? = null,
+    /** 点「语音模型」这一行：去语音 Key 页配置/切换。 */
+    onOpenTtsKeys: (() -> Unit)? = null,
 
     /**
      * **「超级网络权限」开关**（默认关）。
@@ -596,6 +600,16 @@ fun SettingsScreen(
                     //    没有它，意愿系统就是个强制功能 —— 而那正是
                     //    用户明确反对的（"给个开关就行了"）。
                     PaListDivider()
+            onOpenTtsKeys?.let {
+                PaListRow(
+                    icon = Icons.Default.PlayArrow,
+                    title = "语音模型",
+                    subtitle = ttsLabel
+                        ?: "还没配语音 Key —— 配了之后回复下面才会出现语音条",
+                    onClick = it,
+                )
+                PaListDivider()
+            }
                     PaListRow(
                         icon = Icons.Default.Notifications,
                         title = "允许它拒绝",

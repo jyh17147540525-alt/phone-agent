@@ -1249,6 +1249,8 @@ fun AppShell(
                                             // ★ 2026-11-02：「允许它拒绝」开关
         allowRefusal = allowRefusalOn,
         onToggleAllowRefusal = { allowRefusalOn = it; container.setAllowRefusal(it) },
+        ttsLabel = container.ttsLabel(),
+        onOpenTtsKeys = { navController.navigate(Routes.KEYS) },
         superNetwork = superNetworkOn,
         onToggleSuperNetwork = { superNetworkOn = it; container.setSuperNetwork(it) },
         linuxBuiltin = linuxBuiltinOn,
