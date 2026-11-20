@@ -315,6 +315,8 @@ private fun ReadyContent(state: KeysUiState, viewModel: KeysViewModel) {
                     onKey = viewModel::editKey,
                     onLabel = viewModel::editLabel,
                     onBaseUrl = viewModel::editBaseUrl,
+                    onModel = viewModel::editModel,
+                    onVoice = viewModel::editVoice,
                     onSave = viewModel::save,
                     onCancel = viewModel::closeEditor,
                 )
@@ -474,6 +476,8 @@ private fun EditorCard(
     onKey: (String) -> Unit,
     onLabel: (String) -> Unit,
     onBaseUrl: (String) -> Unit,
+    onModel: (String) -> Unit,
+    onVoice: (String) -> Unit,
     onSave: () -> Unit,
     onCancel: () -> Unit,
 ) {
@@ -486,6 +490,18 @@ private fun EditorCard(
     //    用户是从两个不同的"添加"按钮进来的，如果表单长得一模一样，
     //    他没有任何办法确认自己点对了哪一个 —— 而存错用途不会报错。
     val purposeText = editor.purpose.displayName
+
+    // ★ 2026-11-20 晚：「自定义接口地址」对自建服务是**必填**，不能写"可选"。
+    //
+    //    BreezeBlue 这类跑在用户自己机器上的端点，每台的 host:port 都不同
+    //    （见 TtsProfiles.BreezeBlue）。地址留空会被仓储层拒掉，而输入框
+    //    却写着"可选，留空用默认" —— 用户会以为是软件坏了。
+    //    所以提示语跟着真实规则走。
+    val endpointRequired = editor.purpose ==
+        com.pocketagent.core.database.entity.CredentialPurpose.TTS &&
+        com.pocketagent.provider.ttsopenai.TtsProfiles
+            .byId(editor.providerId.orEmpty())
+            ?.requiresBaseUrlOverride == true
 
     GlassSurface(contentPadding = PaSpace.m) {
         Text(text = "添加$purposeText Key", style = PaType.headline, color = PaColor.TextPrimary)
@@ -556,6 +572,17 @@ private fun EditorCard(
             },
         )
 
+        // 「这看起来是 XX 的 Key」——只做提示。
+        // 放在输入框正下方：用户刚粘贴完，视线就在这一行。
+        editor.keyHint?.let { hint ->
+            Spacer(Modifier.height(PaSpace.xs))
+            Text(
+                text = hint,
+                style = PaType.caption,
+                color = PaColor.TextTertiary,
+            )
+        }
+
         Spacer(Modifier.height(PaSpace.xs))
         PaTextField(
             value = editor.label,
@@ -569,8 +596,35 @@ private fun EditorCard(
             value = editor.baseUrl,
             onValueChange = onBaseUrl,
             modifier = Modifier.fillMaxWidth(),
-            placeholder = "自定义接口地址（可选，留空用默认）",
+            placeholder = if (endpointRequired) {
+                "接口地址（必填，例如 http://192.168.1.10:8091/v1）"
+            } else {
+                "自定义接口地址（可选，留空用默认）"
+            },
         )
+
+        // ★ 2026-11-20：语音专用的两个覆盖项。
+        //
+        // 只在语音用途下出现，理由不是"界面简洁"，而是 **模型那条链路
+        // 已经有自己的模型选择器**（`ModelConfig`，一条配置带 provider +
+        // modelId + 价格）。在这里再放一个模型名输入框，用户会以为
+        // 它能改对话用的模型 —— 改了却没有效果，那是最难解释的一类问题。
+        if (editor.purpose == com.pocketagent.core.database.entity.CredentialPurpose.TTS) {
+            Spacer(Modifier.height(PaSpace.xs))
+            PaTextField(
+                value = editor.model,
+                onValueChange = onModel,
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = "模型名（可选，留空用默认；如 tts-1）",
+            )
+            Spacer(Modifier.height(PaSpace.xs))
+            PaTextField(
+                value = editor.voice,
+                onValueChange = onVoice,
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = "音色 id（可选，留空用默认；如 alloy）",
+            )
+        }
 
         if (editor.error != null) {
             Spacer(Modifier.height(PaSpace.xs))
