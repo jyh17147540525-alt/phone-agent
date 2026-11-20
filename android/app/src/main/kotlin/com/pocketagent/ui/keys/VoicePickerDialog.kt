@@ -51,8 +51,7 @@ import java.net.URL
  */
 @Composable
 fun VoicePickerDialog(
-    baseUrl: String,
-    apiKey: String,
+    fetch: suspend (query: String, page: Int) -> Pair<List<TtsVoice>, Boolean>,
     onPick: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -78,7 +77,7 @@ fun VoicePickerDialog(
     LaunchedEffect(appliedQuery, page) {
         val first = page == 1
         if (first) loading = true else more = true
-        val result = runCatching { fetchVoices(baseUrl, apiKey, appliedQuery, page) }
+        val result = runCatching { fetch(appliedQuery, page) }
         if (first) loading = false else more = false
         result.onSuccess { (list, moreAvailable) ->
             voices = if (first) list else voices + list
@@ -179,41 +178,5 @@ fun VoicePickerDialog(
                 fillWidth = true,
             )
         }
-    }
-}
-
-/**
- * 取一页音色。`voice_type=all` 同时包含公开库与我的音色 ——
- * 官网展示的那些默认音色都在公开库里，只查 personal 会"少一大半"。
- */
-private suspend fun fetchVoices(
-    baseUrl: String,
-    apiKey: String,
-    query: String,
-    page: Int,
-): Pair<List<TtsVoice>, Boolean> = withContext(Dispatchers.IO) {
-    val base = baseUrl.trim().trimEnd('/').ifEmpty { "https://api.breeze.blue" }
-    val sb = StringBuilder("$base/v1/voices?page_size=100&page=$page&voice_type=all")
-    if (query.isNotBlank()) {
-        sb.append("&search=").append(java.net.URLEncoder.encode(query.trim(), "UTF-8"))
-    }
-    val conn = (URL(sb.toString()).openConnection() as HttpURLConnection).apply {
-        requestMethod = "GET"
-        connectTimeout = 12_000
-        readTimeout = 20_000
-        setRequestProperty("xi-api-key", apiKey)
-        setRequestProperty("Authorization", "Bearer $apiKey")
-        setRequestProperty("Accept", "application/json")
-    }
-    try {
-        val code = conn.responseCode
-        val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
-            ?.bufferedReader()?.use { it.readText() }.orEmpty()
-        if (code !in 200..299) throw IllegalStateException("HTTP $code：${body.take(160)}")
-        val list = TtsVoices.parse(body)
-        val more = body.contains("\"has_more\":true") || body.contains("\"has_more\": true")
-        list to more
-    } finally {
-        conn.disconnect()
     }
 }

@@ -66,9 +66,35 @@ data class EditorState(
     val keyInput: String = "",
     val label: String = "",
     val baseUrl: String = "",
+    /**
+     * 用户指定的模型名（仅语音用途显示）。
+     *
+     * ★ 2026-11-20：为「自定义语音端点」加的。自建网关 / 聚合转发
+     *   （OneAPI、New-API 之类）要求一个特定模型名，我们不可能预置。
+     *
+     * ⚠️ 留空 = 用该服务商的默认模型，**不是**"发一个空 model"。
+     *   变成空串会让上游报"参数缺失"，而用户明明已经配完了。
+     */
+    val model: String = "",
+    /** 用户指定的音色 id（仅语音用途显示）。留空 = 用默认音色 */
+    val voice: String = "",
     val error: String? = null,
     val saving: Boolean = false,
-)
+) {
+    /**
+     * 输入框下面那行灰字：这看起来是谁的 Key。
+     *
+     * ★ 派生而不是存字段。存字段就得在 [KeysViewModel.editKey] 里同步更新，
+     *   漏一处（比如粘贴、比如清空）的表现是**旧提示配新 Key** ——
+     *   用户照着"这是 Anthropic 的 Key"去填了 Anthropic 的地址，
+     *   而输入框里其实已经是别家的东西了。
+     *
+     * ⚠️ 纯提示，不参与任何判断。能不能保存只看 [KeysViewModel.save]
+     *    （认不出的新厂商 Key 必须能存进去）。
+     */
+    val keyHint: String?
+        get() = com.pocketagent.keymgmt.KeyFormatHints.describe(keyInput)
+}
 
 /**
  * Key 页的界面状态。
@@ -169,6 +195,63 @@ class KeysViewModel(
     val state: StateFlow<KeysUiState> = _state.asStateFlow()
 
     private var repository: CredentialRepository? = null
+
+    /**
+     * 取一页音色。
+     *
+     * ★ 为什么放在这里而不是弹窗里自己发请求：编辑一条**已保存**的语音 Key 时，
+     *   输入框是空的（我们从不回显明文 Key），弹窗拿着空字符串去请求 ——
+     *   云端就是 `401`。这里在输入为空时退回**已保存的那条默认语音 Key**，
+     *   401 才不会变成"音色库坏了"。
+     *
+     * @return 这一页的音色 + 是否还有下一页
+     */
+    suspend fun fetchVoices(
+        baseUrl: String,
+        typedKey: String,
+        query: String,
+        page: Int,
+    ): Pair<List<com.pocketagent.provider.ttsopenai.TtsVoice>, Boolean> =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            var key = typedKey.trim()
+            if (key.isEmpty()) {
+                val repo = repository
+                if (repo != null) {
+                    runCatching {
+                        repo.useDefaultTtsKey { _, credential ->
+                            key = String(credential.apiKey, Charsets.UTF_8)
+                        }
+                    }
+                }
+            }
+            if (key.isEmpty()) {
+                throw IllegalStateException("没有可查的 Key：编辑旧 Key 时输入框是空的，请把它重新填一次")
+            }
+            val base = baseUrl.trim().trimEnd('/').ifEmpty { "https://api.breeze.blue" }
+            val sb = StringBuilder("$base/v1/voices?page_size=100&page=$page&voice_type=all")
+            if (query.isNotBlank()) {
+                sb.append("&search=").append(java.net.URLEncoder.encode(query.trim(), "UTF-8"))
+            }
+            val conn = (java.net.URL(sb.toString()).openConnection()
+                as java.net.HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 12_000
+                readTimeout = 20_000
+                setRequestProperty("xi-api-key", key)
+                setRequestProperty("Accept", "application/json")
+            }
+            try {
+                val code = conn.responseCode
+                val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
+                    ?.bufferedReader()?.use { it.readText() }.orEmpty()
+                if (code !in 200..299) throw IllegalStateException("HTTP $code：${body.take(160)}")
+                val list = com.pocketagent.provider.ttsopenai.TtsVoices.parse(body)
+                val more = body.contains("\"has_more\":true") || body.contains("\"has_more\": true")
+                list to more
+            } finally {
+                conn.disconnect()
+            }
+        }
     private var credentialsJob: Job? = null
 
     init {
@@ -349,6 +432,8 @@ class KeysViewModel(
     fun editKey(value: String) = updateEditor { it.copy(keyInput = value, error = null) }
     fun editLabel(value: String) = updateEditor { it.copy(label = value, error = null) }
     fun editBaseUrl(value: String) = updateEditor { it.copy(baseUrl = value, error = null) }
+    fun editModel(value: String) = updateEditor { it.copy(model = value, error = null) }
+    fun editVoice(value: String) = updateEditor { it.copy(voice = value, error = null) }
 
     fun dismissProblem() {
         _state.update { it.copy(problem = null) }
@@ -382,6 +467,10 @@ class KeysViewModel(
                 //   竞争范围（`countByPurpose`），漏传就会让一条语音 Key
                 //   把模型那组的默认标记顶掉。
                 purpose = editor.purpose,
+                // ★ 2026-11-20：自定义语音端点的模型名/音色。
+                //   留空传 null（= 用默认值），不是空串。
+                modelOverride = editor.model.ifBlank { null },
+                voiceOverride = editor.voice.ifBlank { null },
             )
 
             when (result) {

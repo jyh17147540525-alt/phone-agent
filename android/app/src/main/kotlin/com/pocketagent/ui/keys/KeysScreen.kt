@@ -317,6 +317,7 @@ private fun ReadyContent(state: KeysUiState, viewModel: KeysViewModel) {
                     onBaseUrl = viewModel::editBaseUrl,
                     onModel = viewModel::editModel,
                     onVoice = viewModel::editVoice,
+                onFetchVoices = viewModel::fetchVoices,
                     onSave = viewModel::save,
                     onCancel = viewModel::closeEditor,
                 )
@@ -478,6 +479,9 @@ private fun EditorCard(
     onBaseUrl: (String) -> Unit,
     onModel: (String) -> Unit,
     onVoice: (String) -> Unit,
+    /** 取音色列表：交给 ViewModel，因为它能拿到**已保存**的 Key（输入框里是空的）。 */
+    onFetchVoices: suspend (baseUrl: String, typedKey: String, query: String, page: Int) ->
+        Pair<List<com.pocketagent.provider.ttsopenai.TtsVoice>, Boolean>,
     onSave: () -> Unit,
     onCancel: () -> Unit,
 ) {
@@ -641,8 +645,7 @@ private fun EditorCard(
                 )
                 if (pickerOpen) {
                     VoicePickerDialog(
-                        baseUrl = editor.baseUrl,
-                        apiKey = editor.keyInput,
+                        fetch = { q, page -> onFetchVoices(editor.baseUrl, editor.keyInput, q, page) },
                         onPick = { id ->
                             onVoice(id)
                             pickerOpen = false
