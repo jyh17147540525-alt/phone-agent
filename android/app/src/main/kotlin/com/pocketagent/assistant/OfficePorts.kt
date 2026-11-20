@@ -7,12 +7,15 @@ import com.pocketagent.capability.SafDirectoryGrants
 import com.pocketagent.capability.SafFileChannel
 import com.pocketagent.filelogic.ChannelResult
 import com.pocketagent.filelogic.DirEntry
+import com.pocketagent.filelogic.DocxWriter
 import com.pocketagent.filelogic.DocumentFormat
 import com.pocketagent.filelogic.FileChannel
 import com.pocketagent.filelogic.FileReadResult
 import com.pocketagent.filelogic.OfficeRequest
 import com.pocketagent.filelogic.OfficeText
+import com.pocketagent.filelogic.PptxWriter
 import com.pocketagent.filelogic.ScopeRoot
+import com.pocketagent.filelogic.XlsxWriter
 import com.pocketagent.filelogic.WorkspacePolicy
 import com.pocketagent.mcp.OfficeWorkspace
 import com.pocketagent.mcp.OfficeWorkspacePort
@@ -155,6 +158,8 @@ class SafOfficeToolExecutor(
             is OfficeRequest.ReadText -> readText(workspace, request)
             is OfficeRequest.WriteText -> writeText(workspace, request)
             is OfficeRequest.MakeTable -> makeTable(workspace, request)
+            is OfficeRequest.MakeSlides -> makeSlides(workspace, request)
+            is OfficeRequest.MakeDoc -> makeDoc(workspace, request)
         }
     }
 
@@ -252,51 +257,106 @@ class SafOfficeToolExecutor(
     /**
      * 生成表格。
      *
-     * ═══════════════════════════════════════════════════════════
-     *  ⚠️ 只有 CSV 真的能写；XLSX 目前**写不出去**，如实报错
-     * ═══════════════════════════════════════════════════════════
+     * ★ 2026-11-20：`xlsx` 现在真的写得出去 —— `FileChannel` 加了
+     *   [com.pocketagent.filelogic.FileChannel.writeBytes]（SAF 侧 `openOutputStream`）。
+     *   在此之前这里只能"如实报错说写不了"，因为通道只有文本重载，
+     *   而把二进制当字符串写出去会得到一份**任何 Excel 都打不开、却没人报错**的文件。
      *
-     * `XlsxWriter.write(...)` 返回的是 **`ByteArray`**，而
-     * `FileChannel.write` 的签名是 `(root, relativePath, content: String)` ——
-     * **通道只支持文本**，全模块没有字节重载（实测确认）。
-     *
-     * 而 `OfficeToolValidator` 是**允许** `format = xlsx` 的 ——
-     * 也就是说"校验说可以、执行写不出"。这是一处真实的**能力缺口**，
-     * 不是本文件的 bug。
-     *
-     * ⇒ 这里**如实报错并说明成因**，而不是：
-     *   · 静默降级成 csv（用户要的是 xlsx，拿到 csv 会以为"Excel 打不开是 Excel 的问题"）；
-     *   · 把二进制当字符串写（写出去的是一个损坏的文件，且**没有任何一处会报错**）。
-     *   两者都是本项目头号 bug 形态「安静地少做一件事」。
-     *
-     * 补法（留给下一批）：给 `FileChannel` 加一个字节写入重载
-     * （SAF 侧走 `openOutputStream`），然后这里改两行。**在补上之前，缺口必须可见。**
+     * ⚠️ 所有单元格统一按**文本**写：`007` 必须还是 `007`，不能被"聪明地"转成 7。
+     *    数字格式化留给用户在 Excel 里自己调 —— 那比我们猜错强。
      */
     private suspend fun makeTable(
         workspace: ResolvedOfficeWorkspace,
         request: OfficeRequest.MakeTable,
     ): OfficeToolOutcome {
-        if (request.format != DocumentFormat.CSV) {
-            return OfficeToolOutcome.Failed(
-                "暂时写不了 ${request.format.displayName}：文件通道目前只支持**文本**写入，" +
-                    "而 ${request.format.extension} 是二进制格式（需要通道支持字节写入，尚未接线）。" +
-                    "请改用 `format: csv` —— 它同样能被 Excel / WPS 打开。",
-            )
+        if (request.format == DocumentFormat.CSV) {
+            // CSV 是文本：走 OfficeText 生成（它自带 BOM、CRLF、以及**公式中和**）
+            val csv = OfficeText.toCsv(header = request.header, rows = request.rows)
+            return when (val result = channel.write(workspace.root, request.relativePath, csv)) {
+                is ChannelResult.Ok -> OfficeToolOutcome.Ok(
+                    "已生成表格「${request.relativePath}」：" +
+                        "${request.rows.size} 行 × ${request.header.size} 列" +
+                        "（CSV，${csv.toByteArray(Charsets.UTF_8).size} 字节）。",
+                )
+
+                is ChannelResult.Unavailable -> OfficeToolOutcome.Failed(
+                    "文件通道不可用（${result.reason}）。请引导用户重新授权目录。",
+                )
+
+                is ChannelResult.Failed -> OfficeToolOutcome.Failed("写入表格失败：${result.reason}")
+            }
         }
 
-        // CSV 是文本：走 OfficeText 生成（它自带 BOM、CRLF、以及**公式中和**）
-        val csv = OfficeText.toCsv(header = request.header, rows = request.rows)
-        return when (val result = channel.write(workspace.root, request.relativePath, csv)) {
-            is ChannelResult.Ok -> OfficeToolOutcome.Ok(
-                "已生成表格「${request.relativePath}」：" +
-                    "${request.rows.size} 行 × ${request.header.size} 列（CSV，${csv.toByteArray(Charsets.UTF_8).size} 字节）。",
-            )
+        val rows = request.rows.map { row -> row.map { XlsxWriter.Cell.Text(it) } }
+        val bytes = XlsxWriter.write(
+            listOf(XlsxWriter.Sheet(name = sheetNameOf(request.relativePath), header = request.header, rows = rows)),
+        )
+        return writeBinary(workspace, request.relativePath, bytes, "表格")
+    }
 
-            is ChannelResult.Unavailable -> OfficeToolOutcome.Failed(
-                "文件通道不可用（${result.reason}）。请引导用户重新授权目录。",
-            )
+    /**
+     * 生成幻灯片。
+     *
+     * ⚠️ 页数/要点数上限已经在 `OfficeToolValidator` 拦过一遍，这里**不再重复判断** ——
+     *    两处各判一次，迟早会漂移成"校验放行、这里拒绝"，而用户只会看到莫名失败。
+     */
+    private suspend fun makeSlides(
+        workspace: ResolvedOfficeWorkspace,
+        request: OfficeRequest.MakeSlides,
+    ): OfficeToolOutcome {
+        val bytes = PptxWriter.write(request.slides)
+        val summary = request.slides.joinToString("") { "「${it.title}」" }
+            .take(60)
+            .let { if (it.length >= 60) it + "…" else it }
+        return writeBinary(
+            workspace = workspace,
+            relativePath = request.relativePath,
+            bytes = bytes,
+            what = "幻灯片（${request.slides.size} 页：$summary）",
+        )
+    }
 
-            is ChannelResult.Failed -> OfficeToolOutcome.Failed("写入表格失败：${result.reason}")
-        }
+    /** 生成 Word 文档。 */
+    private suspend fun makeDoc(
+        workspace: ResolvedOfficeWorkspace,
+        request: OfficeRequest.MakeDoc,
+    ): OfficeToolOutcome {
+        val bytes = DocxWriter.write(request.blocks)
+        return writeBinary(
+            workspace = workspace,
+            relativePath = request.relativePath,
+            bytes = bytes,
+            what = "Word 文档（${request.blocks.size} 段）",
+        )
+    }
+
+    /** 二进制产出的统一收尾：写、报体积、把失败翻译成人话。 */
+    private suspend fun writeBinary(
+        workspace: ResolvedOfficeWorkspace,
+        relativePath: String,
+        bytes: ByteArray,
+        what: String,
+    ): OfficeToolOutcome = when (val result = channel.writeBytes(workspace.root, relativePath, bytes)) {
+        is ChannelResult.Ok -> OfficeToolOutcome.Ok(
+            "已生成$what「$relativePath」（${bytes.size} 字节）。",
+        )
+
+        is ChannelResult.Unavailable -> OfficeToolOutcome.Failed(
+            "写不了这个格式：${result.reason}。请引导用户在「设置 → 第 0 档能力」重新授权目录。",
+        )
+
+        is ChannelResult.Failed -> OfficeToolOutcome.Failed("写入失败：${result.reason}")
+    }
+
+    /**
+     * XLSX 的工作表名。
+     *
+     * Excel 的规矩：≤31 字符，且不能含 `: \ / ? * [ ]`。违反了不是"显示难看"，
+     * 是**打开时提示文件损坏**。所以这里按文件名派生并消毒，拿不到就用 Sheet1。
+     */
+    private fun sheetNameOf(relativePath: String): String {
+        val base = relativePath.substringAfterLast('/').substringBeforeLast('.')
+        val cleaned = base.replace(Regex("""[:\\/?*\[\]]"""), " ").trim()
+        return cleaned.take(31).ifBlank { "Sheet1" }
     }
 }

@@ -60,17 +60,17 @@ class OfficeToolsToolTest {
     }
 
     @Test
-    fun `有工作区时列出全部四个工具与产出目录`() = runTest {
+    fun `有工作区时列出全部工具与产出目录`() = runTest {
         val outcome = OfficeToolsTool(port(defaultWorkspace)).call(buildJsonObject { })
         assertTrue(outcome is ToolOutcome.Success)
         val text = (outcome as ToolOutcome.Success).text
-        for (id in listOf("list_files", "read_text", "write_text", "make_table")) {
+        for (id in listOf("list_files", "read_text", "write_text", "make_table", "make_slides", "make_doc")) {
             assertTrue("应列出 $id：$text", text.contains(id))
         }
         assertTrue("应说明产出目录：$text", text.contains("输出/"))
         // 工具清单从枚举生成 —— 加工具时这里会跟着变，不需要手改
         val tools = outcome.structured!!.jsonObject["tools"]!!.toString()
-        assertEquals("应恰好四个工具", 4, Regex("\"id\"").findAll(tools).count())
+        assertEquals("工具清单要和 OfficeTool 枚举一一对应", com.pocketagent.filelogic.OfficeTool.entries.size, Regex("\"id\"").findAll(tools).count())
     }
 
     @Test
@@ -243,6 +243,8 @@ class OfficeToolsToolTest {
         val schema = OfficeRunTool(port(defaultWorkspace), FakeExecutor()).inputSchema().toString()
         assertTrue(schema.contains("list_files"))
         assertTrue(schema.contains("make_table"))
+        assertTrue(schema.contains("make_slides"))
+        assertTrue(schema.contains("make_doc"))
         assertTrue("应说明 args 值写成字符串", schema.contains("字符串"))
     }
 

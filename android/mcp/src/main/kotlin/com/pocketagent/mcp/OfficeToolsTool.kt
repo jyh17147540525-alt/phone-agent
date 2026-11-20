@@ -133,7 +133,7 @@ class OfficeToolsTool(
      * ⚠️ 这份提示**必须与 `OfficeToolValidator` 实际读的键名一致** ——
      *    参数名对不上时，校验器会报"缺少 path 参数"，而模型看着 schema 里
      *    明明白白写着的 `path` 只会一头雾水。校验器读的键：
-     *    `path` / `max_bytes` / `content` / `format` / `header` / `rows`。
+     *    `path` / `max_bytes` / `content` / `format` / `header` / `rows` / `slides` / `blocks`。
      */
     private fun argHintFor(tool: OfficeTool): String = when (tool) {
         OfficeTool.LIST_FILES -> "path（相对路径，根目录写 \".\"）"
@@ -142,6 +142,10 @@ class OfficeToolsTool(
             "path（**必须带产出目录前缀**，形如 「${outputHint()}文件名」）；content"
         OfficeTool.MAKE_TABLE -> "path；header（逗号分隔）；rows（每行用 ; 分隔，字段用 , 分隔）；" +
             "可选 format（csv 或 xlsx，默认 csv）"
+        OfficeTool.MAKE_SLIDES -> "path（**必须带产出目录前缀**）；slides（JSON 数组，" +
+            "每项 {\"title\":\"…\",\"bullets\":[\"…\"],\"subtitle\":\"可选\"}；每页 ≤8 条要点，整份 ≤60 页）"
+        OfficeTool.MAKE_DOC -> "path（**必须带产出目录前缀**）；blocks（JSON 数组，" +
+            "每项 {\"heading\":1-4,\"text\":\"…\"} 或 {\"text\":\"…\"} 普通段落）"
     }
 
     private fun outputHint(): String = "${workspaces.current()?.policy?.outputSubdir ?: "输出"}/"
@@ -168,7 +172,7 @@ class OfficeRunTool(
     override val name: String = "office_run"
 
     override val description: String =
-        "在用户授权的工作区里执行一次文件操作（列目录 / 读文本 / 写文本 / 生成表格）。" +
+        "在用户授权的工作区里执行一次文件操作（列目录 / 读文本 / 写文本 / 生成表格 / 生成幻灯片 / 生成 Word 文档）。" +
             "参数形状见 office_tools 的输出。**写操作只能落到产出目录下** —— " +
             "路径不带产出目录前缀会被拒绝，改一次即可。"
 
@@ -275,6 +279,10 @@ class OfficeRunTool(
         is OfficeRequest.MakeTable ->
             "make_table ${request.relativePath}（${request.format.extension}，" +
                 "${request.rows.size} 行 × ${request.header.size} 列）"
+        is OfficeRequest.MakeSlides ->
+            "make_slides ${request.relativePath}（${request.slides.size} 页）"
+        is OfficeRequest.MakeDoc ->
+            "make_doc ${request.relativePath}（${request.blocks.size} 段）"
     }
 }
 

@@ -283,6 +283,25 @@ class SafFileChannel(
         root: ScopeRoot,
         relativePath: String,
         content: String,
+    ): ChannelResult<Unit> = writeRaw(root, relativePath, content.toByteArray(Charsets.UTF_8))
+
+    /**
+     * 写字节 —— `xlsx` / `docx` / `pptx` 走这一条。
+     *
+     * ⚠️ 与 [write] 共用 [writeRaw]：临时文件 + 改名的那套原子逻辑**只写一份**。
+     *    两条路各写一份的后果是"文本安全、二进制不安全"，而后者恰恰是
+     *    用户真正的产出（报告、表格、幻灯片）。
+     */
+    override suspend fun writeBytes(
+        root: ScopeRoot,
+        relativePath: String,
+        bytes: ByteArray,
+    ): ChannelResult<Unit> = writeRaw(root, relativePath, bytes)
+
+    private suspend fun writeRaw(
+        root: ScopeRoot,
+        relativePath: String,
+        bytes: ByteArray,
     ): ChannelResult<Unit> = io {
         val tree = treeUriOf(root) ?: return@io notAGrantedDirectory()
         val segments = segmentsOf(relativePath) ?: return@io malformed()
@@ -321,8 +340,6 @@ class SafFileChannel(
         val existing = childrenOf(tree, parent.documentId)?.firstOrNull { it.name == name }
 
         val parentUri = DocumentsContract.buildDocumentUriUsingTree(tree, parent.documentId)
-        val bytes = content.toByteArray(Charsets.UTF_8)
-
         // 保持原来的 MIME 类型：换掉它会让"用别的 App 打开"的行为悄悄改变。
         val mime = existing?.mimeType?.takeIf { it.isNotBlank() && it != DocumentsContract.Document.MIME_TYPE_DIR }
             ?: mimeTypeOf(name)

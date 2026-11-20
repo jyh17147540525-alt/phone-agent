@@ -1,6 +1,7 @@
 package com.pocketagent.filelogic
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
@@ -62,7 +63,22 @@ enum class OfficeTool(
 
     MAKE_TABLE(
         id = "make_table",
-        description = "把行列数据存成表格文件。format 取 csv 或 xlsx，默认 csv。",
+        description = "把行列数据存成表格文件。format 取 csv 或 xlsx，默认 csv；xlsx 会带表头加粗与列宽。",
+        readOnly = false,
+    ),
+
+    MAKE_SLIDES(
+        id = "make_slides",
+        description = "把大纲做成一页页幻灯片（pptx）。slides 是 JSON 数组：" +
+            "[{\"title\":\"季度回顾\",\"subtitle\":\"可选\",\"bullets\":[\"要点一\",\"要点二\"]}]。" +
+            "每页最多 8 条要点，整份最多 60 页。",
+        readOnly = false,
+    ),
+
+    MAKE_DOC(
+        id = "make_doc",
+        description = "把标题与段落写成 Word 文档（docx）。blocks 是 JSON 数组：" +
+            "[{\"heading\":1,\"text\":\"标题\"},{\"text\":\"正文段落\"}]；heading 取 1–4，省略就是普通段落。",
         readOnly = false,
     ),
     ;
@@ -119,8 +135,8 @@ object OfficeToolParser {
             return ToolParseOutcome.Invalid("工具调用不是合法的 JSON 对象：${e.message ?: "解析失败"}")
         }
 
-        val name = obj["tool"]?.jsonPrimitive?.contentOrNullSafe()
-            ?: obj["name"]?.jsonPrimitive?.contentOrNullSafe()
+        val name = obj["tool"]?.jsonPrimitive?.textOrNull()
+            ?: obj["name"]?.jsonPrimitive?.textOrNull()
             ?: return ToolParseOutcome.Invalid("工具调用缺少 tool 字段")
 
         val tool = OfficeTool.byId(name)
@@ -142,7 +158,7 @@ object OfficeToolParser {
         return ToolParseOutcome.Ready(OfficeToolCall(tool = tool, args = args))
     }
 
-    private fun JsonPrimitive.contentOrNullSafe(): String? = content.takeIf { it.isNotBlank() }
+    private fun JsonPrimitive.textOrNull(): String? = content.takeIf { it.isNotBlank() }
 
     private val JSON = Json { ignoreUnknownKeys = true; isLenient = true }
 }
@@ -164,6 +180,16 @@ sealed interface OfficeRequest {
         val header: List<String>,
         val rows: List<List<String>>,
         val format: DocumentFormat,
+    ) : OfficeRequest
+
+    data class MakeSlides(
+        val relativePath: String,
+        val slides: List<PptxWriter.Slide>,
+    ) : OfficeRequest
+
+    data class MakeDoc(
+        val relativePath: String,
+        val blocks: List<DocxWriter.Block>,
     ) : OfficeRequest
 }
 
@@ -216,6 +242,8 @@ object OfficeToolValidator {
             OfficeTool.READ_TEXT -> validateRead(call, policy)
             OfficeTool.WRITE_TEXT -> validateWrite(call, policy)
             OfficeTool.MAKE_TABLE -> validateMakeTable(call, policy)
+            OfficeTool.MAKE_SLIDES -> validateMakeSlides(call, policy)
+            OfficeTool.MAKE_DOC -> validateMakeDoc(call, policy)
         }
 
     // ── 只读 ────────────────────────────────────────────────────
@@ -289,6 +317,163 @@ object OfficeToolValidator {
         val rows = call.args["rows"]?.let { parseRows(it) } ?: emptyList()
 
         return ToolValidation.Allowed(OfficeRequest.MakeTable(path, header, rows, format))
+    }
+
+    /**
+     * 幻灯片。
+     *
+     * ⚠️ 空 `slides` **拒绝**，而不是生成一份零页文件：模型空着手来，
+     *    说明它没想好要讲什么；给它一个"成功"只会让它以为自己讲完了。
+     */
+    private fun validateMakeSlides(call: OfficeToolCall, policy: WorkspacePolicy): ToolValidation {
+        val raw = call.args["path"]?.takeIf { it.isNotBlank() }
+            ?: return ToolValidation.Denied("make_slides 缺少 path 参数")
+        val path = outputPathOrNull(raw, policy)
+            ?: return ToolValidation.Denied(
+                "写入路径不合法：「$raw」。只能写到产出目录「${policy.outputSubdir}/」下。",
+            )
+
+        val json = call.args["slides"]?.takeIf { it.isNotBlank() }
+            ?: return ToolValidation.Denied(
+                "make_slides 缺少 slides 参数。给 JSON 数组：" +
+                    """[{"title":"标题","bullets":["要点"]}]""",
+            )
+
+        val slides = when (val parsed = parseSlides(json)) {
+            is SlideParse.Ok -> parsed.slides
+            is SlideParse.Bad -> return ToolValidation.Denied(parsed.reason)
+        }
+
+        if (slides.isEmpty()) {
+            return ToolValidation.Denied("slides 是空数组。请至少给一页，不然生成出来的文件是空的。")
+        }
+        if (slides.size > PptxWriter.MAX_SLIDES) {
+            return ToolValidation.Denied(
+                "一页页讲不完：${slides.size} 页超过上限 ${PptxWriter.MAX_SLIDES} 页。请合并或删减。",
+            )
+        }
+        slides.forEachIndexed { index, slide ->
+            if (slide.bullets.size > PptxWriter.MAX_BULLETS) {
+                return ToolValidation.Denied(
+                    "第 ${index + 1} 页有 ${slide.bullets.size} 条要点，超过上限 ${PptxWriter.MAX_BULLETS} 条：" +
+                        "一页放不下，观众也读不完。请拆成两页。",
+                )
+            }
+        }
+
+        // 扩展名跟着工具走：模型把 path 写成 a.docx 会让用户双击打不开，这里直接纠正
+        return ToolValidation.Allowed(OfficeRequest.MakeSlides(withExtension(path, "pptx"), slides))
+    }
+
+    /** Word 文档。判定与 [validateMakeSlides] 同口径。 */
+    private fun validateMakeDoc(call: OfficeToolCall, policy: WorkspacePolicy): ToolValidation {
+        val raw = call.args["path"]?.takeIf { it.isNotBlank() }
+            ?: return ToolValidation.Denied("make_doc 缺少 path 参数")
+        val path = outputPathOrNull(raw, policy)
+            ?: return ToolValidation.Denied(
+                "写入路径不合法：「$raw」。只能写到产出目录「${policy.outputSubdir}/」下。",
+            )
+
+        val json = call.args["blocks"]?.takeIf { it.isNotBlank() }
+            ?: return ToolValidation.Denied(
+                "make_doc 缺少 blocks 参数。给 JSON 数组：" +
+                    """[{"heading":1,"text":"标题"},{"text":"正文"}]""",
+            )
+
+        val blocks = when (val parsed = parseBlocks(json)) {
+            is BlockParse.Ok -> parsed.blocks
+            is BlockParse.Bad -> return ToolValidation.Denied(parsed.reason)
+        }
+
+        if (blocks.isEmpty()) {
+            return ToolValidation.Denied("blocks 是空数组。请至少给一段，不然生成出来的文档是空的。")
+        }
+        return ToolValidation.Allowed(OfficeRequest.MakeDoc(withExtension(path, "docx"), blocks))
+    }
+
+    /** 幻灯片 JSON 的解析结论。 */
+    private sealed interface SlideParse {
+        data class Ok(val slides: List<PptxWriter.Slide>) : SlideParse
+        data class Bad(val reason: String) : SlideParse
+    }
+
+    private fun parseSlides(raw: String): SlideParse {
+        val array = runCatching { Json.parseToJsonElement(raw).jsonArray }.getOrNull()
+            ?: return SlideParse.Bad(
+                "slides 不是合法的 JSON 数组。示例：" +
+                    """[{"title":"标题","bullets":["要点一"]}]""",
+            )
+        if (array.isEmpty()) return SlideParse.Bad("slides 是空数组。")
+
+        val slides = ArrayList<PptxWriter.Slide>(array.size)
+        array.forEachIndexed { index, element ->
+            val obj = runCatching { element.jsonObject }.getOrNull()
+                ?: return SlideParse.Bad("第 ${index + 1} 页不是一个对象（{…}）。")
+            val title = obj["title"]?.jsonPrimitive?.textOrNull()?.trim().orEmpty()
+            if (title.isEmpty()) {
+                return SlideParse.Bad("第 ${index + 1} 页缺少 title。每页都要有标题，哪怕是「小结」。")
+            }
+            val subtitle = obj["subtitle"]?.jsonPrimitive?.textOrNull()?.trim()?.takeIf { it.isNotEmpty() }
+            val bullets = obj["bullets"]?.let { b ->
+                runCatching { b.jsonArray.map { it.jsonPrimitive.textOrNull() ?: "" } }.getOrNull()
+                    ?: return SlideParse.Bad("第 ${index + 1} 页的 bullets 不是字符串数组。")
+            }.orEmpty()
+            slides += PptxWriter.Slide(title = title, bullets = bullets, subtitle = subtitle)
+        }
+        return SlideParse.Ok(slides)
+    }
+
+    /** Word 块的解析结论。 */
+    private sealed interface BlockParse {
+        data class Ok(val blocks: List<DocxWriter.Block>) : BlockParse
+        data class Bad(val reason: String) : BlockParse
+    }
+
+    private fun parseBlocks(raw: String): BlockParse {
+        val array = runCatching { Json.parseToJsonElement(raw).jsonArray }.getOrNull()
+            ?: return BlockParse.Bad(
+                "blocks 不是合法的 JSON 数组。示例：" +
+                    """[{"heading":1,"text":"标题"},{"text":"正文"}]""",
+            )
+        if (array.isEmpty()) return BlockParse.Bad("blocks 是空数组。")
+
+        val blocks = ArrayList<DocxWriter.Block>(array.size)
+        array.forEachIndexed { index, element ->
+            val obj = runCatching { element.jsonObject }.getOrNull()
+                ?: return BlockParse.Bad("第 ${index + 1} 段不是一个对象（{…}）。")
+            val text = obj["text"]?.jsonPrimitive?.textOrNull() ?: ""
+            val level = obj["heading"]?.jsonPrimitive?.textOrNull()?.trim()?.toIntOrNull()
+            if (level != null) {
+                if (level < 1 || level > DocxWriter.MAX_HEADING_LEVEL) {
+                    return BlockParse.Bad(
+                        "第 ${index + 1} 段的 heading 是 $level，只支持 1–${DocxWriter.MAX_HEADING_LEVEL}。",
+                    )
+                }
+                if (text.isBlank()) return BlockParse.Bad("第 ${index + 1} 段是标题但没有文字。")
+                blocks += DocxWriter.Block.Heading(level, text)
+            } else {
+                // 空段落是合法的：用户就是想在文档里留一个空行
+                blocks += DocxWriter.Block.Paragraph(text)
+            }
+        }
+        return BlockParse.Ok(blocks)
+    }
+
+    /**
+     * 取一个 JSON 标量的字符串内容。
+     *
+     * ⚠️ `JsonNull.content` 是**字面量 "null"**，直接取会把缺失字段变成四个字母，
+     *    于是标题写成「null」出现在幻灯片上。所以先判类型。
+     */
+    private fun kotlinx.serialization.json.JsonPrimitive.textOrNull(): String? =
+        if (this is JsonNull) null else content
+
+    /** 把扩展名纠正成这个工具该产出的那一种。 */
+    private fun withExtension(path: String, ext: String): String {
+        val dot = path.lastIndexOf('/')
+        val nameStart = if (dot >= 0) dot + 1 else 0
+        val lastDot = path.lastIndexOf('.')
+        return if (lastDot > nameStart) path.substring(0, lastDot) + "." + ext else "$path.$ext"
     }
 
     // ── 路径 ────────────────────────────────────────────────────

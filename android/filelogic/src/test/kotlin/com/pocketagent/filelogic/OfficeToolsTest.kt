@@ -295,7 +295,7 @@ class OfficeToolsTest {
         val writable = OfficeTool.entries.filter { !it.readOnly }.map { it.id }.toSet()
 
         assertEquals(setOf("list_files", "read_text"), readOnly)
-        assertEquals(setOf("write_text", "make_table"), writable)
+        assertEquals(setOf("write_text", "make_table", "make_slides", "make_doc"), writable)
         assertTrue("两个集合不能有交集", (readOnly intersect writable).isEmpty())
     }
 

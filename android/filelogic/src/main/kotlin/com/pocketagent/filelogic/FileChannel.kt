@@ -93,6 +93,31 @@ interface FileChannel {
         content: String,
     ): ChannelResult<Unit>
 
+    /**
+     * 写字节。
+     *
+     * ═══════════════════════════════════════════════════════════
+     *  ★ 为什么必须与 [write] 分开，而不是"把字节转成字符串"
+     * ═══════════════════════════════════════════════════════════
+     *
+     * `xlsx` / `docx` / `pptx` 本体都是 **zip 二进制**。把 `ByteArray` 当
+     * `String`（UTF-8 解码）再写出去，会得到一份**大小看着正常、任何 Office
+     * 都打不开**的文件 —— 而且没有任何一处会报错。这正是本项目头号 bug 形态
+     * 「安静地少做一件事」。
+     *
+     * 所以宁可让"通道不支持二进制"变成一次**明确的失败**（默认实现就是这么做的），
+     * 也不要让它看起来成功了。
+     *
+     * 默认实现返回 [ChannelResult.Unavailable] 而不是抛异常：编排器已经学过
+     * "通道不可用就换一条"，异常会让整步任务失败。
+     */
+    suspend fun writeBytes(
+        root: ScopeRoot,
+        relativePath: String,
+        bytes: ByteArray,
+    ): ChannelResult<Unit> =
+        ChannelResult.Unavailable(reason = "这个通道只支持文本写入，写不了二进制文件")
+
     /** 删除。目录删除是否递归由实现决定，但**必须在结果里如实报告删了什么**。 */
     suspend fun delete(root: ScopeRoot, relativePath: String): ChannelResult<Unit>
 
