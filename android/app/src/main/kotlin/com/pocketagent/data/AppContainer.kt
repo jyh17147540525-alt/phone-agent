@@ -3877,38 +3877,50 @@ class AppContainer(context: Context) {
             else -> return@withContext false
         }
         var played = false
+        var sawKey = false
         repo.useDefaultTtsKey { provider, credential ->
+            sawKey = true
             // ★ 音色/凭据变了必须重新合成，所以 key 里带上它们。
             val key = voiceNoteStore.keyOf(clean, credential.voiceOverride, null)
             val cached = voiceNoteStore.load(key)
+            Timber.i("语音条：厂商=%s 音色=%s 缓存=%s", provider.id, credential.voiceOverride, cached != null)
             val pcm = cached ?: run {
+                // ⚠️ 合成失败必须留下痕迹：用户只看到"点了没声音"，日志里什么都没有
+                //    就等于这件事根本没发生过（2026-11-20 真机撞的）。
                 val request = com.pocketagent.provider.api.SpeechRequest(
                     text = clean,
                     format = com.pocketagent.provider.api.AudioFormat.PCM,
                     voiceId = credential.voiceOverride,
                 )
                 val sink = java.io.ByteArrayOutputStream()
-                provider.synthesize(request, credential).collect { chunk ->
-                    if (chunk is com.pocketagent.provider.api.AudioChunk.Audio) {
-                        sink.write(chunk.bytes)
+                val ok = runCatching {
+                    provider.synthesize(request, credential).collect { chunk ->
+                        if (chunk is com.pocketagent.provider.api.AudioChunk.Audio) {
+                            sink.write(chunk.bytes)
+                        }
                     }
-                }
-                val bytes = sink.toByteArray()
+                }.onFailure { t -> Timber.w(t, "语音条合成失败（%s）", provider.id) }.isSuccess
+                if (!ok) return@useDefaultTtsKey
+                val raw = sink.toByteArray()
+                val bytes = stripRiffHeader(raw)
                 if (bytes.isEmpty()) {
-                    Timber.w("语音条合成回来是空的（不打扰用户）")
+                    Timber.w("语音条合成回来是空的（%s 说它成功了，却没有音频字节）", provider.id)
                     return@useDefaultTtsKey
                 }
+                Timber.i("语音条：合成完成 %d 字节（原始 %d）", bytes.size, raw.size)
                 voiceNoteStore.save(key, bytes)
                 bytes
             }
-            // ⚠️ 静音时不放：和 speakAsync 同一条规矩。
+            // ★ 显式点击**不再因为媒体音量为 0 而跳过** —— 用户手指刚点下去，
+            //   跳过一次就是"点了没反应"，比放出来更让人以为坏了（2026-11-20 真机）。
+            //   静音时不出声是系统的事，我们照常写音频流。
             if (ttsSpeaker.mediaVolume() <= 0f) {
-                Timber.d("语音条跳过：媒体音量为 0")
-                return@useDefaultTtsKey
+                Timber.w("语音条：媒体音量是 0，仍然照播（请用户自己调音量）")
             }
             ttsReadyHolder.value = true
             played = ttsSpeaker.playPcm(pcm)
         }
+        if (!sawKey) Timber.w("语音条：没有默认语音 Key（去「设置 → API Key → 语音」里配一条并设为默认）")
         played
     }
 
@@ -3952,6 +3964,38 @@ class AppContainer(context: Context) {
     fun ttsLabel(): String? = ttsLabelHolder.value
 
     /** 停掉正在播的语音条。 */
+    /**
+     * 有些服务商说返回裸 PCM，实际塞了个 44 字节 WAV 头。
+     *
+     * ★ 头被当成采样一起送进 AudioTrack，听起来是"咔"一声音爆 + 内容偏移，
+     *   很容易被当成"模型坏了"。这里直接按块状结构切掉。
+     */
+    private fun stripRiffHeader(bytes: ByteArray): ByteArray {
+        if (bytes.size <= 44) return bytes
+        if (bytes[0] == 'R'.code.toByte() && bytes[1] == 'I'.code.toByte() &&
+            bytes[2] == 'F'.code.toByte() && bytes[3] == 'F'.code.toByte() &&
+            bytes[8] == 'W'.code.toByte() && bytes[9] == 'A'.code.toByte()
+        ) {
+            // data 块位置不固定，扫到 "data" 标记后再跳 8 字节（size + 类型）
+            var i = 12
+            while (i + 8 <= bytes.size) {
+                val id = String(bytes, i, 4, Charsets.US_ASCII)
+                val size = (bytes[i + 4].toInt() and 0xFF) or
+                    ((bytes[i + 5].toInt() and 0xFF) shl 8) or
+                    ((bytes[i + 6].toInt() and 0xFF) shl 16) or
+                    ((bytes[i + 7].toInt() and 0xFF) shl 24)
+                if (id == "data") {
+                    val start = i + 8
+                    val end = if (size > 0 && start + size <= bytes.size) start + size else bytes.size
+                    return bytes.copyOfRange(start, end)
+                }
+                if (size <= 0) break
+                i += 8 + size + (size and 1)
+            }
+        }
+        return bytes
+    }
+
     fun stopVoiceClip() {
         runCatching { ttsSpeaker.stop() }
     }
