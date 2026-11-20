@@ -58,6 +58,9 @@ enum class ToolGroup(
 
     /** 压缩包：打包与解包。入口是"看压缩包"——先看清再动手。 */
     ARCHIVE("压缩包", "zip_list"),
+
+    /** 图表：一个工具，画柱状/折线。 */
+    CHART("图表", "chart_make"),
 }
 
 /** 工具 → 组的静态映射。未登记的工具按 [ToolGroup.BASE] 处理（永远可见，宁多给不漏给）。 */
@@ -96,6 +99,12 @@ object ToolGrouping {
         "zip_list" to ToolGroup.ARCHIVE,
         "zip_create" to ToolGroup.ARCHIVE,
         "zip_extract" to ToolGroup.ARCHIVE,
+        "chart_make" to ToolGroup.CHART,
+        "remind" to ToolGroup.SYSTEM,
+        "speak" to ToolGroup.SYSTEM,
+        "image_convert" to ToolGroup.MEDIA,
+        "pdf_pages" to ToolGroup.MEDIA,
+        "pdf_from_images" to ToolGroup.MEDIA,
     )
 
     fun groupOf(tool: String): ToolGroup = of[tool] ?: ToolGroup.BASE
@@ -110,7 +119,10 @@ object ToolGrouping {
      */
     private val PRELOAD: Map<ToolGroup, List<String>> = mapOf(
         ToolGroup.FILES to listOf("文件", "表格", "文档", "目录", "导出", "保存", "xlsx", "docx", "pdf", "附件"),
-        ToolGroup.SYSTEM to listOf("root", "su", "设置", "属性", "停用", "禁用", "卸载", "权限", "包名"),
+        ToolGroup.SYSTEM to listOf(
+            "root", "su", "设置", "属性", "停用", "禁用", "卸载", "权限", "包名",
+            "提醒", "闹钟", "叫我", "记得", "念", "朗读", "播报", "语音",
+        ),
         ToolGroup.LINUX to listOf(
             "linux", "bash", "python", "脚本", "命令行", "终端", "批量", "正则",
             "sed", "awk", "jq", "grep", "清洗", "跑一遍", "算一下",
@@ -121,7 +133,11 @@ object ToolGrouping {
         ToolGroup.ARCHIVE to listOf(
             "压缩", "打包", "解压", "解包", "zip", "rar", "7z", "归档", "备份成",
         ),
+        ToolGroup.CHART to listOf(
+            "图表", "柱状", "折线", "趋势", "画一张", "可视化", "曲线", "统计图",
+        ),
         ToolGroup.MEDIA to listOf(
+            "图片", "照片", "截图", "转格式", "压小", "缩小", "pdf", "合并成", "转成图",
             "音轨", "音频", "视频", "录音", "转码", "抽音", "截帧",
             "mp3", "m4a", "mp4", "webm", "wav", "分辨率", "时长",
         ),

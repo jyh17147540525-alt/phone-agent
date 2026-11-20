@@ -181,6 +181,9 @@ enum class ToolChannel(val label: String) {
 
     /** 压缩包：打包与解包。只碰工作区目录。 */
     ARCHIVE("压缩包"),
+
+    /** 图表：把数字画成图。纯本机计算。 */
+    CHART("图表"),
 }
 
 /** 这一步会改变什么。 */

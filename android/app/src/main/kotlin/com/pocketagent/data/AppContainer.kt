@@ -106,6 +106,14 @@ import com.pocketagent.mcp.ToolRegistry
 import com.pocketagent.mcp.LinuxExecTool
 import com.pocketagent.mcp.WebFetchTool
 import com.pocketagent.mcp.ArchivePort
+import com.pocketagent.mcp.ChartTool
+import com.pocketagent.mcp.ImageConvertTool
+import com.pocketagent.mcp.ImagePort
+import com.pocketagent.mcp.PdfFromImagesTool
+import com.pocketagent.mcp.PdfPagesTool
+import com.pocketagent.mcp.PdfPort
+import com.pocketagent.mcp.RemindTool
+import com.pocketagent.mcp.SpeakTool
 import com.pocketagent.mcp.ZipCreateTool
 import com.pocketagent.mcp.ZipExtractTool
 import com.pocketagent.mcp.ZipListTool
@@ -5790,6 +5798,13 @@ class AppContainer(context: Context) {
         // 联网：纯逻辑在 :mcp，这里只负责真开 socket。
         val webOps: WebOpsPort = HttpWebOps(policy = { webPolicy() })
 
+        // 图片与 PDF：Bitmap / PdfRenderer 都在 :app（平台类，离线测不了），
+        // 参数校验与话术在 :mcp 的 MediaTools.kt。
+        val imagePort: ImagePort = AndroidImagePort()
+        val pdfPort: PdfPort = AndroidPdfPort(appContext.cacheDir)
+    val reminderPort: com.pocketagent.mcp.ReminderPort = AndroidReminderPort(appContext)
+    val ttsPort: com.pocketagent.mcp.TtsPort = AndroidTtsPort(appContext)
+
         // 压缩包：直接在应用自己的工作区（root 容器的 /work）里读写。
         // ⚠️ 不走 SAF：一次只能建一个 document，解包几十个文件会慢到像死机。
         val archiveOps: ArchivePort = WorkDirArchivePort(File(appContext.filesDir, "linux/work"))
@@ -5878,6 +5893,17 @@ class AppContainer(context: Context) {
         ZipListTool(archiveOps),
         ZipCreateTool(archiveOps),
         ZipExtractTool(archiveOps),
+        // ── 图表（chart_make）────────────────────────────────────
+        // ★ 纯 Kotlin PNG 编码，离线可测；不需要 root 容器也不需要装 matplotlib。
+        ChartTool(archiveOps),
+        // ── 图片与 PDF ───────────────────────────────────────────
+        ImageConvertTool(archiveOps, imagePort),
+        PdfPagesTool(archiveOps, pdfPort),
+        PdfFromImagesTool(archiveOps, pdfPort),
+        // ── 提醒与朗读 ───────────────────────────────────────────
+        // ★ 提醒走 AlarmManager + 通知（进程被杀也会响），朗读走系统 TTS（离线，不上传）。
+        RemindTool(reminderPort),
+        SpeakTool(ttsPort),
             LinuxReadTool(linuxOps),
             MediaOpsTool(mediaOps),
         )

@@ -25,13 +25,7 @@ import kotlinx.serialization.json.putJsonObject
  *    是完全合法的 zip。安全边界全在 `:filelogic` 的 [ZipSafety] 与
  *    [ArchiveLimits] 里（离线可测），这里只负责"读出来、落下去、说清楚"。
  */
-interface ArchivePort {
-
-    /** 读一个工作区文件。不存在时抛异常（由工具转成人话）。 */
-    suspend fun read(relativePath: String): ByteArray
-
-    /** 写一个工作区文件（父目录不存在就建）。 */
-    suspend fun write(relativePath: String, bytes: ByteArray)
+interface ArchivePort : WorkFilePort {
 
     /**
      * 收集要打包的内容：传文件就取它本身，传目录就递归取里面所有文件。
@@ -198,7 +192,3 @@ class ZipExtractTool(
         return if (written == 0) ToolOutcome.Failed(head + skip) else ToolOutcome.Success(head + skip)
     }
 }
-
-/** `JsonPrimitive.contentOrNull` 在 `JsonNull` 上会给出字面量 "null"，必须自己判类型。 */
-private fun JsonPrimitive.contentOrNullSafe(): String? =
-    if (this is kotlinx.serialization.json.JsonNull) null else content

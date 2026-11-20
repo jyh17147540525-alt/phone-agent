@@ -216,6 +216,11 @@
             </intent-filter>
         </service>
 
+        <!- 提醒到点的接收器：必须在这里声明，应用被杀时才会被系统拉起 ->
+        <receiver
+            android:name=".data.ReminderReceiver"
+            android:exported="false" />
+
         <!- 悬浮窗服务 ->
         <service
             android:name=".overlay.OverlayService"
