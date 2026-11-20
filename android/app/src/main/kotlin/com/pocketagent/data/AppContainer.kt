@@ -4088,15 +4088,8 @@ class AppContainer(context: Context) {
      *    （"（凑近眯眼看）"）都不该被念出来 —— 用户会听见一串
      *    "星号 星号 粗体"。这属于"同一段内容，两种读者"。
      */
-    fun spokenForm(text: String): String = text
-        .replace(Regex("```[\\s\\S]*?```"), "，代码略，")
-        .replace(Regex("`([^`]*)`"), "$1")
-        .replace(Regex("[*_#>~]+"), "")
-        .replace(Regex("https?://\\S+"), "，链接略，")
-        .replace(Regex("[（(][^）)]{0,30}[）)]"), "")
-        .replace(Regex("\\s+"), " ")
-        .trim()
-        .take(SPEAK_MAX_CHARS)
+    fun spokenForm(text: String): String =
+        com.pocketagent.voicelogic.SpeechText.toSpeech(text, SPEAK_MAX_CHARS.coerceAtLeast(200))
 
     /**
      * 上一次"埋怨对方不理我"的时间（0 = 从没埋怨过）。
