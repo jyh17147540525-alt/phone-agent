@@ -132,6 +132,13 @@ class TtsSpeaker(private val context: Context) {
         //     它自己会等设备就绪；我们不再手写 AudioTrack 的 24kHz 假设。
         //     WAV 头是死的 44 字节，字节内容仍是服务商原样 PCM —— 不重新编码。
         stopped = false
+        // 进程内第一次出声先放一段静音，把输出通路叫醒。
+        // 现象：首播沙沙、再播正常、缓存重放正常，重启后第一次又沙沙 ——
+        // 一直是「这一进程的第一次」有问题，所以问题在起播，不在数据。
+        if (!warmedUp) {
+            warmedUp = true
+            runCatching { playSilently() }.onFailure { Timber.w(it, "语音通路预热失败（忽略）") }
+        }
         //   抽查缓存（487680 字节 / 24kHz / 10.16s）证明：空白是**服务商给的** ——
         //   0.90s 起 0.50s、5.65s 起 1.15s 的纯数字静音（峰值 <60），不是我们垫的。
         //   所以这里先压掉内部长静音、剪掉首尾静音，**不额外垫开头**；
@@ -165,6 +172,27 @@ class TtsSpeaker(private val context: Context) {
     }
 
     /** 写一个标准 44 字节头的 WAV（单声道 16bit）。字节内容原样，不重编码。 */
+    /** 放 200ms 静音，把输出通路先叫醒。只为吃掉进程内第一次出声的杂音。 */
+    private fun playSilently() {
+        val silence = ByteArray(PCM_SAMPLE_RATE / 1000 * 200 * 2)
+        val file = java.io.File(context.cacheDir, "voice_warmup.wav")
+        writeWav(file, silence)
+        val mp = android.media.MediaPlayer()
+        val latch = java.util.concurrent.CountDownLatch(1)
+        mp.setOnCompletionListener { latch.countDown() }
+        mp.setOnErrorListener { _, _, _ -> latch.countDown(); true }
+        try {
+            mp.setDataSource(file.absolutePath)
+            mp.setVolume(0f, 0f)
+            mp.prepare()
+            mp.start()
+            latch.await(3, java.util.concurrent.TimeUnit.SECONDS)
+        } finally {
+            runCatching { mp.stop() }
+            runCatching { mp.release() }
+        }
+    }
+
     private fun writeWav(file: java.io.File, pcm: ByteArray) {
         val dataLen = pcm.size
         val header = java.nio.ByteBuffer.allocate(44).order(java.nio.ByteOrder.LITTLE_ENDIAN)
@@ -279,6 +307,10 @@ class TtsSpeaker(private val context: Context) {
 
     /** 播完/出错/被停时放行 [playPcm] 的等待。 */
     private var done: java.util.concurrent.CountDownLatch? = null
+
+    /** 这一进程是否已经出过声（首播预热用）。 */
+    @Volatile
+    private var warmedUp = false
 
     companion object {
         /** OpenAI 兼容 TTS 的 PCM 输出格式：24kHz / 16bit / 单声道。 */
