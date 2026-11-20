@@ -121,7 +121,6 @@ class TtsSpeaker(private val context: Context) {
     @Suppress("BlockingMethodInNonBlockingContext")
     fun playPcm(pcm: ByteArray): Boolean {
         if (pcm.isEmpty()) return false
-        // ★★ 2026-11-20 第三轮：用户原话"沙沙声的爆音，现在还会，就是刚生成的音频
         //   播放第一遍才会，播放第二遍就不会了"。
         //
         //   同一条字节、同一段代码，第一遍沙沙、第二遍正常 ⇒ **不是数据问题**。
@@ -133,7 +132,6 @@ class TtsSpeaker(private val context: Context) {
         //     它自己会等设备就绪；我们不再手写 AudioTrack 的 24kHz 假设。
         //     WAV 头是死的 44 字节，字节内容仍是服务商原样 PCM —— 不重新编码。
         stopped = false
-        // ★ 2026-11-20 真机：用户说"整个音频前半段会有一段空白，我要求的空白只在结尾"。
         //   抽查缓存（487680 字节 / 24kHz / 10.16s）证明：空白是**服务商给的** ——
         //   0.90s 起 0.50s、5.65s 起 1.15s 的纯数字静音（峰值 <60），不是我们垫的。
         //   所以这里先压掉内部长静音、剪掉首尾静音，**不额外垫开头**；

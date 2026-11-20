@@ -627,7 +627,6 @@ class AppContainer(context: Context) {
                 tasks = db.taskDao(),
             )
             conversationStore = store
-            // ★ 2026-11-20：把"工作台建过的会话"认成 WORK。
             //   库迁移只能给老数据一个默认值（ROLEPLAY），可真话是工作台自己
             //   记得它建过哪些（`KEY_WORK_SESSIONS`）。不补这一步，用户升级后
             //   打开工作台会看到"工作历史空了" —— 数据没丢，是被划到了聊天那侧。
@@ -1074,7 +1073,6 @@ class AppContainer(context: Context) {
                 assistantPersona.runtime.apply(
                     com.pocketagent.personalogic.PersonaEvent(
                         kind = kind,
-                        // ⚠️ 由头必须是**可复述的用户原话**，不是"检测到认可"。
                         //    随机情绪 = 崩人设；由头对不上同样崩。
                         reason = userText.take(24),
                     ),
@@ -2312,7 +2310,6 @@ class AppContainer(context: Context) {
             val store = conversationStore
                 ?: return com.pocketagent.personalogic.PersonaSyncReport(0, 0, "会话还没打开")
             val turns = store.recentForModel(sessionId, limit)
-            // ⚠️ **只改角色说过的**。用户原话是记录，改它等于篡改他的输入。
             val assistant = turns.filter {
                 it.role == com.pocketagent.memorylogic.TurnRole.ASSISTANT
             }
@@ -2470,7 +2467,6 @@ class AppContainer(context: Context) {
             }
             // ── ③ 记忆原子也要洗 ──────────────────────────
             //
-            // ⚠️ 用户说的"记忆里那些上下文"包括**原子记忆**，不只是对话。
             //    原子是模型对用户的印象（"她叫小雨"），设定改了它也必须改，
             //    否则下一轮召回出来的还是旧的。
             var atomsChanged = 0
@@ -3469,7 +3465,6 @@ class AppContainer(context: Context) {
             val hard = com.pocketagent.legacy.RefusalDetector.inspect(replyText) ==
                 com.pocketagent.legacy.Refusal.HARD
 
-            // ★★ 2026-11-20（缺口 1）：**先记跑偏类别**，再决定要不要拦记忆。
             //
             //   ⚠️ 两件事的判据不同，不能合并：
             //      · 拦记忆只认**硬拒答**（污染长期记忆的主要来源）；
@@ -3826,7 +3821,6 @@ class AppContainer(context: Context) {
                             // ⚠️ 必须显式要 PCM：默认是 MP3，而 AudioTrack 播不了
                             //    压缩格式 —— 会变成一段刺耳的噪声。
                             format = com.pocketagent.provider.api.AudioFormat.PCM,
-                            // ★ 2026-11-20：把凭据上配的音色带进来。
                             //   不带的话，用户在 Key 编辑页填的「音色」永远不生效
                             //   （Provider 只在**凭据覆盖**这一层读它，
                             //   而 Provider 侧的优先级是 请求 > 凭据 > 默认，
@@ -3874,6 +3868,52 @@ class AppContainer(context: Context) {
     }
 
     /**
+     * 把这条回复的语音提前合成并写盘。
+     *
+     * 播放端读磁盘的字节不沙沙、刚合成的内存字节沙沙（真机 2026-11-20 确认），
+     * 所以让"第一次"也走磁盘：回复上屏前先落盘。
+     * 已缓存的条子直接跳过，不重复花钱。
+     *
+     * 任何失败都只是"语音没准备好"，不阻断对话。
+     */
+    suspend fun prefetchVoice(reply: String) {
+        if (!ttsEnabled()) return
+        val clips = voiceClips(reply)
+        if (clips.isEmpty()) return
+        val repo = when (val opened = openCredentialStore()) {
+            is CredentialStoreResult.Ready -> opened.repository
+            else -> return
+        }
+        withContext(Dispatchers.IO) {
+            repo.useDefaultTtsKey { provider, credential ->
+                for (clip in clips) {
+                    val clean = clip.text.trim()
+                    if (clean.isEmpty()) continue
+                    val key = voiceNoteStore.keyOf(clean, credential.voiceOverride, null)
+                    if (voiceNoteStore.load(key) != null) continue
+                    val request = com.pocketagent.provider.api.SpeechRequest(
+                        text = clean,
+                        format = com.pocketagent.provider.api.AudioFormat.PCM,
+                        voiceId = credential.voiceOverride,
+                    )
+                    val sink = java.io.ByteArrayOutputStream()
+                    val ok = runCatching {
+                        provider.synthesize(request, credential).collect { chunk ->
+                            if (chunk is com.pocketagent.provider.api.AudioChunk.Audio) {
+                                sink.write(chunk.bytes)
+                            }
+                        }
+                    }.onFailure { t -> Timber.w(t, "语音预生成失败（%s）", provider.id) }.isSuccess
+                    if (!ok) continue
+                    val bytes = stripRiffHeader(sink.toByteArray())
+                    if (bytes.isEmpty()) continue
+                    voiceNoteStore.save(key, bytes)
+                }
+            }
+        }
+    }
+
+    /**
      * **点一下语音条**：没合成过就合成，合成过就直接播。
      *
      * @return true = 真的响了；false = 没有 TTS Key / 合成失败 / 正在被停
@@ -3895,7 +3935,6 @@ class AppContainer(context: Context) {
             Timber.i("语音条：厂商=%s 音色=%s 缓存=%s", provider.id, credential.voiceOverride, cached != null)
             val pcm = cached ?: run {
                 // ⚠️ 合成失败必须留下痕迹：用户只看到"点了没声音"，日志里什么都没有
-                //    就等于这件事根本没发生过（2026-11-20 真机撞的）。
                 val request = com.pocketagent.provider.api.SpeechRequest(
                     text = clean,
                     format = com.pocketagent.provider.api.AudioFormat.PCM,
@@ -3918,7 +3957,6 @@ class AppContainer(context: Context) {
                 }
                 Timber.i("语音条：合成完成 %d 字节（原始 %d）", bytes.size, raw.size)
                 voiceNoteStore.save(key, bytes)
-                // ★★ 2026-11-20 第四轮：用户给了一条决定性的观察 ——
                 //   「只有新播放第一次回[沙沙]。播放第二次和旧的都不会。」
                 //
                 //   这句话把范围压到了"**同一条刚合成完、第一次播**"这一个组合上：
@@ -3936,13 +3974,11 @@ class AppContainer(context: Context) {
                 fromDisk ?: bytes
             }
             // ★ 显式点击**不再因为媒体音量为 0 而跳过** —— 用户手指刚点下去，
-            //   跳过一次就是"点了没反应"，比放出来更让人以为坏了（2026-11-20 真机）。
             //   静音时不出声是系统的事，我们照常写音频流。
             if (ttsSpeaker.mediaVolume() <= 0f) {
                 Timber.w("语音条：媒体音量是 0，仍然照播（请用户自己调音量）")
             }
             ttsReadyHolder.value = true
-            // ★ 2026-11-20 用户要求：播放时长比云端返回的音频**多 2 秒**，
             //   哪怕那 2 秒是空的也要放。补在播放端而不是缓存里：
             //   缓存存的是服务商原样字节，将来换 pad 长度不必重合成。
             played = ttsSpeaker.playPcm(
@@ -4746,7 +4782,6 @@ class AppContainer(context: Context) {
     //  ★★ 2026-11-04：**跨轮治理**（"越聊越 AI 味"与"换模型就变味"）
     // ══════════════════════════════════════════════════════════════
     //
-    // ⚠️ 用户原话：「对话轮次越多角色的 AI 味越浓，特别是切换模型的时候」。
     //
     //    上面所有部件（Humanizer / OutputGuard / RoleplayDiscipline / VoiceSamples）
     //    都是**单轮**判据：它们能说"这一句像 AI"，说不出"最近二十轮在往下掉"。
@@ -5014,7 +5049,6 @@ class AppContainer(context: Context) {
     //  ★ 记忆随笔：由角色模型亲手写（不是规则拼）
     // ══════════════════════════════════════════════════════════════
     //
-    // 用户原话："每个节点里呈现给用户的内容，都应该由 api 里的角色模型
     // 生成的，就像安排角色写了一篇日记和随笔一样。"
     //
     // ⚠️ 生成的随笔**只在展示层**：
@@ -5653,7 +5687,6 @@ class AppContainer(context: Context) {
             ""
         }
         // ══════════════════════════════════════════════════════════
-        //  ★★ 2026-11-20：**声音标签** —— 只在这个模式出现
         // ══════════════════════════════════════════════════════════
         //
         // 用户 11-20 的口径：「文本模型在向语音的 api 模型发送请求时要加入

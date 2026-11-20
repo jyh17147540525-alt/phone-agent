@@ -1007,6 +1007,15 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
             //    这次调用本身**立刻返回** —— 用户不会多等。
             runCatching { container.scheduleBackgroundAfterTurn(userText, text) }
                 .onFailure { Timber.w(it, "后台任务调度失败（不影响对话）") }
+
+            // 先把这一轮的语音落盘，再让回复出现。
+            // 用户反馈：语音条第一次播放有沙沙噪声，第二次（读磁盘）就不会。
+            // 与其在播放端绕，不如让"第一次"也读磁盘：合成结果先写进缓存，
+            // 消息随后才上屏。用户看到消息时语音已经在硬盘里，点一下就是第二遍那种播放。
+            // 失败不拦回复：没网、没 Key、超时都照常上屏，语音条自己会显示未就绪。
+            runCatching { container.prefetchVoice(cleanText) }
+                .onFailure { Timber.w(it, "语音预生成失败（不影响对话）") }
+
             ChatResult.Ok(
                 text = cleanText,
                 // ★★ 2026-11-04：改成 `actedInLoop`（原来是 `didAct`）。
