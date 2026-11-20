@@ -2,11 +2,13 @@ package com.pocketagent.ui.keys
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
@@ -25,8 +27,10 @@ import com.pocketagent.ui.design.PaButton
 import com.pocketagent.ui.design.PaButtonStyle
 import com.pocketagent.ui.design.PaColor
 import com.pocketagent.ui.design.PaSpace
+import com.pocketagent.ui.design.PaTextField
 import com.pocketagent.ui.design.PaType
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
 import java.net.URL
@@ -35,9 +39,15 @@ import java.net.URL
  * 从厂商的 `/v1/voices` 里挑一个音色。
  *
  * ★ 为什么必须做这个：`/v1/text-to-speech/{voice_id}` 只认 **voice_id**。
- *   让用户手打"音色 id"，他多半会填成界面上的**名字**（「月夜低语者」），
+ *   让用户手打 id，他多半会填成界面上的**名字**（「月夜低语者」），
  *   然后每次合成都是 `404 Voice not found.` —— 2026-11-20 真机上就是这么
- *   一点声音都没有的。列表把"名字"和"要填的 id"摆在一起，就没这个坑了。
+ *   一点声音都没有的。
+ *
+ * ★ 2026-11-20 晚补：一页 100 条装不下整个音色库（官网几百个，还分
+ *   公开库 / 我的音色）。所以这里给三样东西：
+ *   ① **搜索框**（用户在官网试听完，记住名字，回来搜）；
+ *   ② **加载更多**（翻页，直到翻完）；
+ *   ③ **直接填 id**（官网地址里那串 UUID 最准，粘进来就行）。
  */
 @Composable
 fun VoicePickerDialog(
@@ -46,16 +56,37 @@ fun VoicePickerDialog(
     onPick: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var query by remember { mutableStateOf("") }
+    var appliedQuery by remember { mutableStateOf("") }
+    var page by remember { mutableStateOf(1) }
     var loading by remember { mutableStateOf(true) }
+    var more by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var hasMore by remember { mutableStateOf(false) }
     var voices by remember { mutableStateOf<List<TtsVoice>>(emptyList()) }
+    var pasted by remember { mutableStateOf("") }
 
-    LaunchedEffect(baseUrl, apiKey) {
-        loading = true
-        val result = runCatching { fetchVoices(baseUrl, apiKey) }
-        voices = result.getOrDefault(emptyList())
-        error = result.exceptionOrNull()?.message
-        loading = false
+    // ★ 搜索防抖：每敲一个字就发一次请求，等于拿用户的额度打自己的脸。
+    LaunchedEffect(query) {
+        delay(450)
+        if (query != appliedQuery) {
+            appliedQuery = query
+            page = 1
+        }
+    }
+
+    LaunchedEffect(appliedQuery, page) {
+        val first = page == 1
+        if (first) loading = true else more = true
+        val result = runCatching { fetchVoices(baseUrl, apiKey, appliedQuery, page) }
+        if (first) loading = false else more = false
+        result.onSuccess { (list, moreAvailable) ->
+            voices = if (first) list else voices + list
+            hasMore = moreAvailable
+            error = null
+        }.onFailure { t ->
+            if (first) error = t.message
+        }
     }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -67,20 +98,50 @@ fun VoicePickerDialog(
             Text(text = "选择音色", style = PaType.headline, color = PaColor.TextPrimary)
             Spacer(Modifier.height(PaSpace.xs))
             Text(
-                text = "从你的账号里能用的音色里挑一个。点一下就把它的 id 填进去。",
+                text = "在官网试听完，记住名字来这里搜；也可以直接把地址里的 id 粘进来。",
                 style = PaType.caption,
                 color = PaColor.TextTertiary,
             )
             Spacer(Modifier.height(PaSpace.s))
 
+            PaTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = "搜音色（名字 / 气质 / 语言，例如 低语、calm、zh）",
+            )
+
+            // ★ 直接填 id：官网地址里 `voice_id=…` 那段是最准的，
+            //   比在几百条里翻更省事。只接受"像 id"的输入，中文名会被拦。
+            Spacer(Modifier.height(PaSpace.xs))
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    PaTextField(
+                        value = pasted,
+                        onValueChange = { pasted = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = "或直接粘 voice_id（868dcfd9-…）",
+                    )
+                }
+                Spacer(Modifier.width(PaSpace.xs))
+                val usable = TtsVoices.looksLikeId(pasted)
+                PaButton(
+                    text = "用这个",
+                    onClick = { if (usable) onPick(pasted.trim()) },
+                    style = if (usable) PaButtonStyle.Primary else PaButtonStyle.Glass,
+                )
+            }
+
+            Spacer(Modifier.height(PaSpace.s))
+
             when {
                 loading -> Text(text = "正在取音色列表…", style = PaType.body, color = PaColor.TextSecondary)
                 voices.isEmpty() -> Text(
-                    text = error ?: "这个账号下没有取到音色（也可能 Key 没有列音色的权限）。",
+                    text = error ?: "没搜到音色。换个词试试，或者直接把 id 粘在上面。",
                     style = PaType.body,
-                    color = PaColor.Danger,
+                    color = if (error != null) PaColor.Danger else PaColor.TextSecondary,
                 )
-                else -> LazyColumn(modifier = Modifier.heightIn(max = 420.dp)) {
+                else -> LazyColumn(modifier = Modifier.heightIn(max = 380.dp)) {
                     items(voices) { v ->
                         Column(
                             modifier = Modifier
@@ -93,6 +154,17 @@ fun VoicePickerDialog(
                                 text = if (v.note.isBlank()) v.id else "${v.id} · ${v.note}",
                                 style = PaType.caption,
                                 color = PaColor.TextTertiary,
+                            )
+                        }
+                    }
+                    if (hasMore) {
+                        item {
+                            Spacer(Modifier.height(PaSpace.xs))
+                            PaButton(
+                                text = if (more) "正在取…" else "加载更多",
+                                onClick = { if (!more) page += 1 },
+                                style = PaButtonStyle.Glass,
+                                fillWidth = true,
                             )
                         }
                     }
@@ -110,30 +182,38 @@ fun VoicePickerDialog(
     }
 }
 
-/** 取一次音色列表。失败抛异常，由界面显示原因（不编假数据）。 */
-private suspend fun fetchVoices(baseUrl: String, apiKey: String): List<TtsVoice> =
-    withContext(Dispatchers.IO) {
-        val base = baseUrl.trim().trimEnd('/').ifEmpty { "https://api.breeze.blue" }
-        val url = URL("$base/v1/voices?page_size=100&language_code=zh")
-        val conn = (url.openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"
-            connectTimeout = 12_000
-            readTimeout = 20_000
-            setRequestProperty("xi-api-key", apiKey)
-            setRequestProperty("Authorization", "Bearer $apiKey")
-            setRequestProperty("Accept", "application/json")
-        }
-        try {
-            val code = conn.responseCode
-            val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
-                ?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (code !in 200..299) {
-                throw IllegalStateException("HTTP $code：${body.take(160)}")
-            }
-            TtsVoices.parse(body).ifEmpty {
-                throw IllegalStateException("列表是空的（返回 $body 开头 ${body.take(120)}）")
-            }
-        } finally {
-            conn.disconnect()
-        }
+/**
+ * 取一页音色。`voice_type=all` 同时包含公开库与我的音色 ——
+ * 官网展示的那些默认音色都在公开库里，只查 personal 会"少一大半"。
+ */
+private suspend fun fetchVoices(
+    baseUrl: String,
+    apiKey: String,
+    query: String,
+    page: Int,
+): Pair<List<TtsVoice>, Boolean> = withContext(Dispatchers.IO) {
+    val base = baseUrl.trim().trimEnd('/').ifEmpty { "https://api.breeze.blue" }
+    val sb = StringBuilder("$base/v1/voices?page_size=100&page=$page&voice_type=all")
+    if (query.isNotBlank()) {
+        sb.append("&search=").append(java.net.URLEncoder.encode(query.trim(), "UTF-8"))
     }
+    val conn = (URL(sb.toString()).openConnection() as HttpURLConnection).apply {
+        requestMethod = "GET"
+        connectTimeout = 12_000
+        readTimeout = 20_000
+        setRequestProperty("xi-api-key", apiKey)
+        setRequestProperty("Authorization", "Bearer $apiKey")
+        setRequestProperty("Accept", "application/json")
+    }
+    try {
+        val code = conn.responseCode
+        val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
+            ?.bufferedReader()?.use { it.readText() }.orEmpty()
+        if (code !in 200..299) throw IllegalStateException("HTTP $code：${body.take(160)}")
+        val list = TtsVoices.parse(body)
+        val more = body.contains("\"has_more\":true") || body.contains("\"has_more\": true")
+        list to more
+    } finally {
+        conn.disconnect()
+    }
+}
