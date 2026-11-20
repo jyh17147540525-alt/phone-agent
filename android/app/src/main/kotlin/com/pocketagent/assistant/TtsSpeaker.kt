@@ -79,7 +79,7 @@ class TtsSpeaker(private val context: Context) {
                     when (chunk) {
                         is AudioChunk.Audio -> {
                             if (!wrote) {
-                                openTrack()
+                                synchronized(lock) { closeTrackLocked(); openTrackLocked() }
                                 wrote = true
                             }
                             track?.write(chunk.bytes, 0, chunk.bytes.size)
@@ -98,7 +98,7 @@ class TtsSpeaker(private val context: Context) {
             Timber.w(t, "朗读失败（不打扰用户）")
             wrote
         } finally {
-            closeTrack()
+            synchronized(lock) { closeTrackLocked() }
         }
     }
 
@@ -121,32 +121,45 @@ class TtsSpeaker(private val context: Context) {
     @Suppress("BlockingMethodInNonBlockingContext")
     fun playPcm(pcm: ByteArray): Boolean {
         if (pcm.isEmpty()) return false
+        // ⚠️ 2026-11-20 真机崩过：`stop()`（界面线程）在 `playPcm`（IO 线程）
+        //    正往 AudioTrack 写的时候把它 release 了 —— native 层直接
+        //    SIGSEGV/SIGABRT，表现为"啪"一声爆音然后闪退，重启后再放又好了
+        //    （时序凑不上而已）。所以 close 与 write 必须互斥。
         stopped = false
         return try {
-            openTrack()
+            synchronized(lock) {
+                closeTrackLocked()
+                openTrackLocked()
+            }
             var offset = 0
             while (offset < pcm.size) {
-                if (stopped) break
-                val n = minOf(CHUNK_BYTES, pcm.size - offset)
-                track?.write(pcm, offset, n)
-                offset += n
+                val consumed = synchronized(lock) {
+                    if (stopped) return@synchronized -1
+                    val t = track ?: return@synchronized -1
+                    val n = minOf(CHUNK_BYTES, pcm.size - offset)
+                    val written = t.write(pcm, offset, n)
+                    if (written < 0) -1 else written
+                }
+                if (consumed < 0) break
+                offset += consumed
             }
             true
         } catch (t: Throwable) {
             Timber.w(t, "语音条播放失败（不打扰用户）")
             false
         } finally {
-            closeTrack()
+            synchronized(lock) { closeTrackLocked() }
         }
     }
 
     /** 立刻停。 */
     fun stop() {
         stopped = true
-        closeTrack()
+        // 等正在写的那一块写完再 release：中途 release 就是上面那个崩溃。
+        synchronized(lock) { closeTrackLocked() }
     }
 
-    private fun openTrack() {
+    private fun openTrackLocked() {
         // ⚠️ 必须和请求里的格式对上：PCM 采样率写错会变成"快放/慢放"的怪声，
         //    而它听起来像"模型嗓子坏了"，不会让人想到是这里写错了数。
         //    OpenAI 兼容的 PCM 输出是 24kHz / 16bit / 单声道。
@@ -177,7 +190,7 @@ class TtsSpeaker(private val context: Context) {
         track = t
     }
 
-    private fun closeTrack() {
+    private fun closeTrackLocked() {
         val t = track
         track = null
         if (t != null) {
@@ -196,6 +209,9 @@ class TtsSpeaker(private val context: Context) {
         val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
         am.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / max
     }.getOrDefault(1f)
+
+    /** write / close 的互斥锁。见 [playPcm] 里那段崩溃记录。 */
+    private val lock = Any()
 
     companion object {
         /** OpenAI 兼容 TTS 的 PCM 输出格式：24kHz / 16bit / 单声道。 */
