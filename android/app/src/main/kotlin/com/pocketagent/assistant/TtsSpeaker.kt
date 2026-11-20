@@ -126,29 +126,52 @@ class TtsSpeaker(private val context: Context) {
         //    SIGSEGV/SIGABRT，表现为"啪"一声爆音然后闪退，重启后再放又好了
         //    （时序凑不上而已）。所以 close 与 write 必须互斥。
         stopped = false
+        // ★ 2026-11-20：首尾各淡 8ms。合成器输出常带直流偏置、或从半周期开始，
+        //   波形从 0 直接跳到非零 —— 听感就是"啪"。淡变把跳变压成渐变，
+        //   8ms 在语音上比一个字的起音还短，听不出来（见 PcmShape 的 KDoc）。
+        val shaped = com.pocketagent.voicelogic.PcmShape.fadeEdges(pcm, PCM_SAMPLE_RATE)
         return try {
             synchronized(lock) {
                 closeTrackLocked()
                 openTrackLocked()
             }
             var offset = 0
-            while (offset < pcm.size) {
+            while (offset < shaped.size) {
                 val consumed = synchronized(lock) {
                     if (stopped) return@synchronized -1
                     val t = track ?: return@synchronized -1
-                    val n = minOf(CHUNK_BYTES, pcm.size - offset)
-                    val written = t.write(pcm, offset, n)
+                    val n = minOf(CHUNK_BYTES, shaped.size - offset)
+                    val written = t.write(shaped, offset, n)
                     if (written < 0) -1 else written
                 }
                 if (consumed < 0) break
                 offset += consumed
             }
+            // ★ 写完了不等于播完了：STREAM 模式下最后一段还在缓冲区里。
+            //   立刻 release 会把尾音砍掉（第二种"爆音"来源）。
+            drainLocked(shaped.size)
             true
         } catch (t: Throwable) {
             Timber.w(t, "语音条播放失败（不打扰用户）")
             false
         } finally {
             synchronized(lock) { closeTrackLocked() }
+        }
+    }
+
+    /**
+     * 等缓冲区里的音频播完（最多等 DRAIN_TIMEOUT_MS）。
+     *
+     * ⚠️ 用 `playbackHeadPosition` 而不是 `sleep(时长)`：后者在卡顿时会等过头，
+     *    而前者到点就返回；被打断（[stop]）也立刻退出。
+     */
+    private fun drainLocked(totalBytes: Int) {
+        val totalFrames = totalBytes / 2
+        val deadline = System.currentTimeMillis() + DRAIN_TIMEOUT_MS
+        while (!stopped && System.currentTimeMillis() < deadline) {
+            val head = synchronized(lock) { track?.playbackHeadPosition ?: return }
+            if (head >= totalFrames) return
+            runCatching { Thread.sleep(20) }
         }
     }
 
@@ -216,6 +239,9 @@ class TtsSpeaker(private val context: Context) {
     companion object {
         /** OpenAI 兼容 TTS 的 PCM 输出格式：24kHz / 16bit / 单声道。 */
         const val PCM_SAMPLE_RATE = 24_000
+
+        /** 等尾音播完的上限。一句话最多几十秒，超过这个数一定是有东西卡住了。 */
+        private const val DRAIN_TIMEOUT_MS = 3_000L
 
         /** 一次写多少字节：太大时"打断"要等很久才停。 */
         private const val CHUNK_BYTES = 8 * 1024
