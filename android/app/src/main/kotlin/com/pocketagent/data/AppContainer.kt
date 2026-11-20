@@ -104,6 +104,9 @@ import com.pocketagent.mcp.ScreenShotTool
 import com.pocketagent.mcp.ToolGate
 import com.pocketagent.mcp.ToolRegistry
 import com.pocketagent.mcp.LinuxExecTool
+import com.pocketagent.mcp.WebFetchTool
+import com.pocketagent.mcp.WebOpsPort
+import com.pocketagent.mcp.WebSearchTool
 import com.pocketagent.mcp.LinuxReadTool
 import com.pocketagent.mcp.MediaOpsTool
 import com.pocketagent.agentlogic.AgentLlmPort
@@ -113,6 +116,7 @@ import com.pocketagent.agentlogic.orchestration.SuperAgent
 import com.pocketagent.assistant.McpStepRunner
 import com.pocketagent.assistant.BuiltinLinuxOps
 import com.pocketagent.assistant.LadderLinuxOps
+import com.pocketagent.assistant.HttpWebOps
 import com.pocketagent.assistant.RootLinuxOps
 import com.pocketagent.assistant.TermuxLinuxOps
 import com.pocketagent.mcp.LinuxOpsPort
@@ -5748,6 +5752,9 @@ class AppContainer(context: Context) {
         val officeExecutor = SafOfficeToolExecutor(officeWorkspaces, officeChannel)
         val officeWorkspacePort = SafOfficeWorkspacePort(officeWorkspaces)
 
+        // 联网：纯逻辑在 :mcp，这里只负责真开 socket。
+        val webOps: WebOpsPort = HttpWebOps()
+
         listOf(
             ScreenReadTool(reader, gate),
             // ══════════════════════════════════════════════════════
@@ -5821,6 +5828,13 @@ class AppContainer(context: Context) {
             AppDisableTool(systemOps, safetyPort, rootUsable),
             // ── Linux 工作区（B0 内置引擎；Termux / root 后端后续接手同一个端口）──
             LinuxExecTool(linuxOps),
+        // ── 联网（web_search / web_fetch）────────────────────────
+        // ★ 在此之前模型只能用 `linux_exec` 里 curl 抓页面，再自己从 HTML 里挑字：
+        //   把 <style> 当正文读、不知道 302、甚至 curl 到 127.0.0.1 都发生过。
+        //   这一层把「URL 过关 / HTML 转文字 / 体积封顶」收进代码，
+        //   纯逻辑部分在 `:mcp` 的 WebText.kt（离线可测），socket 在 HttpWebOps。
+        WebSearchTool(webOps),
+        WebFetchTool(webOps),
             LinuxReadTool(linuxOps),
             MediaOpsTool(mediaOps),
         )

@@ -52,6 +52,9 @@ enum class ToolGroup(
 
     /** 媒体处理：一个工具四种动作。 */
     MEDIA("媒体处理", "media_ops"),
+
+    /** 联网：搜东西、读网页。与文件/Linux 都无关，单独一组。 */
+    WEB("联网", "web_search"),
 }
 
 /** 工具 → 组的静态映射。未登记的工具按 [ToolGroup.BASE] 处理（永远可见，宁多给不漏给）。 */
@@ -84,6 +87,9 @@ object ToolGrouping {
         "linux_exec" to ToolGroup.LINUX,
         "linux_read" to ToolGroup.LINUX,
         "media_ops" to ToolGroup.MEDIA,
+        // 联网
+        "web_search" to ToolGroup.WEB,
+        "web_fetch" to ToolGroup.WEB,
     )
 
     fun groupOf(tool: String): ToolGroup = of[tool] ?: ToolGroup.BASE
@@ -102,6 +108,9 @@ object ToolGrouping {
         ToolGroup.LINUX to listOf(
             "linux", "bash", "python", "脚本", "命令行", "终端", "批量", "正则",
             "sed", "awk", "jq", "grep", "清洗", "跑一遍", "算一下",
+        ),
+        ToolGroup.WEB to listOf(
+            "搜", "查一下", "最新", "新闻", "网址", "链接", "网页", "官网", "资料", "价格", "教程", "文档", "http",
         ),
         ToolGroup.MEDIA to listOf(
             "音轨", "音频", "视频", "录音", "转码", "抽音", "截帧",

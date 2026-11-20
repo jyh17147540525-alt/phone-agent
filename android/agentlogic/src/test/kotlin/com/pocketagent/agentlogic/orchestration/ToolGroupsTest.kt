@@ -22,7 +22,7 @@ class ToolGroupsTest {
         val offer = explorer.offer()
 
         val base = catalog.all.filter { ToolGrouping.groupOf(it.id) == ToolGroup.BASE }.map { it.id }
-        assertEquals((base + listOf("android_tap", "root_exec", "office_tools", "linux_exec", "media_ops")).sorted(), offer.ids.sorted())
+        assertEquals((base + listOf("android_tap", "root_exec", "office_tools", "linux_exec", "media_ops", "web_search")).sorted(), offer.ids.sorted())
         assertTrue(offer.opened.isEmpty())
     }
 
