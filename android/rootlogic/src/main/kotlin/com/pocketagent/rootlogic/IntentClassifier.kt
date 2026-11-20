@@ -136,6 +136,30 @@ object IntentClassifier {
         "getprop", "setprop", "dumpsys", "settings get", "settings put",
         "pm list", "pm install", "pm uninstall",
         "执行", "跑一下", "跑个", "命令", "终端",
+
+        // ══════════════════════════════════════════════════════
+        //  工作区/办公工具类
+        // ══════════════════════════════════════════════════════
+        // ★ 2026-11-20 真机发现：用户输 "convert the png to jpg then make
+        //   a pdf from the jpg"，被判成**纯对话** —— 于是模型没拿到任何工具，
+        //   却回了"转好了，都在 输出/ 下：MonTueWed.jpg / MonTueWed.pdf"。
+        //   **它凭空编了两个不存在的文件**。这是比判错更坏的形态：
+        //   用户去文件管理器里找不到，会以为软件在骗人。
+        //
+        //   词表此前只覆盖"操作手机"和"跑命令"两类动词，做文件/图表/提醒
+        //   这些**工作区动作**的动词一个都没有。
+        //
+        // ⚠️ 英文一律用**小写**（`classify` 里已 lowercase）。
+        //    "make"/"create" 这类太泛的单字不收，只收 "make a" 这种带动词短语，
+        //    否则 "make sense"、"create a good impression" 也会被当成要办事。
+        "convert", "compress", "unzip", "extract", "merge", "export", "generate",
+        "make a", "make the", "create a", "create the", "write a", "write the",
+        "build a", "chart", "plot", "remind", "speak", "listen",
+        "search for", "look up", "fetch",
+        "转换", "压缩成", "压缩一下", "解压", "打包", "导出", "生成一", "生成个",
+        "画一张", "画个图", "画一个", "柱状图", "折线图", "统计图",
+        "提醒我", "念一遍", "念一下", "朗读", "播报", "听一下", "听我说",
+        "搜一下", "搜搜", "查一下资料", "帮我看一下这个文件", "读一下这个文件",
     )
 
     /**

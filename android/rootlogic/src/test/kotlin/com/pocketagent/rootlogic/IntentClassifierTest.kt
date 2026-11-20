@@ -243,4 +243,40 @@ class IntentClassifierTest {
             assertEquals("「$text」应当判为要动手，理由：${d.reason}", TurnIntent.Act, d.intent)
         }
     }
+
+    /**
+     * ★ 2026-11-20 真机缺陷：做文件/图表/提醒这类**工作区动作**的动词一个都没有，
+     *   于是 "convert the png to jpg" 被判成纯对话 —— 模型没拿到工具，
+     *   却回了"转好了，MonTueWed.jpg / MonTueWed.pdf"，**凭空编了两个不存在文件**。
+     */
+    @Test
+    fun `工作区类动作（转格式、做图、压缩、提醒）判为要动手`() {
+        for (text in listOf(
+            "convert the png to jpg",
+            "make a pdf from the jpg",
+            "compress these files into one zip",
+            "remind me in 10 minutes",
+            "listen to this recording",
+            "帮我转换一下这个图片",
+            "画个图看看趋势",
+            "解压这个压缩包",
+            "提醒我十分钟后开会",
+        )) {
+            val d = IntentClassifier.classify(text)
+            assertEquals("「$text」应当判为要动手，理由：${d.reason}", TurnIntent.Act, d.intent)
+        }
+    }
+
+    @Test
+    fun `加了这些动词之后英文闲聊仍然判为纯对话`() {
+        for (text in listOf(
+            "how are you today",
+            "what do you think about this movie",
+            "make sense?",
+            "nice weather",
+        )) {
+            val d = IntentClassifier.classify(text)
+            assertEquals("「$text」应当判为纯对话，理由：${d.reason}", TurnIntent.Chat, d.intent)
+        }
+    }
 }

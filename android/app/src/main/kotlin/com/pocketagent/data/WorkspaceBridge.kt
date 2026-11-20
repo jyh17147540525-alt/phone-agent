@@ -40,7 +40,14 @@ class WorkspaceBridge(
      * 绝不能让"同步失败"把用户那一轮对话打断。
      */
     suspend fun sync(reason: String): String? = withContext(Dispatchers.IO) {
-        val tree = treeUri() ?: return@withContext null
+        // ⚠️ 曾经这里是静默 `?: return null` —— 真机 2026-11-20 15:10 遇到
+        //    "工具明明说转好了、/sdcard 里却没有文件"，而日志里**一行都没有**，
+        //    因为拿不到工作区 URI 时它什么都不说。排查时这是最坏的形态：
+        //    功能没生效，但没有任何线索指出是"没授权"还是"同步失败"。
+        val tree = treeUri() ?: run {
+            Timber.i("工作区同步跳过（%s）：没有已授权的工作区目录", reason)
+            return@withContext null
+        }
         runCatching {
             val remote = LinkedHashMap<String, Pair<FileStamp, Uri>>()
             walk(tree, "", 0, remote)
