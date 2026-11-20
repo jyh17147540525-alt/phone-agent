@@ -102,6 +102,7 @@ object ToolGrouping {
         "chart_make" to ToolGroup.CHART,
         "remind" to ToolGroup.SYSTEM,
         "speak" to ToolGroup.SYSTEM,
+        "listen" to ToolGroup.SYSTEM,
         "image_convert" to ToolGroup.MEDIA,
         "pdf_pages" to ToolGroup.MEDIA,
         "pdf_from_images" to ToolGroup.MEDIA,
@@ -122,6 +123,7 @@ object ToolGrouping {
         ToolGroup.SYSTEM to listOf(
             "root", "su", "设置", "属性", "停用", "禁用", "卸载", "权限", "包名",
             "提醒", "闹钟", "叫我", "记得", "念", "朗读", "播报", "语音",
+            "听我说", "听一下", "语音输入", "麦克风",
         ),
         ToolGroup.LINUX to listOf(
             "linux", "bash", "python", "脚本", "命令行", "终端", "批量", "正则",

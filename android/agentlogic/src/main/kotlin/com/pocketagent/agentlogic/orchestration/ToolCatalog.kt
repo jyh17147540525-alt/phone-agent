@@ -415,6 +415,16 @@ object BuiltinTools {
             failureHint = "系统没装中文语音数据时会明确报错；一次最多 500 字",
         ),
         ToolSpec(
+            id = "listen",
+            title = "听写",
+            channel = ToolChannel.IN_PROCESS,
+            effects = setOf(ToolEffect.READ_ONLY),
+            expectedMs = 3_000,
+            timeoutMs = 25_000,
+            whenToUse = "用户说「你听我说」「语音输入」时，把一句话转成文字",
+            failureHint = "要麦克风权限；没听到不是错误，会如实说「没听到」",
+        ),
+        ToolSpec(
             id = "image_convert",
             title = "转图片",
             channel = ToolChannel.MEDIA,

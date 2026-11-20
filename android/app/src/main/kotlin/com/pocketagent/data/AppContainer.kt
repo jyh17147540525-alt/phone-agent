@@ -114,6 +114,7 @@ import com.pocketagent.mcp.PdfPagesTool
 import com.pocketagent.mcp.PdfPort
 import com.pocketagent.mcp.RemindTool
 import com.pocketagent.mcp.SpeakTool
+import com.pocketagent.mcp.ListenTool
 import com.pocketagent.mcp.ZipCreateTool
 import com.pocketagent.mcp.ZipExtractTool
 import com.pocketagent.mcp.ZipListTool
@@ -5804,6 +5805,7 @@ class AppContainer(context: Context) {
         val pdfPort: PdfPort = AndroidPdfPort(appContext.cacheDir)
     val reminderPort: com.pocketagent.mcp.ReminderPort = AndroidReminderPort(appContext)
     val ttsPort: com.pocketagent.mcp.TtsPort = AndroidTtsPort(appContext)
+    val asrPort: com.pocketagent.mcp.AsrPort = AndroidAsrPort(appContext)
 
         // 压缩包：直接在应用自己的工作区（root 容器的 /work）里读写。
         // ⚠️ 不走 SAF：一次只能建一个 document，解包几十个文件会慢到像死机。
@@ -5904,6 +5906,7 @@ class AppContainer(context: Context) {
         // ★ 提醒走 AlarmManager + 通知（进程被杀也会响），朗读走系统 TTS（离线，不上传）。
         RemindTool(reminderPort),
         SpeakTool(ttsPort),
+        ListenTool(asrPort),
             LinuxReadTool(linuxOps),
             MediaOpsTool(mediaOps),
         )
