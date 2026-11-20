@@ -70,4 +70,22 @@ data class SessionEntity(
      *    **它让"切换分支"变成改一个字段**，不动任何 turn。
      */
     val activeLeafTurnId: String?,
-)
+
+    /**
+     * 这个会话属于哪个**模式**：`ROLEPLAY`（和角色聊天）或 `WORK`（工作台）。
+     *
+     * ★ 2026-11-20 用户投诉："工作台里和角色聊天的历史全混在一起"。
+     *   根因是这张表**根本没有模式概念** —— 两个入口共用一份会话列表，
+     *   于是工作台会列出跟角色说的情话，聊天页会列出让它干的活。
+     *
+     * ⚠️ 用字面量而不是枚举 `.name`，理由同 [titleSource]：迁移 SQL 必须冻结。
+     * ⚠️ 默认 `ROLEPLAY`：老库里的会话都是跟角色聊出来的（工作台是后来的），
+     *   迁移时把历史全划给聊天侧，比"全划给工作台"更接近事实。
+     */
+    val mode: String = MODE_ROLEPLAY,
+) {
+    companion object {
+        const val MODE_ROLEPLAY = "ROLEPLAY"
+        const val MODE_WORK = "WORK"
+    }
+}

@@ -621,11 +621,20 @@ class AppContainer(context: Context) {
                 db = db,
                 declarations = modelDeclarations,
             )
-            conversationStore = ConversationStore(
+            val store = ConversationStore(
                 sessions = db.sessionDao(),
                 turns = db.turnDao(),
                 tasks = db.taskDao(),
             )
+            conversationStore = store
+            // ★ 2026-11-20：把"工作台建过的会话"认成 WORK。
+            //   库迁移只能给老数据一个默认值（ROLEPLAY），可真话是工作台自己
+            //   记得它建过哪些（`KEY_WORK_SESSIONS`）。不补这一步，用户升级后
+            //   打开工作台会看到"工作历史空了" —— 数据没丢，是被划到了聊天那侧。
+            startupScope.launch {
+                runCatching { store.adoptWorkSessions(workSessionIdsValue) }
+                    .onFailure { Timber.w(it, "工作会话认领失败（不挡主流程）") }
+            }
 
             CredentialStoreResult.Ready(repository)
         }

@@ -299,6 +299,8 @@ fun TasksScreen(
     chat: ChatPort? = null,
     viewModel: TasksViewModel = remember(chat) { TasksViewModel(chat) },
 ) {
+
+
     val vm = viewModel
 
     // ── 语音条 / 文件预览（2026-11-20）─────────────────────
@@ -1949,7 +1951,7 @@ class TasksViewModel(
      * 现场：工作台点进去，摊着的正是角色扮演那 207 条私密对话 ——
      * 页面叫「工作台」，内容却是被窝里那一段。观感上就是说不过去。
      *
-     * 根因：两个 ViewModel 都走 `sessionId ?: store.currentSession()`，
+     * 根因：两个 ViewModel 都走 `sessionId ?: store.currentSession(sessionMode)`，
      * 而 `currentSession()` 返回的是**全局最近那个会话** ⇒ 两个页面
      * 指向同一条线，工作台自然继承了聊天页的全部历史。
      *
@@ -2046,6 +2048,18 @@ class TasksViewModel(
     /** 用户明确放弃恢复。 */
     private val discardCheckpoint: suspend (String) -> Unit = {},
 ) {
+
+    // ★ 2026-11-20：会话**按模式隔离** —— 用户原话"工作台里和角色聊天的历史全混在一起"。
+    //   根因不是查询写错，是会话表里原来没有"模式"这一列，两个入口共用一份列表
+    //   （这个类的 KDoc 里记的"两个 ViewModel 都走 currentSession()"就是这个坑）。
+    //   现在库里有了 `mode`，这里把"我画的是哪一页"翻译成模式值：
+    //   工作台 = WORK，其余 = ROLEPLAY。
+    val sessionMode = if (dedicatedTitle == null) {
+        SessionEntity.MODE_ROLEPLAY
+    } else {
+        SessionEntity.MODE_WORK
+    }
+
 
     val tasks = mutableStateListOf<AgentTaskUi>()
 
@@ -2163,9 +2177,9 @@ class TasksViewModel(
             val rows = runCatching {
                 kotlinx.coroutines.runBlocking {
                     val list = if (keyword.isNullOrBlank()) {
-                        store.recentSessions(AgentTaskUi.SESSION_LIST_LIMIT)
+                        store.recentSessions(AgentTaskUi.SESSION_LIST_LIMIT, sessionMode)
                     } else {
-                        store.searchSessions(keyword, AgentTaskUi.SESSION_LIST_LIMIT)
+                        store.searchSessions(keyword, AgentTaskUi.SESSION_LIST_LIMIT, sessionMode)
                     }
                     val cur = sessionId ?: run {
                         // ★ 工作台 = 自己的一条线（见 `dedicatedTitle` 的 KDoc）。
@@ -2174,12 +2188,12 @@ class TasksViewModel(
                         //    "标题等于工作台的那条"：标题用户能改，
                         //    改完就再也认不回来了（见容器里 KEY_WORK_SESSIONS）。
                         val resolved = if (dedicatedTitle == null) {
-                            store.currentSession()
+                            store.currentSession(sessionMode)
                         } else {
                             val mine = workSessions()
-                            store.recentSessions(AgentTaskUi.SESSION_LIST_LIMIT)
+                            store.recentSessions(AgentTaskUi.SESSION_LIST_LIMIT, sessionMode)
                                 .firstOrNull { it.id in mine }
-                                ?: store.newSession().also { s ->
+                                ?: store.newSession(sessionMode).also { s ->
                                     store.renameSession(s.id, workSessionTitle(dedicatedTitle, mine.size))
                                     rememberWorkSession(s.id)
                                 }
@@ -2193,7 +2207,7 @@ class TasksViewModel(
                     val fresh = if (list.any { it.id == cur }) {
                         list
                     } else {
-                        store.recentSessions(AgentTaskUi.SESSION_LIST_LIMIT)
+                        store.recentSessions(AgentTaskUi.SESSION_LIST_LIMIT, sessionMode)
                     }
                     Timber.i("历史会话：读到 %d 个会话，当前=%s", fresh.size, cur)
                     // ★ 过滤掉**一条消息都没有**的会话（除非它就是当前那个）。
@@ -2255,7 +2269,7 @@ class TasksViewModel(
         Thread {
             val store = runCatching { kotlinx.coroutines.runBlocking { provider() } }
                 .getOrNull() ?: return@Thread
-            val s = runCatching { kotlinx.coroutines.runBlocking { store.newSession() } }
+            val s = runCatching { kotlinx.coroutines.runBlocking { store.newSession(sessionMode) } }
                 .getOrNull() ?: return@Thread
             // ★ 工作台里点「新工作」= 又开一条工作线：给它起个能区分的名字
             //   并记进工作历史。不起名的话抽屉里会躺着一排「新对话」，
@@ -2858,13 +2872,13 @@ class TasksViewModel(
                             val session = if (base == null) {
                                 sessionId
                                     ?.takeIf { id -> runCatching { s.currentPath(id).isNotEmpty() }.getOrDefault(false) }
-                                    ?: s.ensureSessionForNewMessage().id
+                                    ?: s.ensureSessionForNewMessage(sessionMode).id
                             } else {
                                 sessionId ?: run {
                                     val existing = workSessions()
                                     val mine = s.recentSessions(AgentTaskUi.SESSION_LIST_LIMIT)
                                         .firstOrNull { it.id in existing }
-                                    mine?.id ?: s.newSession().also { ns ->
+                                    mine?.id ?: s.newSession(sessionMode).also { ns ->
                                         s.renameSession(ns.id, workSessionTitle(base, existing.size))
                                         rememberWorkSession(ns.id)
                                     }.id

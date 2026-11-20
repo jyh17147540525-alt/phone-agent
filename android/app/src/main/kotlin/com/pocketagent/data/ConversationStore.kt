@@ -71,7 +71,7 @@ class ConversationStore(
      * ⇒ 修法：冷启动**不新建**，而是返回最近一个有消息的会话。
      *   新建推迟到"用户真的开始说话"那一刻（见 [ensureSessionForNewMessage]）。
      */
-    suspend fun currentSession(): SessionEntity {
+    suspend fun currentSession(mode: String = SessionEntity.MODE_ROLEPLAY): SessionEntity {
         val now = clock()
 
         // ★★ 关键："最近"不等于"最近**有消息**的那一个"。
@@ -82,7 +82,7 @@ class ConversationStore(
         //
         //   ⇒ 必须**跳过空会话**去找最近一个有消息的。
         //     这需要多看几条（空壳可能连着好几个）。
-        val candidates = sessions.listActive(limit = CURRENT_SESSION_SCAN)
+        val candidates = sessions.listActive(mode, limit = CURRENT_SESSION_SCAN)
 
         // 逐个找第一个"真的有消息"的会话
         val withMessages = candidates.firstOrNull { s ->
@@ -94,7 +94,7 @@ class ConversationStore(
         candidates.firstOrNull()?.let { return it }
 
         // 库是空的：新建
-        return createSession(now)
+        return createSession(now, mode)
     }
 
     /**
@@ -109,11 +109,11 @@ class ConversationStore(
      * ⚠️ 一个容易踩的坑：如果在这里无脑复用 [currentSession]，
      *    那么"昨天那段对话"会被今天的消息续上，会话就永远切不开。
      */
-    suspend fun ensureSessionForNewMessage(): SessionEntity {
+    suspend fun ensureSessionForNewMessage(mode: String = SessionEntity.MODE_ROLEPLAY): SessionEntity {
         val now = clock()
-        val latest = sessions.listActive(limit = 1).firstOrNull()
+        val latest = sessions.listActive(mode, limit = 1).firstOrNull()
 
-        if (latest == null) return createSession(now)
+        if (latest == null) return createSession(now, mode)
 
         // 空会话（0 条消息）直接复用 —— 它本来就是"还没开始说话"的那个，
         // 再建一个只会让侧边栏出现一堆"0 条"。
@@ -121,14 +121,15 @@ class ConversationStore(
         if (!hasMessages) return latest
 
         return if (SessionBoundary.shouldStartNewSession(latest.lastMessageAt, now, idleTimeoutMs)) {
-            createSession(now)
+            createSession(now, mode)
         } else {
             latest
         }
     }
 
     /** 侧边栏列表：未归档，置顶优先 + 最近发言优先。 */
-    suspend fun recentSessions(limit: Int): List<SessionEntity> = sessions.listActive(limit)
+    suspend fun recentSessions(limit: Int, mode: String = SessionEntity.MODE_ROLEPLAY): List<SessionEntity> =
+        sessions.listActive(mode, limit)
 
     /**
      * 侧边栏搜索。
@@ -137,13 +138,28 @@ class ConversationStore(
      * ⚠️ 结果里的敏感片段**要在界面层遮蔽**：否则"搜索"会变成一条
      *    绕过 `PrivacyFilter` 的读屏旁路。
      */
-    suspend fun searchSessions(keyword: String, limit: Int): List<SessionEntity> =
-        sessions.search(keyword.trim(), limit)
+    suspend fun searchSessions(
+        keyword: String,
+        limit: Int,
+        mode: String = SessionEntity.MODE_ROLEPLAY,
+    ): List<SessionEntity> = sessions.search(mode, keyword.trim(), limit)
+
+    /**
+     * 把"工作台建过的那些会话"认成 `WORK`。
+     *
+     * ★ 迁移只能给老数据一个默认值（`ROLEPLAY`），但工作台其实**知道**自己建过哪些
+     *   （容器的 `KEY_WORK_SESSIONS`）。不补这一步，用户升级后打开工作台会发现
+     *   "工作历史全空了" —— 数据没丢，只是被划到了聊天那一侧。
+     *   已经 `WORK` 的不动（幂等）。
+     */
+    suspend fun adoptWorkSessions(ids: Set<String>) {
+        for (id in ids) runCatching { sessions.setMode(id, SessionEntity.MODE_WORK) }
+    }
 
     /** 显式开一个新会话（界面的「新对话」按钮）。 */
-    suspend fun newSession(): SessionEntity = createSession(clock())
+    suspend fun newSession(mode: String = SessionEntity.MODE_ROLEPLAY): SessionEntity = createSession(clock(), mode)
 
-    private suspend fun createSession(now: Long): SessionEntity {
+    private suspend fun createSession(now: Long, mode: String): SessionEntity {
         val s = SessionEntity(
             id = newId(),
             // ⚠️ 占位标题。真正的标题来自 §3.3 的两级生成（首轮启发式 → L1 提取时顺带）。
@@ -158,6 +174,7 @@ class ConversationStore(
             pinned = false,
             archived = false,
             activeLeafTurnId = null,
+            mode = mode,
         )
         sessions.insert(s)
         return s

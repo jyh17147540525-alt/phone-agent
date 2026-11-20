@@ -953,7 +953,13 @@ class ContainerChatPort(private val container: AppContainer) : ChatPort {
             runCatching {
                 // ★ 优先用调用方传进来的会话 —— 见 `send` 的 `sessionId` 参数。
                 val sid = sessionId ?: container.conversationRepository()
-                    ?.currentSession()?.id
+                    ?.currentSession(
+                        if (chatMode.isWork) {
+                            com.pocketagent.core.database.entity.SessionEntity.MODE_WORK
+                        } else {
+                            com.pocketagent.core.database.entity.SessionEntity.MODE_ROLEPLAY
+                        },
+                    )?.id
                 if (sid != null) {
                     // ★ 2026-11-07：**在场模式记进自己的库**。
                     //   ⚠️ 两个库都抽的话，同一段对话会在两处各留一份，

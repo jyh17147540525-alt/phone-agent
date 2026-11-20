@@ -43,6 +43,9 @@ interface SessionDao {
     )
     suspend fun touchAfterTurn(id: String, lastMessageAt: Long, updatedAt: Long)
 
+    @Query("UPDATE session SET mode = :mode WHERE id = :id")
+    suspend fun setMode(id: String, mode: String)
+
     @Query("UPDATE session SET activeLeafTurnId = :turnId, updatedAt = :updatedAt WHERE id = :id")
     suspend fun setActiveLeaf(id: String, turnId: String?, updatedAt: Long)
 
@@ -65,15 +68,15 @@ interface SessionDao {
     @Query(
         """
         SELECT * FROM session
-        WHERE archived = 0
+        WHERE archived = 0 AND mode = :mode
         ORDER BY pinned DESC, lastMessageAt DESC
         LIMIT :limit
         """,
     )
-    suspend fun listActive(limit: Int): List<SessionEntity>
+    suspend fun listActive(mode: String, limit: Int): List<SessionEntity>
 
-    @Query("SELECT * FROM session WHERE archived = 1 ORDER BY lastMessageAt DESC LIMIT :limit")
-    suspend fun listArchived(limit: Int): List<SessionEntity>
+    @Query("SELECT * FROM session WHERE archived = 1 AND mode = :mode ORDER BY lastMessageAt DESC LIMIT :limit")
+    suspend fun listArchived(mode: String, limit: Int): List<SessionEntity>
 
     /**
      * 会话标题与正文的**子串搜索**。
@@ -91,13 +94,14 @@ interface SessionDao {
         """
         SELECT * FROM session
         WHERE archived = 0
+          AND mode = :mode
           AND (title LIKE '%' || :kw || '%'
                OR id IN (SELECT sessionId FROM turn WHERE text LIKE '%' || :kw || '%'))
         ORDER BY lastMessageAt DESC
         LIMIT :limit
         """,
     )
-    suspend fun search(kw: String, limit: Int): List<SessionEntity>
+    suspend fun search(mode: String, kw: String, limit: Int): List<SessionEntity>
 
     /**
      * 删除会话，**并把它的轮次与执行记录一起删掉**。

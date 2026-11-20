@@ -221,6 +221,45 @@ object Migrations {
         }
     }
 
+    /**
+     * v4 → v5：**自定义语音端点的模型名与音色**（2026-11-20）。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★ 为什么加在凭据上，而不是加一张"语音配置"表
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 这两个值天然是"跟着这一条 Key 走"的：用户填了某个自建网关的 Key，
+     * 模型名与音色 id 只对那一个端点有意义。单开一张表要多一次关联、
+     * 多一个"Key 删了配置还在"的悬空状态，而收益是零。
+     *
+     * ⚠️ **纯加列，不动任何既有列** ⇒ 老数据零风险。
+     *    两列都可空，`ALTER TABLE ... ADD COLUMN` 不需要回填值 ——
+     *    老凭据的语义正好是"没有覆盖，用 Provider 默认值"。
+     *
+     * ⚠️ SQL 与 `schemas/5.json` 里 Room 导出的期望**逐字一致**：
+     *    可空 TEXT，不带 DEFAULT。写成 `TEXT NOT NULL DEFAULT ''` 会挂在
+     *    `Migration didn't properly handle`，而那个报错只说表名。
+     */
+    val MIGRATION_4_5 = object : Migration(4, 5) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `credential` ADD COLUMN `modelOverride` TEXT")
+            db.execSQL("ALTER TABLE `credential` ADD COLUMN `voiceOverride` TEXT")
+        }
+    }
+
+    /** 5 → 6：会话要有**模式**。
+     *
+     * ★ 2026-11-20 用户投诉"工作台和角色聊天的历史混在一起"。根因不是查询写错，
+     *   而是表里**没有这一列** —— 两个入口共用一份列表，谁也分不出来。
+     *   `NOT NULL` 必须带 `DEFAULT`（见文件头那条铁律）；老数据一律算 `ROLEPLAY`。
+     */
+    val MIGRATION_5_6 = object : Migration(5, 6) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `session` ADD COLUMN `mode` TEXT NOT NULL DEFAULT 'ROLEPLAY'")
+        }
+    }
+
     /** 全部迁移，按顺序 */
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+    val ALL: Array<Migration> =
+        arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
 }

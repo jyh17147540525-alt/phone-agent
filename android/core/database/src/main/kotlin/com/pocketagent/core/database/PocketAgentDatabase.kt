@@ -28,6 +28,8 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
  * | 1 | `credential` 表（密文 Key） |
  * | 2 | `credential.purpose` 列 + 索引；新增 `model_config` 表 |
  * | 3 | 新增 `usage_record` 表（用量账本，只有元数据、无请求正文） |
+ * | 4 | 新增 `session` / `turn` / `task` 表（会话持久化） |
+ * | 5 | `credential.modelOverride` / `credential.voiceOverride` 列（自定义语音端点） |
  *
  * ⚠️ **`exportSchema = true` 不是可选项。**
  *    Room 的 schema JSON 是写迁移的唯一依据：没有它，加字段时只能靠猜
@@ -50,7 +52,7 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         TurnEntity::class,
         TaskEntity::class,
     ],
-    version = 4,
+    version = 6,
     exportSchema = true,
 )
 abstract class PocketAgentDatabase : RoomDatabase() {
