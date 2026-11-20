@@ -325,6 +325,12 @@ fun TasksScreen(
         voiceClipsOf,
         onPlayVoice,
         onStopVoice,
+        // ★★ 2026-11-20 真机：**刚打开软件时语音条不出现**，发一句话后才冒出来。
+        //   根因就是漏了这一个 key：`ttsReady()` 是**异步探**的，首帧拿到 false，
+        //   探完变成 true 时 `remember` 认为"入参没变"而沿用旧对象 ——
+        //   旧对象里 `canSpeak = false`，于是永远不画。等用户发一条消息，
+        //   `voicePlayingText` 变了才重建，语音条"突然出现"。
+        voiceCanSpeak,
     ) {
         VoiceReplyHooks(
             clipsOf = voiceClipsOf ?: { emptyList() },

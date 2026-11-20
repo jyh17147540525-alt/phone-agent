@@ -129,7 +129,18 @@ class TtsSpeaker(private val context: Context) {
         // ★ 2026-11-20：首尾各淡 8ms。合成器输出常带直流偏置、或从半周期开始，
         //   波形从 0 直接跳到非零 —— 听感就是"啪"。淡变把跳变压成渐变，
         //   8ms 在语音上比一个字的起音还短，听不出来（见 PcmShape 的 KDoc）。
-        val shaped = com.pocketagent.voicelogic.PcmShape.fadeEdges(pcm, PCM_SAMPLE_RATE)
+        // ★ 2026-11-20 第二轮：用户说"还是会爆音，刚生成的才会"。
+        //   真机缓存里抽查过字节：首尾采样都在 ±10 以内（接近零点），
+        //   不是数据跳变，也不是容器格式冒充 PCM。剩下的可能就是**硬件路径起播**：
+        //   AudioTrack 刚建、输出通路（扬声器/蓝牙）刚上电时的那一下。
+        //   数据里治不了它，但可以给它一段**安静的起播时间**：
+        //   前面垫 80ms 静音，起播电流噪声落在静音段里，听不见。
+        val startupPad = ByteArray(PCM_SAMPLE_RATE / 1000 * STARTUP_PAD_MS * 2)
+        val shaped = com.pocketagent.voicelogic.PcmShape.fadeEdges(
+            startupPad + pcm,
+            PCM_SAMPLE_RATE,
+            fadeMs = EDGE_FADE_MS,
+        )
         return try {
             synchronized(lock) {
                 closeTrackLocked()
@@ -239,6 +250,12 @@ class TtsSpeaker(private val context: Context) {
     companion object {
         /** OpenAI 兼容 TTS 的 PCM 输出格式：24kHz / 16bit / 单声道。 */
         const val PCM_SAMPLE_RATE = 24_000
+
+        /** 起播垫的静音：给输出通路一点上电时间，把"啪"藏在静音里。 */
+        private const val STARTUP_PAD_MS = 80
+
+        /** 首尾淡变时长。20ms 仍在一个字的起音之内，听不出被压。 */
+        private const val EDGE_FADE_MS = 20
 
         /** 等尾音播完的上限。一句话最多几十秒，超过这个数一定是有东西卡住了。 */
         private const val DRAIN_TIMEOUT_MS = 3_000L
