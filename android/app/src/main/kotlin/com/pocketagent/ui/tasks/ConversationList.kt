@@ -255,7 +255,16 @@ private fun TurnBubbles(
         }
 
         // ── AI：左对齐，**无容器** ────────────────────────────
-        val reply = task.note
+        //
+        // ★ 2026-11-20：**屏幕上看不见声音标签**。
+        //
+        // 提示词里已经告诉了模型「方括号不会出现在屏幕上」，这里必须兑现 ——
+        // 否则用户会看到 `[叹气]算了，随你吧`，那既不是他打的话，也不像人说的。
+        //
+        // ⚠️ 剥的是**显示副本**，`task.note` 本身不动：
+        //    数据库里那条要留着原样，语音合成那一刻才拿得到标签与位置
+        //    （「[叹气]算了」和「算了，[叹气]随你吧」是两种人说的话）。
+        val reply = com.pocketagent.voicelogic.VoiceTagParser.strip(task.note)
         val showReply = (task.state == TaskState.Done || task.state == TaskState.Failed) &&
             reply.isNotBlank()
 
@@ -317,6 +326,8 @@ private fun TurnBubbles(
                     )
                 }
             }
+            // ★ 2026-11-20：语音条 + 文件卡片（钩子由 TasksScreen 经 CompositionLocal 送入）
+            com.pocketagent.ui.tasks.ReplyExtrasRow(replyText = reply)
         }
 
         // ── 失败时的补充说明（只在没有正文时兜底）────────────

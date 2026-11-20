@@ -847,6 +847,10 @@ fun AppShell(
                             //   有角色走旁白，没有走系统行。
                             container.touchUsage(isRoleplay = container.isRoleplay())?.text
                         },
+                voiceClipsOf = { reply -> container.voiceClips(reply) },
+                onPlayVoice = { clip -> container.playVoiceClip(clip) },
+                onStopVoice = { container.stopVoiceClip() },
+                        voiceCanSpeak = container.ttsReady(),
                     )
                 }
 
@@ -970,6 +974,10 @@ fun AppShell(
                         onCheckUsage = {
                             container.touchUsage(isRoleplay = container.isRoleplay())?.text
                         },
+                voiceClipsOf = { reply -> container.voiceClips(reply) },
+                onPlayVoice = { clip -> container.playVoiceClip(clip) },
+                onStopVoice = { container.stopVoiceClip() },
+                        voiceCanSpeak = container.ttsReady(),
 
                         // ══════════════════════════════════════════════
                         //  ★★ 2026-11-04 晚：工作区 / 权限
@@ -1092,6 +1100,10 @@ fun AppShell(
                         onCheckUsage = {
                             container.touchUsage(isRoleplay = container.isRoleplay())?.text
                         },
+                voiceClipsOf = { reply -> container.voiceClips(reply) },
+                onPlayVoice = { clip -> container.playVoiceClip(clip) },
+                onStopVoice = { container.stopVoiceClip() },
+                        voiceCanSpeak = container.ttsReady(),
                     )
                 }
 

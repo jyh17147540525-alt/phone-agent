@@ -238,6 +238,20 @@ fun TasksScreen(
     onCheckUsage: () -> String? = { null },
 
     /**
+     * 这条回复切成几条语音（纯逻辑在 `:voicelogic/VoiceNote`）。
+     *
+     * ⚠️ null = 连语音条都不画（没有 TTS Key 时就是这种情况：与其画一条点了
+     *   没声音的条子，不如不画 —— 那会让人以为应用坏了）。
+     */
+    voiceClipsOf: ((String) -> List<com.pocketagent.voicelogic.VoiceNote.Clip>)? = null,
+    /** 点语音条：首次会合成（花钱），之后直接播缓存。返回 true = 真的响了。 */
+    onPlayVoice: (suspend (String) -> Boolean)? = null,
+    /** 停掉正在播的语音条。 */
+    onStopVoice: () -> Unit = {},
+    /** 现在能不能出声（没有 TTS Key 就不画语音条）。 */
+    voiceCanSpeak: Boolean = false,
+
+    /**
      * 打开**语音通话页**。
      *
      * ★★ 2026-10-31：用户要求"打电话的页面互动动画…可以随时打断模型的说话"。
@@ -286,6 +300,50 @@ fun TasksScreen(
     viewModel: TasksViewModel = remember(chat) { TasksViewModel(chat) },
 ) {
     val vm = viewModel
+
+    // ── 语音条 / 文件预览（2026-11-20）─────────────────────
+    //
+    // ★ 声明必须放在**页面最外层**（`LazyColumn` 之前）：列表里的
+    //   `ConversationTurn` 要通过 CompositionLocal 拿到这几个钩子，
+    //   而 Compose 的局部变量只能在被使用之前声明。
+    // 播放中的那一条用**文本**当键：同一条回复里两条语音的文字不会一模一样，
+    // 而给语音编号又要多一份状态 —— 文字本身就是天然的 id。
+    val attachScope = androidx.compose.runtime.rememberCoroutineScope()
+    var voicePlayingText by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf<String?>(null)
+    }
+    var previewFile by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf<com.pocketagent.filelogic.ReplyFile?>(null)
+    }
+    // ★ 回复真正渲染在 `ConversationList.kt` 的 `TurnBubbles` 里，离这里隔着
+    //   LazyColumn item 与 ConversationTurn —— 用 CompositionLocal 送进去，
+    //   而不是给三层各加三个用不上的参数。
+    val voiceHooks = androidx.compose.runtime.remember(
+        voicePlayingText,
+        voiceClipsOf,
+        onPlayVoice,
+        onStopVoice,
+    ) {
+        VoiceReplyHooks(
+            clipsOf = voiceClipsOf ?: { emptyList() },
+            playingText = voicePlayingText,
+            canSpeak = voiceCanSpeak,
+            onToggle = { clip ->
+                if (voicePlayingText == clip) {
+                    // 再点一下停 —— 停不下来的声音比没有声音更烦。
+                    onStopVoice()
+                    voicePlayingText = null
+                } else {
+                    voicePlayingText = clip
+                    attachScope.launch {
+                        runCatching { onPlayVoice?.invoke(clip) }
+                        voicePlayingText = null
+                    }
+                }
+            },
+            onOpenFile = { file -> previewFile = file },
+        )
+    }
 
     // ══════════════════════════════════════════════════════════════
     //  ★★ 2026-11-01：**当前用哪个模型** —— 顶栏显示 + 点开切换
@@ -457,6 +515,9 @@ fun TasksScreen(
                         }
                     }
 
+                    androidx.compose.runtime.CompositionLocalProvider(
+                        LocalVoiceReply provides voiceHooks,
+                    ) {
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
@@ -477,7 +538,17 @@ fun TasksScreen(
                             )
                         }
                     }
+                    }
                 }
+            }
+
+            // ★ 文件预览对话框（点文件卡片时打开，应用内看，不跳别的 app）
+            previewFile?.let { file ->
+                com.pocketagent.ui.files.FilePreviewDialog(
+                    path = file.path,
+                    kind = file.kind,
+                    onDismiss = { previewFile = null },
+                )
             }
 
             // ══════════════════════════════════════════════════════
@@ -492,8 +563,8 @@ fun TasksScreen(
             //    在此之前只存 URI，模型看到的是路径字符串。
             //    见 `ImagePrep` 与 `Attachment.image` 的注释。
             val ctx = androidx.compose.ui.platform.LocalContext.current
-            val attachScope = androidx.compose.runtime.rememberCoroutineScope()
-            val imagePrep = remember { com.pocketagent.assistant.ImagePrep(ctx.applicationContext) }
+
+    val imagePrep = remember { com.pocketagent.assistant.ImagePrep(ctx.applicationContext) }
 
             val pickImage = androidx.activity.compose.rememberLauncherForActivityResult(
                 androidx.activity.result.contract.ActivityResultContracts.GetContent(),
@@ -2885,7 +2956,20 @@ class TasksViewModel(
                                 .map { turn ->
                                     when (turn.role) {
                                         TurnRole.USER -> ChatMessage.user(turn.text)
-                                        else -> ChatMessage.assistant(turn.text)
+                                        // ★ 2026-11-20：**回喂给模型的历史里，声音标签要剥掉**。
+                                        //
+                                        // 用户 11-20 要的是「文本模型在向语音的 api 模型发请求时
+                                        // 加入声音标签」—— 那是**说出去的那一刻**才需要的标注。
+                                        // 把它原样留在历史里，下一轮模型会看到自己上一句已经带了
+                                        // [叹气]，于是它开始模仿这个**格式**（提示词排版那套结论：
+                                        // 形式层比内容层更容易被模仿），结果是每句都带标签、
+                                        // 语气反而变平。
+                                        //
+                                        // ⚠️ 只剥 assistant 的。用户自己打的方括号是他的话，
+                                        //    动了就是改用户说的话。
+                                        else -> ChatMessage.assistant(
+                                            com.pocketagent.voicelogic.VoiceTagParser.strip(turn.text),
+                                        )
                                     }
                                 }
                         }.getOrDefault(emptyList())

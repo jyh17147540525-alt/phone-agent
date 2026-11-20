@@ -102,6 +102,44 @@ class TtsSpeaker(private val context: Context) {
         }
     }
 
+    /**
+     * 播**已经合成好的一段 PCM**（语音条用）。
+     *
+     * ═══════════════════════════════════════════════════════════════
+     *  ★ 为什么语音条不复用 [speak]
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * 语音条要的是「点了就出声、再点就停、时长写在条子上」。这三点都要求
+     * 音频**已经在本地**：现场合成没法显示真实时长，也没法"再点一下停"。
+     * 所以合成与播放分成两步，这里只负责第二步。
+     *
+     * ⚠️ 仍然遵守本类的老规矩：**不落盘**（落盘由调用方缓存，见 VoiceNoteStore）、
+     *    **可被打断**（[stop] 会把循环打断）、**失败就安静**。
+     *
+     * @return true = 真的播过
+     */
+    @Suppress("BlockingMethodInNonBlockingContext")
+    fun playPcm(pcm: ByteArray): Boolean {
+        if (pcm.isEmpty()) return false
+        stopped = false
+        return try {
+            openTrack()
+            var offset = 0
+            while (offset < pcm.size) {
+                if (stopped) break
+                val n = minOf(CHUNK_BYTES, pcm.size - offset)
+                track?.write(pcm, offset, n)
+                offset += n
+            }
+            true
+        } catch (t: Throwable) {
+            Timber.w(t, "语音条播放失败（不打扰用户）")
+            false
+        } finally {
+            closeTrack()
+        }
+    }
+
     /** 立刻停。 */
     fun stop() {
         stopped = true
@@ -162,5 +200,8 @@ class TtsSpeaker(private val context: Context) {
     companion object {
         /** OpenAI 兼容 TTS 的 PCM 输出格式：24kHz / 16bit / 单声道。 */
         const val PCM_SAMPLE_RATE = 24_000
+
+        /** 一次写多少字节：太大时"打断"要等很久才停。 */
+        private const val CHUNK_BYTES = 8 * 1024
     }
 }

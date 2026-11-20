@@ -1,5 +1,6 @@
 package com.pocketagent.data
 
+import kotlinx.coroutines.flow.collect
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -3456,11 +3457,31 @@ class AppContainer(context: Context) {
      */
     fun recordGuardCheck(turnId: String, replyText: String) {
         runCatching {
-            if (com.pocketagent.legacy.RefusalDetector.inspect(replyText) !=
+            val hard = com.pocketagent.legacy.RefusalDetector.inspect(replyText) ==
                 com.pocketagent.legacy.Refusal.HARD
-            ) {
-                return@runCatching
-            }
+
+            // ★★ 2026-11-20（缺口 1）：**先记跑偏类别**，再决定要不要拦记忆。
+            //
+            //   ⚠️ 两件事的判据不同，不能合并：
+            //      · 拦记忆只认**硬拒答**（污染长期记忆的主要来源）；
+            //      · 记跑偏还要认**身份否认与念设定**（它们不污染记忆，
+            //        但会让下一轮继续像 AI —— 那正是用户抱怨的那一半）。
+            //   ⚠️ 也**不依赖** `hard`：`RefusalDetector` 判不出的
+            //      「作为一个 AI…」由 `OocRepair.detect` 的词表兜住。
+            com.pocketagent.personalogic.OocRepair.detect(replyText, hardRefusal = hard)
+                ?.let { kind ->
+                    frameBreaks.addLast(
+                        com.pocketagent.personalogic.OocRepair.Break(
+                            turn = totalUserTurns,
+                            kind = kind,
+                        ),
+                    )
+                    while (frameBreaks.size > frameBreakWindow) frameBreaks.removeFirst()
+                    // ⚠️ 只记第几轮与类别，不记原文。
+                    Timber.i("跑偏：第 %d 轮「%s」（下一轮插修复段）", totalUserTurns, kind.label)
+                }
+
+            if (!hard) return@runCatching
 
             // ⚠️ 用 `BANNED_PHRASE`（STRONG ⇒ `isOoc` 为 true）标记。
             //    语义上它确实对应"出现了不该出现的说法"——
@@ -3796,11 +3817,141 @@ class AppContainer(context: Context) {
                             // ⚠️ 必须显式要 PCM：默认是 MP3，而 AudioTrack 播不了
                             //    压缩格式 —— 会变成一段刺耳的噪声。
                             format = com.pocketagent.provider.api.AudioFormat.PCM,
+                            // ★ 2026-11-20：把凭据上配的音色带进来。
+                            //   不带的话，用户在 Key 编辑页填的「音色」永远不生效
+                            //   （Provider 只在**凭据覆盖**这一层读它，
+                            //   而 Provider 侧的优先级是 请求 > 凭据 > 默认，
+                            //   所以传 null 时凭据里的值仍然会起作用 ——
+                            //   这里显式传是为了让"这次合成用哪个音色"只有一处答案）。
+                            voiceId = credential.voiceOverride,
                         ),
                     )
                 }
             }.onFailure { Timber.d(it, "朗读失败（不打扰用户）") }
         }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  ★ 语音条（微信那种"一条条能听的语音"）
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * 语音条的缓存放这里。
+     *
+     * ⚠️ 放应用私有目录（`filesDir/voice_notes`）：说的是什么比文件更敏感，
+     *   没必要让别的应用读到。
+     */
+    private val voiceNoteStore: com.pocketagent.assistant.VoiceNoteStore by lazy {
+        com.pocketagent.assistant.VoiceNoteStore(java.io.File(appContext.filesDir, "voice_notes"))
+    }
+
+    /**
+     * 这条回复要切成几条语音、每条说什么。
+     *
+     * ⚠️ 切法在 `:voicelogic/VoiceNote`（纯算术、可离线验证），这里只做
+     *   "正文 → 适合念的形态"这一步 —— 和 [speakAsync] 共用 [spokenForm]。
+     */
+    private val ttsReadyHolder = androidx.compose.runtime.mutableStateOf(false)
+
+    /** 只探一次（探到有就置真；探不到下次还会再探）。 */
+    @Volatile
+    private var ttsProbeStarted = false
+
+    fun voiceClips(reply: String): List<com.pocketagent.voicelogic.VoiceNote.Clip> {
+        val clean = spokenForm(reply)
+        if (clean.isBlank()) return emptyList()
+        return voiceNoteStore.plan(clean)
+    }
+
+    /**
+     * **点一下语音条**：没合成过就合成，合成过就直接播。
+     *
+     * @return true = 真的响了；false = 没有 TTS Key / 合成失败 / 正在被停
+     */
+    suspend fun playVoiceClip(clipText: String): Boolean = withContext(Dispatchers.IO) {
+        val clean = clipText.trim()
+        if (clean.isEmpty()) return@withContext false
+        val repo = when (val opened = openCredentialStore()) {
+            is CredentialStoreResult.Ready -> opened.repository
+            else -> return@withContext false
+        }
+        var played = false
+        repo.useDefaultTtsKey { provider, credential ->
+            // ★ 音色/凭据变了必须重新合成，所以 key 里带上它们。
+            val key = voiceNoteStore.keyOf(clean, credential.voiceOverride, null)
+            val cached = voiceNoteStore.load(key)
+            val pcm = cached ?: run {
+                val request = com.pocketagent.provider.api.SpeechRequest(
+                    text = clean,
+                    format = com.pocketagent.provider.api.AudioFormat.PCM,
+                    voiceId = credential.voiceOverride,
+                )
+                val sink = java.io.ByteArrayOutputStream()
+                provider.synthesize(request, credential).collect { chunk ->
+                    if (chunk is com.pocketagent.provider.api.AudioChunk.Audio) {
+                        sink.write(chunk.bytes)
+                    }
+                }
+                val bytes = sink.toByteArray()
+                if (bytes.isEmpty()) {
+                    Timber.w("语音条合成回来是空的（不打扰用户）")
+                    return@useDefaultTtsKey
+                }
+                voiceNoteStore.save(key, bytes)
+                bytes
+            }
+            // ⚠️ 静音时不放：和 speakAsync 同一条规矩。
+            if (ttsSpeaker.mediaVolume() <= 0f) {
+                Timber.d("语音条跳过：媒体音量为 0")
+                return@useDefaultTtsKey
+            }
+            ttsReadyHolder.value = true
+            played = ttsSpeaker.playPcm(pcm)
+        }
+        played
+    }
+
+    /**
+     * 有没有可用的语音 Key。
+     *
+     * ★ 界面据此决定"画不画语音条"：没 Key 还画，用户点了没声音，
+     *   会以为应用坏了（而不是"我还没配语音"）。
+     */
+    fun ttsReady(): Boolean {
+        if (!ttsProbeStarted && !ttsReadyHolder.value) {
+            // ⚠️ 只在"还没探过"时置位：探不到就下次再来，而不是永远不画语音条。
+            ttsProbeStarted = true
+            startupScope.launch {
+                runCatching {
+                    val repo = when (val opened = openCredentialStore()) {
+                        is CredentialStoreResult.Ready -> opened.repository
+                        else -> null
+                    }
+                    repo?.useDefaultTtsKey { _, _ -> ttsReadyHolder.value = true }
+                }
+                if (!ttsReadyHolder.value) ttsProbeStarted = false
+            }
+        }
+        return ttsReadyHolder.value
+    }
+
+    /** 停掉正在播的语音条。 */
+    fun stopVoiceClip() {
+        runCatching { ttsSpeaker.stop() }
+    }
+
+    /** 已缓存的真实时长（毫秒）；没缓存返回 null（界面先用估算值）。 */
+    suspend fun voiceClipCachedDurationMs(clipText: String): Int? = withContext(Dispatchers.IO) {
+        val repo = when (val opened = openCredentialStore()) {
+            is CredentialStoreResult.Ready -> opened.repository
+            else -> return@withContext null
+        }
+        var ms: Int? = null
+        repo.useDefaultTtsKey { _, credential ->
+            val key = voiceNoteStore.keyOf(clipText.trim(), credential.voiceOverride, null)
+            ms = voiceNoteStore.cachedDurationMs(key)
+        }
+        ms
     }
 
     /**
@@ -4545,6 +4696,19 @@ class AppContainer(context: Context) {
     private val styleScoreWindow = 40
 
     /**
+     * 最近**跑出角色**的轮次（见 `OocRepair`）。
+     *
+     * ★★ 2026-11-20：这是缺口 1 的补丁。在此之前"她这一轮崩了"这件事
+     *    只进 `guardLedger`（挡记忆），**不进提示词** —— 于是下一轮模型
+     *    完全不知道自己刚出过事，只能靠历史里那几句反面示范自己爬。
+     */
+    private val frameBreaks =
+        java.util.ArrayDeque<com.pocketagent.personalogic.OocRepair.Break>()
+
+    /** 跑偏记录保留多少轮。12 轮够让"最近三次"有意义，又不带着半小时前的旧账。 */
+    private val frameBreakWindow = 12
+
+    /**
      * **再锚定段** —— 把"她本来怎么说话"重新放到模型眼前。
      *
      * @param pool 本次会话里她的回复（升序，**越长越好**：锚点从这个池子里挑，
@@ -4558,7 +4722,58 @@ class AppContainer(context: Context) {
         // ① 先记分：这一轮的分数要参与下面"该不该插"的判定。
         recordStyleScore(pool)
 
-        // ② 挑锚点。选材失败只影响这一段，不该把整轮对话带崩。
+        // ② 两段各管一件事，顺序也是有意的：
+        //    先把她**拉回角色**（框架），再告诉她**怎么说话**（形状）。
+        //    反过来的话，模型会拿"她一直是这么说话的"去修饰一句
+        //    "作为一个 AI…"，把出戏说得更像她自己 —— 那是更坏的结果。
+        val repair = frameRepairSection()
+        val style = styleReanchorSection(pool, query, modelId)
+        return listOf(repair, style).filter { it.isNotBlank() }.joinToString("\n\n")
+    }
+
+    /**
+     * **跑偏修复段** —— 她刚才跑出去了，下一轮先说这一件。
+     *
+     * ⚠️ 与再锚定分开成两个函数，因为触发条件完全不同：
+     *    再锚定看"文风在不在往下滑"（要连续两条偏低），
+     *    这一段看"最近三轮回没回过神"（一次就够）。
+     *    合在一个函数里早晚会有人把两个条件写成"或"，于是一次口误
+     *    就换来一整段锚点，把本来没问题的口吻也带偏。
+     */
+    private fun frameRepairSection(): String {
+        val report = runCatching {
+            com.pocketagent.personalogic.OocRepair.measure(frameBreaks.toList(), totalUserTurns)
+        }.onFailure { Timber.w(it, "跑偏记录汇总失败（这轮不修）") }.getOrNull() ?: return ""
+
+        if (!com.pocketagent.personalogic.OocRepair.shouldRepair(report)) return ""
+        val section = runCatching {
+            com.pocketagent.personalogic.OocRepair.repairSection(report)
+        }.onFailure { Timber.w(it, "跑偏修复段组装失败（这轮不修）") }.getOrDefault("")
+        if (section.isBlank()) return ""
+
+        // ⚠️ 只记类别与字数，不记原话（提示词内容不进 logcat 的既定纪律）。
+        Timber.i(
+            "跑偏修复：注入 %d 字｜先说「%s」｜%s",
+            section.length,
+            report.worst?.label ?: "未定",
+            report.logLine(),
+        )
+        return section
+    }
+
+    /**
+     * **再锚定段** —— 把"她本来怎么说话"重新放到模型眼前。
+     *
+     * @param pool 本次会话里她的回复（升序，**越长越好**：锚点从这个池子里挑，
+     *   只在最近 8 条里挑等于"从已经被带偏的样本里挑最好的"，那救不回来）
+     * @param query 用户这一句 —— 用来排除"和她刚说的话高度重合"的锚点
+     *   （否则她会开始复读用户的话，那是另一种露馅）
+     * @param modelId 这一轮实际用的对话模型 id
+     * @return 空串 = 这一轮不插（没有合格锚点 / 还没到该插的时候）
+     */
+    private fun styleReanchorSection(pool: List<String>, query: String, modelId: String?): String {
+
+        // 挑锚点。选材失败只影响这一段，不该把整轮对话带崩。
         val anchors = runCatching {
             com.pocketagent.personalogic.StyleDrift.pickAnchors(pool, query)
         }.onFailure { Timber.w(it, "锚点选材失败（这轮不插）") }
@@ -4614,7 +4829,11 @@ class AppContainer(context: Context) {
 
         // 对照样本取它之前的最近三条 —— 复读/长度扁平要靠它们判。
         val prev = pool.dropLast(1).takeLast(3)
-        val score = com.pocketagent.personalogic.HumanScore.of(newest, prev)
+        // ★ 缺口 1：这一条是不是"崩了"由 `OocRepair` 那边判，这里只负责让它计分。
+        //   ⚠️ 判 `>= totalUserTurns - 1`：跑偏记在她回完话的那一轮（N），
+        //      而下一轮提示词组装时 `totalUserTurns` 已经是 N+1。
+        val frameBroken = frameBreaks.any { it.turn >= totalUserTurns - 1 }
+        val score = com.pocketagent.personalogic.HumanScore.of(newest, prev, frameBroken)
         if (!score.evaluated) return
         styleScores.addLast(score.total)
         while (styleScores.size > styleScoreWindow) styleScores.removeFirst()
@@ -5342,9 +5561,33 @@ class AppContainer(context: Context) {
         } else {
             ""
         }
+        // ══════════════════════════════════════════════════════════
+        //  ★★ 2026-11-20：**声音标签** —— 只在这个模式出现
+        // ══════════════════════════════════════════════════════════
+        //
+        // 用户 11-20 的口径：「文本模型在向语音的 api 模型发送请求时要加入
+        // 特定的提示词，夹杂着情绪化，语气化，发声方式，呼吸等等……这个声音的
+        // 功能，目前先加入角色的窗这个模式里」。
+        //
+        // ⚠️ 为什么挂在 `sw.voiceTags` 而不是写死 `mode == LIFEFORM`：
+        //    同 `ChatMode.Switches` 的教训 —— 加第四个模式的那一秒，
+        //    写死的判断会静默地把它当成"不要标签"。而且这段一旦真
+        //    开给工作模式，用户听到的会是"帮我把周报整理一下[叹气]"。
+        //
+        // ⚠️ 位置：在 `lifeRules` **之后**、`voiceSamples` **之前**。
+        //    理由同上一条纪律 —— 先规矩（怎么说话），最后才是示范（她说什么样的话）；
+        //    把这段插在示范之后会让模型先模仿腔调、再回头处理方括号。
+        //
+        // ⚠️ 这一段的词表由 `VoiceTag.entries` 现算，不是手抄的常量：
+        //    漏一个词的后果是模型永远不用它，多一个词的后果是那三个字被念出来。
+        val voiceRules = if (sw.voiceTags) {
+            com.pocketagent.voicelogic.VoiceTagPrompt.promptSection()
+        } else {
+            ""
+        }
         val withClues = buildString {
             append(withClues0)
-            for (section in listOf(discipline, edge, lifeRules, voiceSamples, workRules, permissionRules)) {
+            for (section in listOf(discipline, edge, lifeRules, voiceRules, voiceSamples, workRules, permissionRules)) {
                 if (section.isNotBlank()) append("\n\n").append(section)
             }
         }
@@ -5356,7 +5599,7 @@ class AppContainer(context: Context) {
         //    ⇒ 每次组装都记一行，下次对话就能核对。
         runCatching {
             Timber.i(
-                "提示词装配：%d 字｜模式 %s｜纪律段 %s｜角色边界 %s｜工作纪律 %s｜示例对话 %s｜生理线索 %s｜在场纪律 %s｜今天 %s｜网上 %s｜世界书 %d 条",
+                "提示词装配：%d 字｜模式 %s｜纪律段 %s｜角色边界 %s｜工作纪律 %s｜示例对话 %s｜生理线索 %s｜在场纪律 %s｜声音标签 %s｜今天 %s｜网上 %s｜世界书 %d 条",
                 withClues.length,
                 mode.label,
                 if (discipline.isNotBlank()) "有(${discipline.length}字)" else "无",
@@ -5365,6 +5608,7 @@ class AppContainer(context: Context) {
                 if (voiceSamples.isNotBlank()) "有(${voiceSamples.length}字)" else "无",
                 if (clueSection.isNotBlank()) "有" else "无",
                 if (lifeRules.isNotBlank()) "有(${lifeRules.length}字)" else "无",
+                if (voiceRules.isNotBlank()) "有(${voiceRules.length}字)" else "无",
                 if (lifeday.isNotBlank()) "有(${lifeday.length}字)" else "无",
                 if (lifeweb.isNotBlank()) "有(${lifeweb.length}字)" else "无",
                 worldEntriesValue.size,
