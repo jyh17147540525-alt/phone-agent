@@ -48,6 +48,37 @@ sealed interface WebUrlVerdict {
  *  `http://169.254.169.254/...` 这三类地址在手机上都真实可用，
  *  一旦被写进提示词或用户消息里，模型会照做。
  */
+/**
+ * 联网额度。两档，由设置页里的「超级网络权限」开关决定。
+ *
+ * ★ 为什么要分档而不是一刀切松：默认档要挡住"把本机当跳板"这件事
+ *   （`127.0.0.1` 在手机上真能通），但用户自己就有局域网里的服务
+ *   （路由器后台、自建 SearxNG、本地模型），所以给一个显式开关，
+ *   开了之后**只放宽地址范围与额度**，不改"只读"这件事。
+ */
+data class WebPolicy(
+    val allowPrivate: Boolean = false,
+    val maxPageBytes: Int = 400_000,
+    val maxSearchBytes: Int = 600_000,
+    val maxHops: Int = 3,
+    val timeoutMs: Int = 8_000,
+) {
+    companion object {
+        val Default: WebPolicy = WebPolicy()
+
+        /** 超级网络权限：本机/局域网可达，页面 2MB、6 跳、20s。 */
+        val Super: WebPolicy = WebPolicy(
+            allowPrivate = true,
+            maxPageBytes = 2_000_000,
+            maxSearchBytes = 2_000_000,
+            maxHops = 6,
+            timeoutMs = 20_000,
+        )
+
+        fun of(superNetwork: Boolean): WebPolicy = if (superNetwork) Super else Default
+    }
+}
+
 object WebUrl {
 
     const val MAX_LENGTH = 2_048
@@ -59,23 +90,18 @@ object WebUrl {
 
     private val BLOCKED_HOSTS = setOf("localhost", "localhost.localdomain", "ip6-localhost")
 
-    fun check(raw: String): WebUrlVerdict {
+    fun check(raw: String, allowPrivate: Boolean = false): WebUrlVerdict {
         val url = raw.trim()
         if (url.isEmpty()) return WebUrlVerdict.Bad("网址是空的。")
         if (url.length > MAX_LENGTH) {
             return WebUrlVerdict.Bad("网址太长（${url.length} 字符，上限 $MAX_LENGTH）。")
         }
-        val scheme = url.substringBefore("://", missingDelimiterValue = "")
+        val scheme = url.substringBefore("://", missingDelimiterValue = "").lowercase()
         if (scheme.isEmpty()) {
-            return WebUrlVerdict.Bad("网址要以 http:// 或 https:// 开头，收到的是「$url」。")
+            return WebUrlVerdict.Bad("网址要以 https:// 开头，收到的是「$url」。")
         }
-        if (scheme.lowercase() !in ALLOWED_SCHEMES) {
+        if (scheme !in ALLOWED_SCHEMES) {
             return WebUrlVerdict.Bad("只支持 http 和 https，「$scheme://」不行。")
-        }
-        // 只收 https：应用的 network_security_config 里公网明文是被系统拦掉的，
-        // 放行 http 只会让模型拿到一句 "Cleartext HTTP traffic not permitted"。
-        if (scheme.equals("http", ignoreCase = true)) {
-            return WebUrlVerdict.Bad("只收 https 的网址（公网明文会被系统拦掉），把 http:// 换成 https:// 再试。")
         }
         val rest = url.substring(scheme.length + 3)
         val authority = rest.substringBefore('/').substringBefore('?').substringBefore('#')
@@ -87,16 +113,64 @@ object WebUrl {
         // ⚠️ IPv6 字面量是 [::1] 这种方括号写法：先按方括号取，再按冒号切端口，
         //    否则 `[::1]` 会被截成 `[`，回环地址就混过去了（离线测试抓到过一次）。
         val host = if (authority.startsWith("[")) {
-            authority.substringBefore(']') .plus("]").lowercase()
+            authority.substringBefore(']') + "]"
         } else {
-            authority.substringBefore(':').lowercase()
-        }
+            authority.substringBefore(':')
+        }.lowercase()
         if (host.isEmpty()) return WebUrlVerdict.Bad("网址里没有域名。")
-        if (host in BLOCKED_HOSTS || BLOCKED_HOST_SUFFIXES.any { host.endsWith(it) }) {
-            return WebUrlVerdict.Bad("「$host」是本机地址，不能访问（会变成拿你的手机当跳板）。")
+
+        // 无论开不开超级权限，这几类都不收：云元数据、链路本地、组播与保留段。
+        alwaysBlockedReason(host)?.let { return WebUrlVerdict.Bad(it) }
+
+        val loopback = isLoopback(host)
+        if (!allowPrivate) {
+            if (loopback || BLOCKED_HOST_SUFFIXES.any { host.endsWith(it) }) {
+                return WebUrlVerdict.Bad("「$host」是本机地址，不能访问（会变成拿你的手机当跳板）。")
+            }
+            privateHostReason(host)?.let { return WebUrlVerdict.Bad(it) }
         }
-        privateHostReason(host)?.let { return WebUrlVerdict.Bad(it) }
+
+        // 明文：公网一律要 https（network_security_config 也拦着）；
+        // 本机回环是系统明确放行的那几个，超级网络权限开着时可以用 http 摸本地服务。
+        if (scheme == "http" && !(allowPrivate && loopback)) {
+            return WebUrlVerdict.Bad("只收 https 的网址（公网明文会被系统拦掉），把 http:// 换成 https:// 再试。")
+        }
         return WebUrlVerdict.Ok(url)
+    }
+
+    /** 本机回环（这是系统明确放行明文的那几个地址）。 */
+    private fun isLoopback(host: String): Boolean {
+        if (host in BLOCKED_HOSTS || host == "[::1]" || host == "[::]") return true
+        val parts = host.split('.')
+        if (parts.size == 4 && parts.all { it.toIntOrNull() != null }) {
+            return parts[0].toInt() == 127
+        }
+        return false
+    }
+
+    /**
+     * 开了超级网络权限也**照样拦**的那几类。
+     *
+     * ⚠️ 这几条不是"保守"，是攻击面：
+     *  · `169.254.169.254`（以及阿里云的 `100.100.100.200`）是云元数据接口，
+     *    能读到临时凭证 —— 手机虽然不是云主机，但这个习惯一旦养成，
+     *    模型会把它用在任何场景上；
+     *  · `0.0.0.0/8` 在部分内核上等价于本机；
+     *  · `>=224` 是组播/保留段，能把一次抓取变成小流量放大器。
+     */
+    private fun alwaysBlockedReason(host: String): String? {
+        if (host == "169.254.169.254" || host == "100.100.100.200") {
+            return "「$host」是云主机的元数据接口，能拿到凭证，这里一律不访问。"
+        }
+        val parts = host.split('.')
+        if (parts.size == 4 && parts.all { it.toIntOrNull() != null }) {
+            val a = parts[0].toInt()
+            val b = parts[1].toInt()
+            if (a == 0) return "「$host」是保留地址（0.0.0.0/8），不访问。"
+            if (a >= 224) return "「$host」是组播/保留段，不访问。"
+            if (a == 169 && b == 254) return "「$host」是链路本地段（169.254/16），不访问。"
+        }
+        return null
     }
 
     /** IPv4 字面量落在私有段，或 IPv6 回环/链路本地/唯一本地。 */

@@ -43,14 +43,17 @@ class ToolCatalogTest {
         "media_ops",
         "web_search",
         "web_fetch",
+        "zip_list",
+        "zip_create",
+        "zip_extract",
     )
 
     // ── 覆盖 ────────────────────────────────────────────────────────────────
 
     @Test
-    fun `内建目录覆盖全部 23 个真实工具`() {
-        assertEquals(23, catalog.all.size)
-        assertEquals(23, realToolNames.size)
+    fun `内建目录覆盖全部 26 个真实工具`() {
+        assertEquals(26, catalog.all.size)
+        assertEquals(26, realToolNames.size)
         for (name in realToolNames) {
             assertNotNull("目录里缺 $name", catalog.byId(name))
         }
@@ -60,7 +63,7 @@ class ToolCatalogTest {
     fun `coverage 与真实工具表一致`() {
         val coverage = catalog.coverage(realToolNames)
         assertTrue(coverage.explain(), coverage.complete)
-        assertEquals(23, coverage.registered.size)
+        assertEquals(26, coverage.registered.size)
     }
 
     @Test
@@ -171,14 +174,14 @@ class ToolCatalogTest {
         val text = catalog.describeForPrompt()
         assertTrue(text.contains("android_tap："))
         assertTrue(text.contains("（会占屏）"))
-        assertTrue(text.contains("可用工具（23 条）"))
+        assertTrue(text.contains("可用工具（26 条）"))
         assertTrue("超预算", text.length <= ToolCatalog.MAX_PROMPT_CHARS)
     }
 
     @Test
     fun `提示词段条数封顶并说明省略多少`() {
         val text = catalog.describeForPrompt(limit = 5)
-        assertTrue(text.contains("另有 18 条没列出"))
+        assertTrue(text.contains("另有 21 条没列出"))
         // 头部 1 行 + 5 条 + 省略说明 1 行
         assertEquals(7, text.lines().size)
     }

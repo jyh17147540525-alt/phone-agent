@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Cable
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
@@ -95,6 +96,16 @@ fun SettingsScreen(
      */
     allowRefusal: Boolean = true,
     onToggleAllowRefusal: ((Boolean) -> Unit)? = null,
+
+    /**
+     * **「超级网络权限」开关**（默认关）。
+     *
+     * ⚠️ 开着等于允许模型访问**本机与局域网**（`127.0.0.1`、`192.168.x`…），
+     *    手机上这些地址是真能通的，所以默认关着；额度也一起放宽
+     *    （单页 2MB / 20s / 6 跳）。公网明文仍然不收。
+     */
+    superNetwork: Boolean = false,
+    onToggleSuperNetwork: ((Boolean) -> Unit)? = null,
 
     /**
      * **「内置 Linux 引擎」开关**（D5：默认关）。
@@ -598,6 +609,27 @@ fun SettingsScreen(
                             androidx.compose.material3.Switch(
                                 checked = allowRefusal,
                                 onCheckedChange = { onToggleAllowRefusal?.invoke(it) },
+                                colors = androidx.compose.material3.SwitchDefaults.colors(
+                                    checkedThumbColor = PaColor.SurfaceHigh,
+                                    checkedTrackColor = PaColor.Accent,
+                                ),
+                            )
+                        },
+                    )
+                    PaListDivider()
+                    PaListRow(
+                        icon = Icons.Default.Public,
+                        title = "超级网络权限",
+                        subtitle = if (superNetwork) {
+                            "能访问本机与局域网（单页 2MB、20 秒、6 跳）；公网仍只收 https"
+                        } else {
+                            "只上公网，摸不到你家的路由器和本机服务"
+                        },
+                        onClick = null,
+                        trailingContent = {
+                            androidx.compose.material3.Switch(
+                                checked = superNetwork,
+                                onCheckedChange = { onToggleSuperNetwork?.invoke(it) },
                                 colors = androidx.compose.material3.SwitchDefaults.colors(
                                     checkedThumbColor = PaColor.SurfaceHigh,
                                     checkedTrackColor = PaColor.Accent,

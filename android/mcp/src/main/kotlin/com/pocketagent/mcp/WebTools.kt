@@ -40,6 +40,7 @@ interface WebOpsPort {
 
 class WebFetchTool(
     private val ops: WebOpsPort,
+    private val policy: () -> WebPolicy = { WebPolicy.Default },
 ) : McpTool {
 
     override val name: String = "web_fetch"
@@ -66,7 +67,7 @@ class WebFetchTool(
     override suspend fun call(arguments: JsonObject): ToolOutcome {
         val raw = arguments["url"].stringOrNull()
             ?: return ToolOutcome.Failed("缺少 url 参数（要带 http:// 或 https://）。")
-        val url = when (val verdict = WebUrl.check(raw)) {
+        val url = when (val verdict = WebUrl.check(raw, allowPrivate = policy().allowPrivate)) {
             is WebUrlVerdict.Ok -> verdict.url
             is WebUrlVerdict.Bad -> return ToolOutcome.Failed(verdict.reason)
         }
@@ -97,6 +98,7 @@ class WebFetchTool(
 
 class WebSearchTool(
     private val ops: WebOpsPort,
+    private val policy: () -> WebPolicy = { WebPolicy.Default },
 ) : McpTool {
 
     override val name: String = "web_search"

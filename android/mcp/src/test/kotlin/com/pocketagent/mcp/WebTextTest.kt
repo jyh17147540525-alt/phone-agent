@@ -75,6 +75,40 @@ class WebTextTest {
         assertTrue(WebUrl.check(long) is WebUrlVerdict.Bad)
     }
 
+    // ── 超级网络权限 ────────────────────────────────────────────
+
+    @Test
+    fun `超级网络权限开了才放本机与局域网`() {
+        for (url in listOf("http://127.0.0.1:8080/admin", "https://192.168.1.1/", "http://localhost:11434/")) {
+            assertTrue("$url 默认该拒", WebUrl.check(url) is WebUrlVerdict.Bad)
+            assertTrue("$url 开了该过", WebUrl.check(url, allowPrivate = true) is WebUrlVerdict.Ok)
+        }
+    }
+
+    @Test
+    fun `超级网络权限也不放云元数据与组播`() {
+        // 169.254.169.254 与 239.x 是"能拿到凭证/能放大流量"的那类地址，放宽了也不该收
+        for (url in listOf("https://169.254.169.254/latest/meta-data/", "https://239.1.1.1/")) {
+            assertTrue(url, WebUrl.check(url, allowPrivate = true) is WebUrlVerdict.Bad)
+        }
+    }
+
+    @Test
+    fun `公网明文即使开了超级权限也拒`() {
+        assertTrue(WebUrl.check("http://example.com/", allowPrivate = true) is WebUrlVerdict.Bad)
+    }
+
+    @Test
+    fun `两档额度差在明面上`() {
+        assertEquals(false, WebPolicy.Default.allowPrivate)
+        assertEquals(true, WebPolicy.Super.allowPrivate)
+        assertTrue(WebPolicy.Super.maxPageBytes > WebPolicy.Default.maxPageBytes)
+        assertTrue(WebPolicy.Super.timeoutMs > WebPolicy.Default.timeoutMs)
+        assertTrue(WebPolicy.Super.maxHops > WebPolicy.Default.maxHops)
+        assertEquals(WebPolicy.Super, WebPolicy.of(true))
+        assertEquals(WebPolicy.Default, WebPolicy.of(false))
+    }
+
     // ── HTML → 文字 ────────────────────────────────────────────
 
     @Test

@@ -1219,6 +1219,7 @@ fun AppShell(
                     // ⚠️ 它比「明暗主题」那边更隐蔽：那边有 `themeMode` 状态，
                     //    这边我当初只写了 getter，漏了状态承接。
                     var allowRefusalOn by remember { mutableStateOf(container.allowRefusal()) }
+    var superNetworkOn by remember { mutableStateOf(container.superNetwork()) }
                     var linuxBuiltinOn by remember { mutableStateOf(container.isLinuxBuiltinEnabled()) }
 
                     // ⚠️ 同一个坑的第三次：这两个也是普通 `@Volatile var`。
@@ -1236,6 +1237,8 @@ fun AppShell(
                                             // ★ 2026-11-02：「允许它拒绝」开关
         allowRefusal = allowRefusalOn,
         onToggleAllowRefusal = { allowRefusalOn = it; container.setAllowRefusal(it) },
+        superNetwork = superNetworkOn,
+        onToggleSuperNetwork = { superNetworkOn = it; container.setSuperNetwork(it) },
         linuxBuiltin = linuxBuiltinOn,
         onToggleLinuxBuiltin = { linuxBuiltinOn = it; container.setLinuxBuiltinEnabled(it) },
         // root 容器的安装状态由容器持有（snapshot state），这里直接读就能重组

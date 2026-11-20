@@ -5,6 +5,7 @@ import com.pocketagent.mcp.HtmlText
 import com.pocketagent.mcp.WebHit
 import com.pocketagent.mcp.WebOpsPort
 import com.pocketagent.mcp.WebPage
+import com.pocketagent.mcp.WebPolicy
 import com.pocketagent.mcp.WebUrl
 import com.pocketagent.mcp.WebUrlVerdict
 import kotlinx.coroutines.Dispatchers
@@ -32,10 +33,13 @@ import java.net.URLEncoder
  */
 class HttpWebOps(
     private val userAgent: String = USER_AGENT,
+    /** 额度随「超级网络权限」开关变；每次调用现取，免得开关变了还要重建实例。 */
+    private val policy: () -> WebPolicy = { WebPolicy.Default },
 ) : WebOpsPort {
 
     override suspend fun fetch(url: String, maxChars: Int): WebPage = withContext(Dispatchers.IO) {
-        val (finalUrl, body, contentType) = get(url, MAX_PAGE_BYTES)
+        val budget = policy()
+        val (finalUrl, body, contentType) = get(url, budget.maxPageBytes)
         if (!isTexty(contentType)) {
             throw IllegalStateException("这个地址返回的是 ${contentType.substringBefore(';')}，不是网页文字")
         }
@@ -47,7 +51,7 @@ class HttpWebOps(
         WebPage(
             title = if (contentType.contains("html", ignoreCase = true)) HtmlText.titleOf(body) else null,
             text = text,
-            truncated = body.length >= MAX_PAGE_BYTES || text.length >= maxChars,
+            truncated = body.length >= budget.maxPageBytes || text.length >= maxChars,
         ).also {
             Timber.d("web_fetch：%s → %d 字（%s）", finalUrl.take(60), it.text.length, contentType.substringBefore(';'))
         }
@@ -55,7 +59,7 @@ class HttpWebOps(
 
     override suspend fun search(query: String, limit: Int): List<WebHit> = withContext(Dispatchers.IO) {
         val encoded = URLEncoder.encode(query, "UTF-8")
-        val html = runCatching { get("${DuckDuckGo.ENDPOINT}?q=$encoded", MAX_SEARCH_BYTES).second }
+        val html = runCatching { get("${DuckDuckGo.ENDPOINT}?q=$encoded", policy().maxSearchBytes).second }
             .getOrElse { error ->
                 Timber.w("web_search 取结果页失败：%s", error.message)
                 return@withContext emptyList()
@@ -67,13 +71,14 @@ class HttpWebOps(
 
     /** 手动跟重定向：每一跳都过 [WebUrl.check]。 */
     private fun get(rawUrl: String, maxBytes: Int): Triple<String, String, String> {
+        val budget = policy()
         var current = rawUrl
         var hops = 0
         while (true) {
             val conn = (URL(current).openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
-                connectTimeout = TIMEOUT_MS
-                readTimeout = TIMEOUT_MS
+                connectTimeout = budget.timeoutMs
+                readTimeout = budget.timeoutMs
                 instanceFollowRedirects = false
                 setRequestProperty("User-Agent", userAgent)
                 setRequestProperty("Accept", "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.5")
@@ -84,9 +89,9 @@ class HttpWebOps(
                 if (code in 300..399) {
                     val location = conn.getHeaderField("Location")
                         ?: throw IllegalStateException("对方返回 $code 但没给跳转地址")
-                    if (hops >= MAX_HOPS) throw IllegalStateException("跳转太多次（>$MAX_HOPS），放弃")
+                    if (hops >= budget.maxHops) throw IllegalStateException("跳转太多次（>${budget.maxHops}），放弃")
                     val absolute = URL(URL(current), location).toString()
-                    when (val verdict = WebUrl.check(absolute)) {
+                    when (val verdict = WebUrl.check(absolute, allowPrivate = budget.allowPrivate)) {
                         is WebUrlVerdict.Bad ->
                             throw IllegalStateException("跳转到了不允许的地址（${verdict.reason}）")
                         is WebUrlVerdict.Ok -> current = verdict.url
@@ -128,10 +133,6 @@ class HttpWebOps(
     }
 
     private companion object {
-        const val TIMEOUT_MS = 8_000
-        const val MAX_HOPS = 3
-        const val MAX_PAGE_BYTES = 400_000
-        const val MAX_SEARCH_BYTES = 600_000
         const val USER_AGENT = "PocketAgent/1.0 (Android; personal companion app)"
     }
 }

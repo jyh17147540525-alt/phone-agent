@@ -55,6 +55,9 @@ enum class ToolGroup(
 
     /** 联网：搜东西、读网页。与文件/Linux 都无关，单独一组。 */
     WEB("联网", "web_search"),
+
+    /** 压缩包：打包与解包。入口是"看压缩包"——先看清再动手。 */
+    ARCHIVE("压缩包", "zip_list"),
 }
 
 /** 工具 → 组的静态映射。未登记的工具按 [ToolGroup.BASE] 处理（永远可见，宁多给不漏给）。 */
@@ -90,6 +93,9 @@ object ToolGrouping {
         // 联网
         "web_search" to ToolGroup.WEB,
         "web_fetch" to ToolGroup.WEB,
+        "zip_list" to ToolGroup.ARCHIVE,
+        "zip_create" to ToolGroup.ARCHIVE,
+        "zip_extract" to ToolGroup.ARCHIVE,
     )
 
     fun groupOf(tool: String): ToolGroup = of[tool] ?: ToolGroup.BASE
@@ -111,6 +117,9 @@ object ToolGrouping {
         ),
         ToolGroup.WEB to listOf(
             "搜", "查一下", "最新", "新闻", "网址", "链接", "网页", "官网", "资料", "价格", "教程", "文档", "http",
+        ),
+        ToolGroup.ARCHIVE to listOf(
+            "压缩", "打包", "解压", "解包", "zip", "rar", "7z", "归档", "备份成",
         ),
         ToolGroup.MEDIA to listOf(
             "音轨", "音频", "视频", "录音", "转码", "抽音", "截帧",

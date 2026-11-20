@@ -105,6 +105,10 @@ import com.pocketagent.mcp.ToolGate
 import com.pocketagent.mcp.ToolRegistry
 import com.pocketagent.mcp.LinuxExecTool
 import com.pocketagent.mcp.WebFetchTool
+import com.pocketagent.mcp.ArchivePort
+import com.pocketagent.mcp.ZipCreateTool
+import com.pocketagent.mcp.ZipExtractTool
+import com.pocketagent.mcp.ZipListTool
 import com.pocketagent.mcp.WebOpsPort
 import com.pocketagent.mcp.WebSearchTool
 import com.pocketagent.mcp.LinuxReadTool
@@ -1316,6 +1320,19 @@ class AppContainer(context: Context) {
     @Volatile
     private var allowRefusalValue: Boolean = true
 
+    /**
+     * 「超级网络权限」：默认关。
+     *
+     * ⚠️ 开与不开的差别只有两处，**都不放松"只读"**：
+     *   ① 能访问本机与局域网地址（默认档会挡 —— 因为 127.0.0.1 在手机上真能通，
+     *      模型被提示词里一句"帮我看看本地服务"就能推着去摸）；
+     *   ② 额度变宽：单页 400KB → 2MB、超时 8s → 20s、跳转 3 → 6 跳。
+     * ⚠️ 公网明文仍然不收：`network_security_config` 本身就拦，放行只会拿到
+     *    "Cleartext HTTP traffic not permitted"。本机回环是系统明确放行的例外。
+     */
+    @Volatile
+    private var superNetworkValue: Boolean = false
+
     // ══════════════════════════════════════════════════════════════
     //  ★★ 2026-11-15：在场模式的两件事 —— 网上见闻、她自己来找你
     // ══════════════════════════════════════════════════════════════
@@ -1401,6 +1418,21 @@ class AppContainer(context: Context) {
 
     /** 设置页的开关状态。 */
     fun allowRefusal(): Boolean = allowRefusalValue
+
+    /** 设置页的「超级网络权限」开关。 */
+    fun superNetwork(): Boolean = superNetworkValue
+
+    fun setSuperNetwork(value: Boolean) {
+        superNetworkValue = value
+        startupScope.launch {
+            runCatching { pluginSourceStore.edit { it[KEY_SUPER_NETWORK] = value } }
+                .onFailure { Timber.e(it, "超级网络权限开关保存失败") }
+        }
+    }
+
+    /** 当前联网额度（工具每次调用现取，开关改了立即生效）。 */
+    fun webPolicy(): com.pocketagent.mcp.WebPolicy =
+        com.pocketagent.mcp.WebPolicy.of(superNetworkValue)
 
     fun setAllowRefusal(value: Boolean) {
         allowRefusalValue = value
@@ -2617,6 +2649,9 @@ class AppContainer(context: Context) {
             )
             // ★ 拒绝开关（默认 true：见 allowRefusalValue 的注释）
             allowRefusalValue = prefs[KEY_ALLOW_REFUSAL] ?: true
+
+            // ★ 超级网络权限（默认关：见 superNetworkValue 的注释）
+            superNetworkValue = prefs[KEY_SUPER_NETWORK] ?: false
 
             // ★ 在场模式的两个开关（默认都开：见 lifeformWebOnValue 的注释）
             lifeformWebOnValue = prefs[KEY_LIFEFORM_WEB] ?: true
@@ -5753,7 +5788,11 @@ class AppContainer(context: Context) {
         val officeWorkspacePort = SafOfficeWorkspacePort(officeWorkspaces)
 
         // 联网：纯逻辑在 :mcp，这里只负责真开 socket。
-        val webOps: WebOpsPort = HttpWebOps()
+        val webOps: WebOpsPort = HttpWebOps(policy = { webPolicy() })
+
+        // 压缩包：直接在应用自己的工作区（root 容器的 /work）里读写。
+        // ⚠️ 不走 SAF：一次只能建一个 document，解包几十个文件会慢到像死机。
+        val archiveOps: ArchivePort = WorkDirArchivePort(File(appContext.filesDir, "linux/work"))
 
         listOf(
             ScreenReadTool(reader, gate),
@@ -5833,8 +5872,12 @@ class AppContainer(context: Context) {
         //   把 <style> 当正文读、不知道 302、甚至 curl 到 127.0.0.1 都发生过。
         //   这一层把「URL 过关 / HTML 转文字 / 体积封顶」收进代码，
         //   纯逻辑部分在 `:mcp` 的 WebText.kt（离线可测），socket 在 HttpWebOps。
-        WebSearchTool(webOps),
-        WebFetchTool(webOps),
+        WebSearchTool(webOps, policy = { webPolicy() }),
+        WebFetchTool(webOps, policy = { webPolicy() }),
+        // ── 压缩包（zip_list / zip_create / zip_extract）──────────
+        ZipListTool(archiveOps),
+        ZipCreateTool(archiveOps),
+        ZipExtractTool(archiveOps),
             LinuxReadTool(linuxOps),
             MediaOpsTool(mediaOps),
         )
@@ -6435,6 +6478,9 @@ class AppContainer(context: Context) {
 
     /** 「允许它拒绝」开关。见 [allowRefusalValue]。 */
     private val KEY_ALLOW_REFUSAL = booleanPreferencesKey("allow_refusal_v1")
+
+    /** 「超级网络权限」。见 [superNetworkValue]。 */
+    private val KEY_SUPER_NETWORK = booleanPreferencesKey("super_network_v1")
 
     /** 在场模式：她今天在网上看到什么。见 [lifeformWebOnValue]。 */
     private val KEY_LIFEFORM_WEB = booleanPreferencesKey("lifeform_web_v1")
