@@ -263,6 +263,7 @@ class OutputSanitizerTest {
             "Linux", "Termux", "root", "Python", "Magisk", "KernelSU",
             "JSON", "API", "Key", "MCP", "dsh", "adb",
             "mp3", "m4a", "mp4", "wav", "webm", "png", "jpg",
+            "pptx", "docx", "xlsx", "pdf", "zip",
             "PocketAgent", "F-Droid", "OCR", "CSV", "XLSX",
             "python3", "uid", "exitcode", "selinux", "kernel", "apk",
         )

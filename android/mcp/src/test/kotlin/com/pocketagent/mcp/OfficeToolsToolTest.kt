@@ -11,6 +11,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
+import kotlinx.serialization.json.putJsonArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -197,18 +198,52 @@ class OfficeToolsToolTest {
         assertTrue(executed.isEmpty())
     }
 
+    // ★ 真机教训（2026-11-20 12:26）：模型天然把 `slides` 写成 JSON 数组，
+    //   旧行为是整条拒绝 → 白烧一轮请求。现在压平成 JSON 文本，契约不变。
     @Test
-    fun `args 里出现对象被拒（不聪明地转换）`() = runTest {
+    fun `slides 直接写成数组也能用（压平成 JSON 文本）`() = runTest {
         val tool = OfficeRunTool(port(defaultWorkspace), FakeExecutor())
         val payload = buildJsonObject {
-            put("tool", "read_text")
+            put("tool", "make_slides")
             putJsonObject("args") {
-                putJsonObject("path") { put("nested", "x") }
+                put("path", "输出/汇报.pptx")
+                putJsonArray("slides") {
+                    add(
+                        buildJsonObject {
+                            put("title", "第一页")
+                            putJsonArray("bullets") {
+                                add(JsonPrimitive("甲"))
+                                add(JsonPrimitive("乙"))
+                            }
+                        },
+                    )
+                    add(buildJsonObject { put("title", "第二页") })
+                }
             }
         }
         val outcome = tool.call(payload)
-        assertTrue(outcome is ToolOutcome.Failed)
-        assertTrue((outcome as ToolOutcome.Failed).reason.contains("不是标量"))
+        assertTrue("应该成功，实际：$outcome", outcome is ToolOutcome.Success)
+        val request = executed.single() as OfficeRequest.MakeSlides
+        assertEquals(2, request.slides.size)
+        assertEquals("第一页", request.slides[0].title)
+        assertEquals(listOf("甲", "乙"), request.slides[0].bullets)
+        assertTrue(request.relativePath.endsWith(".pptx"))
+    }
+
+    @Test
+    fun `args 里的 null 当成没给_不会变成字符串 null`() = runTest {
+        val tool = OfficeRunTool(port(defaultWorkspace), FakeExecutor())
+        val payload = buildJsonObject {
+            put("tool", "write_text")
+            putJsonObject("args") {
+                put("path", "输出/a.txt")
+                put("content", kotlinx.serialization.json.JsonNull)
+            }
+        }
+        val outcome = tool.call(payload)
+        assertTrue("缺 content 应被拒，实际：$outcome", outcome is ToolOutcome.Failed)
+        val reason = (outcome as ToolOutcome.Failed).reason
+        assertFalse("不能把 null 当内容写进去：$reason", reason.contains("字面量"))
         assertTrue(executed.isEmpty())
     }
 

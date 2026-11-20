@@ -37,7 +37,7 @@ object OutputSanitizer {
      */
     private val LATIN_KEEP = setOf(
         "ok", "okay", "wifi", "app", "id", "url", "qq", "cpu", "gps",
-        "ai", "pdf", "excel", "word", "ppt", "usb", "sms", "otp",
+        "ai", "pdf", "excel", "word", "ppt", "pptx", "docx", "xlsx", "usb", "sms", "otp",
         // ══════════════════════════════════════════════════════════════
         //  ★ 2026-11-18 真机（应用分身）：`linux_exec` 被安全策略拒绝，
         //    模型如实转述三条原因，里面带着 Linux / Termux / root。

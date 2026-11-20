@@ -208,10 +208,14 @@ class OfficeRunTool(
                     "请引导用户打开本应用的「设置 → 第 0 档能力」，授权一个目录后再试。",
             )
 
-        // ⚠️ 值一律按**字符串**取 —— 校验器的契约就是 `Map<String, String>`。
-        //    数字/布尔按字面量收（`"max_bytes": 1024` 与 `"1024"` 等价）；
-        //    对象/数组**如实拒绝**，不"聪明地"转一下 —— 那会让 schema
-        //    与校验器的契约悄悄不一致。
+        // 校验器的契约是 `Map<String, String>`，所以这里要把 JSON 值**压平成文本**：
+        //   · 字符串/数字/布尔 → 取字面量（`"max_bytes": 1024` 与 `"1024"` 等价）
+        //   · 对象/数组 → 序列化成紧凑 JSON 文本（`"slides": [{...}]` → `"[{...}]"`）
+        //
+        // ⚠️ 为什么不再"如实拒绝"：真机上模型**天然**把 `slides` 写成数组，
+        //    拒绝一次就白烧一轮请求（实测 12:26 那次就是这样），而校验器本来
+        //    就期望收到 JSON 文本（`parseSlides` 用 `Json.parseToJsonElement` 读）。
+        //    序列化不是"猜用户意思"，是**同一个值换一种装法**，契约没有松动。
         val argsEl = arguments["args"]
         val args: Map<String, String> = if (argsEl == null || argsEl is JsonNull) {
             emptyMap()
@@ -220,12 +224,11 @@ class OfficeRunTool(
                 ?: return ToolOutcome.Failed("args 必须是一个对象（形如 {\"path\":\"a.txt\"}）。")
             val out = LinkedHashMap<String, String>(obj.size)
             for ((key, value) in obj) {
-                if (value !is JsonPrimitive || value is JsonNull) {
-                    return ToolOutcome.Failed(
-                        "args 里的「$key」不是标量（是对象或数组）。请把每个参数写成字符串或数字。",
-                    )
+                when {
+                    value is JsonNull -> Unit // 没给就是没给，别塞字面量 "null"
+                    value is JsonPrimitive -> out[key] = value.content
+                    else -> out[key] = value.toString() // 对象/数组 → 紧凑 JSON 文本
                 }
-                out[key] = value.content
             }
             out
         }
