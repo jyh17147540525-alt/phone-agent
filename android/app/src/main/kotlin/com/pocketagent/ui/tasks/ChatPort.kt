@@ -1528,6 +1528,9 @@ private fun explain(e: Exception): String {
         //   这里把**最常见的那几类**翻成人话 + 一个具体动作。
         //   判据刻意宽松（只认关键词），因为翻译错的代价只是多一句提示，
         //   而不翻译的代价是用户对着一个英文单词发愣。
+        // 已经是到点上的局域网排查清单时原样给出去，不要再套一层通用话术
+        if ("0.0.0.0" in raw || "局域网" in raw) return raw
+
         val networkish = "network" in lower || "unreachable" in lower ||
             "timeout" in lower || "timed out" in lower ||
             "failed to connect" in lower || "connection" in lower ||

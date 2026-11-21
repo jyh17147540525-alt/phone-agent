@@ -10,6 +10,7 @@ import com.pocketagent.provider.api.Cost
 import com.pocketagent.provider.api.KeyValidationResult
 import com.pocketagent.provider.api.LlmProvider
 import com.pocketagent.provider.api.ModelInfo
+import com.pocketagent.provider.api.EndpointPolicy
 import com.pocketagent.provider.api.ProviderCredential
 import com.pocketagent.provider.api.ProviderException
 import com.pocketagent.provider.api.TokenUsage
@@ -521,8 +522,18 @@ class OpenAiCompatProvider(
         method: String,
         body: String? = null,
     ): Request {
-        val baseUrl = (credential.baseUrlOverride ?: profile.defaultBaseUrl).trimEnd('/')
-        val url = if (path.startsWith("http")) path else "$baseUrl$path"
+        val rawBase = credential.baseUrlOverride ?: profile.defaultBaseUrl
+        val candidate = if (path.startsWith("http")) path else EndpointPolicy.join(rawBase, path)
+        val url = when (val verdict = EndpointPolicy.check(candidate)) {
+            is EndpointPolicy.Verdict.Ok -> verdict.url
+            is EndpointPolicy.Verdict.Bad ->
+                throw ProviderException.ProtocolError(verdict.reason)
+            is EndpointPolicy.Verdict.CleartextPublic ->
+                throw ProviderException.ProtocolError(
+                    "这个地址是公网的明文 http，请求里的 Key 会被人看到。改成 https 再试：" +
+                        verdict.url,
+                )
+        }
 
         val builder = Request.Builder().url(url)
 

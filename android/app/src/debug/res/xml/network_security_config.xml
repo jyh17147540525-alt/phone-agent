@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ══════════════════════════════════════════════════════════════
+   网络安全配置 · **仅调试版**
+  ══════════════════════════════════════════════════════════════
+
+  正式版用的是 main 里那份：明文一律禁止，只给 localhost / 127.0.0.1 /
+  10.0.2.2 开口子。这里覆盖掉它，是因为自建推理服务（vLLM、Ollama、
+  LM Studio）跑在家里的电脑上，地址是 192.168.x.x，端口各人不同，
+  没法在打包时列出来。
+
+  放开的是传输层，不是策略：`EndpointPolicy.check()` 仍然在代码里
+  拦公网 http（Key 会明文出网），只有局域网与回环放行。
+
+  ⚠️ 这是 debug 变体的文件。release 变体不会合并它，打包时也就不会
+     出现"整个应用默认放行明文"这件事。
+-->
+<network-security-config>
+
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+</network-security-config>

@@ -139,6 +139,32 @@ class ProviderCredential(
      *    发不发给厂商由 `ProviderProfile.sessionHeaderName` 决定。
      */
     val sessionId: String? = null,
+    /**
+     * 用户指定的**模型名**（覆盖 Provider 的默认值）。
+     *
+     * ★ 2026-11-20 晚新增，服务对象是"自定义语音端点"：
+     *   自建网关 / 聚合转发（OneAPI、New-API 之类）要求一个特定的
+     *   模型名，而那是用户私有的，我们不可能预置进 [ProviderProfile]。
+     *
+     * ⚠️ 它是**可选覆盖**，null 表示"用 Provider 的默认值" ——
+     *    不是空串。空串会让上游把 `model=""` 发出去，报错还说
+     *    "参数缺失"，而界面上明明填了东西。
+     *
+     * ⚠️ 对话侧**不读**这个字段：对话的模型选择走 `ModelConfig`
+     *    （一条模型配置带 provider + modelId + 价格）。这里只服务
+     *    语音这条"一个 Key 配一个固定模型"的简单链路。
+     */
+    val modelOverride: String? = null,
+    /**
+     * 用户指定的**音色 id**（覆盖 Provider 的默认值）。
+     *
+     * ★ 与 [modelOverride] 同一个来由：很多厂商的音色清单是富内容页，
+     *   我们抄不全，也不该抄 —— 让用户自己填是唯一不会过时的做法。
+     *
+     * ⚠️ 优先级低于 `SpeechRequest.voiceId`：那一个是"这一次用哪个音色"
+     *    （比如界面上的试听），这里是"这个 Key 默认用哪个"。
+     */
+    val voiceOverride: String? = null,
 ) {
     /** 使用后清零。任何持有本对象的代码都有义务在 finally 中调用。 */
     fun clear() {
@@ -312,7 +338,10 @@ sealed class ProviderException(message: String, cause: Throwable? = null) : Exce
     class AuthFailed(message: String) : ProviderException(message)
     class RateLimited(val retryAfterSeconds: Long?) : ProviderException("rate limited")
     class NoBalance : ProviderException("insufficient balance")
-    class NetworkError(cause: Throwable) : ProviderException("network unreachable", cause)
+    class NetworkError(
+        cause: Throwable,
+        message: String = EndpointHints.forFailure(cause),
+    ) : ProviderException(message, cause)
     class Timeout : ProviderException("request timeout")
     /** 响应格式与预期不符（多为厂商改了协议） */
     class ProtocolError(message: String) : ProviderException(message)

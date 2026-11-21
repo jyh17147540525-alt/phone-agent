@@ -5,6 +5,7 @@ import com.pocketagent.provider.api.AudioFormat
 import com.pocketagent.provider.api.AuthScheme
 import com.pocketagent.provider.api.Cost
 import com.pocketagent.provider.api.KeyValidationResult
+import com.pocketagent.provider.api.EndpointPolicy
 import com.pocketagent.provider.api.ProviderCredential
 import com.pocketagent.provider.api.ProviderException
 import com.pocketagent.provider.api.SpeechRequest
@@ -312,7 +313,7 @@ class OpenAiCompatTtsProvider(
     // ═══════════════════════════════════════════════════════════
 
     private fun buildRequest(credential: ProviderCredential, request: SpeechRequest): Request {
-        val baseUrl = (credential.baseUrlOverride ?: profile.defaultBaseUrl).trimEnd('/')
+        val rawBase = credential.baseUrlOverride ?: profile.defaultBaseUrl
         val format = effectiveFormat(request.format)
         val model = resolveModel(credential)
         val voice = resolveVoice(request, credential)
@@ -325,13 +326,14 @@ class OpenAiCompatTtsProvider(
         val payload: String
         when (profile.protocol) {
             TtsProtocol.OPENAI -> {
-                url = "$baseUrl${profile.speechPath}"
+                url = EndpointPolicy.join(rawBase, profile.speechPath)
                 payload = openAiBody(request, format, model, voice)
             }
 
             TtsProtocol.ELEVENLABS -> {
                 // 音色在**路径**里，格式在 **query** 里。
-                url = "$baseUrl${profile.speechPath}/${encodePathSegment(voice)}" +
+                url = EndpointPolicy.join(rawBase, profile.speechPath) +
+                    "/${encodePathSegment(voice)}" +
                     "?output_format=${elevenLabsFormat(format)}"
                 payload = elevenLabsBody(request, model)
             }
