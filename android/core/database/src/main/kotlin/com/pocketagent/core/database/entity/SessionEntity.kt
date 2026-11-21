@@ -87,5 +87,13 @@ data class SessionEntity(
     companion object {
         const val MODE_ROLEPLAY = "ROLEPLAY"
         const val MODE_WORK = "WORK"
+
+        /**
+         * 在场模式（「（昵称）的窗」）。
+         *
+         * ★ 2026-11-21：以前在场没有自己的值，被当成 WORK —— 于是工作台和在场
+         *   共用一本书，两边都在往同一个抽屉里塞记录。
+         */
+        const val MODE_LIFEFORM = "LIFEFORM"
     }
 }

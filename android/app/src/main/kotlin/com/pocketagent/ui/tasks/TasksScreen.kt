@@ -2086,13 +2086,9 @@ class TasksViewModel(
     // ★ 2026-11-20：会话**按模式隔离** —— 用户原话"工作台里和角色聊天的历史全混在一起"。
     //   根因不是查询写错，是会话表里原来没有"模式"这一列，两个入口共用一份列表
     //   （这个类的 KDoc 里记的"两个 ViewModel 都走 currentSession()"就是这个坑）。
-    //   现在库里有了 `mode`，这里把"我画的是哪一页"翻译成模式值：
-    //   工作台 = WORK，其余 = ROLEPLAY。
-    val sessionMode = if (dedicatedTitle == null) {
-        SessionEntity.MODE_ROLEPLAY
-    } else {
-        SessionEntity.MODE_WORK
-    }
+    //   现在库里有了 `mode`，翻译只此一处（见 `SessionModes`）：
+    //   聊天 = ROLEPLAY，工作台 = WORK，在场 = LIFEFORM。
+    val sessionMode = com.pocketagent.data.SessionModes.of(mode)
 
 
     val tasks = mutableStateListOf<AgentTaskUi>()
@@ -2221,14 +2217,14 @@ class TasksViewModel(
                         // ⚠️ 认领的是**最近一条工作台建的会话**，不是
                         //    "标题等于工作台的那条"：标题用户能改，
                         //    改完就再也认不回来了（见容器里 KEY_WORK_SESSIONS）。
-                        val resolved = if (dedicatedTitle == null) {
+                        val resolved = if (sessionMode == SessionEntity.MODE_ROLEPLAY) {
                             store.currentSession(sessionMode)
                         } else {
                             val mine = workSessions()
                             store.recentSessions(AgentTaskUi.SESSION_LIST_LIMIT, sessionMode)
                                 .firstOrNull { it.id in mine }
                                 ?: store.newSession(sessionMode).also { s ->
-                                    store.renameSession(s.id, workSessionTitle(dedicatedTitle, mine.size))
+                                    store.renameSession(s.id, workSessionTitle(dedicatedTitle.orEmpty(), mine.size))
                                     rememberWorkSession(s.id)
                                 }
                         }
@@ -2243,7 +2239,7 @@ class TasksViewModel(
                     } else {
                         store.recentSessions(AgentTaskUi.SESSION_LIST_LIMIT, sessionMode)
                     }
-                    Timber.i("历史会话：读到 %d 个会话，当前=%s", fresh.size, cur)
+                    Timber.i("历史会话：读到 %d 个会话（%s），当前=%s", fresh.size, sessionMode, cur)
                     // ★ 过滤掉**一条消息都没有**的会话（除非它就是当前那个）。
                     //
                     //   2026-10-25：侧边栏曾经堆着"今天 · 0 条"这类空壳 ——
@@ -2256,7 +2252,7 @@ class TasksViewModel(
                     //   点开"工作历史"，摊在第一位的是昨晚那段角色扮演。
                     val mine = workSessions()
                     fresh
-                        .filter { dedicatedTitle == null || it.id in mine || it.id == cur }
+                        .filter { sessionMode == SessionEntity.MODE_ROLEPLAY || it.id in mine || it.id == cur }
                         .filter { it.turnCount > 0 || it.id == cur }
                         .map { it.toSummary(isCurrent = it.id == cur) }
                 }
@@ -2903,17 +2899,17 @@ class TasksViewModel(
                             //   ⚠️ `dedicatedTitle` 是属性，在 lambda 里不被智能转型
                             //      （这条以前踩过一次）⇒ 先取局部 val。
                             val base = dedicatedTitle
-                            val session = if (base == null) {
+                            val session = if (sessionMode == SessionEntity.MODE_ROLEPLAY) {
                                 sessionId
                                     ?.takeIf { id -> runCatching { s.currentPath(id).isNotEmpty() }.getOrDefault(false) }
                                     ?: s.ensureSessionForNewMessage(sessionMode).id
                             } else {
                                 sessionId ?: run {
                                     val existing = workSessions()
-                                    val mine = s.recentSessions(AgentTaskUi.SESSION_LIST_LIMIT)
+                                    val mine = s.recentSessions(AgentTaskUi.SESSION_LIST_LIMIT, sessionMode)
                                         .firstOrNull { it.id in existing }
                                     mine?.id ?: s.newSession(sessionMode).also { ns ->
-                                        s.renameSession(ns.id, workSessionTitle(base, existing.size))
+                                        s.renameSession(ns.id, workSessionTitle(base.orEmpty(), existing.size))
                                         rememberWorkSession(ns.id)
                                     }.id
                                 }

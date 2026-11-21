@@ -634,6 +634,12 @@ class AppContainer(context: Context) {
                 runCatching { store.adoptWorkSessions(workSessionIdsValue) }
                     .onFailure { Timber.w(it, "工作会话认领失败（不挡主流程）") }
             }
+            //   在场那本账同理：老会话被划进了 WORK（以前在场没有自己的值），
+            //   现在按 `KEY_LIFEFORM_SESSIONS` 一条条改判回 LIFEFORM。
+            startupScope.launch {
+                runCatching { store.adoptLifeformSessions(lifeformSessionIdsValue) }
+                    .onFailure { Timber.w(it, "在场会话认领失败（不挡主流程）") }
+            }
 
             CredentialStoreResult.Ready(repository)
         }

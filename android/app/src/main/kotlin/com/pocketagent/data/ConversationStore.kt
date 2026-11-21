@@ -152,6 +152,17 @@ class ConversationStore(
      *   "工作历史全空了" —— 数据没丢，只是被划到了聊天那一侧。
      *   已经 `WORK` 的不动（幂等）。
      */
+    /**
+     * 把「在场模式建过的会话」改判到 [SessionEntity.MODE_LIFEFORM]。
+     *
+     * ★ 2026-11-21：库里给老数据填的默认值是 ROLEPLAY / WORK，而在场那本账
+     *   只记在 `lifeform_sessions_v1` 里。不补这一步，用户打开在场模式的历史
+     *   会看到一片空白（记录其实在，只是被划到了别的模式）。
+     */
+    suspend fun adoptLifeformSessions(ids: Set<String>) {
+        for (id in ids) runCatching { sessions.setMode(id, SessionEntity.MODE_LIFEFORM) }
+    }
+
     suspend fun adoptWorkSessions(ids: Set<String>) {
         for (id in ids) runCatching { sessions.setMode(id, SessionEntity.MODE_WORK) }
     }
