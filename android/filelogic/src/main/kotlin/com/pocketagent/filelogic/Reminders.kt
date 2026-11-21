@@ -75,7 +75,9 @@ object Reminders {
         // 只有时刻：取下一次
         val timeOnly = runCatching { LocalTime.parse(normaliseTime(text)) }.getOrNull()
         if (timeOnly != null) {
-            val today = LocalDate.now(zone)
+            // 今天必须以**调用方给的时刻**为准：这里原本是 LocalDate.now(zone)，
+            // 于是同一个 nowMillis 在不同日子解析出不同结果，测试每天都会红一次。
+            val today = java.time.Instant.ofEpochMilli(nowMillis).atZone(zone).toLocalDate()
             var candidate = LocalDateTime.of(today, timeOnly).atZone(zone).toInstant().toEpochMilli()
             if (candidate <= nowMillis + MIN_LEAD_MS) {
                 candidate = LocalDateTime.of(today.plusDays(1), timeOnly)
