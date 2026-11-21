@@ -473,6 +473,13 @@ fun TasksScreen(
         // ══════════════════════════════════════════════════════
         Column(modifier = Modifier.fillMaxSize()) {
 
+                    ReplyModeSlider(
+                        mode = effectiveReplyMode,
+                        requested = replyViewMode,
+                        canSpeak = voiceCanSpeak,
+                        onPick = onReplyViewMode,
+                    )
+
             // ★★ 2026-11-04 晚：**必须 fillMaxWidth**。
             //
             // 只写 weight(1f) 时这个 Box 的宽度 = 最宽那个子项的宽度。
@@ -543,13 +550,6 @@ fun TasksScreen(
                             listState.animateScrollToItem(lastIndex)
                         }
                     }
-
-                    ReplyModeSlider(
-                        mode = effectiveReplyMode,
-                        requested = replyViewMode,
-                        canSpeak = voiceCanSpeak,
-                        onPick = onReplyViewMode,
-                    )
 
                     androidx.compose.runtime.CompositionLocalProvider(
                         LocalVoiceReply provides voiceHooks,
