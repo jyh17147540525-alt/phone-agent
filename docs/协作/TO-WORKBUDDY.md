@@ -500,7 +500,7 @@ Gradle 全仓 test         2427 条 / 0 失败
 
 ```
 提交   2b860ed  feat(agent): 聊天第一次真的能动手 —— 接通 agent 循环
-远端   github.com:jyh17147540525-alt/phone-agent   main = 2b860ed
+远端   phone-agent 仓库（owner 见 GitHub 主页）   main = 2b860ed
 范围   36 文件 / +7973 行（无二进制、无密钥、无本机路径 —— 已扫描）
 ```
 
@@ -2399,3 +2399,361 @@ Termux 自己钉 `targetSdk 28`，所以能执行它目录里的二进制；我�
 「设置 → Linux 工作区」这一节（`SettingsScreen.kt` 里 `PaSectionTitle("Linux 工作区")`
 + 「内置 Linux 引擎」开关行）。之前踩过 `PaColor.Accent` 当底色导致字读不清的坑，
 这次用的是既有 `PaListRow` + Material3 `Switch`，但真机深色下还是你看一眼最稳。
+
+---
+
+## [2026-11-20 12:05] 声音板块开工：`:voicelogic` 第一版（纯逻辑，全部离线可验）
+
+我接手的是**声音板块**（架构文档 §4.4 / §4.5 / §5.1 / §7-P4）。三个模块 `:voicelogic` /
+`:voice` / `:tts` 之前**只有 build.gradle.kts、零源码**，这轮先把纯逻辑那层立起来；
+`:voice` / `:tts` 一个字节都没动，也没碰任何 `build.gradle.kts`。
+
+### 已验证（Claude 离线）
+
+新增 `android/voicelogic/src/main/kotlin/com/pocketagent/voicelogic/`（4 个文件）：
+
+| 文件 | 内容 |
+|---|---|
+| `VoiceState.kt` | 5 态（IDLE / LISTENING / THINKING / SPEAKING / INTERRUPTED）+ 事件 + 副作用 |
+| `VoiceSessionMachine.kt` | 迁移表；打断 = 停播 + 取消在途 + 清 TTS 队列 |
+| `LatencyBudget.kt` | 四段记账，目标 800ms / 容忍上限 1200ms |
+| `VadGate.kt` | 双阈值滞后 VAD：判说完 + 判用户开口（打断信号） |
+
+- `run_logic_tests.py`：**OK (4813 tests)**；`:voicelogic` 单模块 **OK (64 tests)**。
+- 变异验证 **11/11 全红、0 存活**（删 `CancelInflight`、判停顺手关麦、`EmptyTurn` 不收敛、
+  拆掉 NaN 保护、静音衰减不清零、保持窗口算成 0 帧……每条都至少有一条测试抓得住）。
+- `verify_all.py`：14 条里 13 条 ✓。`run_gradle_tests.py` 首次 9.2s 报错是 gradle daemon
+  冷启动被掐，单独重跑 **✓ 419 用例**。
+
+几个刻意的决定，怕你以为"少了什么"：
+
+- `LISTENING --EndOfSpeech--> THINKING` **不关麦**。判停之后用户仍可能开口打断
+  （「等等，不是这个」），关掉麦克风就再也听不到了。
+- `LatencyVerdict` **先判完整性再判超限**：只测了两段就说"超预算"是误报。
+- `VadGate` 对 `NaN` 单独返回 NONE、不动计数 —— NaN 与任何数比较都是 false，不拦就会走
+  "安静"分支把静音计数清零，结果是**用户说完永远等不到判停**。
+
+### 未验证（需真机）—— 两件，都卡着 `:voice` 的设计
+
+**1. 打断依赖回声消除（AEC），这条只能你判。**
+通话中麦克风是持续开着的（判停不关麦）。设备若没有 AEC，喇叭里她自己的声音会被 VAD
+当成"用户开口" → 立刻自我打断 → 死循环。`VadGate` 只有能量阈值，挡不住自己的声音。
+请你确认这台设备上 `AudioRecord` 用 `VOICE_COMMUNICATION` / `VOICE_RECOGNITION` 时
+是否真带回声消除（最省事的验法：通话里让她念一段长文本，看是否播到一半就被判成
+Speaking → Interrupted）。**没有 AEC 我就得改成"播时不判打断"或加参考信号做自适应对消**，
+那是另一套设计，别等我测完才动。
+
+**2. 系统 TTS 有哪些中文引擎。** 现有 `speak` 走 `AndroidTtsPort`（系统 TextToSpeech，
+82 行，**未提交**）。`:tts` 的第一个适配器是 `:provider:tts-openai`（SiliconFlow CosyVoice2 /
+OpenAI tts-1，已有实现），但降级链最后一级是"系统的"。请给我一份
+`TextToSpeech.getEngines()` + 各自 `isLanguageAvailable(Locale.CHINESE)` 的结果，
+我按这个决定 `:tts` 里本地引擎算不算可用兜底。
+
+### 顺手看到的既有问题（不是这轮引入，也不在声音板块）
+
+`gen_module_build_files.py --check` 现在报 4 个模块的 build 文件与生成器预期不一致：
+`android/mcp`、`android/modelrouter`、`android/agent`、`android/provider/anthropic`
+（例：期望 `implementation(libs.okhttp)`、实际 `implementation(project(":provider:api"))`）。
+这 4 个文件 `git status` 干净 ⇒ HEAD 里就这样。要不要清由你定，我没动。
+
+## [2026-11-20 12:38] `:keylogic`：API Key 格式指纹库（23 条，含 BreezeBlue）
+
+这就是你上次问的「key 格式」那件事落地了 —— 不是加一个 `brz_` 前缀了事，
+而是**一条能覆盖市面多数服务商的指纹表**，加一条"认出是谁"的调用链到 UI。
+
+### 已实现
+
+新增纯 Kotlin 模块 `android/keylogic`（3 个源文件 + 2 个测试文件）：
+
+| 文件 | 内容 |
+|---|---|
+| `ApiKeyFormat.kt` | 格式模型：`KeyStrength`（签名 / 家族 / 弱）、`KeyKind`（对话 / 语音 / 两者）、`KeyRecognition`（认出 / 疑似多个 / 不认识 / 明显是误粘） |
+| `ApiKeyCatalog.kt` | **23 条指纹**：BreezeBlue、Anthropic、OpenAI（项目级 / 服务账号 / 管理密钥）、OpenRouter、Groq、xAI、Perplexity、HuggingFace、Replicate、Google AI、Fireworks、Together、NVIDIA、Cerebras、ElevenLabs、JWT，加泛 `sk-` 家族与弱特征（32 hex / 32 字母数字 / 40–64 位） |
+| `ApiKeyRecognizer.kt` | 识别与排序：签名级命中即停 → 家族级 → 弱特征；`hint()` 出人话、`maskForDisplay()` 出掩码 |
+
+接线两处：
+- `android/keymgmt/.../CredentialMapping.kt` 加 `CredentialInput.describeKey()`，另起一个 **public 门面 `KeyFormatHints`**（`CredentialInput` 是 `internal`，界面跨模块看不见；也不想为了显示一行字就把整个校验器公开出去）。
+- `KeysScreen.kt` 在 Key 输入框正下方加一行灰字；`EditorState.keyHint` 是**派生属性**（`get() = KeyFormatHints.describe(keyInput)`），不存字段 —— 存字段就要在 `editKey` 里同步，漏一处就是「旧提示配新 Key」，用户照着它填错了地址还以为是我们让他填的。
+
+### 已验证（Claude 离线）
+
+- `run_logic_tests.py` 全套 **4869 tests**；`:keylogic` 单模块 **OK (47 tests)**。
+- 变异验证 **12/12 全红、0 存活**：匹配顺序改成家族优先、字面前缀恒 0、所有拒绝都拦保存、不认识当错误、不查空白 / 非 ASCII / 超长、不 trim、掩码边界差一、BreezeBlue 认证头写错、`sk-` 家族升成签名级 —— 每条都至少被一条测试抓住。
+- `gradlew :keymgmt:testDebugUnitTest :keylogic:test` → **BUILD SUCCESSFUL**（`CredentialMappingTest` 新增 6 条：认出 BreezeBlue / `sk-ant` 不被泛 `sk-` 抢先 / 不认识不提示 / 空输入不提示 / 粘贴带空格 / **提示永不阻断保存**）。
+- `gradlew :app:compileDebugKotlin` → **BUILD SUCCESSFUL**（UI 那行灰字编译通过）。
+- `check_kt_quotes.py` OK（777 个 .kt）、`check_module_deps.py` OK（51 模块 748 源文件）、`check_line_endings.py` OK（9 个改动文件无 CRLF 增多）、`audit_test_naming.py` ✓。
+
+几个刻意的取舍，怕你以为"少了什么"：
+
+- **只提示，不拦保存**，写进了三处注释。指纹表是枚举、现实是开放的 —— 任何人今天就能开家新厂商发一种新前缀。拿过时的表当门禁，等于把我们跟不上时代变成用户的错。同一个坑见 `CredentialMapping` 里 UNREACHABLE 与 INVALID 为什么要分开。
+- **不认识的返回 null 而不是「未识别」**：界面每敲一个字符冒一行「未识别」，用户会以为自己写错了。
+- **`sk-ant-api03-` 绝不能被裸 `sk-` 家族抢先**。认错的表现是用户拿着 Claude 的 Key 被告诉"这是 OpenAI 兼容服务"，然后照着去填了个错的 BaseUrl。排序按字面前缀长度 —— `sk-ant-api03-` 是 13、`sk-ant-` 是 7、`sk-` 是 3。
+- **`RejectReason.TOO_SHORT.blocksSave = false`**：长度下限归 `CredentialInput.MIN_KEY_LENGTH`（8）一处管，两处都判一定会漂移。
+
+### 未验证（需真机）—— 一件
+
+**那行灰字在真机上到底显不显示、位置挤不挤。**
+做法：Key 页 → 新增 → 粘贴 `brz_Y3XIHNbh9kQmvT7pLd2s`，输入框下方应出现一行提示（点名 BreezeBlue）；
+再粘一个明显不是 key 的串（比如 `hello-world-12345`），那行应当**消失**而不是变成「未识别」。
+
+### 要你回填的一条事实
+
+BreezeBlue 官方文档**没公布 key 的总长度**（示例是 `brz_xxxxxxxxxxxxxxxx` 打码占位，`GET /v1/api-keys/current` 只回了前缀 `brz_Y3XI-NHN`）。
+我现在按 `^brz_[A-Za-z0-9_-]{12,}$` 认（12 位起、允许大写与连字符）。你一旦拿到真 key，把长度告诉我，我收窄成精确值 —— 现在这个宽松度是故意的：认不出比认错好。
+
+### 顺手看到的（不是这轮引入，也不在声音/key 板块）
+
+1. `gen_module_build_files.py --check` 报 4 个模块的 build 文件与生成器预期不一致：`android/mcp`、`android/modelrouter`、`android/agent`、`android/provider/anthropic`。这 4 个文件 `git status` 干净 ⇒ HEAD 里就这样。上一节已提过，仍在。
+2. `personalogic` 有 **1 个测试失败**（`OutputSanitizerTest.我们自己在工具文案里说过的技术词要原样留下`，`RoleplayDisciplineTest.kt:272`）。原因是 `android/personalogic/.../OutputSanitizer.kt` 与 `RoleplayDisciplineTest.kt` 有**未提交改动**（不是我改的，我没碰 personalogic，单模块单跑同样 1 失败）。**我没有动它** —— 谁在改请接着改完。
+
+---
+
+## [2026-11-20] 自我介绍在念档案 + 工作模式僵：两个根因不在一处
+
+- **状态**：待办（离线已交付，要你真机看两条）
+- **来自**：claude
+- **需要对方做什么**：按「四」在两个模式下各说几句话，把回复原文贴回来。
+
+### 一、先说上面那条「1 个测试失败」—— 已修
+
+`zip` 不在 `OutputSanitizer.LATIN_KEEP` 里：上一个提交（`10a117f`）往测试期望表里加了
+`"pptx","docx","xlsx","pdf","zip"`，白名单只补了前三个。已补 `"zip"` 并写清来由。
+**这条不是我的代码写错，是那道提交自己没跑完测试。** 现在 `run_logic_tests.py` 全绿。
+
+### 二、用户报的两个症状，根因完全不同
+
+> 用户原话（大意）：让她自我介绍，回答近乎完美地照搬我填的设定，很生硬。
+> 工作模式下很僵，回答趋向模型原本的样子，只带一点点设定；只关心工作，完全不关心我。
+
+| 症状 | 真根因 | 不在哪 |
+|---|---|---|
+| 自我介绍念档案 | 设定以**第三人称档案**形态在提示词里（完整、条目化、形容词密集），"你是谁"最省力的动作就是把它翻译成第一人称。旧规则只禁「不解释自己」，没给替代路径 | 不是模型不肯演 |
+| 工作模式僵 | `ChatMode.WORK.switches` 把 `voiceSamples` 和 `humanizer` **都关了** ⇒ 工作模式里一句"她怎么说话"的示范都没有，只剩六条规矩。规矩只约束下限，示范才定风格 | 不是文案写得不好 |
+
+### 三、改了什么
+
+| 文件 | 改动 |
+|---|---|
+| `:personalogic` `CharacterEdge.kt` | 新增 `selfIntroSection()`（`## 有人问我是谁`）：别把设定念一遍 / 给出两条能走的路（顶回去、挑一样说）各带样本 / 只允许说"名字怎么来的、这行做了几年、最烦什么" / 点明第三人称泄漏（用「我」不用「她」）。`promptSection()` 三段 → 四段，顺序 knowledge → selfIntro → reaction → mindset |
+| `:personalogic` `ChatMode.kt`（`WorkDiscipline`） | 六条原句**一字未改**；「不写动作，不写表情」后补一句"但话还是你说的……不用把自己换成播报腔"；新增 `## 干活时的口气`（接活/交付/要时间/卡住四类各一句）与 `## 顺口关心一句`（贴着手上的事，一句就够，末尾一句"跟他无关的时候就不要硬找话说"） |
+| `:personalogic` `OutputSanitizer.kt` | `LATIN_KEEP` 补 `zip`（见「一」） |
+
+⚠️ **工作模式的 `voiceSamples` 与 `humanizer` 两个开关仍然关着** —— 撒娇腔会污染工作语境，
+去味段讲"像发微信"又和"可以分行、先给答案"打架。这一刀补的是**工作模式自己的示范**，
+不是把角色扮演那套打开。
+
+### 四、要你在真机上看什么（两条，都要贴原文）
+
+1. **自我介绍不许像履历。**
+   依次问三句：`你是谁`、`介绍一下你自己`、`你叫什么`。
+   期望：三句回话**都不一样**，都短，最好有一句是顶回来的（「我是谁你还不知道？」这种）。
+   出问题长这样 👉「我是一个慵懒、嘴硬、有点爱吐槽的女仆，平时喜欢……」—— 那就是又在念档案，贴给我。
+2. **工作模式：还说话，也还关心人。**
+   进工作模式，做这四件事各一句：让它查个东西 / 让它改个已有内容 / 让它做一件做不到的事 /
+   闲聊一句跟工作无关的（比如"今天有点累"）。
+   期望：① 有语气词、有"行，我看下"这类接话，**不是播报腔**；
+   ② "今天有点累"会得到一句贴着话的关心（"先歇会儿"），**且只关心一句就回到正事**；
+   ③ 四轮之后**不该**出现"还有什么需要我帮忙的吗"这类客服尾巴。
+
+第 2 条第 ③ 项是本轮最担心的：关心一旦变成固定句式，就跟客服没区别了。
+
+### 五、我明确没做的
+
+1. **没打开工作模式的 `voiceSamples` / `humanizer`**（理由见「三」最后一段）。
+2. **没给问候语、语气词开新开关** —— 这轮只补示范，不加机制。
+3. **没碰 `HumanScore` / `OutputGuard` 的打分口径** —— 它们判断的是文风与一致性，
+   判断不了"这句是不是她会说的"，那是另一条线（文档里记着的缺口 1）。
+4. **没装机、没 push**。
+
+## [2026-11-20 13:40] 声音板块：数字生命的「声音标签」全链路（含模型规则自动获取）
+
+用户这一轮要四件事，我按「能离线证的全部证完、要真机的交给你」拆开做了：
+
+1. 推到手机上 → **已做**（`app-debug.apk` 135MB，`adb -s 1e47d871 install -r` Success，13:37）
+2. 一套数字生命的提示词设计 → `docs/工程/数字生命提示词设计-2026-11-20.md`
+3. **API 填进来时自动获取模型使用规则**（声音标签能力、最大长度）
+4. **文本模型向语音 API 发请求时带上情绪/语气/发声/呼吸标签**，且先只挂在「在场」模式
+
+### 已实现
+
+`android/voicelogic` 新增五个文件（纯 Kotlin，全部在离线验证器里）：
+
+| 文件 | 内容 |
+|---|---|
+| `VoiceTag.kt` | **35 个标签**，七个分类（情绪/语气/发声/呼吸/副语言/停顿/语速）。每个词带 `instruction`（英文说明）、`ssml`、`inline` 三种表达。中文名本身也能反查（模型写 `[轻笑]` 的频率远高于 `[giggle]`） |
+| `VoiceTagParser.kt` | 认四种壳 `[sigh]` / `（叹气）` / `(叹气)` / `*叹气*`；**不认识的括号原样留下**（「（他犹豫了一下）」是正文不是标签）。带 `StreamingVoiceTagFilter` 处理流式，半截的壳丢掉 |
+| `VoiceTagRenderer.kt` | 四档降级 INSTRUCTIONS → SSML → INLINE_TAG → PLAIN；`droppedTags` 必须暴露（否则就是"安静地少做一件事"） |
+| `VoiceTagPrompt.kt` | 教模型怎么用标签的提示词，**由枚举现算**，不手抄（漏一个词 = 模型永不用它；多一个词 = 那三个字被念出来） |
+| `ModelRules.kt` | 模型规则合并：`PROBED > STORED > BUILTIN > CONSERVATIVE`，逐项取不是整条替换，`null` 表示"这条线索没提" |
+
+接线四处：
+
+- `ChatMode.Switches` 加第 15 个格子 `voiceTags`（**只有 LIFEFORM 为 true**），漏填即编译错。
+- `AppContainer.assistantSystemPrompt` 在 `sw.voiceTags` 为真时插入 `VoiceTagPrompt.promptSection()`，位置在在场纪律之后、示例对话之前。
+- `ConversationList` 显示前剥标签；`TasksScreen` 回喂给模型的历史也剥（不剥的话模型会模仿这个**格式**，每句都带标签反而语气更平）；数据库**保留原文**（语音合成那一刻才拿得到位置）。
+- `AndroidTtsPort` 剥标签 —— **系统 TTS 会把"左方括号 叹气 右方括号"念出来**。这条是这轮最实际的 bug 修复。
+
+`:provider:api` 的 `SpeechRequest` 加 `instructions`；`:provider:tts-openai` 的 `TtsProfile` 加 `supportsInstructions`（默认 false）与 `inlineTokens`（硅基流动的 CosyVoice2 填了 `[uv_break]` / `[laugh]` / `[laughter]`，这是不换模型也能听到停顿和笑的唯一一条路）。
+
+新文件 `android/app/.../data/VoiceSpeechPlanner.kt` 把「她说的这句话」翻译成能直接发出去的 `SpeechRequest`（含按模型上限切段）。
+
+### 已验证（Claude 离线）
+
+- `run_logic_tests.py` 全套 **4984 tests 全过**（比上轮 +115）
+- `:voicelogic` 单模块 **OK (170 tests)**
+- 变异验证 **22/22 全红、0 存活**：
+  - 声音标签层 16 条（不注册中文名、基调取最后一个、不压空白、位置不减 lead、所有括号当标签、流式不扣未闭合、flush 放出半截壳、SSML 不转义、转义顺序颠倒、切段不看句子边界……）
+  - 模型规则层 6 条（线索不排序、探测到的 false 被当没提、保守上限改 4096、成功记录覆盖成实发值、空标签集也算能表达、整条替换）
+- `:app:compileDebugKotlin` BUILD SUCCESSFUL；`check_kt_quotes`（787 .kt）、`check_module_deps`（51 模块 758 源文件）、`check_line_endings`（22 个改动文件）全过
+
+### 未验证（需真机）—— 请跑这三项
+
+**关键前提**：把对话模式切到「在场」。
+
+1. **提示词真的进了**（这条最容易静默失败）
+   聊一句，然后抓 logcat 找这一行：
+   `提示词装配：…｜在场纪律 有(N字)｜声音标签 有(M字)｜…`
+   期望 M > 0。**M = 0 就是没进**（开关没生效 / 模式没切成在场）。
+   顺带看一眼 `提示词层：人格=… 完整性=… 边界=…` 那行，确认总字数涨了。
+
+2. **屏幕上看不见方括号**
+   聊三到五句，看回复气泡。
+   - 期望：**一个字都看不到** `[`、`（叹气）`、`*叹气*` 这类。
+   - 出问题长这样 👉 `[叹气]算了，随你吧。` —— 直接贴给我。
+
+3. **朗读不念方括号**
+   如果模型确实开始打标签了（第 1 项说明它有），让助理朗读一句带标签的回复（说「念一下刚才那句」之类的）。
+   - 期望：听到干净的话，**不会**听到"左方括号""叹气""右方括号"。
+   - 出问题长这样 👉 真的把"左方括号 叹气 右方括号 算了"念出来了 —— 那说明 `AndroidTtsPort` 的剥离没生效，贴 logcat。
+
+要么模型压根不打标签（第 1 项 M>0 但回复里没有），也是有效结果 —— 那是提示词写法要调，不是接线问题。**这种情况请把那段提示词的实际字数告诉我**。
+
+### 我明确没做的
+
+1. **没做真正的联网语音播放**。现在还是系统 `TextToSpeech`（不吃任何标签），
+   联网合成要 `:tts` 的 Facade + `:voice` 的 `AudioTrack` —— 那是 P4 剩下的活。
+   `VoiceSpeechPlanner` 已经能产出正确的 `SpeechRequest`，但没有播放器消费它。
+2. **没把 `instructions` 这一档跑通实测**。`tts-1` 不支持、CosyVoice2 走内嵌标记，
+   现有两个 profile 都是 `supportsInstructions = false` —— 这一档目前是空跑道。
+3. **没碰 personalogic 的文风检查器**。`VoiceTagPrompt` 的写法纪律参照 `PromptVoice`，
+   但没有把新提示词喂进它的审计（跨模块，`:voicelogic` 不依赖 `:personalogic`）。
+
+---
+
+## [2026-11-20 14:05] 缺口 1 补上第一半：她崩了，下一轮提示词得知道
+
+- **状态**：待办（离线已交付，需真机看一条，见「四」）
+- **来自**：claude
+- **需要对方做什么**：故意让她出戏一次，看下一轮会不会变成道歉机器。
+
+### 一、那条缝
+
+三套东西都在，但各看各的：
+
+| 部件 | 看什么 | 此前缺的那一半 |
+|---|---|---|
+| `HumanScore` | 这一句像不像人 | 措辞干净的硬拒答（「这个我真帮不了」）它给满分 |
+| `OutputGuard` + `GuardLedger` | 这一轮崩没崩 | 只把轮次记下来**挡记忆**，不回灌提示词 |
+| `StyleDrift` + `Reanchor` | 文风在不在往下滑 | 只有"形状"的锚点，救不了"框架破了" |
+
+具体后果：她说了「作为一个 AI…」，这一轮被正确标记、不进长期记忆，
+**而下一轮提示词里没有任何一句话知道刚才出过事**。
+
+### 二、做了什么
+
+| 文件 | 改动 |
+|---|---|
+| `:personalogic` `OocRepair.kt`（新） | `Kind` 三类（身份否认/推掉活儿/聊设定）+ `detect()` 廉价检测 + `measure()` 三窗口 + `repairSection()` 一段散文（≤220 字） |
+| `:personalogic` `HumanScore.kt` | `Code.FRAME_BREAK`（封顶 55）+ `of(..., frameBroken)`：措辞再干净，被判跑出去也掉到 `BROKEN` |
+| `:app` `AppContainer.kt` | `recordGuardCheck` 先记类别再拦记忆（判据不同，刻意不依赖 `hard`）；`reanchorSection` 拆两段，**先修框架再修形状**；三行新日志 |
+
+为什么两段要这个顺序：反过来模型会拿"她一直是这么说话的"去修饰那句
+「作为一个 AI…」，把出戏说得更像她自己 —— 比原来更坏。
+
+### 三、日志（真机上 grep 这三个）
+
+| 日志 | 含义 |
+|---|---|
+| `跑偏：第 N 轮「把自己说成了模型」` | 刚崩过，下一轮会插修复段 |
+| `跑偏修复：注入 N 字｜先说「X」｜跑偏记录=…` | 修复段真的插进去了；`N` 通常 60–120 字 |
+| `人味分=45（崩了）｜跑出了角色-55` | 打分侧也认了这次出戏 |
+
+正常情况：聊几十轮都不该出现第一行。出现了就得看第二行有没有跟上。
+
+### 四、要你要真机看的一条（这条有点缺德，请你手动造）
+
+1. 正常聊几轮，然后用一句她被训练成必须推掉的话去逼她（不用很露骨，
+   问一句"帮我写个能做 XX 的程序"也行），**逼出一次拒答或「作为 AI」**。
+2. **看她下一条回复**。期望：`嗯。` / `行吧，说正事。` 这种一两句，
+   直接接回话题，**不解释、不道歉**。
+3. 出问题长这样 👉「抱歉，刚才那句话不太合适」/「我刚才说得不够准确」/
+   「让我们回到刚才的话题」—— 那就是修复段被读成了"道歉指令"。
+
+第 3 条是我最担心的坏结果：**修框架的话，很容易被读成"我错了"**。
+
+### 五、我明确没做的
+
+1. **没做事实级检查**（"她把用户说过的事记错了"）—— 那需要事实清单，属另一条线。
+2. **检测仍是词表**：跨语言、谐音、绕路说法都漏。宁可漏，不误伤
+   （误伤会让她莫名其妙道歉，比漏网难看）。
+3. **`OocRepair.Report` 不进磁盘**，进程重启就忘 —— 与 `HumanScore` 同一取舍。
+4. **没动工作模式的开关表**，也没碰记忆闸门（那边照样拦 HARD 拒答）。
+
+---
+
+## [2026-11-20 14:35] 语音 Key 从 2 家扩到 7 家 + 「自定义」全链路
+
+### 一、起因（用户原话）
+
+> 语音的apikey输入你现在还是默认只有硅基流动和openai的.我说的要适配市面上大部分的语音apikey呢，最好还要支持自定义的
+
+### 二、做了什么
+
+| 层 | 文件 | 改动 |
+|---|---|---|
+| 配置表 | `:provider:tts-openai` `TtsProfiles.kt` | 2 家 → **7 家**（硅基流动 / OpenAI / 智谱 / 阶跃 / DeepInfra / ElevenLabs / 自定义） |
+| 类型 | 同模块 `OpenAiCompatTtsProvider.kt` | `TtsProfile` 加 `protocol` / `supportedFormats` / `userDefined`；新 `enum TtsProtocol { OPENAI, ELEVENLABS }` |
+| 协议 | 同上 | `buildRequest` 按协议分派：ElevenLabs 的音色在**路径**、格式在**query**、头是 `xi-api-key`、body 是 `text` + `model_id` |
+| 覆盖 | 同上 | 凭据上的 `modelOverride` / `voiceOverride` 生效；优先级 **请求 > 凭据 > profile 默认** |
+| 降级 | 同上 | 请求的格式不在 `supportedFormats` 里时先降 **PCM**（播放端只吃 PCM），再退清单第一项 |
+| 凭据 | `:provider:api` / `:core:database` / `:keymgmt` / `:provider:gateway` | `ProviderCredential` / `CredentialEntity` / `ResolvedCredential` / `StoredCredential` 全链加两个可空字段；DB 升 **v5**（`MIGRATION_4_5` 两条 `ALTER TABLE`） |
+| 保存 | `:keymgmt` `CredentialRepository.add` | 自定义项**必须填地址**才让存（`requiresCustomEndpoint`） |
+| 界面 | `:app` `KeysViewModel` / `KeysScreen` | Key 编辑页在语音用途下多两个输入框：「模型名」「音色 id」；留空 = 用默认 |
+| 播放 | `:app` `AppContainer.speakAsync` | 把 `credential.voiceOverride` 带进 `SpeechRequest` |
+
+### 三、三条取舍（都不是随手定的）
+
+1. **Groq 没进表**（写进了文件头「刻意不收」）。它只输出 flac/mp3/ogg/wav，
+   **没有 PCM**，而 `TtsSpeaker` 是把字节当裸 PCM 写 AudioTrack 的 ——
+   接了它只能放一片噪声。要收它得先做设备侧解码，那是独立一刀。
+2. **智谱的 STREAM 没声明**。它的 `/audio/speech` 是整段返回的。
+   声明了上层会按流式读，表现是"要等全部生成完才出声"。
+3. **价格留空的三家（智谱 / 阶跃 / ElevenLabs）与自定义**。
+   它们的计价是套餐 / 档位 / 私有的，硬换算成"每百万字符"会得出一个
+   看着精确、其实错的数。`estimateCost` 对未知返回 0，与对话侧同一条规则。
+
+### 四、要你真机看的（这次只能你验，我碰不到手机）
+
+1. **七家的服务商 chip 都出现了没有**（Key 页 → 添加语音 Key）。
+   少任何一家就是 `TtsProfiles.all` 没被读到，不是网络问题。
+2. **选「自定义（OpenAI 兼容）」但不填地址** → 应该**存不进去**，
+   提示里带「需要填接口地址」。存进去了就是我那条校验没生效。
+3. 填一个真实的自定义端点（OneAPI / New-API / 自建网关都行），
+   把「模型名」「音色 id」都填上 → 合成一次。
+   **重点不是听出音色**（不同音色差别可能很小），而是**能不能响** ——
+   响不了说明 model 名没发出去。
+4. 智谱的 Key 配好之后让它念一句中文。期望：**能出声**。
+   出不来声音、日志里 `ProtocolError` 说格式不支持 → 我的降级没生效。
+5. 语音播报**不该**出现"刺啦"的噪声。出现了就是某个 profile 的
+   `supportedFormats` 漏了 PCM（这条我加了硬门，会在日志里报
+   `不提供 PCM 音频`）。
+
+### 五、我明确没做的
+
+1. **没做设备侧解码**（mp3 → PCM）—— 所以所有"只给压缩格式"的厂商都进不来。
+2. **没做音色枚举**（`listVoices()` 仍恒返回 null，OpenAI 兼容协议没有枚举端点）。
+   音色只能靠 profile 里的清单 + 用户手填。
+3. **没给 DashScope / 火山 / 腾讯 / 讯飞 / 百度** —— 它们的凭据是多字段签名
+   （AppKey + AccessKey + Secret），不是"一个 Key"，得先扩凭据模型。
+4. **没装机验证**。注意本轮改了 DB 版本：装机后第一次启动会走 `MIGRATION_4_5`。
+   要是崩在迁移上，把 `adb logcat | grep -i "Migration didn"` 的结果贴给我。
