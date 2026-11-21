@@ -252,6 +252,15 @@ fun TasksScreen(
     voiceCanSpeak: Boolean = false,
 
     /**
+     * **这一轮回复露出哪一部分** —— 聊天页顶部那条滑条。
+     *
+     * 三档：只看文字 / 文字 + 语音 / 只听语音。默认两样都要；
+     * 只听语音但没有 TTS Key 时由本页自动退回两样都要（否则一片空白）。
+     */
+    replyViewMode: ReplyViewMode = ReplyViewMode.BOTH,
+    onReplyViewMode: (ReplyViewMode) -> Unit = {},
+
+    /**
      * 打开**语音通话页**。
      *
      * ★★ 2026-10-31：用户要求"打电话的页面互动动画…可以随时打断模型的说话"。
@@ -320,6 +329,16 @@ fun TasksScreen(
     // ★ 回复真正渲染在 `ConversationList.kt` 的 `TurnBubbles` 里，离这里隔着
     //   LazyColumn item 与 ConversationTurn —— 用 CompositionLocal 送进去，
     //   而不是给三层各加三个用不上的参数。
+    // 只听语音但没有可用的语音 Key 时退回两样都要：
+    // 否则这一轮会是空白，用户会以为消息丢了。
+    val effectiveReplyMode = if (
+        replyViewMode == ReplyViewMode.VOICE_ONLY && !voiceCanSpeak
+    ) {
+        ReplyViewMode.BOTH
+    } else {
+        replyViewMode
+    }
+
     val voiceHooks = androidx.compose.runtime.remember(
         voicePlayingText,
         voiceClipsOf,
@@ -331,11 +350,13 @@ fun TasksScreen(
         //   旧对象里 `canSpeak = false`，于是永远不画。等用户发一条消息，
         //   `voicePlayingText` 变了才重建，语音条"突然出现"。
         voiceCanSpeak,
+        effectiveReplyMode,
     ) {
         VoiceReplyHooks(
             clipsOf = voiceClipsOf ?: { emptyList() },
             playingText = voicePlayingText,
             canSpeak = voiceCanSpeak,
+            mode = effectiveReplyMode,
             onToggle = { clip ->
                 if (voicePlayingText == clip) {
                     // 再点一下停 —— 停不下来的声音比没有声音更烦。
@@ -522,6 +543,13 @@ fun TasksScreen(
                             listState.animateScrollToItem(lastIndex)
                         }
                     }
+
+                    ReplyModeSlider(
+                        mode = effectiveReplyMode,
+                        requested = replyViewMode,
+                        canSpeak = voiceCanSpeak,
+                        onPick = onReplyViewMode,
+                    )
 
                     androidx.compose.runtime.CompositionLocalProvider(
                         LocalVoiceReply provides voiceHooks,

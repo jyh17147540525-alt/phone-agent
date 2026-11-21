@@ -851,6 +851,8 @@ fun AppShell(
                 onPlayVoice = { clip -> container.playVoiceClip(clip) },
                 onStopVoice = { container.stopVoiceClip() },
                         voiceCanSpeak = container.ttsReady(),
+            replyViewMode = container.replyViewMode(),
+            onReplyViewMode = { container.setReplyViewMode(it) },
                     )
                 }
 
@@ -978,6 +980,8 @@ fun AppShell(
                 onPlayVoice = { clip -> container.playVoiceClip(clip) },
                 onStopVoice = { container.stopVoiceClip() },
                         voiceCanSpeak = container.ttsReady(),
+            replyViewMode = container.replyViewMode(),
+            onReplyViewMode = { container.setReplyViewMode(it) },
 
                         // ══════════════════════════════════════════════
                         //  ★★ 2026-11-04 晚：工作区 / 权限
@@ -1104,6 +1108,8 @@ fun AppShell(
                 onPlayVoice = { clip -> container.playVoiceClip(clip) },
                 onStopVoice = { container.stopVoiceClip() },
                         voiceCanSpeak = container.ttsReady(),
+            replyViewMode = container.replyViewMode(),
+            onReplyViewMode = { container.setReplyViewMode(it) },
                     )
                 }
 

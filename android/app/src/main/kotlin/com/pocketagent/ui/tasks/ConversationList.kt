@@ -268,11 +268,19 @@ private fun TurnBubbles(
         val showReply = (task.state == TaskState.Done || task.state == TaskState.Failed) &&
             reply.isNotBlank()
 
+        // 顶部滑条决定这一轮露出什么：只看文字 / 两样都要 / 只听语音。
+        // ⚠️ 语音那一档在没有 TTS Key 时不会走到这里（上层已退回两样都要），
+        //    所以这里只需要按模式开关，不必再判 canSpeak —— 判两遍会漂移。
+        val viewMode = com.pocketagent.ui.tasks.LocalVoiceReply.current?.mode
+            ?: com.pocketagent.ui.tasks.ReplyViewMode.BOTH
+        val showVoice = showReply && viewMode != com.pocketagent.ui.tasks.ReplyViewMode.TEXT_ONLY
+        val showText = showReply && viewMode != com.pocketagent.ui.tasks.ReplyViewMode.VOICE_ONLY
+
         // ★ 2026-11-20 用户定的顺序：**语音在上，文字在下**（像微信那样先看到那条语音）。
-        com.pocketagent.ui.tasks.VoiceRowAbove(replyText = reply, visible = showReply)
+        com.pocketagent.ui.tasks.VoiceRowAbove(replyText = reply, visible = showVoice)
 
         AnimatedVisibility(
-            visible = showReply,
+            visible = showText,
             // ══════════════════════════════════════════════════════
             //  ★★ 2026-10-30：回复出现用**弹性**，不用标准曲线
             // ══════════════════════════════════════════════════════

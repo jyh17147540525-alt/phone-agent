@@ -3772,6 +3772,20 @@ class AppContainer(context: Context) {
         }
     }
 
+    // ── 回复显示形态（聊天页顶部滑条） ─────────────────────────
+    private val replyViewModeHolder =
+        androidx.compose.runtime.mutableStateOf(com.pocketagent.ui.tasks.ReplyViewMode.BOTH)
+
+    fun replyViewMode(): com.pocketagent.ui.tasks.ReplyViewMode = replyViewModeHolder.value
+
+    fun setReplyViewMode(mode: com.pocketagent.ui.tasks.ReplyViewMode) {
+        replyViewModeHolder.value = mode
+        startupScope.launch {
+            runCatching { pluginSourceStore.edit { it[KEY_REPLY_VIEW] = mode.key } }
+                .onFailure { Timber.e(it, "回复显示形态落盘失败") }
+        }
+    }
+
     /**
      * **立刻停止播报** —— 通话页"打断"用。
      *
@@ -3801,34 +3815,19 @@ class AppContainer(context: Context) {
     fun speakAsync(text: String) {
         val clean = spokenForm(text)
         if (clean.isBlank()) return
-        // ★ 静音时不念：在已经把声音关掉的手机上突然出声，比不念更糟。
         if (ttsSpeaker.mediaVolume() <= 0f) {
             Timber.d("朗读跳过：媒体音量为 0")
             return
         }
         startupScope.launch {
             runCatching {
-                val repo = when (val opened = openCredentialStore()) {
-                    is CredentialStoreResult.Ready -> opened.repository
-                    else -> return@launch
-                }
-                repo.useDefaultTtsKey { provider, credential ->
-                    ttsSpeaker.speak(
-                        provider = provider,
-                        credential = credential,
-                        request = com.pocketagent.provider.api.SpeechRequest(
-                            text = clean,
-                            // ⚠️ 必须显式要 PCM：默认是 MP3，而 AudioTrack 播不了
-                            //    压缩格式 —— 会变成一段刺耳的噪声。
-                            format = com.pocketagent.provider.api.AudioFormat.PCM,
-                            //   不带的话，用户在 Key 编辑页填的「音色」永远不生效
-                            //   （Provider 只在**凭据覆盖**这一层读它，
-                            //   而 Provider 侧的优先级是 请求 > 凭据 > 默认，
-                            //   所以传 null 时凭据里的值仍然会起作用 ——
-                            //   这里显式传是为了让"这次合成用哪个音色"只有一处答案）。
-                            voiceId = credential.voiceOverride,
-                        ),
-                    )
+                // 自动朗读走和语音条同一条路：**先整段合成落盘，再从文件播**。
+                //
+                // 边收边播时第一段字节一到就起播，输出通路还没稳定，
+                // 听起来是一层沙沙声；落盘后从文件播就没有这个窗口期。
+                prefetchVoice(clean)
+                for (clip in voiceNoteStore.plan(clean)) {
+                    if (!playVoiceClip(clip.text)) break
                 }
             }.onFailure { Timber.d(it, "朗读失败（不打扰用户）") }
         }
@@ -6775,6 +6774,10 @@ class AppContainer(context: Context) {
             runCatching {
                 ttsEnabledValue = pluginSourceStore.data.first()[KEY_TTS_ON] == true
             }.onFailure { Timber.e(it, "朗读开关读取失败") }
+            runCatching {
+                val saved = pluginSourceStore.data.first()[KEY_REPLY_VIEW]
+                replyViewModeHolder.value = com.pocketagent.ui.tasks.ReplyViewMode.of(saved)
+            }.onFailure { Timber.e(it, "回复显示形态读取失败") }
 
             val prefs = runCatching { pluginSourceStore.data.first() }.getOrNull() ?: return@launch
             if (prefs[KEY_DSH_ON] == true) runCatching { startDshIntegration() }
@@ -7052,6 +7055,10 @@ class AppContainer(context: Context) {
 
         /** 自动朗读回复的开关（默认关）。 */
         private val KEY_TTS_ON = booleanPreferencesKey("tts_auto_speak_v1")
+
+    /** 聊天页顶部滑条：一轮回复露出文字、语音，还是两样都要。 */
+    private val KEY_REPLY_VIEW =
+        androidx.datastore.preferences.core.stringPreferencesKey("reply_view_mode_v1")
 
         /** 一次朗读最多念多少字 —— 长回答念一半就够，念完是折磨。 */
         private const val SPEAK_MAX_CHARS = 220

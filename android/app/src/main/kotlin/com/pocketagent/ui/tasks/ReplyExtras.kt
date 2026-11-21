@@ -227,13 +227,15 @@ class VoiceReplyHooks(
     /**
      * 现在**真的能出声**吗（有没有可用的 TTS Key）。
      *
-     * ⚠️ 没 Key 时不画语音条：画一条点了没声音的条子，比不画更让人以为应用坏了。
+     * ⚠️ 没 Key 时不画语音条：一条点了没声音的条子，比不画更让人以为应用坏了。
      */
     val canSpeak: Boolean,
     /** 点语音条：同一条再点就是停。 */
     val onToggle: (String) -> Unit,
     /** 点文件卡片：在应用内打开。 */
     val onOpenFile: (com.pocketagent.filelogic.ReplyFile) -> Unit,
+    /** 这一轮露出哪一部分；由聊天页顶部的滑条决定。 */
+    val mode: ReplyViewMode = ReplyViewMode.BOTH,
 )
 
 internal val LocalVoiceReply =
